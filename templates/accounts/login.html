@@ -28,14 +28,19 @@
       margin: 0;
     }
 
-    /* ----- Page shell: image LEFT, form RIGHT ----- */
+    /* ----- Page shell: image LEFT (dominant), form RIGHT (compact) ----- */
     .page {
       display: grid;
       grid-template-columns: 1fr;
       min-height: 100vh;
     }
     @media (min-width: 1024px) {
-      .page { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+      /* Image column takes ~62% of width, form column ~38%. */
+      .page { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+    }
+    @media (min-width: 1536px) {
+      /* On wide screens, give the hero even more room. */
+      .page { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); }
     }
 
     /* ----- LEFT: hero column ----- */
@@ -64,11 +69,11 @@
     /* The dark welcome card in the bottom-left corner */
     .welcome-card {
       position: absolute;
-      left: 40px;
-      bottom: 40px;
-      max-width: 440px;
-      padding: 28px 30px;
-      border-radius: 20px;
+      left: 48px;
+      bottom: 48px;
+      max-width: 520px;
+      padding: 32px 34px;
+      border-radius: 22px;
       background: linear-gradient(160deg, rgba(10,12,20,0.78) 0%, rgba(28,8,14,0.82) 100%);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
@@ -107,12 +112,12 @@
       margin: 0;
     }
 
-    /* ----- RIGHT: form column ----- */
+    /* ----- RIGHT: form column (compact) ----- */
     .form-col {
       position: relative;
       display: flex;
       flex-direction: column;
-      padding: 36px clamp(24px, 5vw, 72px);
+      padding: 32px clamp(24px, 3.5vw, 48px);
       min-height: 100vh;
       background: var(--surface);
     }
@@ -195,7 +200,7 @@
 
     /* ----- Form heading ----- */
     .form-wrap {
-      max-width: 440px;
+      max-width: 400px;
       width: 100%;
     }
     .heading-row {
@@ -214,7 +219,7 @@
     }
     .back-btn:hover { background: var(--surface-soft); }
     .title {
-      font-size: 36px;
+      font-size: 30px;
       font-weight: 800;
       letter-spacing: -0.02em;
       color: #0F172A;
@@ -248,10 +253,10 @@
 
     .field-input {
       width: 100%;
-      padding: 16px 18px;
-      font-size: 15px;
+      padding: 13px 16px;
+      font-size: 14.5px;
       border: 1.5px solid var(--border);
-      border-radius: 12px;
+      border-radius: 11px;
       outline: none;
       background: var(--surface-soft);
       color: #111827;
@@ -298,10 +303,10 @@
       margin-top: 4px;
     }
     .btn {
-      padding: 15px 16px;
-      font-size: 15px;
+      padding: 13px 16px;
+      font-size: 14.5px;
       font-weight: 600;
-      border-radius: 12px;
+      border-radius: 11px;
       cursor: pointer;
       transition: background 0.15s, transform 0.08s, border-color 0.15s, color 0.15s;
       border: 1.5px solid transparent;
