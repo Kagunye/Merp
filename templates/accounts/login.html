@@ -6,123 +6,185 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sign In — MERP ERP</title>
   <script src="https://cdn.tailwindcss.com/3.4.4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --primary: #C8102E;
+      --primary-dark: #9B000E;
+      --text: #111827;
+      --text-muted: #6B7280;
+      --border: #E5E7EB;
+    }
     * { box-sizing: border-box; }
-    body { font-family: 'Inter', system-ui, sans-serif; }
-
-    /* Watermark */
-    .watermark {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      overflow: hidden;
-      z-index: 0;
-    }
-    .watermark svg {
-      position: absolute;
-      bottom: -8%;
-      right: -4%;
-      width: 60vmin;
-      height: 60vmin;
-      opacity: 0.045;
-      color: #C8102E;
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      min-height: 100vh;
+      background: #FFFFFF;
+      color: var(--text);
+      margin: 0;
     }
 
-    /* Form panel */
-    .form-panel {
-      position: relative;
-      z-index: 1;
+    .page {
+      display: grid;
+      grid-template-columns: 1fr;
+      min-height: 100vh;
+    }
+    @media (min-width: 1024px) {
+      .page { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+    }
+
+    /* ---- Left: form column ---- */
+    .form-col {
+      display: flex;
+      flex-direction: column;
+      padding: 32px clamp(20px, 6vw, 64px);
+      min-height: 100vh;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: clamp(32px, 6vh, 72px);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .brand-mark {
+      width: 42px; height: 42px;
+      border-radius: 12px;
+      background: var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 16px rgba(200,16,46,0.25);
+    }
+    .brand-name {
+      line-height: 1.1;
+    }
+    .brand-name .name { font-size: 16px; font-weight: 800; color: #111827; letter-spacing: -0.01em; }
+    .brand-name .tag  { font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #9CA3AF; }
+    .top-link { font-size: 13.5px; color: #6B7280; }
+    .top-link a { color: var(--primary); font-weight: 600; text-decoration: none; }
+    .top-link a:hover { color: var(--primary-dark); }
+
+    .form-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      max-width: 420px;
       width: 100%;
-      max-width: 440px;
-      padding: 0 1rem;
+      margin: 0 auto;
     }
 
-    /* Input style */
+    .eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--primary);
+      margin-bottom: 10px;
+    }
+    .title {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #0F172A;
+      margin: 0 0 8px;
+      line-height: 1.15;
+    }
+    .subtitle {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      margin: 0 0 28px;
+    }
+
+    form { display: flex; flex-direction: column; gap: 18px; }
+
+    .field-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .field-label a { color: var(--primary); font-weight: 600; font-size: 12.5px; text-decoration: none; }
+    .field-label a:hover { color: var(--primary-dark); }
+
     .field-input {
       width: 100%;
       padding: 14px 16px;
       font-size: 15px;
-      border: 1.5px solid #E5E7EB;
+      border: 1.5px solid var(--border);
       border-radius: 12px;
       outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
       background: #fff;
       color: #111827;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
     }
     .field-input::placeholder { color: #9CA3AF; }
     .field-input:focus {
-      border-color: #C8102E;
-      box-shadow: 0 0 0 3px rgba(200,16,46,0.10);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(200,16,46,0.10);
     }
-    .field-input.error {
-      border-color: #F87171;
-      background: #FFF5F5;
-    }
+    .field-input.error { border-color: #F87171; background: #FFF5F5; }
+    .field-error { font-size: 12.5px; color: #DC2626; margin-top: 6px; }
 
-    /* Show toggle */
+    .password-wrap { position: relative; }
     .show-btn {
-      font-size: 13px;
-      font-weight: 600;
-      color: #C8102E;
-      cursor: pointer;
-      border: none;
-      background: none;
-      padding: 0;
       position: absolute;
-      right: 14px;
-      top: 50%;
+      right: 14px; top: 50%;
       transform: translateY(-50%);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--primary);
+      background: none; border: none; cursor: pointer; padding: 2px 4px;
     }
-    .show-btn:hover { opacity: 0.75; }
+    .show-btn:hover { color: var(--primary-dark); }
 
-    /* Primary button */
+    .remember {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13.5px; color: #4B5563;
+    }
+    .remember input {
+      width: 16px; height: 16px;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
     .btn-primary {
-      display: block;
       width: 100%;
       padding: 15px;
-      background: #C8102E;
+      background: var(--primary);
       color: #fff;
       font-size: 15px;
       font-weight: 600;
       border: none;
       border-radius: 12px;
       cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
-      letter-spacing: 0.01em;
+      transition: background 0.15s, transform 0.08s;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      box-shadow: 0 8px 20px rgba(200,16,46,0.22);
     }
-    .btn-primary:hover { background: #A50D26; }
-    .btn-primary:active { transform: scale(0.99); }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-primary:active { transform: translateY(1px); }
 
-    /* Checkbox */
-    input[type="checkbox"] {
-      width: 16px; height: 16px;
-      accent-color: #C8102E;
-      cursor: pointer;
-      border-radius: 4px;
-      flex-shrink: 0;
-    }
-
-    /* Left brand panel */
-    .brand-panel {
-      background: linear-gradient(155deg, #0B0E17 0%, #12061A 45%, #1C020A 100%);
-      position: relative;
-      overflow: hidden;
-    }
-    .brand-panel::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse 70% 55% at 30% 60%, rgba(200,16,46,0.18) 0%, transparent 70%);
-    }
-    .brand-dots {
-      position: absolute;
-      inset: 0;
-      background-image: radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px);
-      background-size: 28px 28px;
+    .alert-error {
+      background: #FFF0F2;
+      border: 1px solid #FECACA;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #B91C1C;
+      margin-bottom: 16px;
+      display: flex; gap: 10px; align-items: flex-start;
     }
 
-    /* Security notice */
     .security-note {
       display: flex;
       align-items: flex-start;
@@ -131,179 +193,218 @@
       background: #F9FAFB;
       border: 1px solid #F0F0F0;
       border-radius: 12px;
-      margin-top: 24px;
+      margin-top: 28px;
     }
-    .security-note svg { flex-shrink: 0; margin-top: 1px; }
-    .security-note p { font-size: 12px; color: #6B7280; line-height: 1.5; }
+    .security-note svg { flex-shrink: 0; color: #9CA3AF; margin-top: 1px; }
+    .security-note p { font-size: 12.5px; color: #6B7280; line-height: 1.5; margin: 0; }
 
-    /* Demo hint */
     .demo-hint {
       background: #FFF8F9;
       border: 1px dashed #F5C2C9;
       border-radius: 10px;
       padding: 12px 14px;
-      margin-top: 20px;
+      margin-top: 14px;
+      font-size: 12px;
+      color: #6B7280;
     }
-    .demo-hint p { font-size: 11.5px; color: #9CA3AF; }
-    .demo-hint span { color: #C8102E; font-weight: 600; }
+    .demo-hint strong { color: #374151; display: block; margin-bottom: 2px; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .demo-hint span { color: var(--primary); font-weight: 600; }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12.5px;
+      color: #9CA3AF;
+      padding-top: 32px;
+    }
+    .footer a { color: #6B7280; text-decoration: none; margin-left: 16px; }
+    .footer a:hover { color: var(--primary); }
+
+    /* ---- Right: hero image column ---- */
+    .hero-col {
+      display: none;
+      position: relative;
+      overflow: hidden;
+      background: #0B0E17;
+    }
+    @media (min-width: 1024px) { .hero-col { display: block; } }
+
+    .hero-img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    /* subtle brand gradient to blend top-left corner and anchor the caption */
+    .hero-overlay {
+      position: absolute; inset: 0;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,0.0) 55%, rgba(0,0,0,0.45) 100%),
+        linear-gradient(135deg, rgba(200,16,46,0.18) 0%, rgba(0,0,0,0.0) 55%);
+    }
+    .hero-caption {
+      position: absolute;
+      left: 48px; right: 48px; bottom: 48px;
+      color: #fff;
+    }
+    .hero-caption .eyebrow-light {
+      font-size: 11.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 12px;
+    }
+    .hero-caption h2 {
+      font-size: 34px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.015em;
+      margin: 0 0 10px;
+      max-width: 440px;
+    }
+    .hero-caption p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: rgba(255,255,255,0.82);
+      max-width: 440px;
+      margin: 0;
+    }
+
+    /* Mobile brand header on top of form when hero is hidden */
+    @media (max-width: 1023px) {
+      .top-bar { margin-bottom: 36px; }
+    }
   </style>
 </head>
-<body style="min-height:100vh; display:flex; background:#FFFFFF;">
+<body>
 
-  <!-- Left brand panel — hidden on mobile -->
-  <div class="brand-panel hidden lg:flex flex-col justify-between p-12" style="width:42%; min-height:100vh;">
-    <div class="brand-dots"></div>
+  <div class="page">
 
-    <!-- Logo -->
-    <div class="relative flex items-center gap-3">
-      <div style="width:44px;height:44px;background:rgba(255,255,255,0.10);border-radius:12px;display:flex;align-items:center;justify-content:center;">
-        <svg width="24" height="24" fill="none" stroke="#fff" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-        </svg>
-      </div>
-    </div>
+    <!-- LEFT: FORM -->
+    <section class="form-col">
 
-    <!-- Hero copy -->
-    <div class="relative">
-      <p class="text-xs font-semibold uppercase tracking-widest mb-4" style="color:rgba(200,16,46,0.8)">Enterprise Resource Planning</p>
-      <h1 class="text-4xl font-extrabold text-white leading-tight mb-5">
-        Your entire<br>business,<br>one platform.
-      </h1>
-      <p style="color:rgba(255,255,255,0.55); font-size:15px; line-height:1.7; max-width:300px;">
-        Accounting, inventory, HR, payroll, CRM and more — unified, real-time, and built for Kenya.
-      </p>
+      <header class="top-bar">
+        <a href="/" class="brand">
+          <div class="brand-mark">
+            <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+          </div>
+          <div class="brand-name">
+            <div class="name">MERP</div>
+            <div class="tag">Business Suite</div>
+          </div>
+        </a>
+        <div class="top-link">New here? <a href="#">Contact sales</a></div>
+      </header>
 
-      <!-- Feature pills -->
-      <div class="flex flex-wrap gap-2 mt-8">
-        {% for feat in features %}
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">
-          {{ feat }}
-        </span>
-        {% empty %}
-        {% for feat in "Double-entry GL,Multi-branch,Inventory,Payroll,CRM,Reports" %}{% endfor %}
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">Double-entry GL</span>
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">Multi-branch</span>
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">Inventory</span>
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">Payroll</span>
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">CRM</span>
-        <span style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.10);color:rgba(255,255,255,0.65);font-size:12px;padding:5px 12px;border-radius:999px;">Reports</span>
-        {% endfor %}
-      </div>
-    </div>
+      <div class="form-wrap">
 
-    <p style="color:rgba(255,255,255,0.25);font-size:12px;" class="relative">© 2026 MERP ERP System</p>
-  </div>
+        <p class="eyebrow">Welcome back</p>
+        <h1 class="title">Sign in to your account</h1>
+        <p class="subtitle">Access your dashboards, teams, and operations.</p>
 
-  <!-- Right form panel -->
-  <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:2rem; position:relative; background:#fff; min-height:100vh;">
-
-    <!-- Watermark -->
-    <div class="watermark">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
-          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-      </svg>
-    </div>
-
-    <div class="form-panel">
-
-      <!-- Mobile logo -->
-      <div class="flex items-center gap-2 mb-8 lg:hidden">
-        <div style="width:40px;height:40px;background:#C8102E;border-radius:10px;display:flex;align-items:center;justify-content:center;">
-          <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        {% if form.non_field_errors %}
+        <div class="alert-error">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"/>
           </svg>
+          <div>{% for error in form.non_field_errors %}{{ error }}{% endfor %}</div>
         </div>
-      </div>
+        {% endif %}
 
-      <!-- Heading -->
-      <div style="margin-bottom:28px;">
-        <h2 style="font-size:26px;font-weight:800;color:#111827;margin:0 0 6px;">Sign in</h2>
-        <p style="font-size:14px;color:#6B7280;margin:0;">Enter your details to continue.</p>
-      </div>
+        <form method="post" novalidate>
+          {% csrf_token %}
 
-      <!-- Error -->
-      {% if form.non_field_errors %}
-      <div style="background:#FFF0F2;border:1px solid #FECACA;border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#B91C1C;">
-        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
-      </div>
-      {% endif %}
-
-      <form method="post" style="display:flex;flex-direction:column;gap:18px;">
-        {% csrf_token %}
-
-        <!-- Email -->
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:13.5px;font-weight:600;color:#374151;">Email address</label>
+          <!-- Email -->
+          <div>
+            <div class="field-label">
+              <label for="id_email">Email address</label>
+            </div>
+            <input type="email" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
+                   placeholder="you@company.com" autofocus autocomplete="email"
+                   class="field-input {% if form.email.errors %}error{% endif %}">
+            {% if form.email.errors %}<p class="field-error">{{ form.email.errors.0 }}</p>{% endif %}
           </div>
-          <input type="email" name="email" value="{{ form.email.value|default:'' }}"
-                 placeholder="you@company.com" autofocus
-                 class="field-input {% if form.email.errors %}error{% endif %}">
-          {% if form.email.errors %}
-          <p style="font-size:12px;color:#DC2626;margin-top:4px;">{{ form.email.errors.0 }}</p>
-          {% endif %}
-        </div>
 
-        <!-- Password -->
-        <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:13.5px;font-weight:600;color:#374151;">Password</label>
-            <a href="{% url 'accounts:password_reset' %}"
-               style="font-size:12.5px;font-weight:600;color:#C8102E;text-decoration:none;">
-              Forgot password?
-            </a>
+          <!-- Password -->
+          <div>
+            <div class="field-label">
+              <label for="id_password">Password</label>
+              <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
+            </div>
+            <div class="password-wrap">
+              <input type="password" name="password" id="id_password" placeholder="Enter your password"
+                     autocomplete="current-password"
+                     class="field-input {% if form.password.errors %}error{% endif %}"
+                     style="padding-right:66px;">
+              <button type="button" class="show-btn" onclick="togglePwd(this)">Show</button>
+            </div>
+            {% if form.password.errors %}<p class="field-error">{{ form.password.errors.0 }}</p>{% endif %}
           </div>
-          <div style="position:relative;">
-            <input type="password" name="password" id="password" placeholder="••••••••"
-                   class="field-input {% if form.password.errors %}error{% endif %}"
-                   style="padding-right:60px;">
-            <button type="button" onclick="togglePwd(this)" class="show-btn">Show</button>
-          </div>
-          {% if form.password.errors %}
-          <p style="font-size:12px;color:#DC2626;margin-top:4px;">{{ form.password.errors.0 }}</p>
-          {% endif %}
-        </div>
 
-        <!-- Remember me -->
-        <div style="display:flex;align-items:center;gap:8px;">
-          <input type="checkbox" name="remember_me" id="remember_me">
-          <label for="remember_me" style="font-size:13.5px;color:#4B5563;cursor:pointer;">
+          <!-- Remember -->
+          <label class="remember" for="remember_me">
+            <input type="checkbox" name="remember_me" id="remember_me">
             Remember this device for 30 days
           </label>
+
+          <!-- Submit -->
+          <button type="submit" class="btn-primary">
+            Sign in
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+            </svg>
+          </button>
+        </form>
+
+        <div class="security-note">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+          <p>Keep your password to yourself. MERP will never ask for your credentials by email or phone.</p>
         </div>
 
-        <!-- Submit -->
-        <button type="submit" class="btn-primary" style="margin-top:4px;">Sign in</button>
-      </form>
-
-      <!-- Security notice -->
-      <div class="security-note">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round"
-            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-        </svg>
-        <p>Keep your password to yourself. MERP will never ask for your credentials by email or phone.</p>
+        <div class="demo-hint">
+          <strong>Demo access</strong>
+          Email: <span>admin@merp.local</span> &nbsp;·&nbsp; Password: <span>Admin@1234</span>
+        </div>
       </div>
 
-      <!-- Demo hint -->
-      <div class="demo-hint">
-        <p style="font-size:12px;font-weight:600;color:#374151;margin:0 0 4px;">Demo access</p>
-        <p>Email: <span>admin@merp.local</span> &nbsp;·&nbsp; Password: <span>Admin@1234</span></p>
-      </div>
+      <footer class="footer">
+        <span>© 2026 MERP ERP System</span>
+        <div>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">Help</a>
+        </div>
+      </footer>
+    </section>
 
-    </div>
+    <!-- RIGHT: HERO IMAGE -->
+    <aside class="hero-col" aria-hidden="true">
+      <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="hero-img">
+      <div class="hero-overlay"></div>
+      <div class="hero-caption">
+        <p class="eyebrow-light">MERP · Business Suite</p>
+        <h2>Welcome. Run your whole business from one place.</h2>
+        <p>Accounting, inventory, HR, payroll, CRM and more — unified, real-time, and built for Kenya.</p>
+      </div>
+    </aside>
+
   </div>
 
-</body>
 <script>
-function togglePwd(btn) {
-  const inp = document.getElementById('password');
-  const showing = inp.type === 'text';
-  inp.type = showing ? 'password' : 'text';
-  btn.textContent = showing ? 'Show' : 'Hide';
-}
+  function togglePwd(btn) {
+    const inp = document.getElementById('id_password');
+    const showing = inp.type === 'text';
+    inp.type = showing ? 'password' : 'text';
+    btn.textContent = showing ? 'Show' : 'Hide';
+  }
 </script>
+</body>
 </html>
