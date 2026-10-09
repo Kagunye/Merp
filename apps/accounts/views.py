@@ -27,11 +27,25 @@ def _get_client_ip(request):
 class LoginView(View):
     template_name = "accounts/login.html"
 
+    @staticmethod
+    def _demo_context():
+        """Expose seeded admin creds on the sign-in page only when the
+        operator explicitly opts in via SHOW_DEMO_CREDENTIALS=1."""
+        import os
+        if os.environ.get("SHOW_DEMO_CREDENTIALS") != "1":
+            return {}
+        email = os.environ.get("ADMIN_EMAIL") or ""
+        password = os.environ.get("ADMIN_PASSWORD") or ""
+        if not email or not password:
+            return {}
+        return {"demo_email": email, "demo_password": password}
+
     def get(self, request):
         if request.user.is_authenticated:
             return redirect("dashboard:index")
         features = ["Finance", "Inventory", "HR & Payroll", "Reports & BI", "Point of Sale", "Procurement"]
-        return render(request, self.template_name, {"form": LoginForm(), "features": features})
+        ctx = {"form": LoginForm(), "features": features, **self._demo_context()}
+        return render(request, self.template_name, ctx)
 
     def post(self, request):
         form = LoginForm(request.POST)
@@ -64,7 +78,8 @@ class LoginView(View):
                 )
                 form.add_error(None, "Invalid email or password. Please try again.")
 
-        return render(request, self.template_name, {"form": form, "features": features})
+        ctx = {"form": form, "features": features, **self._demo_context()}
+        return render(request, self.template_name, ctx)
 
 
 class LogoutView(View):

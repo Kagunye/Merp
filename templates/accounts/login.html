@@ -395,6 +395,50 @@
     }
     .security-note svg { flex-shrink: 0; color: #9CA3AF; margin-top: 1px; }
 
+    /* Demo credentials card */
+    .demo-panel {
+      margin-top: 18px;
+      padding: 14px 14px 12px;
+      border-radius: 12px;
+      border: 1px dashed #F5C2C9;
+      background: #FFF8F9;
+    }
+    [data-theme="dark"] .demo-panel { background: rgba(200,16,46,0.08); border-color: rgba(200,16,46,0.4); }
+    .demo-head {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 600; color: #6B7280;
+      margin-bottom: 10px;
+    }
+    [data-theme="dark"] .demo-head { color: #9CA3AF; }
+    .demo-tag {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+      padding: 2px 7px; border-radius: 999px;
+      background: var(--primary); color: #fff;
+    }
+    .demo-row {
+      display: flex; width: 100%;
+      align-items: center; justify-content: space-between;
+      padding: 7px 10px;
+      border: none; background: transparent;
+      font: inherit; text-align: left; cursor: pointer;
+      border-radius: 8px;
+      transition: background 0.1s;
+    }
+    .demo-row:hover { background: rgba(200,16,46,0.08); }
+    .demo-key { font-size: 11.5px; font-weight: 600; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.08em; }
+    .demo-val { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: #0F172A; font-weight: 600; }
+    [data-theme="dark"] .demo-val { color: #F3F4F6; }
+    .demo-note {
+      font-size: 11.5px; color: #9CA3AF;
+      margin: 8px 2px 0; line-height: 1.5;
+    }
+    .demo-note code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px; padding: 1px 5px; border-radius: 4px;
+      background: #fff; border: 1px solid #F0F0F0; color: #374151;
+    }
+    [data-theme="dark"] .demo-note code { background: #141826; border-color: #2E3440; color: #D1D5DB; }
+
     .alert-error {
       background: #FFF0F2;
       border: 1px solid #FECACA;
@@ -554,6 +598,27 @@
             <p data-i18n="security">Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.</p>
           </div>
 
+          {% if demo_email and demo_password %}
+          <!-- Demo credentials panel (view-gated via SHOW_DEMO_CREDENTIALS env
+               var; never rendered unless the view explicitly passes both). -->
+          <div class="demo-panel" id="demo-panel">
+            <div class="demo-head">
+              <span class="demo-tag">DEMO</span>
+              <span>Sign in with the seeded admin</span>
+            </div>
+            <button type="button" class="demo-row" onclick="prefillDemo(this)"
+                    data-email="{{ demo_email }}" data-password="{{ demo_password }}">
+              <span class="demo-key">Email</span><span class="demo-val">{{ demo_email }}</span>
+            </button>
+            <button type="button" class="demo-row" onclick="prefillDemo(this)"
+                    data-email="{{ demo_email }}" data-password="{{ demo_password }}">
+              <span class="demo-key">Password</span><span class="demo-val">{{ demo_password }}</span>
+            </button>
+            <p class="demo-note">Click a row to prefill. Rotate with the
+              <code>ADMIN_EMAIL</code> / <code>ADMIN_PASSWORD</code> env vars.</p>
+          </div>
+          {% endif %}
+
         </div>
       </div>
     </section>
@@ -561,6 +626,17 @@
   </div>
 
 <script>
+  // ---- Demo credentials prefill ----
+  function prefillDemo(btn) {
+    const email = btn.getAttribute('data-email');
+    const pw = btn.getAttribute('data-password');
+    const emailInput = document.getElementById('id_email');
+    const pwInput = document.getElementById('id_password');
+    if (emailInput) emailInput.value = email;
+    if (pwInput) pwInput.value = pw;
+    (pwInput || emailInput).focus();
+  }
+
   // ---- Password show/hide ----
   function togglePwd(btn) {
     const inp = document.getElementById('id_password');
