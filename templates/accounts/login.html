@@ -7,226 +7,43 @@
   <title>Sign In — MERP ERP</title>
   <script src="https://cdn.tailwindcss.com/3.4.4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@1,500;1,700&display=swap" rel="stylesheet">
   <style>
     :root {
       --primary: #C8102E;
       --primary-dark: #9B000E;
-      --text: #111827;
+      --primary-tint: #FFF1F2;
+      --text: #0F172A;
       --text-muted: #6B7280;
       --border: #E5E7EB;
+      --surface: #FFFFFF;
+      --surface-soft: #F6F7F9;
     }
     * { box-sizing: border-box; }
     body {
       font-family: 'Inter', system-ui, sans-serif;
       min-height: 100vh;
-      background: #FFFFFF;
+      background: var(--surface);
       color: var(--text);
       margin: 0;
     }
 
+    /* ----- Page shell: image LEFT, form RIGHT ----- */
     .page {
       display: grid;
       grid-template-columns: 1fr;
       min-height: 100vh;
     }
     @media (min-width: 1024px) {
-      .page { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+      .page { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
     }
 
-    /* ---- Left: form column ---- */
-    .form-col {
-      display: flex;
-      flex-direction: column;
-      padding: 32px clamp(20px, 6vw, 64px);
-      min-height: 100vh;
-    }
-
-    .top-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: clamp(32px, 6vh, 72px);
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-    }
-    .brand-mark {
-      width: 42px; height: 42px;
-      border-radius: 12px;
-      background: var(--primary);
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 6px 16px rgba(200,16,46,0.25);
-    }
-    .brand-name {
-      line-height: 1.1;
-    }
-    .brand-name .name { font-size: 16px; font-weight: 800; color: #111827; letter-spacing: -0.01em; }
-    .brand-name .tag  { font-size: 10.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #9CA3AF; }
-    .top-link { font-size: 13.5px; color: #6B7280; }
-    .top-link a { color: var(--primary); font-weight: 600; text-decoration: none; }
-    .top-link a:hover { color: var(--primary-dark); }
-
-    .form-wrap {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      max-width: 420px;
-      width: 100%;
-      margin: 0 auto;
-    }
-
-    .eyebrow {
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--primary);
-      margin-bottom: 10px;
-    }
-    .title {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      color: #0F172A;
-      margin: 0 0 8px;
-      line-height: 1.15;
-    }
-    .subtitle {
-      font-size: 14.5px;
-      color: var(--text-muted);
-      margin: 0 0 28px;
-    }
-
-    form { display: flex; flex-direction: column; gap: 18px; }
-
-    .field-label {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 13px;
-      font-weight: 600;
-      color: #374151;
-      margin-bottom: 6px;
-    }
-    .field-label a { color: var(--primary); font-weight: 600; font-size: 12.5px; text-decoration: none; }
-    .field-label a:hover { color: var(--primary-dark); }
-
-    .field-input {
-      width: 100%;
-      padding: 14px 16px;
-      font-size: 15px;
-      border: 1.5px solid var(--border);
-      border-radius: 12px;
-      outline: none;
-      background: #fff;
-      color: #111827;
-      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-    }
-    .field-input::placeholder { color: #9CA3AF; }
-    .field-input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 4px rgba(200,16,46,0.10);
-    }
-    .field-input.error { border-color: #F87171; background: #FFF5F5; }
-    .field-error { font-size: 12.5px; color: #DC2626; margin-top: 6px; }
-
-    .password-wrap { position: relative; }
-    .show-btn {
-      position: absolute;
-      right: 14px; top: 50%;
-      transform: translateY(-50%);
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--primary);
-      background: none; border: none; cursor: pointer; padding: 2px 4px;
-    }
-    .show-btn:hover { color: var(--primary-dark); }
-
-    .remember {
-      display: flex; align-items: center; gap: 10px;
-      font-size: 13.5px; color: #4B5563;
-    }
-    .remember input {
-      width: 16px; height: 16px;
-      accent-color: var(--primary);
-      cursor: pointer;
-    }
-
-    .btn-primary {
-      width: 100%;
-      padding: 15px;
-      background: var(--primary);
-      color: #fff;
-      font-size: 15px;
-      font-weight: 600;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.08s;
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      box-shadow: 0 8px 20px rgba(200,16,46,0.22);
-    }
-    .btn-primary:hover { background: var(--primary-dark); }
-    .btn-primary:active { transform: translateY(1px); }
-
-    .alert-error {
-      background: #FFF0F2;
-      border: 1px solid #FECACA;
-      border-radius: 10px;
-      padding: 12px 14px;
-      font-size: 13px;
-      color: #B91C1C;
-      margin-bottom: 16px;
-      display: flex; gap: 10px; align-items: flex-start;
-    }
-
-    .security-note {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 14px 16px;
-      background: #F9FAFB;
-      border: 1px solid #F0F0F0;
-      border-radius: 12px;
-      margin-top: 28px;
-    }
-    .security-note svg { flex-shrink: 0; color: #9CA3AF; margin-top: 1px; }
-    .security-note p { font-size: 12.5px; color: #6B7280; line-height: 1.5; margin: 0; }
-
-    .demo-hint {
-      background: #FFF8F9;
-      border: 1px dashed #F5C2C9;
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin-top: 14px;
-      font-size: 12px;
-      color: #6B7280;
-    }
-    .demo-hint strong { color: #374151; display: block; margin-bottom: 2px; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; }
-    .demo-hint span { color: var(--primary); font-weight: 600; }
-
-    .footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12.5px;
-      color: #9CA3AF;
-      padding-top: 32px;
-    }
-    .footer a { color: #6B7280; text-decoration: none; margin-left: 16px; }
-    .footer a:hover { color: var(--primary); }
-
-    /* ---- Right: hero image column ---- */
+    /* ----- LEFT: hero column ----- */
     .hero-col {
-      display: none;
       position: relative;
       overflow: hidden;
       background: #0B0E17;
+      display: none;
     }
     @media (min-width: 1024px) { .hero-col { display: block; } }
 
@@ -236,45 +53,325 @@
       object-fit: cover;
       object-position: center;
     }
-    /* subtle brand gradient to blend top-left corner and anchor the caption */
-    .hero-overlay {
+    .hero-tint {
       position: absolute; inset: 0;
       background:
-        linear-gradient(180deg, rgba(0,0,0,0.0) 55%, rgba(0,0,0,0.45) 100%),
-        linear-gradient(135deg, rgba(200,16,46,0.18) 0%, rgba(0,0,0,0.0) 55%);
+        linear-gradient(180deg, rgba(0,0,0,0) 60%, rgba(0,0,0,0.35) 100%),
+        linear-gradient(135deg, rgba(200,16,46,0.08) 0%, rgba(0,0,0,0) 55%);
+      pointer-events: none;
     }
-    .hero-caption {
+
+    /* The dark welcome card in the bottom-left corner */
+    .welcome-card {
       position: absolute;
-      left: 48px; right: 48px; bottom: 48px;
+      left: 40px;
+      bottom: 40px;
+      max-width: 440px;
+      padding: 28px 30px;
+      border-radius: 20px;
+      background: linear-gradient(160deg, rgba(10,12,20,0.78) 0%, rgba(28,8,14,0.82) 100%);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.08);
       color: #fff;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
     }
-    .hero-caption .eyebrow-light {
-      font-size: 11.5px;
-      font-weight: 600;
+    .welcome-card .eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: rgba(255,255,255,0.75);
-      margin-bottom: 12px;
+      color: rgba(255,255,255,0.65);
+      margin-bottom: 10px;
     }
-    .hero-caption h2 {
-      font-size: 34px;
+    .welcome-card h2 {
+      font-size: 36px;
       font-weight: 800;
-      line-height: 1.15;
+      line-height: 1.12;
       letter-spacing: -0.015em;
-      margin: 0 0 10px;
-      max-width: 440px;
+      margin: 0 0 6px;
     }
-    .hero-caption p {
-      font-size: 15px;
+    .welcome-card .tagline {
+      font-family: 'Playfair Display', serif;
+      font-style: italic;
+      font-weight: 700;
+      font-size: 28px;
+      color: var(--primary);
+      line-height: 1.1;
+      margin: 0 0 16px;
+    }
+    .welcome-card p {
+      font-size: 14px;
       line-height: 1.6;
-      color: rgba(255,255,255,0.82);
-      max-width: 440px;
+      color: rgba(255,255,255,0.78);
       margin: 0;
     }
 
-    /* Mobile brand header on top of form when hero is hidden */
+    /* ----- RIGHT: form column ----- */
+    .form-col {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      padding: 36px clamp(24px, 5vw, 72px);
+      min-height: 100vh;
+      background: var(--surface);
+    }
+    /* Subtle leaf/pattern watermark bottom-right */
+    .form-col::after {
+      content: "";
+      position: absolute;
+      right: -80px; bottom: -80px;
+      width: 420px; height: 420px;
+      background:
+        radial-gradient(circle at 30% 30%, var(--primary-tint) 0%, transparent 55%),
+        radial-gradient(circle at 70% 70%, rgba(200,16,46,0.05) 0%, transparent 60%);
+      filter: blur(2px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .form-col > * { position: relative; z-index: 1; }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 60px;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 10px; text-decoration: none;
+    }
+    .brand-mark {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 16px rgba(200,16,46,0.25);
+    }
+    .brand-text {
+      line-height: 1.1;
+    }
+    .brand-text .name { font-size: 15px; font-weight: 800; color: #111827; letter-spacing: -0.01em; }
+    .brand-text .tag  { font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #9CA3AF; }
+
+    .top-utilities {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 6px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+    }
+    .theme-toggle button {
+      width: 26px; height: 26px;
+      border: none; background: transparent;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 999px;
+      cursor: pointer;
+      color: #6B7280;
+    }
+    .theme-toggle button.active { background: #fff; color: #111827; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+    .lang-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      font-size: 13.5px;
+      font-weight: 600;
+    }
+    .lang-toggle a {
+      padding: 6px 10px;
+      color: #6B7280;
+      text-decoration: none;
+      border-bottom: 2px solid transparent;
+    }
+    .lang-toggle a.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .lang-toggle a:hover { color: var(--text); }
+
+    /* ----- Form heading ----- */
+    .form-wrap {
+      max-width: 440px;
+      width: 100%;
+    }
+    .heading-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 8px;
+    }
+    .back-btn {
+      width: 34px; height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      border: none; background: transparent;
+      border-radius: 10px;
+      cursor: pointer;
+      color: #111827;
+    }
+    .back-btn:hover { background: var(--surface-soft); }
+    .title {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #0F172A;
+      margin: 0;
+      line-height: 1.1;
+    }
+    .subtitle {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      margin: 0 0 32px;
+    }
+
+    form { display: flex; flex-direction: column; gap: 20px; }
+
+    .field-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+    .field-label a {
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 12.5px;
+      text-decoration: none;
+    }
+    .field-label a:hover { color: var(--primary-dark); }
+
+    .field-input {
+      width: 100%;
+      padding: 16px 18px;
+      font-size: 15px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      outline: none;
+      background: var(--surface-soft);
+      color: #111827;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .field-input::placeholder { color: #9CA3AF; }
+    .field-input:focus {
+      background: #fff;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(200,16,46,0.08);
+    }
+    .field-input.error { border-color: #F87171; background: #FFF5F5; }
+    .field-error { font-size: 12.5px; color: #DC2626; margin-top: 6px; }
+
+    .password-wrap { position: relative; }
+    .show-btn {
+      position: absolute;
+      right: 16px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary);
+      background: none; border: none; cursor: pointer; padding: 2px 4px;
+    }
+    .show-btn:hover { color: var(--primary-dark); }
+
+    /* Remember checkbox (red check styled) */
+    .remember {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13.5px; color: #4B5563;
+      margin-top: 2px;
+    }
+    .remember input {
+      width: 18px; height: 18px;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    /* Button row: filled red Sign in + outlined secondary */
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 4px;
+    }
+    .btn {
+      padding: 15px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.08s, border-color 0.15s, color 0.15s;
+      border: 1.5px solid transparent;
+      text-align: center;
+      text-decoration: none;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 8px 20px rgba(200,16,46,0.22);
+    }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-outline {
+      background: #fff;
+      color: #111827;
+      border-color: var(--border);
+    }
+    .btn-outline:hover { border-color: #9CA3AF; }
+
+    /* Signup link */
+    .signup-line {
+      text-align: center;
+      margin-top: 22px;
+      font-size: 13.5px;
+      color: #6B7280;
+    }
+    .signup-line a { color: var(--primary); font-weight: 600; text-decoration: none; margin-left: 4px; }
+    .signup-line a:hover { color: var(--primary-dark); text-decoration: underline; }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 28px 0;
+    }
+
+    .security-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12.5px;
+      color: #9CA3AF;
+      line-height: 1.55;
+    }
+    .security-note svg { flex-shrink: 0; color: #9CA3AF; margin-top: 1px; }
+
+    .alert-error {
+      background: #FFF0F2;
+      border: 1px solid #FECACA;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #B91C1C;
+      margin-bottom: 20px;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+
+    /* Pushes the form block to vertical center of the column */
+    .form-wrap-center {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
     @media (max-width: 1023px) {
-      .top-bar { margin-bottom: 36px; }
+      .top-bar { margin-bottom: 40px; }
+      .title { font-size: 30px; }
+      .welcome-card { left: 24px; bottom: 24px; right: 24px; }
     }
   </style>
 </head>
@@ -282,7 +379,19 @@
 
   <div class="page">
 
-    <!-- LEFT: FORM -->
+    <!-- LEFT: HERO IMAGE with welcome card -->
+    <aside class="hero-col" aria-hidden="true">
+      <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="hero-img">
+      <div class="hero-tint"></div>
+      <div class="welcome-card">
+        <p class="eyebrow">Welcome</p>
+        <h2>Welcome to<br>MERP Business Suite</h2>
+        <p class="tagline">Twaimarisha Biashara</p>
+        <p>More than just an ERP: run your accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.</p>
+      </div>
+    </aside>
+
+    <!-- RIGHT: FORM -->
     <section class="form-col">
 
       <header class="top-bar">
@@ -293,108 +402,110 @@
                 d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
           </div>
-          <div class="brand-name">
+          <div class="brand-text">
             <div class="name">MERP</div>
             <div class="tag">Business Suite</div>
           </div>
         </a>
-        <div class="top-link">New here? <a href="#">Contact sales</a></div>
+
+        <div class="top-utilities">
+          <div class="theme-toggle" role="group" aria-label="Theme">
+            <button type="button" class="active" aria-label="Light">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="4"/>
+                <path stroke-linecap="round" d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+              </svg>
+            </button>
+            <button type="button" aria-label="Dark">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="lang-toggle">
+            <a href="#" class="active">English</a>
+            <a href="#">Kiswahili</a>
+          </div>
+        </div>
       </header>
 
-      <div class="form-wrap">
+      <div class="form-wrap-center">
+        <div class="form-wrap">
 
-        <p class="eyebrow">Welcome back</p>
-        <h1 class="title">Sign in to your account</h1>
-        <p class="subtitle">Access your dashboards, teams, and operations.</p>
-
-        {% if form.non_field_errors %}
-        <div class="alert-error">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"/>
-          </svg>
-          <div>{% for error in form.non_field_errors %}{{ error }}{% endfor %}</div>
-        </div>
-        {% endif %}
-
-        <form method="post" novalidate>
-          {% csrf_token %}
-
-          <!-- Email -->
-          <div>
-            <div class="field-label">
-              <label for="id_email">Email address</label>
-            </div>
-            <input type="email" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
-                   placeholder="you@company.com" autofocus autocomplete="email"
-                   class="field-input {% if form.email.errors %}error{% endif %}">
-            {% if form.email.errors %}<p class="field-error">{{ form.email.errors.0 }}</p>{% endif %}
+          <div class="heading-row">
+            <button type="button" class="back-btn" onclick="history.back()" aria-label="Back">
+              <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+              </svg>
+            </button>
+            <h1 class="title">Sign in</h1>
           </div>
+          <p class="subtitle">Enter your details to continue.</p>
 
-          <!-- Password -->
-          <div>
-            <div class="field-label">
-              <label for="id_password">Password</label>
-              <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
-            </div>
-            <div class="password-wrap">
-              <input type="password" name="password" id="id_password" placeholder="Enter your password"
-                     autocomplete="current-password"
-                     class="field-input {% if form.password.errors %}error{% endif %}"
-                     style="padding-right:66px;">
-              <button type="button" class="show-btn" onclick="togglePwd(this)">Show</button>
-            </div>
-            {% if form.password.errors %}<p class="field-error">{{ form.password.errors.0 }}</p>{% endif %}
-          </div>
-
-          <!-- Remember -->
-          <label class="remember" for="remember_me">
-            <input type="checkbox" name="remember_me" id="remember_me">
-            Remember this device for 30 days
-          </label>
-
-          <!-- Submit -->
-          <button type="submit" class="btn-primary">
-            Sign in
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          {% if form.non_field_errors %}
+          <div class="alert-error">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"/>
             </svg>
-          </button>
-        </form>
+            <div>{% for error in form.non_field_errors %}{{ error }}{% endfor %}</div>
+          </div>
+          {% endif %}
 
-        <div class="security-note">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-          </svg>
-          <p>Keep your password to yourself. MERP will never ask for your credentials by email or phone.</p>
-        </div>
+          <form method="post" novalidate>
+            {% csrf_token %}
 
-        <div class="demo-hint">
-          <strong>Demo access</strong>
-          Email: <span>admin@merp.local</span> &nbsp;·&nbsp; Password: <span>Admin@1234</span>
+            <div>
+              <div class="field-label">
+                <label for="id_email">Email address or user ID</label>
+                <a href="#">Forgot ID?</a>
+              </div>
+              <input type="text" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
+                     placeholder="you@company.com" autofocus autocomplete="username"
+                     class="field-input {% if form.email.errors %}error{% endif %}">
+              {% if form.email.errors %}<p class="field-error">{{ form.email.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div>
+              <div class="field-label">
+                <label for="id_password">Password</label>
+                <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
+              </div>
+              <div class="password-wrap">
+                <input type="password" name="password" id="id_password" placeholder="Enter your password"
+                       autocomplete="current-password"
+                       class="field-input {% if form.password.errors %}error{% endif %}"
+                       style="padding-right:70px;">
+                <button type="button" class="show-btn" onclick="togglePwd(this)">Show</button>
+              </div>
+              {% if form.password.errors %}<p class="field-error">{{ form.password.errors.0 }}</p>{% endif %}
+            </div>
+
+            <label class="remember" for="remember_me">
+              <input type="checkbox" name="remember_me" id="remember_me" checked>
+              Remember this device for 30 days
+            </label>
+
+            <div class="btn-row">
+              <button type="submit" class="btn btn-primary">Sign in</button>
+              <a href="#" class="btn btn-outline">Register</a>
+            </div>
+          </form>
+
+          <p class="signup-line">New to MERP? <a href="#">Open an account online</a></p>
+
+          <div class="divider"></div>
+
+          <div class="security-note">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-7a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2zm10-11V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+            <p>Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.</p>
+          </div>
+
         </div>
       </div>
-
-      <footer class="footer">
-        <span>© 2026 MERP ERP System</span>
-        <div>
-          <a href="#">Privacy</a>
-          <a href="#">Terms</a>
-          <a href="#">Help</a>
-        </div>
-      </footer>
     </section>
-
-    <!-- RIGHT: HERO IMAGE -->
-    <aside class="hero-col" aria-hidden="true">
-      <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="hero-img">
-      <div class="hero-overlay"></div>
-      <div class="hero-caption">
-        <p class="eyebrow-light">MERP · Business Suite</p>
-        <h2>Welcome. Run your whole business from one place.</h2>
-        <p>Accounting, inventory, HR, payroll, CRM and more — unified, real-time, and built for Kenya.</p>
-      </div>
-    </aside>
 
   </div>
 
@@ -405,6 +516,21 @@
     inp.type = showing ? 'password' : 'text';
     btn.textContent = showing ? 'Show' : 'Hide';
   }
+  // Theme toggle (visual only — no backend wiring for now)
+  document.querySelectorAll('.theme-toggle button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.theme-toggle button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+  });
+  // Language toggle (visual only)
+  document.querySelectorAll('.lang-toggle a').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.lang-toggle a').forEach(x => x.classList.remove('active'));
+      a.classList.add('active');
+    });
+  });
 </script>
 </body>
 </html>
