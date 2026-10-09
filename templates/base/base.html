@@ -263,6 +263,225 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
 
+    /* =============================================================
+       GLOBAL FORM STYLES — every form in the app inherits the same
+       Caritas-style look as the sign-in page without each template
+       having to be rewritten. Scoped to <form> inside <main> so the
+       sidebar/topbar widgets are untouched.
+       ============================================================= */
+
+    /* Card container that wraps a form — matches the sign-in white
+       panel exactly, so form cards don't look like a different app. */
+    main form,
+    main .form-card {
+      background: #FFFFFF;
+      border: 1px solid var(--border, #E5E7EB);
+      border-radius: 16px;
+      padding: 20px 22px;
+    }
+    main form.inline-form,
+    main form.no-card { background: transparent; border: none; padding: 0; }
+
+    /* Labels — same muted uppercase accent used on the sign-in form,
+       but visually subordinate to the sign-in's bigger titles. */
+    main form label,
+    main .form-field label,
+    main label.form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 6px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    /* Inputs — soft gray fill, 1.5px border, red focus ring. Same recipe
+       as the sign-in .field-input. Covers every input type a Django
+       widget may render. */
+    main form input[type="text"],
+    main form input[type="email"],
+    main form input[type="password"],
+    main form input[type="search"],
+    main form input[type="tel"],
+    main form input[type="url"],
+    main form input[type="number"],
+    main form input[type="date"],
+    main form input[type="datetime-local"],
+    main form input[type="time"],
+    main form input[type="month"],
+    main form input[type="week"],
+    main form input[type="file"],
+    main form select,
+    main form textarea {
+      width: 100%;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #111827;
+      background: #F6F7F9;
+      border: 1.5px solid #E5E7EB;
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+      box-sizing: border-box;
+    }
+    main form textarea { min-height: 92px; line-height: 1.5; resize: vertical; }
+    main form select {
+      appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'><path stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      padding-right: 36px;
+    }
+    main form input::placeholder,
+    main form textarea::placeholder { color: #9CA3AF; }
+    main form input:focus,
+    main form select:focus,
+    main form textarea:focus {
+      background: #FFFFFF;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(200,16,46,0.08);
+    }
+    /* Error state — Django bound forms often add `.is-invalid` or `.error`,
+       and many templates toggle a red-border class. Normalise to one look. */
+    main form .is-invalid,
+    main form input.error,
+    main form select.error,
+    main form textarea.error,
+    main form input[aria-invalid="true"],
+    main form select[aria-invalid="true"],
+    main form textarea[aria-invalid="true"] {
+      border-color: #F87171;
+      background: #FFF5F5;
+    }
+    main form .errorlist,
+    main form .invalid-feedback,
+    main form .field-error {
+      list-style: none;
+      padding: 0;
+      margin: 6px 0 0;
+      font-size: 12.5px;
+      color: #DC2626;
+    }
+    main form .helptext,
+    main form .form-text,
+    main form small.text-muted {
+      display: block;
+      font-size: 12.5px;
+      color: #6B7280;
+      margin-top: 4px;
+    }
+
+    /* Checkbox / radio — primary accent + readable label layout */
+    main form input[type="checkbox"],
+    main form input[type="radio"] {
+      width: 16px; height: 16px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    main form .form-check,
+    main form .checkbox,
+    main form .radio {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; color: #374151;
+    }
+
+    /* Buttons — covers submit, buttons styled via Tailwind in templates
+       (`button[type=submit]`) and anchor-based cancel/back links next
+       to them (`a.btn`). Primary = red, outline = white with border. */
+    main form button[type="submit"],
+    main form .btn-primary,
+    main form input[type="submit"] {
+      display: inline-flex;
+      align-items: center; justify-content: center;
+      gap: 8px;
+      padding: 11px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #FFFFFF;
+      background: var(--primary);
+      border: 1.5px solid var(--primary);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.12s, transform 0.08s;
+      box-shadow: 0 6px 14px rgba(200,16,46,0.18);
+    }
+    main form button[type="submit"]:hover,
+    main form .btn-primary:hover,
+    main form input[type="submit"]:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+    main form button[type="submit"]:active,
+    main form .btn-primary:active,
+    main form input[type="submit"]:active { transform: translateY(1px); }
+
+    main form .btn-outline,
+    main form a.btn-cancel,
+    main form button[type="button"].btn-cancel {
+      display: inline-flex;
+      align-items: center; justify-content: center;
+      gap: 8px;
+      padding: 11px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #111827;
+      background: #FFFFFF;
+      border: 1.5px solid var(--border, #E5E7EB);
+      border-radius: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    main form .btn-outline:hover,
+    main form a.btn-cancel:hover,
+    main form button[type="button"].btn-cancel:hover { border-color: #9CA3AF; background: #F9FAFB; }
+
+    /* Button-row utility: lay out submit + cancel side-by-side with a
+       top divider. Any .form-actions / .form-footer / .button-row works. */
+    main form .form-actions,
+    main form .form-footer,
+    main form .button-row {
+      display: flex;
+      gap: 10px;
+      padding-top: 16px;
+      margin-top: 16px;
+      border-top: 1px solid var(--border, #E5E7EB);
+      flex-wrap: wrap;
+    }
+
+    /* Non-field error banner (Django's form.non_field_errors) */
+    main form .non-field-errors,
+    main form .alert-danger {
+      background: #FFF0F2;
+      border: 1px solid #FECACA;
+      color: #B91C1C;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+
+    /* Dark-mode mirror for forms (data-theme on <html>) */
+    [data-theme="dark"] main form,
+    [data-theme="dark"] main .form-card {
+      background: #141826;
+      border-color: #2E3440;
+    }
+    [data-theme="dark"] main form label { color: #D1D5DB; }
+    [data-theme="dark"] main form input,
+    [data-theme="dark"] main form select,
+    [data-theme="dark"] main form textarea {
+      background: #0B0E17; color: #F3F4F6; border-color: #2E3440;
+    }
+    [data-theme="dark"] main form input::placeholder,
+    [data-theme="dark"] main form textarea::placeholder { color: #6B7280; }
+    [data-theme="dark"] main form input:focus,
+    [data-theme="dark"] main form select:focus,
+    [data-theme="dark"] main form textarea:focus { background: #141826; }
+    [data-theme="dark"] main form .btn-outline,
+    [data-theme="dark"] main form a.btn-cancel { background: transparent; color: #F3F4F6; border-color: #2E3440; }
+
     /* Dark mode */
     [data-theme="dark"] body { background: #0F1117; color: #F9FAFB; }
     [data-theme="dark"] #topbar { background: #1A1D26 !important; border-color: #2D3147 !important; }
