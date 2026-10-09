@@ -25,9 +25,19 @@ class CompanyContextMiddleware(MiddlewareMixin):
             except Exception:
                 pass
 
-        if not request.active_company and request.user.default_company:
-            request.active_company = request.user.default_company
-            request.session["active_company_id"] = str(request.active_company.id)
+        # default_company hits the DB; a cold /tmp SQLite or an unmigrated
+        # table would otherwise bubble up as a 500 here.
+        if not request.active_company:
+            try:
+                default = request.user.default_company
+            except Exception:
+                default = None
+            if default:
+                request.active_company = default
+                try:
+                    request.session["active_company_id"] = str(default.id)
+                except Exception:
+                    pass
 
         # Active branch
         branch_id = request.session.get("active_branch_id")
