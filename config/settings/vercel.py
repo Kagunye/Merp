@@ -44,9 +44,13 @@ except ImportError:  # pragma: no cover
     }
 
 # Static — WhiteNoise serves pre-collected files from staticfiles_build/static.
+# Use the non-manifest storage: Manifest storage hashes every file and fails
+# collectstatic hard if any {% static %} reference is missing. On a serverless
+# cold-start we want the deploy to succeed even if the asset tree is in flux.
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles_build", "static")  # noqa: F405
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+WHITENOISE_MANIFEST_STRICT = False
 
 # Media on a serverless filesystem is read-only; keep uploads in /tmp.
 MEDIA_ROOT = "/tmp/media"
