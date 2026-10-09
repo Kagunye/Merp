@@ -19,6 +19,14 @@
       --surface: #FFFFFF;
       --surface-soft: #F6F7F9;
     }
+    :root[data-theme="dark"] {
+      --text: #F3F4F6;
+      --text-muted: #9CA3AF;
+      --border: #2E3440;
+      --surface: #0B0E17;
+      --surface-soft: #141826;
+      --primary-tint: rgba(200,16,46,0.08);
+    }
     * { box-sizing: border-box; }
     body {
       font-family: 'Inter', system-ui, sans-serif;
@@ -27,6 +35,20 @@
       color: var(--text);
       margin: 0;
     }
+    [data-theme="dark"] .brand-text .name { color: #F3F4F6; }
+    [data-theme="dark"] .title { color: #F9FAFB; }
+    [data-theme="dark"] .field-label label { color: #D1D5DB; }
+    [data-theme="dark"] .back-btn { color: #F3F4F6; }
+    [data-theme="dark"] .theme-toggle { background: #141826; border-color: #2E3440; }
+    [data-theme="dark"] .theme-toggle button.active { background: #0B0E17; color: #F9FAFB; }
+    [data-theme="dark"] .lang-toggle a { color: #9CA3AF; }
+    [data-theme="dark"] .lang-toggle a.active { color: var(--primary); }
+    [data-theme="dark"] .btn-outline { background: transparent; color: #F3F4F6; border-color: #2E3440; }
+    [data-theme="dark"] .remember { color: #D1D5DB; }
+    [data-theme="dark"] .signup-line, [data-theme="dark"] .security-note { color: #9CA3AF; }
+    [data-theme="dark"] .field-input { background: #141826; color: #F3F4F6; border-color: #2E3440; }
+    [data-theme="dark"] .field-input::placeholder { color: #6B7280; }
+    [data-theme="dark"] .field-input:focus { background: #0B0E17; }
 
     /* ----- Page shell: image LEFT (dominant), form RIGHT (compact) ----- */
     .page {
@@ -410,10 +432,10 @@
            onerror="this.style.display='none'">
       <div class="hero-tint"></div>
       <div class="welcome-card">
-        <p class="eyebrow">Welcome</p>
-        <h2>Welcome to<br>MERP Business Suite</h2>
-        <p class="tagline">Twaimarisha Biashara</p>
-        <p>More than just an ERP: run your accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.</p>
+        <p class="eyebrow" data-i18n="eyebrow">Welcome</p>
+        <h2 data-i18n="welcome_h">Welcome to<br>MERP Business Suite</h2>
+        <p class="tagline" data-i18n="tagline">Twaimarisha Biashara</p>
+        <p data-i18n="welcome_body">More than just an ERP: run your accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.</p>
       </div>
     </aside>
 
@@ -436,21 +458,21 @@
 
         <div class="top-utilities">
           <div class="theme-toggle" role="group" aria-label="Theme">
-            <button type="button" class="active" aria-label="Light">
+            <button type="button" class="active" data-theme-set="light" aria-label="Light mode" title="Light mode">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="4"/>
                 <path stroke-linecap="round" d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
               </svg>
             </button>
-            <button type="button" aria-label="Dark">
+            <button type="button" data-theme-set="dark" aria-label="Dark mode" title="Dark mode">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
               </svg>
             </button>
           </div>
           <div class="lang-toggle">
-            <a href="#" class="active">English</a>
-            <a href="#">Kiswahili</a>
+            <a href="#" data-lang-set="en" class="active">English</a>
+            <a href="#" data-lang-set="sw">Kiswahili</a>
           </div>
         </div>
       </header>
@@ -459,14 +481,14 @@
         <div class="form-wrap">
 
           <div class="heading-row">
-            <button type="button" class="back-btn" onclick="history.back()" aria-label="Back">
+            <button type="button" class="back-btn" onclick="goBack()" aria-label="Back" title="Back">
               <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
               </svg>
             </button>
-            <h1 class="title">Sign in</h1>
+            <h1 class="title" data-i18n="title">Sign in</h1>
           </div>
-          <p class="subtitle">Enter your details to continue.</p>
+          <p class="subtitle" data-i18n="subtitle">Enter your details to continue.</p>
 
           {% if form.non_field_errors %}
           <div class="alert-error">
@@ -482,8 +504,8 @@
 
             <div>
               <div class="field-label">
-                <label for="id_email">Email address or user ID</label>
-                <a href="#">Forgot ID?</a>
+                <label for="id_email" data-i18n="label_email">Email address or user ID</label>
+                <a href="{% url 'accounts:password_reset' %}" data-i18n="forgot_id">Forgot ID?</a>
               </div>
               <input type="text" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
                      placeholder="you@company.com" autofocus autocomplete="username"
@@ -493,8 +515,8 @@
 
             <div>
               <div class="field-label">
-                <label for="id_password">Password</label>
-                <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
+                <label for="id_password" data-i18n="label_password">Password</label>
+                <a href="{% url 'accounts:password_reset' %}" data-i18n="forgot_password">Forgot password?</a>
               </div>
               <div class="password-wrap">
                 <input type="password" name="password" id="id_password" placeholder="Enter your password"
@@ -508,16 +530,19 @@
 
             <label class="remember" for="remember_me">
               <input type="checkbox" name="remember_me" id="remember_me" checked>
-              Remember this device for 30 days
+              <span data-i18n="remember">Remember this device for 30 days</span>
             </label>
 
             <div class="btn-row">
-              <button type="submit" class="btn btn-primary">Sign in</button>
-              <a href="#" class="btn btn-outline">Register</a>
+              <button type="submit" class="btn btn-primary" data-i18n="sign_in">Sign in</button>
+              <a href="mailto:sales@merp.local?subject=Request%20MERP%20account" class="btn btn-outline" data-i18n="register">Register</a>
             </div>
           </form>
 
-          <p class="signup-line">New to MERP? <a href="#">Open an account online</a></p>
+          <p class="signup-line">
+            <span data-i18n="new_to">New to MERP?</span>
+            <a href="mailto:sales@merp.local?subject=Open%20MERP%20account%20online" data-i18n="open_account">Open an account online</a>
+          </p>
 
           <div class="divider"></div>
 
@@ -526,7 +551,7 @@
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M12 15v2m-6 4h12a2 2 0 002-2v-7a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2zm10-11V7a4 4 0 00-8 0v4h8z"/>
             </svg>
-            <p>Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.</p>
+            <p data-i18n="security">Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.</p>
           </div>
 
         </div>
@@ -536,27 +561,113 @@
   </div>
 
 <script>
+  // ---- Password show/hide ----
   function togglePwd(btn) {
     const inp = document.getElementById('id_password');
     const showing = inp.type === 'text';
     inp.type = showing ? 'password' : 'text';
-    btn.textContent = showing ? 'Show' : 'Hide';
+    btn.textContent = showing ? (DICT[CUR].show || 'Show') : (DICT[CUR].hide || 'Hide');
+    btn.setAttribute('aria-pressed', String(!showing));
   }
-  // Theme toggle (visual only — no backend wiring for now)
+
+  // ---- Back button: use history if available, else go to home ----
+  function goBack() {
+    if (document.referrer && document.referrer.indexOf(location.hostname) !== -1) {
+      history.back();
+    } else {
+      location.href = '/';
+    }
+  }
+
+  // ---- Theme toggle (persisted via localStorage) ----
+  function applyTheme(name) {
+    document.documentElement.setAttribute('data-theme', name);
+    try { localStorage.setItem('merp.theme', name); } catch (_) {}
+    document.querySelectorAll('.theme-toggle button').forEach(b => {
+      b.classList.toggle('active', b.dataset.themeSet === name);
+    });
+  }
   document.querySelectorAll('.theme-toggle button').forEach(b => {
-    b.addEventListener('click', () => {
-      document.querySelectorAll('.theme-toggle button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-    });
+    b.addEventListener('click', () => applyTheme(b.dataset.themeSet));
   });
-  // Language toggle (visual only)
+  (function initTheme() {
+    let saved = null;
+    try { saved = localStorage.getItem('merp.theme'); } catch (_) {}
+    if (!saved) {
+      saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    applyTheme(saved);
+  })();
+
+  // ---- Language toggle (persisted, swaps strings on the page) ----
+  const DICT = {
+    en: {
+      eyebrow: 'Welcome',
+      welcome_h: 'Welcome to<br>MERP Business Suite',
+      tagline: 'Twaimarisha Biashara',
+      welcome_body: 'More than just an ERP: run your accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.',
+      title: 'Sign in',
+      subtitle: 'Enter your details to continue.',
+      label_email: 'Email address or user ID',
+      forgot_id: 'Forgot ID?',
+      label_password: 'Password',
+      forgot_password: 'Forgot password?',
+      remember: 'Remember this device for 30 days',
+      sign_in: 'Sign in',
+      register: 'Register',
+      new_to: 'New to MERP?',
+      open_account: 'Open an account online',
+      security: 'Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.',
+      show: 'Show', hide: 'Hide',
+    },
+    sw: {
+      eyebrow: 'Karibu',
+      welcome_h: 'Karibu<br>MERP Business Suite',
+      tagline: 'Twaimarisha Biashara',
+      welcome_body: 'Zaidi ya ERP tu: endesha hesabu, bidhaa, HR, mishahara, mauzo na wateja — kutoka simu au kompyuta, wakati wowote.',
+      title: 'Ingia',
+      subtitle: 'Weka maelezo yako kuendelea.',
+      label_email: 'Barua pepe au kitambulisho',
+      forgot_id: 'Umesahau?',
+      label_password: 'Nenosiri',
+      forgot_password: 'Umesahau nenosiri?',
+      remember: 'Kumbuka kifaa hiki kwa siku 30',
+      sign_in: 'Ingia',
+      register: 'Jisajili',
+      new_to: 'Mpya MERP?',
+      open_account: 'Fungua akaunti mtandaoni',
+      security: 'Weka nenosiri lako siri. MERP haitawahi kukupigia simu, kutuma ujumbe au barua pepe kuomba.',
+      show: 'Onyesha', hide: 'Ficha',
+    },
+  };
+  let CUR = 'en';
+  function applyLang(code) {
+    if (!DICT[code]) return;
+    CUR = code;
+    try { localStorage.setItem('merp.lang', code); } catch (_) {}
+    document.documentElement.setAttribute('lang', code === 'sw' ? 'sw' : 'en');
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (DICT[code][key] !== undefined) el.innerHTML = DICT[code][key];
+    });
+    document.querySelectorAll('.lang-toggle a').forEach(a => {
+      a.classList.toggle('active', a.dataset.langSet === code);
+    });
+    // Reset show button label to the current language
+    const sb = document.querySelector('.show-btn');
+    if (sb) {
+      const pw = document.getElementById('id_password');
+      sb.textContent = (pw && pw.type === 'text') ? DICT[code].hide : DICT[code].show;
+    }
+  }
   document.querySelectorAll('.lang-toggle a').forEach(a => {
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.querySelectorAll('.lang-toggle a').forEach(x => x.classList.remove('active'));
-      a.classList.add('active');
-    });
+    a.addEventListener('click', (e) => { e.preventDefault(); applyLang(a.dataset.langSet); });
   });
+  (function initLang() {
+    let saved = null;
+    try { saved = localStorage.getItem('merp.lang'); } catch (_) {}
+    if (saved && DICT[saved]) applyLang(saved);
+  })();
 </script>
 </body>
 </html>
