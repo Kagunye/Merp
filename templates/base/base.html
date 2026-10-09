@@ -53,75 +53,143 @@
     * { box-sizing: border-box; }
     body { font-family: 'Inter', system-ui, sans-serif; background: #F5F6F8; color: #111827; }
 
-    /* Sidebar */
-    #sidebar { width: var(--sidebar-width); transition: width 0.2s ease; background: #0F1117; overflow: visible; }
-    #sidebar.expanded { width: var(--sidebar-expanded); }
+    /* ================================================================
+       SIDEBAR — KRA / eCitizen style: red background, white active
+       Fully responsive:
+         Phone      (<640px):  hidden by default, slides in as drawer
+         Tablet (640-1023px):  always collapsed rail (72px)
+         Desktop   (>=1024px): expanded (260px) by default
+       JS keeps the `expanded` + `drawer-open` classes in sync.
+       ================================================================ */
+    #sidebar {
+      width: var(--sidebar-expanded);
+      background: var(--primary);
+      overflow: visible;
+      transition: width 0.2s ease, transform 0.2s ease;
+      z-index: 50;
+    }
+    #sidebar:not(.expanded) { width: var(--sidebar-width); }
+
+    /* Phone: hide off-canvas by default. The toggleSidebar JS adds
+       .drawer-open to slide it back in. Clicking the backdrop closes. */
+    @media (max-width: 639px) {
+      #sidebar { transform: translateX(-100%); width: var(--sidebar-expanded); }
+      #sidebar.drawer-open { transform: translateX(0); }
+    }
+    #sidebar-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 45;
+    }
+    #sidebar-backdrop.show { display: block; }
+
+    /* Labels / section headers only visible when the rail is expanded. */
     .sidebar-label { opacity: 0; width: 0; overflow: hidden; transition: opacity 0.15s; white-space: nowrap; }
     #sidebar.expanded .sidebar-label { opacity: 1; width: auto; }
 
-    /* Nav scroll area: allow flyout to escape horizontally while still scrolling vertically. */
     #sidebar-nav { overflow-y: auto; overflow-x: visible; }
+    #sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); }
 
-    /* Nav items. Collapsed = icon only centered; expanded = full-width pill. */
+    /* Nav items */
     .nav-item {
       position: relative;
       display: flex;
       align-items: center;
-      height: 44px;
-      padding: 0 10px;
-      border-radius: 12px;
+      height: 42px;
+      padding: 0 12px;
+      border-radius: 10px;
       cursor: pointer;
+      color: rgba(255,255,255,0.92);
+      text-decoration: none;
       transition: background 0.12s ease, color 0.12s ease;
     }
     .nav-item .nav-icon-wrap {
-      width: 36px; height: 36px;
+      width: 28px; height: 28px;
       display: flex; align-items: center; justify-content: center;
-      border-radius: 10px;
       flex-shrink: 0;
-      transition: background 0.12s ease;
     }
-    .nav-item .nav-icon { width: 20px; height: 20px; color: #9CA3AF; transition: color 0.12s ease; }
-    .nav-item .sidebar-label { margin-left: 10px; font-size: 14px; font-weight: 500; color: #D1D5DB; }
-
-    /* Hover (inactive) */
-    .nav-item:not(.active):hover { background: rgba(255,255,255,0.04); }
-    .nav-item:not(.active):hover .nav-icon { color: #F3F4F6; }
-    .nav-item:not(.active):hover .sidebar-label { color: #F9FAFB; }
-
-    /* Active — collapsed: red rounded tile around the icon with a subtle red
-       bleed off the right edge of the sidebar (matches the Caritas reference).
-       Active — expanded: full-width red pill with white icon + label. */
-    .nav-item.active .nav-icon-wrap { background: var(--primary); }
-    .nav-item.active .nav-icon { color: #fff; }
-    .nav-item.active .sidebar-label { color: #fff; }
-    #sidebar:not(.expanded) .nav-item.active::after {
-      content: "";
-      position: absolute;
-      right: -12px;
-      top: 6px;
-      bottom: 6px;
-      width: 10px;
-      background: var(--primary);
-      border-radius: 10px 0 0 10px;
-      opacity: 0.9;
+    .nav-item .nav-icon {
+      width: 20px; height: 20px;
+      color: inherit;
+      transition: color 0.12s ease;
     }
-    #sidebar.expanded .nav-item.active { background: var(--primary); }
-    #sidebar.expanded .nav-item.active .nav-icon-wrap { background: transparent; }
+    .nav-item .sidebar-label {
+      margin-left: 12px;
+      font-size: 14px; font-weight: 500;
+      color: inherit;
+    }
 
-    /* Section divider label (hidden when collapsed). */
+    /* Hover (inactive) — subtle white veil on red */
+    .nav-item:not(.active):hover {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+    }
+
+    /* Active state — WHITE pill, dark red text/icon (KRA inverted look).
+       In collapsed mode the active state applies only to the icon tile
+       so the rail stays red everywhere else. */
+    #sidebar.expanded .nav-item.active {
+      background: #fff;
+      color: var(--primary-dark);
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    #sidebar.expanded .nav-item.active .nav-icon { color: var(--primary-dark); }
+    #sidebar.expanded .nav-item.active .sidebar-label { color: var(--primary-dark); font-weight: 600; }
+    #sidebar:not(.expanded) .nav-item.active .nav-icon-wrap {
+      background: #fff;
+      border-radius: 8px;
+    }
+    #sidebar:not(.expanded) .nav-item.active .nav-icon { color: var(--primary-dark); }
+
+    /* Section divider label — semi-transparent white uppercase */
     .nav-divider {
-      padding: 14px 12px 6px;
-      font-size: 11px;
+      padding: 16px 14px 8px;
+      font-size: 10.5px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #4B5563;
+      letter-spacing: 0.14em;
+      color: rgba(255,255,255,0.6);
     }
     #sidebar:not(.expanded) .nav-divider { display: none; }
 
     /* Collapse button: visible only when expanded. */
-    .sidebar-collapse-btn { display: none; }
+    .sidebar-collapse-btn { display: none; color: #fff; }
     #sidebar.expanded .sidebar-collapse-btn { display: inline-flex; }
+
+    /* Submenu (chevron-expandable child list) */
+    .nav-submenu {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 0 36px;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.2s ease;
+    }
+    .nav-item.has-children.open + .nav-submenu { max-height: 400px; }
+    #sidebar:not(.expanded) .nav-submenu { display: none; }
+    .nav-submenu a {
+      display: flex;
+      align-items: center;
+      padding: 7px 12px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.85);
+      text-decoration: none;
+      border-radius: 8px;
+      margin: 2px 0;
+    }
+    .nav-submenu a:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .nav-submenu a.active { color: #fff; font-weight: 600; }
+
+    .chevron {
+      margin-left: auto;
+      width: 14px; height: 14px;
+      opacity: 0.75;
+      transition: transform 0.15s;
+    }
+    .nav-item.open .chevron { transform: rotate(180deg); }
+    #sidebar:not(.expanded) .chevron { display: none; }
 
     /* ---- Flyout popover (shown on hover when sidebar is collapsed).
        Uses position: fixed so it escapes any scroll-clipping ancestors. JS
@@ -221,18 +289,31 @@
 
 {% if request.user.is_authenticated %}
 
-<!-- SIDEBAR -->
-<aside id="sidebar" class="fixed left-0 top-0 bottom-0 flex flex-col z-40" style="background:#0F1117; border-right:1px solid #1E2130;">
+<!-- MOBILE DRAWER BACKDROP -->
+<div id="sidebar-backdrop" onclick="closeDrawer()"></div>
 
-  <!-- Header row: hamburger only (always visible); "Menu" label appears when expanded. -->
-  <div class="h-16 flex items-center shrink-0 px-3">
+<!-- SIDEBAR (KRA / eCitizen style — red background, white active) -->
+<aside id="sidebar" class="fixed left-0 top-0 bottom-0 flex flex-col">
+
+  <!-- Header row: brand (expanded) + hamburger toggle -->
+  <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid rgba(255,255,255,0.14);">
+    <div class="flex items-center gap-2 min-w-0 flex-1">
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background: rgba(255,255,255,0.14);">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+      </div>
+      <div class="sidebar-label min-w-0">
+        <div class="text-sm font-bold text-white leading-tight">MERP</div>
+        <div class="text-[10px] font-medium leading-tight" style="color:rgba(255,255,255,0.72); letter-spacing:0.12em; text-transform:uppercase;">Business Suite</div>
+      </div>
+    </div>
     <button type="button" onclick="toggleSidebar()" title="Toggle sidebar"
-            class="w-11 h-11 flex items-center justify-center rounded-xl shrink-0 hover:bg-white/5 transition-colors">
-      <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            class="sidebar-collapse-btn w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
       </svg>
     </button>
-    <span class="sidebar-label ml-2 text-sm font-semibold text-white">Menu</span>
   </div>
 
   <!-- Nav Items -->
@@ -497,18 +578,13 @@
   <header id="topbar" class="fixed top-0 right-0 bg-white border-b border-gray-200 flex items-center h-16 px-4 z-30"
           style="left: var(--sidebar-width); transition: left 0.2s ease;">
 
-    <!-- Brand (sits beside the sidebar like the Caritas logo in the reference) -->
-    <a href="{% url 'dashboard:index' %}" class="flex items-center gap-2 mr-6 shrink-0 group">
-      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background: var(--primary)">
-        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-        </svg>
-      </div>
-      <div class="hidden lg:block leading-tight">
-        <div class="text-base font-bold text-gray-900 tracking-tight">MERP</div>
-        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Business Suite</div>
-      </div>
-    </a>
+    <!-- Hamburger — opens drawer on phone, toggles rail on desktop -->
+    <button type="button" onclick="toggleSidebar()" title="Menu"
+            class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 mr-3 shrink-0">
+      <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
 
     <!-- Search -->
     <div class="flex-1 max-w-lg">
@@ -697,28 +773,70 @@
 <div id="toast-container"></div>
 
 <script>
-  // Sidebar toggle
-  let sidebarExpanded = localStorage.getItem('sidebarExpanded') === 'true';
+  // ---- Responsive sidebar ----
+  // Breakpoints:
+  //   phone  (< 640): sidebar is a drawer (hidden off-canvas, overlay on open)
+  //   tablet (640-1023): sidebar is the collapsed rail (icons only)
+  //   desktop (>= 1024): sidebar is expanded by default, user can toggle
+  //
+  // The user's expand/collapse preference is persisted in localStorage and
+  // only applied on desktop; narrower screens derive the state from width.
   const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
   const mainWrapper = document.getElementById('main-wrapper');
   const topbar = document.getElementById('topbar');
 
+  function isPhone()   { return window.matchMedia('(max-width: 639px)').matches; }
+  function isDesktop() { return window.matchMedia('(min-width: 1024px)').matches; }
+
+  function readPref() {
+    const v = localStorage.getItem('sidebarExpanded');
+    return v === null ? true : v === 'true';
+  }
+
   function applyLayout() {
-    const w = sidebarExpanded ? 'var(--sidebar-expanded)' : 'var(--sidebar-width)';
-    sidebar.style.width = sidebarExpanded ? 'var(--sidebar-expanded)' : 'var(--sidebar-width)';
+    const phone = isPhone();
+    const desktop = isDesktop();
+    const expanded = desktop ? readPref() : false;
+
+    sidebar.classList.toggle('expanded', expanded);
+
+    // Main-area offset: full-width on phone (drawer floats), rail on tablet,
+    // preference-driven on desktop.
+    let w;
+    if (phone) w = '0px';
+    else w = expanded ? 'var(--sidebar-expanded)' : 'var(--sidebar-width)';
     mainWrapper.style.marginLeft = w;
     topbar.style.left = w;
-    if (sidebarExpanded) sidebar.classList.add('expanded');
-    else sidebar.classList.remove('expanded');
   }
 
   function toggleSidebar() {
-    sidebarExpanded = !sidebarExpanded;
-    localStorage.setItem('sidebarExpanded', sidebarExpanded);
+    if (isPhone()) {
+      const open = sidebar.classList.toggle('drawer-open');
+      backdrop.classList.toggle('show', open);
+      return;
+    }
+    const next = !sidebar.classList.contains('expanded');
+    localStorage.setItem('sidebarExpanded', String(next));
     applyLayout();
   }
 
+  function closeDrawer() {
+    sidebar.classList.remove('drawer-open');
+    backdrop.classList.remove('show');
+  }
+
   applyLayout();
+  window.addEventListener('resize', () => { closeDrawer(); applyLayout(); });
+
+  // ---- Expandable sub-menus (chevron groups) ----
+  document.querySelectorAll('.nav-item.has-children').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (!sidebar.classList.contains('expanded')) return;
+      e.preventDefault();
+      item.classList.toggle('open');
+    });
+  });
 
   // Flyout popovers (collapsed sidebar): position fixed via JS on hover so
   // they escape any scroll-clipping ancestor (the nav scrolls vertically).
