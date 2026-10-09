@@ -1,0 +1,65 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'expenses:claim_list' as back %}
+{% include "_includes/page_header.html" with title=claim.reference subtitle=claim.employee back_url=back %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Total</div>
+    <div class="text-2xl font-bold" style="color: var(--primary);">{{ claim.total_amount|floatformat:2 }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Status</div>
+    <div class="text-lg font-semibold text-gray-900">{{ claim.get_status_display }}</div>
+    <div class="text-xs text-gray-500 mt-1">Claim date: {{ claim.claim_date|date:"d M Y" }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-2">
+    {% if claim.status == 'DRAFT' %}
+      <form method="post" action="{% url 'expenses:claim_submit' claim.pk %}">{% csrf_token %}<button class="w-full">Submit for approval</button></form>
+    {% elif claim.status == 'SUBMITTED' %}
+      <form method="post" action="{% url 'expenses:claim_approve' claim.pk %}">{% csrf_token %}<button class="w-full">Approve</button></form>
+      <form method="post" action="{% url 'expenses:claim_reject' claim.pk %}">{% csrf_token %}<button class="w-full btn-outline">Reject</button></form>
+    {% elif claim.status == 'APPROVED' %}
+      <span class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Line items</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Category</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3">Receipt</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for l in claim.lines.all %}
+      <tr>
+        <td class="px-4 py-3">{{ l.expense_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3">{{ l.category }}</td>
+        <td class="px-4 py-3">{{ l.description }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ l.amount|floatformat:2 }}</td>
+        <td class="px-4 py-3">{% if l.receipt %}<a href="{{ l.receipt.url }}" style="color: var(--primary);" class="text-xs">View</a>{% else %}—{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500 text-sm">No line items yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if claim.status == 'DRAFT' %}
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Add line item</h2>
+<form method="post" action="{% url 'expenses:claim_add_line' claim.pk %}" enctype="multipart/form-data" class="max-w-3xl">
+  {% csrf_token %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for field in line_form %}
+    <div class="{% if field.field.widget.input_type == 'textarea' %}md:col-span-2{% endif %}">
+      <label>{{ field.label }}</label>{{ field }}
+      {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <div class="form-actions"><button type="submit">Add line</button></div>
+</form>
+{% endif %}
+{% endblock %}

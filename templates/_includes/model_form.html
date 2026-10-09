@@ -1,0 +1,31 @@
+{# Reusable model-form card. Expects `form` in context and optional
+   `title`, `subtitle`, `back_url`, `cancel_url`, `submit_label`. #}
+{% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url %}
+
+<div class="max-w-3xl">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="non-field-errors">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {% for field in form %}
+        <div class="{% if field.field.widget.input_type == 'textarea' or forloop.last and forloop.counter|divisibleby:2 %}md:col-span-2{% endif %}">
+          <label for="{{ field.id_for_label }}">
+            {{ field.label }}{% if field.field.required %} <span style="color: var(--primary);">*</span>{% endif %}
+          </label>
+          {{ field }}
+          {% if field.help_text %}<p class="helptext">{{ field.help_text }}</p>{% endif %}
+          {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit">{{ submit_label|default:"Save" }}</button>
+      {% if cancel_url %}<a href="{{ cancel_url }}" class="btn-outline">Cancel</a>{% endif %}
+    </div>
+  </form>
+</div>

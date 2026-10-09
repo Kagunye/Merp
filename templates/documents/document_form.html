@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'documents:document_list' as back %}
+{% include "_includes/model_form.html" with title="Upload Document" subtitle="Attach a file and classify it" back_url=back cancel_url=back submit_label="Upload" %}
+{% endblock %}

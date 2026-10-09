@@ -1,0 +1,31 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="All Documents" subtitle="Search and filter files" action_label="Upload" action_url="documents:document_upload" %}
+
+<form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
+  <div class="flex-1 min-w-[220px]"><label class="text-xs text-gray-500">Search</label><input type="search" name="q" value="{{ search }}" placeholder="File name"></div>
+  <div class="min-w-[220px]"><label class="text-xs text-gray-500">Category</label>
+    <select name="category"><option value="">All</option>{% for c in categories %}<option value="{{ c.id }}" {% if selected_category == c.id|stringformat:'s' %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+  </div>
+  <button type="submit">Filter</button>
+</form>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Category</th><th class="px-4 py-3 text-left">Size</th><th class="px-4 py-3 text-left">Uploaded</th><th class="px-4 py-3"></th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for d in documents %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium"><a href="{% url 'documents:document_detail' d.pk %}" style="color: var(--primary);">{{ d.name }}</a></td>
+        <td class="px-4 py-3">{{ d.category|default:"—" }}</td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ d.file_size_display }}</td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ d.created_at|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-right"><a href="{{ d.file.url }}" target="_blank" class="text-sm" style="color: var(--primary);">Download</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No documents match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

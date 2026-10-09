@@ -1,0 +1,32 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="POS Terminal" subtitle="Scan or search a product, add to cart, take payment" %}
+
+{% if not session %}
+<div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl">
+  No session open. <a href="{% url 'pos:session_open' %}" class="font-semibold underline">Open one</a> to start selling.
+</div>
+{% else %}
+
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+  <div class="lg:col-span-3 bg-white rounded-xl border border-gray-200 p-5">
+    <input type="search" placeholder="Scan / search product…" class="w-full px-4 py-3 border rounded-xl mb-4" style="background: #F6F7F9;">
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div class="p-4 bg-gray-50 rounded-lg text-center text-sm text-gray-500 border border-dashed border-gray-300">Product grid<br><span class="text-xs">(Wire up to inventory.Product)</span></div>
+    </div>
+  </div>
+
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5 flex flex-col" style="min-height: 480px;">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Cart</h3>
+    <div class="flex-1 text-sm text-gray-500">No items.</div>
+    <div class="pt-4 border-t space-y-1 text-sm">
+      <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span>0.00</span></div>
+      <div class="flex justify-between"><span class="text-gray-500">Tax</span><span>0.00</span></div>
+      <div class="flex justify-between text-base font-bold pt-2 border-t"><span>Total</span><span style="color: var(--primary);">0.00</span></div>
+    </div>
+    <button class="mt-4 w-full py-3 rounded-xl text-white font-semibold" style="background: var(--primary);">Take payment</button>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

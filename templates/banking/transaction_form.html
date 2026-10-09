@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'banking:transaction_list' as back %}
+{% include "_includes/model_form.html" with title="Bank Transaction" subtitle="Record a deposit or withdrawal" back_url=back cancel_url=back submit_label="Save Transaction" %}
+{% endblock %}

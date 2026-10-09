@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'banking:account_list' as back %}
+{% include "_includes/model_form.html" with title="Bank Account" subtitle="Create or update a bank account" back_url=back cancel_url=back submit_label="Save Account" %}
+{% endblock %}

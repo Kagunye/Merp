@@ -1,0 +1,47 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Point of Sale" subtitle="Open a session, ring up sales, close out" %}
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  {% if open_session %}
+  <a href="{% url 'pos:terminal' %}" class="card bg-white rounded-xl border p-5 hover:shadow-md transition" style="border-color: var(--primary); background: #FFF5F5;">
+    <div class="text-xs text-gray-500 mb-1">Session open</div>
+    <div class="text-xl font-bold" style="color: var(--primary);">Go to terminal &rarr;</div>
+    <div class="text-xs text-gray-500 mt-1">Opened {{ open_session.opened_at|date:"H:i, d M" }}</div>
+  </a>
+  {% else %}
+  <a href="{% url 'pos:session_open' %}" class="card bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">Shift</div>
+    <div class="text-xl font-bold text-gray-900">Open a new session</div>
+  </a>
+  {% endif %}
+  <a href="{% url 'pos:session_list' %}" class="card bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">All sessions</div>
+    <div class="text-xl font-bold text-gray-900">Session history</div>
+  </a>
+  <a href="{% url 'pos:sale_list' %}" class="card bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">Sales</div>
+    <div class="text-xl font-bold text-gray-900">All receipts</div>
+  </a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent sessions</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for s in recent_sessions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier }}</a></td>
+        <td class="px-4 py-3">{{ s.branch }}</td>
+        <td class="px-4 py-3">{{ s.opened_at|date:"d M Y H:i" }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ s.total_sales|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ s.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No sessions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

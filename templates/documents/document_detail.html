@@ -1,0 +1,24 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'documents:document_list' as back %}
+{% include "_includes/page_header.html" with title=doc.name subtitle=doc.category back_url=back %}
+
+<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
+  <div class="grid grid-cols-2 gap-5">
+    <div><div class="text-xs text-gray-500">Category</div><div class="font-semibold">{{ doc.category|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Size</div><div class="font-semibold">{{ doc.file_size_display }}</div></div>
+    <div><div class="text-xs text-gray-500">Uploaded by</div><div class="font-semibold">{{ doc.uploaded_by|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Uploaded</div><div class="font-semibold">{{ doc.created_at|date:"d M Y H:i" }}</div></div>
+    <div><div class="text-xs text-gray-500">Expiry</div><div class="font-semibold">{{ doc.expiry_date|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Version</div><div class="font-semibold">v{{ doc.version }}</div></div>
+    {% if doc.description %}
+    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-gray-900 text-sm mt-1">{{ doc.description }}</div></div>
+    {% endif %}
+  </div>
+
+  <div class="mt-5 pt-4 border-t flex gap-3">
+    <a href="{{ doc.file.url }}" target="_blank" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Download</a>
+    <a href="{% url 'documents:document_delete' doc.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-red-600 bg-white border border-red-200 rounded-xl">Delete</a>
+  </div>
+</div>
+{% endblock %}

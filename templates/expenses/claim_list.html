@@ -1,0 +1,25 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Expense Claims" subtitle="All submitted and draft claims" action_label="New Claim" action_url="expenses:claim_create" %}
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Employee</th><th class="px-4 py-3 text-left">Claim date</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3">Status</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for c in claims %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'expenses:claim_detail' c.pk %}" style="color: var(--primary);">{{ c.reference }}</a></td>
+        <td class="px-4 py-3">{{ c.employee }}</td>
+        <td class="px-4 py-3">{{ c.claim_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ c.total_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ c.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-12 text-center text-gray-500">No claims yet. <a href="{% url 'expenses:claim_create' %}" style="color: var(--primary);" class="font-semibold">Create one</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

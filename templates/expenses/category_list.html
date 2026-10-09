@@ -1,0 +1,17 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Expense Categories" subtitle="Classify expenses to the right GL account" action_label="New Category" action_url="expenses:category_create" %}
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">GL Account</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for c in categories %}
+      <tr><td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td><td class="px-4 py-3 text-gray-600">{{ c.gl_account|default:"—" }}</td></tr>
+      {% empty %}
+      <tr><td colspan="2" class="px-4 py-10 text-center text-gray-500">No categories yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

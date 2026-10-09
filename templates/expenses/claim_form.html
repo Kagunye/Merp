@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'expenses:claim_list' as back %}
+{% include "_includes/model_form.html" with title="Expense Claim" subtitle="Create a claim; add line items after saving" back_url=back cancel_url=back submit_label="Save Claim" %}
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'banking:transaction_list' as back %}
+{% include "_includes/page_header.html" with title="Transaction" subtitle=txn.description back_url=back %}
+
+<div class="bg-white rounded-xl border border-gray-200 p-6 max-w-2xl">
+  <div class="grid grid-cols-2 gap-5">
+    <div><div class="text-xs text-gray-500">Date</div><div class="text-base font-semibold text-gray-900">{{ txn.transaction_date|date:"d M Y" }}</div></div>
+    <div><div class="text-xs text-gray-500">Value Date</div><div class="text-base font-semibold text-gray-900">{{ txn.value_date|default:"—"|date:"d M Y" }}</div></div>
+    <div><div class="text-xs text-gray-500">Account</div><div class="text-base font-semibold text-gray-900">{{ txn.bank_account.name }}</div></div>
+    <div><div class="text-xs text-gray-500">Type</div><div><span class="badge {% if txn.transaction_type == 'CREDIT' %}text-green-700 bg-green-50{% else %}text-red-700 bg-red-50{% endif %}">{{ txn.get_transaction_type_display }}</span></div></div>
+    <div><div class="text-xs text-gray-500">Amount</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ txn.amount|floatformat:2 }}</div></div>
+    <div><div class="text-xs text-gray-500">Reference</div><div class="text-base font-semibold text-gray-900 font-mono">{{ txn.reference|default:"—" }}</div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-base text-gray-900">{{ txn.description|default:"—" }}</div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Reconciliation</div><div>{% if txn.is_reconciled %}<span class="badge text-green-700 bg-green-50">Reconciled</span>{% else %}<span class="badge text-gray-700 bg-gray-100">Pending</span>{% endif %}</div></div>
+  </div>
+</div>
+{% endblock %}

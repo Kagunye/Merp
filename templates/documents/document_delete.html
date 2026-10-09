@@ -1,0 +1,13 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'documents:document_list' as back %}
+{% include "_includes/page_header.html" with title="Delete document?" back_url=back %}
+<form method="post" class="max-w-md">
+  {% csrf_token %}
+  <p class="text-sm text-gray-700 mb-5">You're about to permanently delete <strong>{{ doc.name }}</strong>. This can't be undone.</p>
+  <div class="form-actions">
+    <button type="submit" style="background: #DC2626; border-color: #DC2626; box-shadow: 0 6px 14px rgba(220,38,38,0.2);">Delete permanently</button>
+    <a href="{{ back }}" class="btn-outline">Cancel</a>
+  </div>
+</form>
+{% endblock %}

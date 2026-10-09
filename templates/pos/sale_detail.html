@@ -1,0 +1,25 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'pos:sale_list' as back %}
+{% include "_includes/page_header.html" with title=sale.reference subtitle=sale.get_payment_method_display back_url=back %}
+
+<div class="max-w-xl bg-white rounded-xl border border-gray-200 p-6">
+  <table class="w-full text-sm">
+    <thead class="text-xs text-gray-500 uppercase"><tr><th class="text-left pb-2">Item</th><th class="text-right pb-2">Qty</th><th class="text-right pb-2">Unit</th><th class="text-right pb-2">Total</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for l in sale.lines.all %}
+      <tr><td class="py-2">{{ l.product.name }}</td><td class="py-2 text-right">{{ l.quantity }}</td><td class="py-2 text-right">{{ l.unit_price|floatformat:2 }}</td><td class="py-2 text-right font-semibold">{{ l.line_total|floatformat:2 }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="mt-4 pt-4 border-t text-sm space-y-1">
+    <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span>{{ sale.subtotal|floatformat:2 }}</span></div>
+    <div class="flex justify-between"><span class="text-gray-500">Discount</span><span>- {{ sale.discount_amount|floatformat:2 }}</span></div>
+    <div class="flex justify-between"><span class="text-gray-500">Tax</span><span>{{ sale.tax_amount|floatformat:2 }}</span></div>
+    <div class="flex justify-between pt-2 border-t text-base font-bold"><span>Total</span><span style="color: var(--primary);">{{ sale.total_amount|floatformat:2 }}</span></div>
+    <div class="flex justify-between text-xs text-gray-500 mt-2"><span>Tendered</span><span>{{ sale.amount_tendered|floatformat:2 }}</span></div>
+    <div class="flex justify-between text-xs text-gray-500"><span>Change</span><span>{{ sale.change_given|floatformat:2 }}</span></div>
+  </div>
+</div>
+{% endblock %}

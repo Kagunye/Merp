@@ -1,0 +1,16 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="POS Sales" subtitle="All receipts across sessions" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3">Method</th><th class="px-4 py-3 text-right">Total</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for s in sales %}
+      <tr><td class="px-4 py-3 font-mono text-xs"><a href="{% url 'pos:sale_detail' s.pk %}" style="color: var(--primary);">{{ s.reference }}</a></td><td class="px-4 py-3">{{ s.session.cashier }}</td><td class="px-4 py-3">{{ s.customer|default:"—" }}</td><td class="px-4 py-3">{{ s.get_payment_method_display }}</td><td class="px-4 py-3 text-right font-semibold">{{ s.total_amount|floatformat:2 }}</td></tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No sales yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

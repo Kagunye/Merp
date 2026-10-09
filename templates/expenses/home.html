@@ -1,0 +1,46 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Expenses" subtitle="Expense claims, categories and approvals" action_label="New Claim" action_url="expenses:claim_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Pending approval</div>
+    <div class="text-2xl font-bold text-amber-600">{{ pending_count|default:0 }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Approved</div>
+    <div class="text-2xl font-bold text-green-600">{{ approved_count|default:0 }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Paid</div>
+    <div class="text-2xl font-bold text-gray-900">{{ paid_count|default:0 }}</div>
+  </div>
+</div>
+
+<div class="flex gap-4 mb-6">
+  <a href="{% url 'expenses:claim_list' %}" class="text-sm font-semibold" style="color: var(--primary);">All claims &rarr;</a>
+  <a href="{% url 'expenses:category_list' %}" class="text-sm font-semibold" style="color: var(--primary);">Categories &rarr;</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent claims</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Employee</th><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3">Status</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for c in recent_claims %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'expenses:claim_detail' c.pk %}" style="color: var(--primary);">{{ c.reference }}</a></td>
+        <td class="px-4 py-3">{{ c.employee }}</td>
+        <td class="px-4 py-3">{{ c.claim_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ c.total_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ c.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No claims yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'pos:session_detail' session.pk as back %}
+{% include "_includes/model_form.html" with title="Close POS Session" subtitle="Count the drawer and submit" back_url=back cancel_url=back submit_label="Close Session" %}
+{% endblock %}

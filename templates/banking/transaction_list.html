@@ -1,0 +1,45 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Bank Transactions" subtitle="All transactions across accounts" action_label="New Transaction" action_url="banking:transaction_create" %}
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr>
+        <th class="px-4 py-3 text-left">Date</th>
+        <th class="px-4 py-3 text-left">Account</th>
+        <th class="px-4 py-3 text-left">Description</th>
+        <th class="px-4 py-3 text-left">Reference</th>
+        <th class="px-4 py-3">Type</th>
+        <th class="px-4 py-3 text-right">Amount</th>
+        <th class="px-4 py-3">Status</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for t in transactions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">{{ t.transaction_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 font-medium"><a href="{% url 'banking:account_detail' t.bank_account.pk %}" class="hover:underline">{{ t.bank_account.name }}</a></td>
+        <td class="px-4 py-3">{{ t.description|default:"—" }}</td>
+        <td class="px-4 py-3 text-gray-500 text-xs">{{ t.reference }}</td>
+        <td class="px-4 py-3"><span class="badge {% if t.transaction_type == 'CREDIT' %}text-green-700 bg-green-50{% else %}text-red-700 bg-red-50{% endif %}">{{ t.get_transaction_type_display }}</span></td>
+        <td class="px-4 py-3 text-right font-semibold">{{ t.amount|floatformat:2 }}</td>
+        <td class="px-4 py-3">{% if t.is_reconciled %}<span class="badge text-green-700 bg-green-50">OK</span>{% else %}<span class="badge text-gray-700 bg-gray-100">Pending</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-500">No transactions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<div class="mt-4 flex items-center justify-between text-sm text-gray-500">
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  <div class="flex gap-2">
+    {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1 border border-gray-200 rounded">&larr; Prev</a>{% endif %}
+    {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1 border border-gray-200 rounded">Next &rarr;</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

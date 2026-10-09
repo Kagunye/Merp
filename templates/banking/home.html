@@ -1,0 +1,55 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Banking" subtitle="Accounts, transactions and reconciliation" action_label="New Transaction" action_url="banking:transaction_create" %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <a href="{% url 'banking:account_list' %}" class="card bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style="background: var(--primary-50, #FFF1F2); color: var(--primary);">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg>
+    </div>
+    <div class="text-xs text-gray-500 mb-1">Accounts</div>
+    <div class="text-2xl font-bold text-gray-900">{{ accounts|length }}</div>
+    <div class="text-sm text-gray-600 mt-1">Manage bank accounts</div>
+  </a>
+  <a href="{% url 'banking:transaction_list' %}" class="card bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style="background: var(--primary-50, #FFF1F2); color: var(--primary);">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5l7 7-7 7"/></svg>
+    </div>
+    <div class="text-xs text-gray-500 mb-1">Recent Transactions</div>
+    <div class="text-2xl font-bold text-gray-900">{{ recent_transactions|length }}</div>
+    <div class="text-sm text-gray-600 mt-1">Transfers, deposits, withdrawals</div>
+  </a>
+  <div class="card bg-white rounded-xl border border-gray-200 p-5">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style="background: #ECFDF5; color: #10B981;">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12l2 2 4-4"/></svg>
+    </div>
+    <div class="text-xs text-gray-500 mb-1">Reconciliation</div>
+    <div class="text-2xl font-bold text-gray-900">—</div>
+    <div class="text-sm text-gray-600 mt-1">Coming soon</div>
+  </div>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent transactions</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Account</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-left">Type</th><th class="px-4 py-3 text-right">Amount</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for t in recent_transactions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 text-gray-700">{{ t.transaction_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-gray-900 font-medium">{{ t.bank_account.name }}</td>
+        <td class="px-4 py-3 text-gray-700">{{ t.description|default:"—" }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if t.transaction_type == 'CREDIT' %}text-green-700 bg-green-50{% else %}text-red-700 bg-red-50{% endif %}">{{ t.get_transaction_type_display }}</span>
+        </td>
+        <td class="px-4 py-3 text-right font-semibold {% if t.transaction_type == 'CREDIT' %}text-green-700{% else %}text-red-700{% endif %}">{{ t.amount|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No transactions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="POS Sessions" subtitle="Every cashier shift" action_label="Open Session" action_url="pos:session_open" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-left">Closed</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for s in sessions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier }}</a></td>
+        <td class="px-4 py-3">{{ s.branch }}</td>
+        <td class="px-4 py-3">{{ s.opened_at|date:"d M Y H:i" }}</td>
+        <td class="px-4 py-3">{{ s.closed_at|date:"d M Y H:i"|default:"—" }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ s.total_sales|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ s.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No sessions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

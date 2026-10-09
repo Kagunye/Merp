@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'pos:home' as back %}
+{% include "_includes/model_form.html" with title="Open POS Session" subtitle="Count the till and start a shift" back_url=back cancel_url=back submit_label="Open Session" %}
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Document Categories" subtitle="Classify your files" action_label="New Category" action_url="documents:category_create" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Description</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for c in categories %}
+      <tr><td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td><td class="px-4 py-3 text-gray-500 text-sm">{{ c.description|default:"—" }}</td></tr>
+      {% empty %}
+      <tr><td colspan="2" class="px-4 py-10 text-center text-gray-500">No categories yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
