@@ -1,20 +1,17 @@
 {
   "version": 2,
   "buildCommand": "./build_files.sh",
-  "outputDirectory": "staticfiles_build",
   "builds": [
     {
       "src": "api/index.py",
       "use": "@vercel/python",
-      "config": { "maxLambdaSize": "50mb" }
-    },
-    {
-      "src": "staticfiles_build/static/**",
-      "use": "@vercel/static"
+      "config": {
+        "maxLambdaSize": "50mb",
+        "includeFiles": "staticfiles_build/**"
+      }
     }
   ],
   "routes": [
-    { "src": "/static/(.*)", "dest": "/staticfiles_build/static/$1" },
     { "src": "/(.*)", "dest": "api/index.py" }
   ]
 }
