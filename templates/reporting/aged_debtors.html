@@ -1,0 +1,62 @@
+{% extends "base/base.html" %}
+{% block title %}Aged Debtors — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Aged Debtors</h1>
+    <p class="text-sm text-gray-500 mt-1">As at {{ today }}</p>
+  </div>
+  <a href="{% url 'reporting:index' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+</div>
+
+<!-- Summary cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  {% for bucket, total in totals.items %}
+  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+    <p class="text-sm text-gray-500">{{ bucket }} days</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }}</p>
+  </div>
+  {% endfor %}
+</div>
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex justify-between items-center">
+  <span class="text-sm font-semibold text-amber-900">Total Outstanding</span>
+  <span class="text-xl font-bold text-amber-900">{{ grand_total|floatformat:2 }}</span>
+</div>
+
+{% for bucket, invoices in buckets.items %}
+{% if invoices %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+  <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+    <h3 class="text-sm font-semibold text-gray-700">{{ bucket }} Days Overdue</h3>
+    <span class="font-mono font-semibold text-gray-900">{{ totals|get_item:bucket|floatformat:2 }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Invoice</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Customer</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Invoice Date</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Due Date</th>
+        <th class="px-4 py-2 text-right font-semibold text-gray-700">Outstanding</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for inv in invoices %}
+      <tr>
+        <td class="px-4 py-2 text-gray-900">{{ inv.reference }}</td>
+        <td class="px-4 py-2 text-gray-900">{{ inv.customer.name }}</td>
+        <td class="px-4 py-2 text-gray-600">{{ inv.invoice_date }}</td>
+        <td class="px-4 py-2 text-gray-600">{{ inv.due_date }}</td>
+        <td class="px-4 py-2 text-right font-mono text-red-600">{{ inv.outstanding_amount|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endfor %}
+
+{% if not grand_total %}
+<div class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">No outstanding invoices.</div>
+{% endif %}
+{% endblock %}

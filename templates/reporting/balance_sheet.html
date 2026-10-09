@@ -1,0 +1,65 @@
+{% extends "base/base.html" %}
+{% block title %}Balance Sheet — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Balance Sheet</h1>
+    <p class="text-sm text-gray-500 mt-1">As at {{ date_to }}</p>
+  </div>
+  <a href="{% url 'reporting:index' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3">
+    <div><label class="text-xs text-gray-500">As at</label><input type="date" name="date_to" value="{{ date_to }}" class="block border border-gray-300 rounded-lg px-3 py-1.5 text-sm"></div>
+    <div class="self-end"><button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Run</button></div>
+  </form>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-4xl">
+  <!-- Assets -->
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Assets</h3>
+    {% for row in asset_rows %}
+    <div class="flex justify-between text-sm py-1.5">
+      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
+      <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
+    </div>
+    {% empty %}<p class="text-sm text-gray-400 mb-2">No asset accounts.</p>{% endfor %}
+    <div class="flex justify-between text-base font-bold border-t-2 border-gray-400 pt-3 mt-3">
+      <span>Total Assets</span>
+      <span class="font-mono text-gray-900">{{ total_assets|floatformat:2 }}</span>
+    </div>
+  </div>
+
+  <!-- Liabilities & Equity -->
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Liabilities</h3>
+    {% for row in liability_rows %}
+    <div class="flex justify-between text-sm py-1.5">
+      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
+      <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
+    </div>
+    {% empty %}<p class="text-sm text-gray-400 mb-2">No liability accounts.</p>{% endfor %}
+    <div class="flex justify-between text-sm font-semibold border-t border-gray-200 pt-2 mt-2">
+      <span>Total Liabilities</span><span class="font-mono">{{ total_liabilities|floatformat:2 }}</span>
+    </div>
+
+    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mt-6 mb-3">Equity</h3>
+    {% for row in equity_rows %}
+    <div class="flex justify-between text-sm py-1.5">
+      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
+      <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
+    </div>
+    {% empty %}<p class="text-sm text-gray-400 mb-2">No equity accounts.</p>{% endfor %}
+    <div class="flex justify-between text-sm font-semibold border-t border-gray-200 pt-2 mt-2">
+      <span>Total Equity</span><span class="font-mono">{{ total_equity|floatformat:2 }}</span>
+    </div>
+
+    <div class="flex justify-between text-base font-bold border-t-2 border-gray-400 pt-3 mt-3">
+      <span>Total Liabilities + Equity</span>
+      <span class="font-mono text-gray-900">{{ total_liab_equity|floatformat:2 }}</span>
+    </div>
+  </div>
+</div>
+{% endblock %}

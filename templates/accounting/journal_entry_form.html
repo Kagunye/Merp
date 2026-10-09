@@ -1,0 +1,174 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="max-w-4xl">
+  <div class="flex items-center gap-3 mb-6">
+    <a href="{% url 'accounting:journal_entry_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    </a>
+    <h1 class="text-xl font-bold text-gray-900">{{ page_title }}</h1>
+  </div>
+
+  <form method="post" id="je-form">
+    {% csrf_token %}
+
+    <!-- Header -->
+    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-4 grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Reference *</label>
+        <input type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}"
+          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono">
+        {% if form.reference.errors %}<p class="text-xs text-red-600 mt-1">{{ form.reference.errors.0 }}</p>{% endif %}
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Entry Type</label>
+        <select name="{{ form.entry_type.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+          {% for val, label in form.entry_type.field.choices %}
+            <option value="{{ val }}" {% if form.entry_type.value == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Posting Date *</label>
+        <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:'' }}"
+          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+      </div>
+      <div class="col-span-3">
+        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Notes</label>
+        <textarea name="{{ form.notes.html_name }}" rows="2"
+          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none">{{ form.notes.value|default:'' }}</textarea>
+      </div>
+    </div>
+
+    <!-- Lines -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h3 class="font-semibold text-gray-800">Journal Lines</h3>
+        <div class="flex gap-4 text-xs text-gray-500">
+          <span>Total Dr: <span id="total-dr" class="font-mono font-semibold text-gray-800">0.00</span></span>
+          <span>Total Cr: <span id="total-cr" class="font-mono font-semibold text-gray-800">0.00</span></span>
+          <span id="balance-indicator" class="font-semibold text-gray-400">Balanced</span>
+        </div>
+      </div>
+
+      {{ line_formset.management_form }}
+
+      <div id="lines-container">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-50/50 border-b border-gray-100">
+              <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-1/3">Account</th>
+              <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Description</th>
+              <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Debit</th>
+              <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Credit</th>
+              <th class="w-8"></th>
+            </tr>
+          </thead>
+          <tbody id="lines-tbody">
+            {% for line_form in line_formset %}
+              <tr class="line-row border-b border-gray-50 {% if line_form.instance.pk and not line_form.instance.pk %}hidden{% endif %}" data-index="{{ forloop.counter0 }}">
+                {% for hidden in line_form.hidden_fields %}{{ hidden }}{% endfor %}
+                <td class="px-3 py-2">
+                  <select name="{{ line_form.account.html_name }}"
+                    class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+                    <option value="">— Select account</option>
+                    {% for acc in accounts %}
+                      <option value="{{ acc.id }}" {% if line_form.account.value|stringformat:"s" == acc.id|stringformat:"s" %}selected{% endif %}>{{ acc.code }} — {{ acc.name }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td class="px-3 py-2">
+                  <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}"
+                    class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Description">
+                </td>
+                <td class="px-3 py-2">
+                  <input type="number" name="{{ line_form.debit_amount.html_name }}" value="{{ line_form.debit_amount.value|default:'0' }}"
+                    step="0.01" min="0"
+                    class="line-debit w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
+                    oninput="updateTotals()">
+                </td>
+                <td class="px-3 py-2">
+                  <input type="number" name="{{ line_form.credit_amount.html_name }}" value="{{ line_form.credit_amount.value|default:'0' }}"
+                    step="0.01" min="0"
+                    class="line-credit w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
+                    oninput="updateTotals()">
+                </td>
+                <td class="px-3 py-2 text-center">
+                  {% if line_form.DELETE %}
+                    <input type="checkbox" name="{{ line_form.DELETE.html_name }}" class="delete-checkbox hidden">
+                    <button type="button" onclick="deleteLine(this)" class="text-gray-300 hover:text-red-500">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="px-4 py-3 border-t border-gray-100">
+        <button type="button" onclick="addLine()" class="text-sm text-primary hover:underline flex items-center gap-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Add Line
+        </button>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-3">
+      <a href="{% url 'accounting:journal_entry_list' %}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>
+      <button type="submit" class="px-5 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
+        Save as Draft
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function updateTotals() {
+  let dr = 0, cr = 0;
+  document.querySelectorAll('.line-debit').forEach(el => {
+    const v = parseFloat(el.value) || 0;
+    if (!el.closest('tr').classList.contains('hidden')) dr += v;
+  });
+  document.querySelectorAll('.line-credit').forEach(el => {
+    const v = parseFloat(el.value) || 0;
+    if (!el.closest('tr').classList.contains('hidden')) cr += v;
+  });
+  document.getElementById('total-dr').textContent = dr.toFixed(2);
+  document.getElementById('total-cr').textContent = cr.toFixed(2);
+  const ind = document.getElementById('balance-indicator');
+  const balanced = Math.abs(dr - cr) < 0.01;
+  ind.textContent = balanced ? 'Balanced' : 'Unbalanced: ' + Math.abs(dr - cr).toFixed(2);
+  ind.className = 'font-semibold ' + (balanced ? 'text-green-600' : 'text-red-600');
+}
+
+function deleteLine(btn) {
+  const row = btn.closest('tr');
+  const chk = row.querySelector('.delete-checkbox');
+  if (chk) { chk.checked = true; row.classList.add('hidden'); }
+  else row.remove();
+  updateTotals();
+}
+
+function addLine() {
+  const tbody = document.getElementById('lines-tbody');
+  const totalForms = document.querySelector('[name="lines-TOTAL_FORMS"]');
+  const idx = parseInt(totalForms.value);
+  const firstRow = tbody.querySelector('.line-row:not(.hidden)');
+  if (!firstRow) return;
+  const newRow = firstRow.cloneNode(true);
+  newRow.querySelectorAll('input,select').forEach(el => {
+    el.name = el.name.replace(/-\d+-/, `-${idx}-`);
+    if (el.type === 'number') el.value = '0';
+    else if (el.type !== 'checkbox') el.value = '';
+    if (el.type === 'checkbox') el.checked = false;
+  });
+  newRow.classList.remove('hidden');
+  tbody.appendChild(newRow);
+  totalForms.value = idx + 1;
+}
+
+updateTotals();
+</script>
+{% endblock %}

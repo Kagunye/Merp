@@ -1,0 +1,78 @@
+{% extends "base/base.html" %}
+{% block title %}{{ run.reference }} — Payroll — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'payroll:run_list' %}" class="hover:underline">Payroll</a> / <span class="text-gray-900 font-medium">{{ run.reference }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">{{ run.reference }}</h1>
+    <p class="text-sm text-gray-500 mt-0.5">{{ run.period_start }} — {{ run.period_end }}</p>
+  </div>
+  <span class="badge {% if run.status == 'POSTED' %}bg-green-50 text-green-700{% elif run.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif run.status == 'APPROVED' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm px-3 py-1.5">
+    {{ run.get_status_display }}
+  </span>
+</div>
+
+<!-- Totals summary -->
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+    <p class="text-sm text-gray-500">Total Gross</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ run.total_gross|floatformat:2 }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+    <p class="text-sm text-gray-500">Total Deductions</p>
+    <p class="text-xl font-bold text-red-600 mt-1">{{ run.total_deductions|floatformat:2 }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+    <p class="text-sm text-gray-500">Total Net Pay</p>
+    <p class="text-xl font-bold text-green-700 mt-1">{{ run.total_net|floatformat:2 }}</p>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-gray-900">Payslips ({{ payslips.count }})</h2>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Employee</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Gross</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">PAYE</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">NSSF</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">NHIF/SHIF</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Housing Levy</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Net</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for ps in payslips %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ ps.employee.full_name }}</a>
+          <p class="text-xs text-gray-500">{{ ps.employee.employee_number }}</p>
+        </td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.paye_tax|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.nssf_employee|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.nhif_shif|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.housing_levy|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono font-bold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">No payslips generated.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% if payslips %}
+    <tfoot class="bg-gray-50 border-t border-gray-200">
+      <tr>
+        <td class="px-4 py-3 font-semibold text-gray-900">Totals</td>
+        <td class="px-4 py-3 text-right font-bold font-mono text-gray-900">{{ run.total_gross|floatformat:2 }}</td>
+        <td colspan="3" class="px-4 py-3 text-right font-bold font-mono text-red-600">{{ run.total_deductions|floatformat:2 }}</td>
+        <td class="px-4 py-3"></td>
+        <td class="px-4 py-3 text-right font-bold font-mono text-gray-900">{{ run.total_net|floatformat:2 }}</td>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
+</div>
+{% endblock %}

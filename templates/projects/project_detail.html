@@ -1,0 +1,85 @@
+{% extends "base/base.html" %}
+{% block title %}{{ project.name }} — Projects — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'projects:project_list' %}" class="hover:underline">Projects</a> / <span class="text-gray-900 font-medium">{{ project.reference }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">{{ project.name }}</h1>
+  </div>
+  <div class="flex gap-2">
+    <span class="badge {% if project.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif project.status == 'COMPLETED' %}bg-blue-50 text-blue-700{% elif project.status == 'PLANNING' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %} text-sm px-3 py-1.5">{{ project.get_status_display }}</span>
+    <a href="{% url 'projects:task_create' project.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Add Task</a>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-6 lg:col-span-2">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Project Details</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">Reference</dt><dd class="font-medium text-gray-900">{{ project.reference }}</dd></div>
+      <div><dt class="text-gray-500">Customer</dt><dd class="text-gray-900">{{ project.customer.name|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Manager</dt><dd class="text-gray-900">{{ project.manager.full_name|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Budget</dt><dd class="text-gray-900 font-mono">{{ project.budget|floatformat:2 }}</dd></div>
+      <div><dt class="text-gray-500">Start Date</dt><dd class="text-gray-900">{{ project.start_date }}</dd></div>
+      <div><dt class="text-gray-500">End Date</dt><dd class="text-gray-900">{{ project.end_date|default:"—" }}</dd></div>
+    </dl>
+    {% if project.description %}<p class="text-sm text-gray-600 mt-4">{{ project.description }}</p>{% endif %}
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Progress</h2>
+    <div class="text-center mb-4">
+      <p class="text-4xl font-bold text-gray-900">{{ project.progress_percent }}%</p>
+      <p class="text-sm text-gray-500 mt-1">Complete</p>
+    </div>
+    <div class="bg-gray-200 rounded-full h-2 mb-4">
+      <div class="bg-green-500 h-2 rounded-full" style="width:{{ project.progress_percent }}%"></div>
+    </div>
+    <div class="grid grid-cols-3 gap-2 text-center text-sm">
+      <div class="bg-blue-50 rounded-lg p-2"><p class="text-xl font-bold text-blue-700">{{ task_counts.total }}</p><p class="text-xs text-blue-600">Total</p></div>
+      <div class="bg-amber-50 rounded-lg p-2"><p class="text-xl font-bold text-amber-700">{{ task_counts.in_progress }}</p><p class="text-xs text-amber-600">In Progress</p></div>
+      <div class="bg-green-50 rounded-lg p-2"><p class="text-xl font-bold text-green-700">{{ task_counts.done }}</p><p class="text-xs text-green-600">Done</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-gray-900">Tasks</h2>
+    <a href="{% url 'projects:task_create' project.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Add Task</a>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Task</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Assigned To</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Priority</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Due Date</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Est. Hrs</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for task in tasks %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium text-gray-900">{{ task.title }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ task.assigned_to.full_name|default:"Unassigned" }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if task.priority == 'URGENT' %}bg-red-50 text-red-700{% elif task.priority == 'HIGH' %}bg-orange-50 text-orange-700{% elif task.priority == 'MEDIUM' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ task.get_priority_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="badge {% if task.status == 'DONE' %}bg-green-50 text-green-700{% elif task.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% elif task.status == 'REVIEW' %}bg-purple-50 text-purple-700{% elif task.status == 'CANCELLED' %}bg-gray-100 text-gray-600{% else %}bg-amber-50 text-amber-700{% endif %}">
+            {{ task.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-600">{{ task.due_date|default:"—" }}</td>
+        <td class="px-4 py-3 text-right text-gray-600">{{ task.estimated_hours|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No tasks yet. <a href="{% url 'projects:task_create' project.pk %}" style="color:var(--primary)" class="font-medium">Add first task</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

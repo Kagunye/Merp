@@ -1,0 +1,138 @@
+{% extends "base/base.html" %}
+{% block title %}{{ asset.code }} — Fixed Assets — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1">
+      <a href="{% url 'fixed_assets:asset_list' %}" class="hover:underline">Fixed Assets</a> /
+      <span class="text-gray-900 font-medium">{{ asset.code }}</span>
+    </nav>
+    <h1 class="text-2xl font-bold text-gray-900">{{ asset.name }}</h1>
+  </div>
+  <div class="flex gap-2">
+    {% if asset.status == 'ACTIVE' %}
+    <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Run Depreciation</a>
+    <a href="{% url 'fixed_assets:asset_dispose' asset.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-700 hover:bg-gray-800">Dispose Asset</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <!-- Asset Info -->
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Asset Information</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">Code</dt><dd class="font-medium text-gray-900">{{ asset.code }}</dd></div>
+      <div><dt class="text-gray-500">Category</dt><dd class="text-gray-900">{{ asset.category.name|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Serial Number</dt><dd class="text-gray-900">{{ asset.serial_number|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Location</dt><dd class="text-gray-900">{{ asset.location|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Purchase Date</dt><dd class="text-gray-900">{{ asset.purchase_date }}</dd></div>
+      <div><dt class="text-gray-500">Warranty Expiry</dt><dd class="text-gray-900">{{ asset.warranty_expiry|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Supplier</dt><dd class="text-gray-900">{{ asset.supplier.name|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Status</dt>
+        <dd>
+          <span class="badge {% if asset.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif asset.status == 'DISPOSED' %}bg-gray-100 text-gray-600{% else %}bg-amber-50 text-amber-700{% endif %}">
+            {{ asset.get_status_display }}
+          </span>
+        </dd>
+      </div>
+      <div><dt class="text-gray-500">Depreciation Method</dt><dd class="text-gray-900">{{ asset.get_depreciation_method_display }}</dd></div>
+      <div><dt class="text-gray-500">Useful Life</dt><dd class="text-gray-900">{{ asset.useful_life_years }} years</dd></div>
+    </dl>
+    {% if asset.notes %}
+    <div class="mt-4 pt-4 border-t border-gray-100">
+      <p class="text-sm text-gray-500">Notes</p>
+      <p class="text-sm text-gray-900 mt-1">{{ asset.notes }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Financials -->
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Financials</h2>
+    <div class="space-y-3">
+      <div class="flex justify-between items-center py-2 border-b border-gray-100">
+        <span class="text-sm text-gray-500">Purchase Cost</span>
+        <span class="font-semibold text-gray-900">{{ asset.purchase_cost|floatformat:2 }}</span>
+      </div>
+      <div class="flex justify-between items-center py-2 border-b border-gray-100">
+        <span class="text-sm text-gray-500">Residual Value</span>
+        <span class="text-gray-700">{{ asset.residual_value|floatformat:2 }}</span>
+      </div>
+      <div class="flex justify-between items-center py-2 border-b border-gray-100">
+        <span class="text-sm text-gray-500">Accumulated Depreciation</span>
+        <span class="text-red-600">{{ asset.accumulated_depreciation|floatformat:2 }}</span>
+      </div>
+      <div class="flex justify-between items-center py-2">
+        <span class="text-sm font-semibold text-gray-700">Net Book Value</span>
+        <span class="text-xl font-bold text-gray-900">{{ asset.book_value|floatformat:2 }}</span>
+      </div>
+      {% if asset.status == 'ACTIVE' %}
+      <div class="flex justify-between items-center py-2 border-t border-gray-100">
+        <span class="text-sm text-gray-500">Monthly Depr. (SLM)</span>
+        <span class="text-gray-700">{{ asset.monthly_depreciation_slm|floatformat:2 }}</span>
+      </div>
+      <div class="flex justify-between items-center py-1">
+        <span class="text-sm text-gray-500">Last Depreciated</span>
+        <span class="text-gray-700">{{ asset.last_depreciated|default:"Never" }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Depreciation History -->
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-gray-900">Depreciation History</h2>
+    {% if asset.status == 'ACTIVE' %}
+    <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Run Depreciation</a>
+    {% endif %}
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Period</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Depreciation</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Accumulated</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Book Value After</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Journal Entry</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for dep in depreciations %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 text-gray-900">{{ dep.period_date }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ dep.depreciation_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ dep.accumulated_depreciation|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ dep.book_value_after|floatformat:2 }}</td>
+        <td class="px-4 py-3">
+          {% if dep.journal_entry %}
+          <a href="{% url 'accounting:journal_entry_detail' dep.journal_entry.pk %}" class="text-sm hover:underline" style="color:var(--primary)">{{ dep.journal_entry.reference }}</a>
+          {% else %}<span class="text-gray-400">—</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">No depreciation records yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if disposal %}
+<div class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-6">
+  <h2 class="text-base font-semibold text-amber-900 mb-3">Disposal Record</h2>
+  <dl class="grid grid-cols-3 gap-6 text-sm">
+    <div><dt class="text-amber-700">Date</dt><dd class="font-medium text-amber-900">{{ disposal.disposal_date }}</dd></div>
+    <div><dt class="text-amber-700">Type</dt><dd class="text-amber-900">{{ disposal.get_disposal_type_display }}</dd></div>
+    <div><dt class="text-amber-700">Proceeds</dt><dd class="text-amber-900">{{ disposal.proceeds|floatformat:2 }}</dd></div>
+    <div><dt class="text-amber-700">Gain / Loss</dt>
+      <dd class="font-semibold {% if disposal.gain_loss >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
+        {{ disposal.gain_loss|floatformat:2 }}
+      </dd>
+    </div>
+    {% if disposal.notes %}<div class="col-span-2"><dt class="text-amber-700">Notes</dt><dd class="text-amber-900">{{ disposal.notes }}</dd></div>{% endif %}
+  </dl>
+</div>
+{% endif %}
+{% endblock %}

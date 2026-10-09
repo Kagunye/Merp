@@ -1,0 +1,72 @@
+{% extends "base/base.html" %}
+{% block title %}Employees — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Employees</h1>
+    <p class="text-sm text-gray-500 mt-1">Manage your workforce</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{% url 'hr:leave_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Leave Requests</a>
+    <a href="{% url 'hr:employee_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Employee</a>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search name, number or title..."
+           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <option value="">All Statuses</option>
+      {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
+    {% if q or status_filter %}<a href="{% url 'hr:employee_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Number</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Department</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Job Title</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Hired</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for emp in employees %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'hr:employee_detail' emp.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ emp.employee_number }}</a>
+        </td>
+        <td class="px-4 py-3 font-medium text-gray-900">{{ emp.full_name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ emp.department.name|default:"—" }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ emp.job_title|default:"—" }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if emp.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif emp.status == 'TERMINATED' or emp.status == 'RESIGNED' %}bg-red-50 text-red-700{% elif emp.status == 'PROBATION' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %}">
+            {{ emp.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-600">{{ emp.date_hired }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No employees found. <a href="{% url 'hr:employee_create' %}" style="color:var(--primary)" class="font-medium">Add first employee</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page_obj.has_other_pages %}
+<div class="flex items-center justify-between mt-4">
+  <p class="text-sm text-gray-500">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</p>
+  <div class="flex gap-1">
+    {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Prev</a>{% endif %}
+    {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Next</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

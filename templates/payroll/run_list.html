@@ -1,0 +1,49 @@
+{% extends "base/base.html" %}
+{% block title %}Payroll Runs — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Payroll</h1>
+    <p class="text-sm text-gray-500 mt-1">Manage payroll runs and payslips</p>
+  </div>
+  <a href="{% url 'payroll:run_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Payroll Run</a>
+</div>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Period</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Payment Date</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total Gross</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total Deductions</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total Net</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Payslips</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for run in runs %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'payroll:run_detail' run.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ run.reference }}</a>
+        </td>
+        <td class="px-4 py-3 text-gray-900">{{ run.period_start }} – {{ run.period_end }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ run.payment_date }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ run.total_gross|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ run.total_deductions|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ run.total_net|floatformat:2 }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if run.status == 'POSTED' %}bg-green-50 text-green-700{% elif run.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif run.status == 'APPROVED' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %}">
+            {{ run.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-600">{{ run.payslips.count }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="px-4 py-12 text-center text-gray-400">No payroll runs. <a href="{% url 'payroll:run_create' %}" style="color:var(--primary)" class="font-medium">Create first run</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Track potential customers</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'crm:customer_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Customers</a>
+      <a href="{% url 'crm:lead_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Lead
+      </a>
+    </div>
+  </div>
+
+  <!-- Status pipeline cards -->
+  <div class="flex gap-2 overflow-x-auto pb-1">
+    {% for val, label in status_choices %}
+    <a href="?status={{ val }}" class="flex-shrink-0 px-3 py-1.5 text-xs font-medium border rounded-lg whitespace-nowrap
+      {% if status_filter == val %}text-white border-transparent{% else %}text-gray-600 border-gray-200 bg-white hover:bg-gray-50{% endif %}"
+      {% if status_filter == val %}style="background:var(--primary)"{% endif %}>
+      {{ label }}
+    </a>
+    {% endfor %}
+    {% if status_filter %}<a href="{% url 'crm:lead_list' %}" class="flex-shrink-0 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">Clear</a>{% endif %}
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Lead</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Company</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Contact</th>
+          <th class="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Est. Value</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Assigned To</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Close Date</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for lead in leads %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3 font-medium text-gray-900">{{ lead.name }}</td>
+          <td class="px-4 py-3 text-gray-600">{{ lead.company_name|default:"—" }}</td>
+          <td class="px-4 py-3">
+            {% if lead.phone %}<div class="text-gray-700 text-xs">{{ lead.phone }}</div>{% endif %}
+            {% if lead.email %}<div class="text-gray-500 text-xs">{{ lead.email }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-center">
+            <span class="badge {% if lead.status == 'WON' %}bg-green-50 text-green-700{% elif lead.status == 'LOST' %}bg-red-50 text-red-700{% elif lead.status == 'NEGOTIATION' %}bg-blue-50 text-blue-700{% elif lead.status == 'PROPOSAL' %}bg-yellow-50 text-yellow-700{% elif lead.status == 'NEW' %}bg-gray-100 text-gray-600{% else %}bg-orange-50 text-orange-700{% endif %}">
+              {{ lead.get_status_display }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-right font-mono text-gray-700">{% if lead.estimated_value %}{{ lead.estimated_value|floatformat:0 }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-3 text-gray-600 text-xs">{{ lead.assigned_to.full_name|default:"Unassigned" }}</td>
+          <td class="px-4 py-3 text-gray-600 text-xs">{{ lead.expected_close_date|date:"d M Y"|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="px-4 py-12 text-center text-gray-500">No leads found. <a href="{% url 'crm:lead_create' %}" class="text-primary hover:underline">Create one</a></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

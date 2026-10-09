@@ -1,0 +1,93 @@
+{% extends "base/base.html" %}
+{% block title %}{{ wo.reference }} — Work Order — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'manufacturing:work_order_list' %}" class="hover:underline">Work Orders</a> / <span class="text-gray-900 font-medium">{{ wo.reference }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">{{ wo.reference }}</h1>
+  </div>
+  {% if wo.status not in "COMPLETED,CANCELLED" %}
+  <form method="post" action="{% url 'manufacturing:work_order_complete' wo.pk %}">
+    {% csrf_token %}
+    {{ complete_form.actual_quantity.as_hidden }}
+    {{ complete_form.actual_end.as_hidden }}
+    <button type="button" onclick="document.getElementById('complete-modal').classList.remove('hidden')"
+            class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-green-600 hover:bg-green-700">
+      Complete Work Order
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Details</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">BOM</dt><dd class="font-medium text-gray-900">{{ wo.bom.name }}</dd></div>
+      <div><dt class="text-gray-500">Product</dt><dd class="text-gray-900">{{ wo.bom.product.name }}</dd></div>
+      <div><dt class="text-gray-500">Planned Qty</dt><dd class="text-gray-900">{{ wo.planned_quantity }}</dd></div>
+      <div><dt class="text-gray-500">Actual Qty</dt><dd class="text-gray-900">{{ wo.actual_quantity }}</dd></div>
+      <div><dt class="text-gray-500">Planned Start</dt><dd class="text-gray-900">{{ wo.planned_start }}</dd></div>
+      <div><dt class="text-gray-500">Planned End</dt><dd class="text-gray-900">{{ wo.planned_end|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Actual End</dt><dd class="text-gray-900">{{ wo.actual_end|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Warehouse</dt><dd class="text-gray-900">{{ wo.warehouse|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Status</dt>
+        <dd><span class="badge {% if wo.status == 'COMPLETED' %}bg-green-50 text-green-700{% elif wo.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif wo.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %}">{{ wo.get_status_display }}</span></dd>
+      </div>
+    </dl>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Material Consumption</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50"><tr>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Component</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Planned Qty</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Actual Qty</th>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Variance</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for con in consumptions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium text-gray-900">{{ con.product.name }}</td>
+        <td class="px-4 py-3 text-right text-gray-900">{{ con.planned_quantity }}</td>
+        <td class="px-4 py-3 text-right text-gray-700">{{ con.actual_quantity }}</td>
+        <td class="px-4 py-3">
+          {% with var=con.actual_quantity|add:con.planned_quantity %}
+          <span class="text-gray-500">{{ con.actual_quantity }}</span>
+          {% endwith %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">No consumption records.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Complete Modal -->
+<div id="complete-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-xl p-6 w-96 shadow-xl">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Complete Work Order</h3>
+    <form method="post" action="{% url 'manufacturing:work_order_complete' wo.pk %}">
+      {% csrf_token %}
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Actual Output Quantity <span class="text-red-500">*</span></label>
+          {{ complete_form.actual_quantity }}
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Completion Date <span class="text-red-500">*</span></label>
+          {{ complete_form.actual_end }}
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button type="submit" class="px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-green-600 hover:bg-green-700">Complete</button>
+        <button type="button" onclick="document.getElementById('complete-modal').classList.add('hidden')"
+                class="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

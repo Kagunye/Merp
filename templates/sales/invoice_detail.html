@@ -1,0 +1,149 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="{% url 'sales:invoice_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      </a>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-xl font-bold text-gray-900 font-mono">{{ invoice.reference }}</h1>
+          <span class="badge {% if invoice.status == 'PAID' %}bg-green-50 text-green-700{% elif invoice.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif invoice.status == 'PARTIAL' %}bg-blue-50 text-blue-700{% elif invoice.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif invoice.status == 'SENT' %}bg-yellow-50 text-yellow-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+            {{ invoice.get_status_display }}
+          </span>
+        </div>
+        <p class="text-sm text-gray-500 mt-0.5">{{ invoice.customer.name }} · {{ invoice.invoice_date|date:"d F Y" }}</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Record Payment</a>
+      {% if not invoice.journal_entry_id %}
+      <form method="post" action="{% url 'sales:invoice_post' invoice.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
+          Post to GL
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-cols-4 gap-4">
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Subtotal</p>
+      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ invoice.subtotal|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Tax</p>
+      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ invoice.tax_amount|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Amount</p>
+      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ invoice.currency }} {{ invoice.total_amount|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4 {% if invoice.outstanding_amount > 0 %}border-orange-200 bg-orange-50{% endif %}">
+      <p class="text-xs uppercase tracking-wider font-semibold {% if invoice.outstanding_amount > 0 %}text-orange-600{% else %}text-gray-500{% endif %}">Outstanding</p>
+      <p class="text-xl font-bold font-mono mt-1 {% if invoice.outstanding_amount > 0 %}text-orange-700{% else %}text-green-600{% endif %}">
+        {{ invoice.outstanding_amount|floatformat:2 }}
+      </p>
+    </div>
+  </div>
+
+  <!-- Line items + payments side by side -->
+  <div class="grid grid-cols-3 gap-5">
+    <div class="col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Invoice Lines</h3></div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50/50 border-b border-gray-100">
+            <th class="text-left px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Description</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Qty</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Unit Price</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Disc</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Total</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for line in lines %}
+          <tr>
+            <td class="px-4 py-3">
+              <p class="font-medium text-gray-900">{{ line.description }}</p>
+              {% if line.product %}<p class="text-xs text-gray-400 font-mono">{{ line.product.sku }}</p>{% endif %}
+            </td>
+            <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.quantity|floatformat:2 }}</td>
+            <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.unit_price|floatformat:2 }}</td>
+            <td class="px-4 py-3 text-right text-gray-500 text-xs">{% if line.discount_percent > 0 %}{{ line.discount_percent }}%{% else %}—{% endif %}</td>
+            <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ line.line_total|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No lines</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="bg-gray-50/50 border-t border-gray-200">
+            <td colspan="4" class="px-4 py-3 text-right font-semibold text-gray-700">Subtotal</td>
+            <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ invoice.subtotal|floatformat:2 }}</td>
+          </tr>
+          {% if invoice.tax_amount > 0 %}
+          <tr class="bg-gray-50/50">
+            <td colspan="4" class="px-4 py-2 text-right text-gray-600">Tax</td>
+            <td class="px-4 py-2 text-right font-mono text-gray-700">{{ invoice.tax_amount|floatformat:2 }}</td>
+          </tr>
+          {% endif %}
+          <tr class="bg-gray-50/50 border-t border-gray-300">
+            <td colspan="4" class="px-4 py-3 text-right font-bold text-gray-900">Total</td>
+            <td class="px-4 py-3 text-right font-mono font-bold text-lg text-gray-900">{{ invoice.total_amount|floatformat:2 }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- Details + Payments -->
+    <div class="space-y-4">
+      <div class="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <h3 class="font-semibold text-gray-800 text-sm">Invoice Details</h3>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-gray-500">Customer</span><span class="font-medium text-gray-900">{{ invoice.customer.name }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Invoice Date</span><span class="text-gray-700">{{ invoice.invoice_date|date:"d M Y" }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Due Date</span><span class="text-gray-700">{{ invoice.due_date|date:"d M Y" }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Currency</span><span class="font-mono text-gray-700">{{ invoice.currency }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono font-semibold text-green-700">{{ invoice.paid_amount|floatformat:2 }}</span></div>
+          {% if invoice.journal_entry %}
+          <div class="flex justify-between pt-1 border-t border-gray-100 mt-1">
+            <span class="text-gray-500">GL Entry</span>
+            <span class="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{{ invoice.journal_entry.reference }}</span>
+          </div>
+          {% else %}
+          <div class="flex justify-between pt-1 border-t border-gray-100 mt-1">
+            <span class="text-gray-500">GL Entry</span>
+            <span class="text-xs text-gray-400 italic">Not posted</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <h3 class="font-semibold text-gray-800 text-sm">Payments</h3>
+          <a href="{% url 'sales:payment_create' %}" class="text-xs text-primary hover:underline">+ Record</a>
+        </div>
+        <div class="divide-y divide-gray-50">
+          {% for alloc in payments %}
+          <div class="px-4 py-3 text-sm">
+            <div class="flex justify-between">
+              <span class="font-mono text-xs text-gray-500">{{ alloc.payment.reference }}</span>
+              <span class="font-mono font-semibold text-green-700">{{ alloc.allocated_amount|floatformat:2 }}</span>
+            </div>
+            <div class="text-xs text-gray-400">{{ alloc.payment.payment_date|date:"d M Y" }} · {{ alloc.payment.get_payment_method_display }}</div>
+          </div>
+          {% empty %}
+          <div class="px-4 py-4 text-sm text-center text-gray-400">No payments yet</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

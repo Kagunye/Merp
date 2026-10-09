@@ -1,0 +1,88 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="max-w-2xl">
+  <div class="flex items-center gap-3 mb-6">
+    <a href="{% url 'accounting:account_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+    </a>
+    <div>
+      <h1 class="text-xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500">Chart of Accounts</p>
+    </div>
+  </div>
+
+  <form method="post" class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Account Code *</label>
+        <input type="text" name="{{ form.code.html_name }}" value="{{ form.code.value|default:'' }}"
+          class="w-full px-3 py-2 text-sm border {% if form.code.errors %}border-red-300 bg-red-50{% else %}border-gray-200{% endif %} rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+          placeholder="e.g. 1100">
+        {% if form.code.errors %}<p class="text-xs text-red-600 mt-1">{{ form.code.errors.0 }}</p>{% endif %}
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Account Type *</label>
+        <select name="{{ form.account_type.html_name }}"
+          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+          {% for val, label in form.account_type.field.choices %}
+            <option value="{{ val }}" {% if form.account_type.value == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Account Name *</label>
+      <input type="text" name="{{ form.name.html_name }}" value="{{ form.name.value|default:'' }}"
+        class="w-full px-3 py-2 text-sm border {% if form.name.errors %}border-red-300 bg-red-50{% else %}border-gray-200{% endif %} rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+        placeholder="e.g. Cash at Hand">
+      {% if form.name.errors %}<p class="text-xs text-red-600 mt-1">{{ form.name.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+      <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Parent Account</label>
+      <select name="{{ form.parent.html_name }}"
+        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+        <option value="">— No parent (top-level)</option>
+        {% for choice in form.parent.field.queryset %}
+          <option value="{{ choice.pk }}" {% if form.parent.value|stringformat:"s" == choice.pk|stringformat:"s" %}selected{% endif %}>{{ choice }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Description</label>
+      <textarea name="{{ form.description.html_name }}" rows="3"
+        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+        placeholder="Optional description...">{{ form.description.value|default:'' }}</textarea>
+    </div>
+
+    <div class="flex items-center gap-6">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="{{ form.is_reconcilable.html_name }}" {% if form.is_reconcilable.value %}checked{% endif %}
+          class="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary/30">
+        <span class="text-sm font-medium text-gray-700">Reconcilable</span>
+      </label>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Currency (leave blank for default)</label>
+        <input type="text" name="{{ form.currency.html_name }}" value="{{ form.currency.value|default:'' }}"
+          class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 w-24"
+          placeholder="KES">
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
+      <a href="{% url 'accounting:account_list' %}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>
+      <button type="submit" class="px-5 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
+        {{ action|default:"Save" }}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

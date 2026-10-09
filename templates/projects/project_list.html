@@ -1,0 +1,67 @@
+{% extends "base/base.html" %}
+{% block title %}Projects — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Projects</h1>
+    <p class="text-sm text-gray-500 mt-1">Track projects, tasks, and budgets</p>
+  </div>
+  <a href="{% url 'projects:project_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Project</a>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search projects..."
+           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <option value="">All Statuses</option>
+      {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Customer</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Budget</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Start Date</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Progress</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for project in projects %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'projects:project_detail' project.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ project.reference }}</a>
+        </td>
+        <td class="px-4 py-3 text-gray-900">{{ project.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ project.customer.name|default:"—" }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if project.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif project.status == 'COMPLETED' %}bg-blue-50 text-blue-700{% elif project.status == 'PLANNING' %}bg-amber-50 text-amber-700{% elif project.status == 'CANCELLED' %}bg-red-50 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ project.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ project.budget|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ project.start_date }}</td>
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <div class="flex-1 bg-gray-200 rounded-full h-1.5">
+              <div class="bg-green-500 h-1.5 rounded-full" style="width:{{ project.progress_percent }}%"></div>
+            </div>
+            <span class="text-xs text-gray-500">{{ project.progress_percent }}%</span>
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No projects. <a href="{% url 'projects:project_create' %}" style="color:var(--primary)" class="font-medium">Create first project</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

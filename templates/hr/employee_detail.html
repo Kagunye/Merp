@@ -1,0 +1,148 @@
+{% extends "base/base.html" %}
+{% block title %}{{ employee.full_name }} — HR — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'hr:employee_list' %}" class="hover:underline">Employees</a> / <span class="text-gray-900 font-medium">{{ employee.full_name }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">{{ employee.full_name }}</h1>
+    <p class="text-sm text-gray-500 mt-0.5">{{ employee.employee_number }} &bull; {{ employee.job_title|default:"No title" }}</p>
+  </div>
+  <span class="badge {% if employee.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif employee.status == 'TERMINATED' or employee.status == 'RESIGNED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm">
+    {{ employee.get_status_display }}
+  </span>
+</div>
+
+<!-- Tabs -->
+<div class="border-b border-gray-200 mb-6">
+  <nav class="flex gap-6 text-sm font-medium" id="emp-tabs">
+    <button onclick="showTab('personal')" class="tab-btn pb-3 border-b-2 text-gray-900" style="border-color:var(--primary)" data-tab="personal">Personal</button>
+    <button onclick="showTab('employment')" class="tab-btn pb-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-tab="employment">Employment</button>
+    <button onclick="showTab('leave')" class="tab-btn pb-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-tab="leave">Leave History</button>
+    <button onclick="showTab('payslips')" class="tab-btn pb-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-tab="payslips">Payslips</button>
+  </nav>
+</div>
+
+<div id="tab-personal" class="tab-content grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Personal Information</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">Gender</dt><dd class="text-gray-900">{{ employee.get_gender_display|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Date of Birth</dt><dd class="text-gray-900">{{ employee.date_of_birth|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">National ID</dt><dd class="text-gray-900">{{ employee.national_id|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Phone</dt><dd class="text-gray-900">{{ employee.phone|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Email</dt><dd class="text-gray-900">{{ employee.email|default:"—" }}</dd></div>
+    </dl>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Statutory Numbers</h2>
+    <dl class="grid grid-cols-1 gap-y-3 text-sm">
+      <div class="flex justify-between"><dt class="text-gray-500">KRA PIN</dt><dd class="text-gray-900">{{ employee.kra_pin|default:"—" }}</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500">NSSF</dt><dd class="text-gray-900">{{ employee.nssf_number|default:"—" }}</dd></div>
+      <div class="flex justify-between"><dt class="text-gray-500">NHIF/SHIF</dt><dd class="text-gray-900">{{ employee.nhif_number|default:"—" }}</dd></div>
+    </dl>
+  </div>
+</div>
+
+<div id="tab-employment" class="tab-content hidden bg-white rounded-xl border border-gray-200 p-6">
+  <h2 class="text-base font-semibold text-gray-900 mb-4">Employment Information</h2>
+  <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+    <div><dt class="text-gray-500">Date Hired</dt><dd class="text-gray-900">{{ employee.date_hired }}</dd></div>
+    <div><dt class="text-gray-500">Date Terminated</dt><dd class="text-gray-900">{{ employee.date_terminated|default:"—" }}</dd></div>
+    <div><dt class="text-gray-500">Department</dt><dd class="text-gray-900">{{ employee.department.name|default:"—" }}</dd></div>
+    <div><dt class="text-gray-500">Branch</dt><dd class="text-gray-900">{{ employee.branch.name|default:"—" }}</dd></div>
+    <div><dt class="text-gray-500">Reports To</dt><dd class="text-gray-900">{{ employee.reports_to.full_name|default:"—" }}</dd></div>
+    <div><dt class="text-gray-500">Bank</dt><dd class="text-gray-900">{{ employee.bank_name|default:"—" }}</dd></div>
+    <div><dt class="text-gray-500">Bank Account</dt><dd class="text-gray-900">{{ employee.bank_account_number|default:"—" }}</dd></div>
+  </dl>
+  {% if contracts %}
+  <h3 class="text-sm font-semibold text-gray-900 mt-6 mb-3">Contract History</h3>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50"><tr>
+      <th class="px-3 py-2 text-left font-semibold text-gray-700">Type</th>
+      <th class="px-3 py-2 text-right font-semibold text-gray-700">Basic Salary</th>
+      <th class="px-3 py-2 text-left font-semibold text-gray-700">Start</th>
+      <th class="px-3 py-2 text-left font-semibold text-gray-700">End</th>
+    </tr></thead>
+    <tbody>{% for c in contracts %}<tr class="border-t border-gray-100">
+      <td class="px-3 py-2">{{ c.get_contract_type_display }}</td>
+      <td class="px-3 py-2 text-right font-mono">{{ c.basic_salary|floatformat:2 }}</td>
+      <td class="px-3 py-2">{{ c.start_date }}</td>
+      <td class="px-3 py-2">{{ c.end_date|default:"Ongoing" }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div id="tab-leave" class="tab-content hidden bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200 flex justify-between">
+    <h2 class="text-base font-semibold text-gray-900">Leave History</h2>
+    <a href="{% url 'hr:leave_create' %}" class="text-sm font-medium" style="color:var(--primary)">+ Request Leave</a>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50"><tr>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Start</th>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">End</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Days</th>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for lr in leave_requests %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 text-gray-900">{{ lr.leave_type.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ lr.start_date }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ lr.end_date }}</td>
+        <td class="px-4 py-3 text-right text-gray-900">{{ lr.days_requested }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if lr.status == 'APPROVED' %}bg-green-50 text-green-700{% elif lr.status == 'PENDING' %}bg-amber-50 text-amber-700{% elif lr.status == 'REJECTED' %}bg-red-50 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ lr.get_status_display }}
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No leave requests.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div id="tab-payslips" class="tab-content hidden bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Payslips</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50"><tr>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Period</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Gross</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Deductions</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Net</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for ps in payslips %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 text-gray-900">{{ ps.payroll_run.period_start }} to {{ ps.payroll_run.period_end }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">No payslips.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.remove('text-gray-900');
+    btn.classList.add('text-gray-500', 'border-transparent');
+    btn.style.borderColor = 'transparent';
+  });
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  const btn = document.querySelector('[data-tab="' + name + '"]');
+  btn.classList.add('text-gray-900');
+  btn.classList.remove('text-gray-500', 'border-transparent');
+  btn.style.borderColor = 'var(--primary)';
+}
+</script>
+{% endblock %}

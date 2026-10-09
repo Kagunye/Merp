@@ -1,0 +1,93 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Manage customer relationships</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'crm:supplier_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Suppliers</a>
+      <a href="{% url 'crm:lead_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Leads</a>
+      <a href="{% url 'crm:customer_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Customer
+      </a>
+    </div>
+  </div>
+
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search name, email, phone..."
+      class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-64">
+    <select name="type" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+      <option value="">All Types</option>
+      {% for val, label in customer_types %}
+        <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
+    {% if q or selected_type %}<a href="{% url 'crm:customer_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>{% endif %}
+  </form>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Customer</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Contact</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Location</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Credit Limit</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Outstanding</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for customer in customers %}
+        <tr class="hover:bg-gray-50/50 group">
+          <td class="px-4 py-3">
+            <a href="{% url 'crm:customer_detail' customer.pk %}" class="font-medium text-gray-900 hover:text-primary">{{ customer.name }}</a>
+            {% if customer.tax_id %}<div class="text-xs text-gray-400">Tax ID: {{ customer.tax_id }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <span class="badge {% if customer.customer_type == 'BUSINESS' %}bg-blue-50 text-blue-700{% elif customer.customer_type == 'GOVERNMENT' %}bg-purple-50 text-purple-700{% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ customer.get_customer_type_display }}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            {% if customer.phone %}<div class="text-gray-700">{{ customer.phone }}</div>{% endif %}
+            {% if customer.email %}<div class="text-gray-500 text-xs">{{ customer.email }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-500 text-xs">{{ customer.city }}{% if customer.city and customer.country %}, {% endif %}{{ customer.country }}</td>
+          <td class="px-4 py-3 text-right font-mono text-gray-700">{{ customer.credit_limit|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono {% if customer.outstanding_balance > 0 %}font-semibold text-orange-600{% else %}text-gray-400{% endif %}">
+            {% if customer.outstanding_balance > 0 %}{{ customer.outstanding_balance|floatformat:2 }}{% else %}—{% endif %}
+          </td>
+          <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100 space-x-1">
+            <a href="{% url 'crm:customer_detail' customer.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">View</a>
+            <a href="{% url 'crm:customer_edit' customer.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">Edit</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="px-4 py-12 text-center">
+            <p class="text-gray-500">No customers found.</p>
+            <a href="{% url 'crm:customer_create' %}" class="text-sm text-primary hover:underline mt-1 block">Add your first customer</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <div class="flex items-center justify-between text-sm text-gray-500">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div class="flex gap-1">
+      {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Prev</a>{% endif %}
+      {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Next</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

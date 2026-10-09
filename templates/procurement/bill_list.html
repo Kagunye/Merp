@@ -1,0 +1,61 @@
+{% extends "base/base.html" %}
+{% block title %}Supplier Bills — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Supplier Bills</h1>
+    <p class="text-sm text-gray-500 mt-1">Manage supplier invoices and payments</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Purchase Orders</a>
+    <a href="{% url 'procurement:bill_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Bill</a>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search reference or supplier..."
+           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <option value="">All Statuses</option>
+      {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Supplier</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Bill Date</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Due Date</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Outstanding</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for bill in bills %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3"><a href="{% url 'procurement:bill_detail' bill.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ bill.reference }}</a></td>
+        <td class="px-4 py-3 text-gray-900">{{ bill.supplier.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ bill.bill_date }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ bill.due_date }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ bill.total_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono {% if bill.outstanding_amount > 0 %}text-red-600{% else %}text-gray-400{% endif %}">{{ bill.outstanding_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if bill.status == 'PAID' %}bg-green-50 text-green-700{% elif bill.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif bill.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif bill.status == 'PARTIAL' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %}">
+            {{ bill.get_status_display }}
+          </span>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No bills. <a href="{% url 'procurement:bill_create' %}" style="color:var(--primary)" class="font-medium">Add first bill</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

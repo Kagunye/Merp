@@ -1,0 +1,61 @@
+{% extends "base/base.html" %}
+{% block title %}Aged Creditors — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Aged Creditors</h1>
+    <p class="text-sm text-gray-500 mt-1">As at {{ today }}</p>
+  </div>
+  <a href="{% url 'reporting:index' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  {% for bucket, total in totals.items %}
+  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+    <p class="text-sm text-gray-500">{{ bucket }} days</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }}</p>
+  </div>
+  {% endfor %}
+</div>
+<div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex justify-between items-center">
+  <span class="text-sm font-semibold text-red-900">Total Outstanding</span>
+  <span class="text-xl font-bold text-red-900">{{ grand_total|floatformat:2 }}</span>
+</div>
+
+{% for bucket, bills in buckets.items %}
+{% if bills %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+  <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+    <h3 class="text-sm font-semibold text-gray-700">{{ bucket }} Days Overdue</h3>
+    <span class="font-mono font-semibold text-gray-900">{{ totals|get_item:bucket|floatformat:2 }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Bill</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Supplier</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Bill Date</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Due Date</th>
+        <th class="px-4 py-2 text-right font-semibold text-gray-700">Outstanding</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for bill in bills %}
+      <tr>
+        <td class="px-4 py-2 text-gray-900">{{ bill.reference }}</td>
+        <td class="px-4 py-2 text-gray-900">{{ bill.supplier.name }}</td>
+        <td class="px-4 py-2 text-gray-600">{{ bill.bill_date }}</td>
+        <td class="px-4 py-2 text-gray-600">{{ bill.due_date }}</td>
+        <td class="px-4 py-2 text-right font-mono text-red-600">{{ bill.outstanding_amount|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endfor %}
+
+{% if not grand_total %}
+<div class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">No outstanding bills.</div>
+{% endif %}
+{% endblock %}

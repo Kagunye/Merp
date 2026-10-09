@@ -1,0 +1,83 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">All stock in/out transactions</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'inventory:product_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Products</a>
+      <a href="{% url 'inventory:adjustment_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Adjustment
+      </a>
+    </div>
+  </div>
+
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search product or reference..."
+      class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-64">
+    <select name="type" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+      <option value="">All Types</option>
+      {% for val, label in movement_types %}
+        <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
+    {% if q or selected_type %}<a href="{% url 'inventory:movement_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>{% endif %}
+  </form>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Product</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Warehouse</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Qty</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Unit Cost</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Total</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for mv in movements %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3 text-gray-600">{{ mv.movement_date|date:"d M Y" }}</td>
+          <td class="px-4 py-3">
+            <a href="{% url 'inventory:product_detail' mv.product.pk %}" class="font-medium text-gray-900 hover:text-primary">{{ mv.product.name }}</a>
+            <div class="text-xs text-gray-400 font-mono">{{ mv.product.sku }}</div>
+          </td>
+          <td class="px-4 py-3">
+            <span class="badge {% if 'RECEIPT' in mv.movement_type or 'IN' in mv.movement_type or 'PLUS' in mv.movement_type or mv.movement_type == 'OPENING' %}bg-green-50 text-green-700{% else %}bg-red-50 text-red-700{% endif %}">
+              {{ mv.get_movement_type_display }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-gray-600 text-xs">{{ mv.warehouse.name }}</td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ mv.quantity|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono text-gray-600">{{ mv.unit_cost|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ mv.total_cost|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-xs text-gray-400">{{ mv.reference|default:"" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="8" class="px-4 py-12 text-center text-gray-500">No movements found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <div class="flex items-center justify-between text-sm text-gray-500">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div class="flex gap-1">
+      {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Prev</a>{% endif %}
+      {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Next</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

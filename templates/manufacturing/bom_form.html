@@ -1,0 +1,59 @@
+{% extends "base/base.html" %}
+{% block title %}New BOM — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+  <a href="{% url 'manufacturing:bom_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</a>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <div class="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 class="text-base font-semibold text-gray-900 mb-4">BOM Details</h2>
+      <div class="space-y-4">
+        {% for field in form %}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}</label>
+          {{ field }}
+          {% if field.errors %}<p class="text-red-500 text-xs mt-1">{{ field.errors|join:", " }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Components Table -->
+  <div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Components</h2>
+    {{ line_formset.management_form }}
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-3 py-2 text-left font-semibold text-gray-700">Component</th>
+          <th class="px-3 py-2 text-left font-semibold text-gray-700">Quantity</th>
+          <th class="px-3 py-2 text-left font-semibold text-gray-700">UOM</th>
+          <th class="px-3 py-2 text-left font-semibold text-gray-700">Scrap %</th>
+          <th class="px-3 py-2 text-center font-semibold text-gray-700">Del</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lform in line_formset %}
+        <tr class="border-t border-gray-100">
+          <td class="px-3 py-2">{{ lform.id }}{{ lform.component }}</td>
+          <td class="px-3 py-2">{{ lform.quantity }}</td>
+          <td class="px-3 py-2">{{ lform.unit_of_measure }}</td>
+          <td class="px-3 py-2">{{ lform.scrap_percent }}</td>
+          <td class="px-3 py-2 text-center">{{ lform.DELETE }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex gap-3">
+    <button type="submit" class="px-6 py-2.5 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Save BOM</button>
+    <a href="{% url 'manufacturing:bom_list' %}" class="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</a>
+  </div>
+</form>
+{% endblock %}

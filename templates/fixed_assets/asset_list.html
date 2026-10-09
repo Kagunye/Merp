@@ -1,0 +1,83 @@
+{% extends "base/base.html" %}
+{% block title %}Fixed Assets — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Fixed Assets Register</h1>
+    <p class="text-sm text-gray-500 mt-1">Track assets, depreciation schedules and disposals</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{% url 'fixed_assets:category_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Categories</a>
+    <a href="{% url 'fixed_assets:asset_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Asset</a>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search code or name..."
+           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <option value="">All Statuses</option>
+      {% for val, label in status_choices %}
+      <option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
+    {% if q or status_filter %}<a href="{% url 'fixed_assets:asset_list' %}" class="px-4 py-2 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Category</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Cost</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Accum. Depr.</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Book Value</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Purchase Date</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for asset in assets %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'fixed_assets:asset_detail' asset.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ asset.code }}</a>
+        </td>
+        <td class="px-4 py-3 text-gray-900">{{ asset.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ asset.category.name|default:"—" }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ asset.purchase_cost|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ asset.accumulated_depreciation|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ asset.book_value|floatformat:2 }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if asset.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif asset.status == 'DISPOSED' %}bg-gray-100 text-gray-600{% elif asset.status == 'WRITTEN_OFF' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
+            {{ asset.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-600">{{ asset.purchase_date }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8" class="px-4 py-12 text-center text-gray-400">
+          No assets found. <a href="{% url 'fixed_assets:asset_create' %}" style="color:var(--primary)" class="font-medium">Add first asset</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page_obj.has_other_pages %}
+<div class="flex items-center justify-between mt-4">
+  <p class="text-sm text-gray-500">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</p>
+  <div class="flex gap-1">
+    {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Prev</a>{% endif %}
+    {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Next</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

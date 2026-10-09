@@ -1,0 +1,107 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        {{ total_products }} products
+        {% if low_stock_count > 0 %}· <span class="text-orange-600 font-medium">{{ low_stock_count }} low stock</span>{% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'inventory:movement_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Movements</a>
+      <a href="{% url 'inventory:product_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Product
+      </a>
+    </div>
+  </div>
+
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search SKU or name..."
+      class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-64">
+    <select name="type" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+      <option value="">All Types</option>
+      {% for val, label in product_types %}
+        <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
+    {% if q or selected_type %}<a href="{% url 'inventory:product_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>{% endif %}
+  </form>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">SKU</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Product Name</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Category</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Cost</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Price</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Stock</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for product in products %}
+        {% with stock=product.total_stock %}
+        <tr class="hover:bg-gray-50/50 group">
+          <td class="px-4 py-3">
+            <span class="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{{ product.sku }}</span>
+          </td>
+          <td class="px-4 py-3">
+            <a href="{% url 'inventory:product_detail' product.pk %}" class="font-medium text-gray-900 hover:text-primary">{{ product.name }}</a>
+          </td>
+          <td class="px-4 py-3 text-gray-500 text-xs">{{ product.category.name|default:"—" }}</td>
+          <td class="px-4 py-3">
+            <span class="badge {% if product.product_type == 'GOODS' %}bg-blue-50 text-blue-700{% elif product.product_type == 'SERVICE' %}bg-purple-50 text-purple-700{% else %}bg-orange-50 text-orange-700{% endif %}">
+              {{ product.get_product_type_display }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-right font-mono text-gray-600">{{ product.cost_price|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ product.selling_price|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right">
+            {% if not product.track_inventory %}
+              <span class="text-gray-400 text-xs">N/A</span>
+            {% else %}
+              <span class="font-mono font-semibold {% if stock <= product.reorder_level %}text-orange-600{% else %}text-gray-900{% endif %}">
+                {{ stock|floatformat:0 }}
+              </span>
+              <span class="text-xs text-gray-400 ml-1">{{ product.unit_of_measure }}</span>
+              {% if stock <= product.reorder_level %}
+                <span class="text-orange-500 ml-1" title="Low stock">&#9888;</span>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100 space-x-1">
+            <a href="{% url 'inventory:product_detail' product.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">View</a>
+            <a href="{% url 'inventory:product_edit' product.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">Edit</a>
+          </td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+        <tr>
+          <td colspan="8" class="px-4 py-12 text-center">
+            <p class="text-gray-500">No products found.</p>
+            <a href="{% url 'inventory:product_create' %}" class="text-sm text-primary hover:underline mt-1 block">Add your first product</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <div class="flex items-center justify-between text-sm text-gray-500">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div class="flex gap-1">
+      {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Prev</a>{% endif %}
+      {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Next</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

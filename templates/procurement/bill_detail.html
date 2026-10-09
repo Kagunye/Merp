@@ -1,0 +1,38 @@
+{% extends "base/base.html" %}
+{% block title %}{{ bill.reference }} — Procurement — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'procurement:bill_list' %}" class="hover:underline">Bills</a> / <span class="text-gray-900 font-medium">{{ bill.reference }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">Bill: {{ bill.reference }}</h1>
+  </div>
+  <span class="badge {% if bill.status == 'PAID' %}bg-green-50 text-green-700{% elif bill.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif bill.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif bill.status == 'PARTIAL' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
+    {{ bill.get_status_display }}
+  </span>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Bill Details</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">Supplier</dt><dd class="font-medium text-gray-900">{{ bill.supplier.name }}</dd></div>
+      <div><dt class="text-gray-500">Supplier Ref</dt><dd class="text-gray-900">{{ bill.supplier_reference|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Bill Date</dt><dd class="text-gray-900">{{ bill.bill_date }}</dd></div>
+      <div><dt class="text-gray-500">Due Date</dt><dd class="text-gray-900">{{ bill.due_date }}</dd></div>
+      {% if bill.purchase_order %}<div class="col-span-2"><dt class="text-gray-500">Purchase Order</dt><dd><a href="{% url 'procurement:po_detail' bill.purchase_order.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.purchase_order.reference }}</a></dd></div>{% endif %}
+      {% if bill.journal_entry %}<div class="col-span-2"><dt class="text-gray-500">Journal Entry</dt><dd><a href="{% url 'accounting:journal_entry_detail' bill.journal_entry.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.journal_entry.reference }}</a></dd></div>{% endif %}
+    </dl>
+    {% if bill.notes %}<p class="text-sm text-gray-600 mt-4">{{ bill.notes }}</p>{% endif %}
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Financials</h2>
+    <div class="space-y-3 text-sm">
+      <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span class="font-mono">{{ bill.subtotal|floatformat:2 }}</span></div>
+      <div class="flex justify-between"><span class="text-gray-500">Tax</span><span class="font-mono">{{ bill.tax_amount|floatformat:2 }}</span></div>
+      <div class="flex justify-between font-bold border-t border-gray-100 pt-2"><span>Total</span><span class="font-mono text-gray-900">{{ bill.total_amount|floatformat:2 }}</span></div>
+      <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono text-green-700">{{ bill.paid_amount|floatformat:2 }}</span></div>
+      <div class="flex justify-between font-bold"><span>Outstanding</span><span class="font-mono text-red-600">{{ bill.outstanding_amount|floatformat:2 }}</span></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

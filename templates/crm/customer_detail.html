@@ -1,0 +1,84 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="{% url 'crm:customer_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      </a>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-xl font-bold text-gray-900">{{ customer.name }}</h1>
+          <span class="badge {% if customer.customer_type == 'BUSINESS' %}bg-blue-50 text-blue-700{% elif customer.customer_type == 'GOVERNMENT' %}bg-purple-50 text-purple-700{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ customer.get_customer_type_display }}
+          </span>
+        </div>
+        <p class="text-sm text-gray-500 mt-0.5">{{ customer.city }}{% if customer.city and customer.country %}, {% endif %}{{ customer.country }}</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'sales:invoice_create' %}?customer={{ customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">New Invoice</a>
+      <a href="{% url 'crm:customer_edit' customer.pk %}" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Edit</a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-3 gap-5">
+    <!-- Contact card -->
+    <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <h3 class="font-semibold text-gray-800">Contact</h3>
+      <div class="space-y-2 text-sm">
+        {% if customer.phone %}<div class="flex items-center gap-2 text-gray-700"><svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>{{ customer.phone }}</div>{% endif %}
+        {% if customer.email %}<div class="flex items-center gap-2 text-gray-700"><svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>{{ customer.email }}</div>{% endif %}
+        {% if customer.full_address %}<div class="text-gray-500 text-xs leading-relaxed">{{ customer.full_address }}</div>{% endif %}
+      </div>
+      <div class="pt-3 border-t border-gray-100 space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-gray-500">Tax ID</span><span class="font-mono text-xs text-gray-700">{{ customer.tax_id|default:"—" }}</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Payment Terms</span><span class="text-gray-700">{{ customer.payment_terms_days }} days</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Credit Limit</span><span class="font-mono text-gray-700">{{ customer.credit_limit|floatformat:2 }}</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Outstanding</span><span class="font-mono font-semibold {% if customer.outstanding_balance > 0 %}text-orange-600{% else %}text-gray-700{% endif %}">{{ customer.outstanding_balance|floatformat:2 }}</span></div>
+      </div>
+    </div>
+
+    <!-- Invoices -->
+    <div class="col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h3 class="font-semibold text-gray-800">Recent Invoices</h3>
+        <a href="{% url 'sales:invoice_create' %}" class="text-xs text-primary hover:underline">+ New Invoice</a>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50/50 border-b border-gray-100">
+            <th class="text-left px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Reference</th>
+            <th class="text-left px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Amount</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Outstanding</th>
+            <th class="text-center px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for inv in invoices %}
+          <tr class="hover:bg-gray-50/50">
+            <td class="px-4 py-2.5"><a href="{% url 'sales:invoice_detail' inv.pk %}" class="font-mono font-semibold text-primary hover:underline">{{ inv.reference }}</a></td>
+            <td class="px-4 py-2.5 text-gray-600">{{ inv.invoice_date|date:"d M Y" }}</td>
+            <td class="px-4 py-2.5 text-right font-mono text-gray-900">{{ inv.total_amount|floatformat:2 }}</td>
+            <td class="px-4 py-2.5 text-right font-mono {% if inv.outstanding_amount > 0 %}text-orange-600 font-semibold{% else %}text-gray-400{% endif %}">
+              {% if inv.outstanding_amount > 0 %}{{ inv.outstanding_amount|floatformat:2 }}{% else %}—{% endif %}
+            </td>
+            <td class="px-4 py-2.5 text-center"><span class="badge {% if inv.status == 'PAID' %}bg-green-50 text-green-700{% elif inv.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif inv.status == 'PARTIAL' %}bg-blue-50 text-blue-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ inv.get_status_display }}</span></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400 text-sm">No invoices yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if customer.notes %}
+  <div class="bg-white rounded-xl border border-gray-200 p-4">
+    <h3 class="font-semibold text-gray-800 mb-2 text-sm">Notes</h3>
+    <p class="text-sm text-gray-600">{{ customer.notes }}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

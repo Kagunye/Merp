@@ -1,0 +1,72 @@
+{% extends "base/base.html" %}
+{% block title %}Reports — MERP ERP{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Reports</h1>
+  <p class="text-sm text-gray-500 mt-1">Financial reports and analytics</p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+  <a href="{% url 'reporting:trial_balance' %}" class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-card-hover transition-shadow">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style="background:#FFF1F2">
+      <svg class="w-5 h-5" style="color:var(--primary)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+      </svg>
+    </div>
+    <h3 class="font-semibold text-gray-900">Trial Balance</h3>
+    <p class="text-sm text-gray-500 mt-1">All account debit/credit balances</p>
+  </a>
+
+  <a href="{% url 'reporting:profit_loss' %}" class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-card-hover transition-shadow">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style="background:#F0FDF4">
+      <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+      </svg>
+    </div>
+    <h3 class="font-semibold text-gray-900">Profit & Loss</h3>
+    <p class="text-sm text-gray-500 mt-1">Revenue, costs, and net profit</p>
+  </a>
+
+  <a href="{% url 'reporting:balance_sheet' %}" class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-card-hover transition-shadow">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-blue-50">
+      <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/>
+      </svg>
+    </div>
+    <h3 class="font-semibold text-gray-900">Balance Sheet</h3>
+    <p class="text-sm text-gray-500 mt-1">Assets, liabilities & equity</p>
+  </a>
+
+  <a href="{% url 'reporting:aged_debtors' %}" class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-card-hover transition-shadow">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-amber-50">
+      <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+    </div>
+    <h3 class="font-semibold text-gray-900">Aged Debtors</h3>
+    <p class="text-sm text-gray-500 mt-1">Outstanding customer invoices by age</p>
+  </a>
+
+  <a href="{% url 'reporting:aged_creditors' %}" class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-card-hover transition-shadow">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-red-50">
+      <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+      </svg>
+    </div>
+    <h3 class="font-semibold text-gray-900">Aged Creditors</h3>
+    <p class="text-sm text-gray-500 mt-1">Outstanding supplier bills by age</p>
+  </a>
+
+  <a href="{% url 'reporting:cash_flow' %}" class="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-card-hover transition-shadow">
+    <div class="w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-purple-50">
+      <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+      </svg>
+    </div>
+    <h3 class="font-semibold text-gray-900">Cash Flow</h3>
+    <p class="text-sm text-gray-500 mt-1">Cash inflows and outflows summary</p>
+  </a>
+
+</div>
+{% endblock %}

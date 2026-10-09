@@ -1,0 +1,57 @@
+{% extends "base/base.html" %}
+{% block title %}Bills of Materials — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Bills of Materials</h1>
+    <p class="text-sm text-gray-500 mt-1">Define product recipes and component requirements</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{% url 'manufacturing:work_order_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Work Orders</a>
+    <a href="{% url 'manufacturing:bom_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New BOM</a>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search BOMs..."
+           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Search</button>
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Product</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Version</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Qty Produced</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Components</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for bom in boms %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'manufacturing:bom_detail' bom.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ bom.name }}</a>
+        </td>
+        <td class="px-4 py-3 text-gray-900">{{ bom.product.name }}</td>
+        <td class="px-4 py-3 text-gray-600">v{{ bom.version }}</td>
+        <td class="px-4 py-3 text-right text-gray-900">{{ bom.production_quantity }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if bom.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif bom.status == 'DRAFT' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ bom.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-right text-gray-600">{{ bom.lines.count }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No BOMs found. <a href="{% url 'manufacturing:bom_create' %}" style="color:var(--primary)" class="font-medium">Create first BOM</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="{% url 'inventory:product_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+      </a>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-xl font-bold text-gray-900">{{ product.name }}</h1>
+          <span class="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{{ product.sku }}</span>
+        </div>
+        <p class="text-sm text-gray-500 mt-0.5">{{ product.get_product_type_display }} · {{ product.category.name|default:"No category" }}</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'inventory:adjustment_create' %}?product={{ product.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Stock Adjustment</a>
+      <a href="{% url 'inventory:product_edit' product.pk %}" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Edit Product</a>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-cols-4 gap-4">
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Stock</p>
+      <p class="text-2xl font-bold text-gray-900 mt-1 font-mono">{{ product.total_stock|floatformat:2 }}</p>
+      <p class="text-xs text-gray-400 mt-0.5">{{ product.unit_of_measure }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Selling Price</p>
+      <p class="text-2xl font-bold text-gray-900 mt-1 font-mono">{{ product.selling_price|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Cost Price</p>
+      <p class="text-2xl font-bold text-gray-900 mt-1 font-mono">{{ product.cost_price|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Reorder Level</p>
+      <p class="text-2xl font-bold mt-1 font-mono {% if product.total_stock <= product.reorder_level %}text-orange-600{% else %}text-gray-900{% endif %}">{{ product.reorder_level|floatformat:2 }}</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-3 gap-5">
+    <!-- Stock by warehouse -->
+    <div class="col-span-1 bg-white rounded-xl border border-gray-200">
+      <div class="px-4 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Stock by Warehouse</h3></div>
+      {% if stock_levels %}
+      <div class="divide-y divide-gray-50">
+        {% for sl in stock_levels %}
+        <div class="px-4 py-3 flex items-center justify-between">
+          <span class="text-sm text-gray-700">{{ sl.warehouse.name }}</span>
+          <div class="text-right">
+            <span class="font-mono font-semibold text-gray-900">{{ sl.quantity|floatformat:2 }}</span>
+            <span class="text-xs text-gray-400 ml-1">Avg: {{ sl.avg_cost|floatformat:2 }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="px-4 py-8 text-center text-sm text-gray-400">No stock records yet</div>
+      {% endif %}
+    </div>
+
+    <!-- Recent movements -->
+    <div class="col-span-2 bg-white rounded-xl border border-gray-200">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h3 class="font-semibold text-gray-800">Recent Movements</h3>
+        <a href="{% url 'inventory:movement_list' %}?q={{ product.sku }}" class="text-xs text-primary hover:underline">View all</a>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50/50 border-b border-gray-100">
+            <th class="text-left px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
+            <th class="text-left px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Qty</th>
+            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Unit Cost</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for mv in recent_movements %}
+          <tr>
+            <td class="px-4 py-2 text-gray-600">{{ mv.movement_date|date:"d M Y" }}</td>
+            <td class="px-4 py-2">
+              <span class="badge {% if 'RECEIPT' in mv.movement_type or 'IN' in mv.movement_type or mv.movement_type == 'OPENING' %}bg-green-50 text-green-700{% else %}bg-red-50 text-red-700{% endif %}">
+                {{ mv.get_movement_type_display }}
+              </span>
+            </td>
+            <td class="px-4 py-2 text-right font-mono">{{ mv.quantity|floatformat:2 }}</td>
+            <td class="px-4 py-2 text-right font-mono text-gray-600">{{ mv.unit_cost|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No movements recorded</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

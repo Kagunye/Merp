@@ -1,0 +1,61 @@
+{% extends "base/base.html" %}
+{% block title %}Work Orders — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Work Orders</h1>
+    <p class="text-sm text-gray-500 mt-1">Manage production runs</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="{% url 'manufacturing:bom_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Bills of Materials</a>
+    <a href="{% url 'manufacturing:work_order_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Work Order</a>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+  <form method="get" class="flex gap-3 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search reference or BOM..."
+           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+      <option value="">All Statuses</option>
+      {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
+  </form>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Product</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">BOM</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Planned Qty</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Actual Qty</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Planned Start</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for wo in work_orders %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3"><a href="{% url 'manufacturing:work_order_detail' wo.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ wo.reference }}</a></td>
+        <td class="px-4 py-3 text-gray-900">{{ wo.bom.product.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ wo.bom.name }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ wo.planned_quantity }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ wo.actual_quantity }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if wo.status == 'COMPLETED' %}bg-green-50 text-green-700{% elif wo.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif wo.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% elif wo.status == 'CANCELLED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
+            {{ wo.get_status_display }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-gray-600">{{ wo.planned_start }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No work orders. <a href="{% url 'manufacturing:work_order_create' %}" style="color:var(--primary)" class="font-medium">Create first work order</a></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

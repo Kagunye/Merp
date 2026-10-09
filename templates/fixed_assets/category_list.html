@@ -1,0 +1,35 @@
+{% extends "base/base.html" %}
+{% block title %}Asset Categories — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Asset Categories</h1>
+  <div class="flex gap-2">
+    <a href="{% url 'fixed_assets:asset_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Back to Assets</a>
+    <a href="{% url 'fixed_assets:category_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Category</a>
+  </div>
+</div>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Default Useful Life</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Depreciation Method</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Assets</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for cat in categories %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium text-gray-900">{{ cat.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ cat.default_useful_life }} years</td>
+        <td class="px-4 py-3 text-gray-600">{{ cat.get_default_depreciation_method_display }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ cat.assets.count }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-8 text-center text-gray-400">No categories yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

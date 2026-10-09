@@ -1,0 +1,41 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div><h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1></div>
+    <div class="flex gap-2">
+      <a href="{% url 'sales:invoice_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Invoices</a>
+      <a href="{% url 'sales:payment_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Record Payment
+      </a>
+    </div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Reference</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Customer</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Method</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Amount</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for p in payments %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3 font-mono font-semibold text-gray-700">{{ p.reference }}</td>
+          <td class="px-4 py-3 font-medium text-gray-900">{{ p.customer.name }}</td>
+          <td class="px-4 py-3 text-gray-600">{{ p.payment_date|date:"d M Y" }}</td>
+          <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-600">{{ p.get_payment_method_display }}</span></td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ p.amount|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-12 text-center text-gray-500">No payments recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base/base.html" %}
+{% block title %}New Payroll Run — MERP ERP{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+    <a href="{% url 'payroll:run_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</a>
+  </div>
+  <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm text-blue-800">
+    Creating this payroll run will automatically generate payslips for all active employees.
+  </div>
+  <form method="post" class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+    {% csrf_token %}
+    {% for field in form %}
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}</label>
+      {{ field }}
+      {% if field.errors %}<p class="text-red-500 text-xs mt-1">{{ field.errors|join:", " }}</p>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="flex gap-3 pt-2">
+      <button type="submit" class="px-6 py-2.5 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Generate Payroll</button>
+      <a href="{% url 'payroll:run_list' %}" class="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

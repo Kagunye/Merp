@@ -1,0 +1,77 @@
+{% extends "base/base.html" %}
+{% block title %}{{ bom.name }} — BOM — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'manufacturing:bom_list' %}" class="hover:underline">BOMs</a> / <span class="text-gray-900 font-medium">{{ bom.name }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">{{ bom.name }} <span class="text-lg text-gray-500 font-normal">v{{ bom.version }}</span></h1>
+  </div>
+  <a href="{% url 'manufacturing:work_order_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Create Work Order</a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">BOM Info</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">Finished Product</dt><dd class="font-medium text-gray-900">{{ bom.product.name }}</dd></div>
+      <div><dt class="text-gray-500">Status</dt><dd><span class="badge {% if bom.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif bom.status == 'DRAFT' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ bom.get_status_display }}</span></dd></div>
+      <div><dt class="text-gray-500">Produces</dt><dd class="text-gray-900">{{ bom.production_quantity }} {{ bom.product.unit_of_measure }}</dd></div>
+      <div><dt class="text-gray-500">Version</dt><dd class="text-gray-900">{{ bom.version }}</dd></div>
+    </dl>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+  <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Components</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Component</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">SKU</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Quantity</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">UOM</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Scrap %</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Effective Qty</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for line in lines %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium text-gray-900">{{ line.component.name }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ line.component.sku }}</td>
+        <td class="px-4 py-3 text-right text-gray-900">{{ line.quantity }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ line.unit_of_measure|default:line.component.unit_of_measure }}</td>
+        <td class="px-4 py-3 text-right text-gray-600">{{ line.scrap_percent }}%</td>
+        <td class="px-4 py-3 text-right font-medium text-gray-900">{{ line.effective_quantity }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No components defined.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Recent Work Orders</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50"><tr>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Planned Qty</th>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+      <th class="px-4 py-3 text-left font-semibold text-gray-700">Planned Start</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for wo in work_orders %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3"><a href="{% url 'manufacturing:work_order_detail' wo.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ wo.reference }}</a></td>
+        <td class="px-4 py-3 text-right text-gray-900">{{ wo.planned_quantity }}</td>
+        <td class="px-4 py-3"><span class="badge {% if wo.status == 'COMPLETED' %}bg-green-50 text-green-700{% elif wo.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif wo.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %}">{{ wo.get_status_display }}</span></td>
+        <td class="px-4 py-3 text-gray-600">{{ wo.planned_start }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">No work orders.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

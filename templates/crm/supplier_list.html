@@ -1,0 +1,60 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Manage supplier relationships</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'crm:customer_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Customers</a>
+      <a href="{% url 'crm:supplier_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Supplier
+      </a>
+    </div>
+  </div>
+
+  <form method="get" class="flex gap-3">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search supplier name or email..."
+      class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-64">
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Search</button>
+    {% if q %}<a href="{% url 'crm:supplier_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>{% endif %}
+  </form>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Supplier</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Contact</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Location</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Payment Terms</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for supplier in suppliers %}
+        <tr class="hover:bg-gray-50/50 group">
+          <td class="px-4 py-3">
+            <p class="font-medium text-gray-900">{{ supplier.name }}</p>
+            {% if supplier.tax_id %}<p class="text-xs text-gray-400">Tax ID: {{ supplier.tax_id }}</p>{% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if supplier.phone %}<div class="text-gray-700">{{ supplier.phone }}</div>{% endif %}
+            {% if supplier.email %}<div class="text-gray-500 text-xs">{{ supplier.email }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-500 text-xs">{{ supplier.city }}{% if supplier.city and supplier.country %}, {% endif %}{{ supplier.country }}</td>
+          <td class="px-4 py-3 text-right text-gray-700">{{ supplier.payment_terms_days }} days</td>
+          <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100">
+            <a href="{% url 'crm:supplier_edit' supplier.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">Edit</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-12 text-center text-gray-500">No suppliers found. <a href="{% url 'crm:supplier_create' %}" class="text-primary hover:underline">Add one</a></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
