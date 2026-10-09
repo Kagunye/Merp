@@ -1,0 +1,216 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create account — MERP ERP</title>
+  <script src="https://cdn.tailwindcss.com/3.4.4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@1,500;1,700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #C8102E; --primary-dark: #9B000E; --primary-tint: #FFF1F2;
+      --text: #0F172A; --text-muted: #6B7280; --border: #E5E7EB;
+      --surface: #FFFFFF; --surface-soft: #F6F7F9;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; margin: 0; background: #FFFFFF; color: var(--text); min-height: 100vh; }
+    .page { display: grid; grid-template-columns: 1fr; min-height: 100vh; }
+    @media (min-width: 1024px) { .page { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); } }
+
+    /* Hero column (left) */
+    .hero-col {
+      position: relative; overflow: hidden; display: none;
+      background:
+        radial-gradient(ellipse 70% 60% at 25% 30%, rgba(200,16,46,0.22) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 85%, rgba(200,16,46,0.18) 0%, transparent 55%),
+        linear-gradient(135deg, #0B0E17 0%, #1a0a12 55%, #2a0810 100%);
+    }
+    .hero-col::before {
+      content: ""; position: absolute; inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+      background-size: 28px 28px; opacity: 0.6; pointer-events: none;
+    }
+    @media (min-width: 1024px) { .hero-col { display: block; } }
+    .hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .hero-tint { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.45) 100%); }
+    .welcome-card {
+      position: absolute; left: 48px; bottom: 48px; max-width: 520px;
+      padding: 32px 34px; border-radius: 22px;
+      background: linear-gradient(160deg, rgba(10,12,20,0.78), rgba(28,8,14,0.82));
+      backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.08);
+      color: #fff; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    }
+    .welcome-card .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(255,255,255,0.65); margin-bottom: 10px; }
+    .welcome-card h2 { font-size: 32px; font-weight: 800; line-height: 1.15; letter-spacing: -0.015em; margin: 0 0 6px; }
+    .welcome-card .tagline { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 700; font-size: 26px; color: var(--primary); margin: 0 0 14px; }
+    .welcome-card p { font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.78); margin: 0; }
+
+    /* Form column */
+    .form-col { position: relative; display: flex; flex-direction: column; padding: 32px clamp(24px, 3.5vw, 48px); min-height: 100vh; background: var(--surface); }
+    .top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; gap: 12px; flex-wrap: wrap; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .brand-mark { width: 44px; height: 44px; border-radius: 12px; background: var(--primary); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(200,16,46,0.25); }
+    .brand-text .name { font-size: 15px; font-weight: 800; color: #111827; letter-spacing: -0.01em; }
+    .brand-text .tag { font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #9CA3AF; }
+    .top-link { font-size: 13.5px; color: #6B7280; }
+    .top-link a { color: var(--primary); font-weight: 600; text-decoration: none; }
+    .top-link a:hover { color: var(--primary-dark); }
+
+    .form-wrap { max-width: 420px; width: 100%; }
+    .form-wrap-center { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .eyebrow { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--primary); margin-bottom: 8px; }
+    .title { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; color: #0F172A; margin: 0; line-height: 1.15; }
+    .subtitle { font-size: 14px; color: var(--text-muted); margin: 6px 0 24px; }
+
+    form { display: flex; flex-direction: column; gap: 14px; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+    .field-input {
+      width: 100%; padding: 12px 14px; font-size: 14.5px;
+      border: 1.5px solid var(--border); border-radius: 11px;
+      outline: none; background: var(--surface-soft); color: #111827;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .field-input::placeholder { color: #9CA3AF; }
+    .field-input:focus { background: #fff; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(200,16,46,0.08); }
+    .field-input.error { border-color: #F87171; background: #FFF5F5; }
+    .field-error { font-size: 12.5px; color: #DC2626; margin-top: 4px; }
+
+    .terms-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #4B5563; }
+    .terms-row input { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; margin-top: 2px; }
+    .terms-row a { color: var(--primary); font-weight: 600; text-decoration: none; }
+    .terms-row a:hover { text-decoration: underline; }
+
+    .btn-primary {
+      width: 100%; padding: 13px 16px; font-size: 14.5px; font-weight: 600;
+      color: #fff; background: var(--primary); border: 1.5px solid var(--primary);
+      border-radius: 11px; cursor: pointer; margin-top: 4px;
+      box-shadow: 0 8px 20px rgba(200,16,46,0.22);
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+
+    .signin-line { text-align: center; margin-top: 22px; font-size: 13.5px; color: #6B7280; }
+    .signin-line a { color: var(--primary); font-weight: 600; margin-left: 4px; text-decoration: none; }
+    .signin-line a:hover { text-decoration: underline; }
+
+    .alert-error {
+      background: #FFF0F2; border: 1px solid #FECACA; border-radius: 10px;
+      padding: 10px 14px; font-size: 13px; color: #B91C1C; margin-bottom: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- LEFT: HERO -->
+    <aside class="hero-col" aria-hidden="true">
+      <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="hero-img" onerror="this.style.display='none'">
+      <div class="hero-tint"></div>
+      <div class="welcome-card">
+        <p class="eyebrow">Join MERP</p>
+        <h2>Run your whole business from one place.</h2>
+        <p class="tagline">Twaimarisha Biashara</p>
+        <p>Create a free account to get instant access to accounting, inventory, HR, payroll, sales and customers — in one unified suite.</p>
+      </div>
+    </aside>
+
+    <!-- RIGHT: FORM -->
+    <section class="form-col">
+      <header class="top-bar">
+        <a href="/" class="brand">
+          <div class="brand-mark">
+            <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <div class="name">MERP</div>
+            <div class="tag">Business Suite</div>
+          </div>
+        </a>
+        <div class="top-link">Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a></div>
+      </header>
+
+      <div class="form-wrap-center">
+        <div class="form-wrap">
+          <p class="eyebrow">Get started</p>
+          <h1 class="title">Create your account</h1>
+          <p class="subtitle">It takes less than a minute.</p>
+
+          {% if form.non_field_errors %}
+          <div class="alert-error">{{ form.non_field_errors }}</div>
+          {% endif %}
+
+          <form method="post" novalidate>
+            {% csrf_token %}
+
+            <div class="field-row">
+              <div>
+                <label for="id_first_name">First name</label>
+                <input type="text" name="first_name" id="id_first_name" value="{{ form.first_name.value|default:'' }}"
+                       placeholder="Jane" autocomplete="given-name" required
+                       class="field-input {% if form.first_name.errors %}error{% endif %}">
+                {% if form.first_name.errors %}<p class="field-error">{{ form.first_name.errors.0 }}</p>{% endif %}
+              </div>
+              <div>
+                <label for="id_last_name">Last name</label>
+                <input type="text" name="last_name" id="id_last_name" value="{{ form.last_name.value|default:'' }}"
+                       placeholder="Doe" autocomplete="family-name" required
+                       class="field-input {% if form.last_name.errors %}error{% endif %}">
+                {% if form.last_name.errors %}<p class="field-error">{{ form.last_name.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <div>
+              <label for="id_email">Work email</label>
+              <input type="email" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
+                     placeholder="you@company.com" autocomplete="email" required
+                     class="field-input {% if form.email.errors %}error{% endif %}">
+              {% if form.email.errors %}<p class="field-error">{{ form.email.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div>
+              <label for="id_phone">Phone (optional)</label>
+              <input type="tel" name="phone" id="id_phone" value="{{ form.phone.value|default:'' }}"
+                     placeholder="+254 ..." autocomplete="tel"
+                     class="field-input">
+            </div>
+
+            <div class="field-row">
+              <div>
+                <label for="id_password">Password</label>
+                <input type="password" name="password" id="id_password"
+                       placeholder="At least 8 characters" autocomplete="new-password" required
+                       class="field-input {% if form.password.errors %}error{% endif %}">
+                {% if form.password.errors %}<p class="field-error">{{ form.password.errors.0 }}</p>{% endif %}
+              </div>
+              <div>
+                <label for="id_password_confirm">Confirm password</label>
+                <input type="password" name="password_confirm" id="id_password_confirm"
+                       placeholder="Re-enter" autocomplete="new-password" required
+                       class="field-input {% if form.password_confirm.errors %}error{% endif %}">
+                {% if form.password_confirm.errors %}<p class="field-error">{{ form.password_confirm.errors.0 }}</p>{% endif %}
+              </div>
+            </div>
+
+            <label class="terms-row" for="id_terms_accepted">
+              <input type="checkbox" name="terms_accepted" id="id_terms_accepted" required>
+              <span>I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</span>
+            </label>
+            {% if form.terms_accepted.errors %}<p class="field-error">{{ form.terms_accepted.errors.0 }}</p>{% endif %}
+
+            <button type="submit" class="btn-primary">
+              Create account
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+          </form>
+
+          <p class="signin-line">Already have an account?<a href="{% url 'accounts:login' %}">Sign in</a></p>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

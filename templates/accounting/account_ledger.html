@@ -1,0 +1,32 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounting:general_ledger' as back %}
+{% include "_includes/page_header.html" with title=account.name subtitle=account.code|add:" · "|add:account.get_account_type_display back_url=back %}
+
+<form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
+  <div><label class="text-xs text-gray-500">From</label><input type="date" name="from" value="{{ from_date }}"></div>
+  <div><label class="text-xs text-gray-500">To</label><input type="date" name="to" value="{{ to_date }}"></div>
+  <button type="submit">Apply</button>
+</form>
+
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Total debit</div><div class="font-bold text-lg">{{ total_debit|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Total credit</div><div class="font-bold text-lg">{{ total_credit|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Closing balance</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }}</div></div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Debit</th><th class="px-4 py-3 text-right">Credit</th><th class="px-4 py-3 text-right">Balance</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      <tr class="bg-gray-50/50"><td colspan="5" class="px-4 py-2 text-xs text-gray-500 italic">Opening balance</td><td class="px-4 py-2 text-right font-semibold">{{ opening_balance|floatformat:2 }}</td></tr>
+      {% for r in rows %}
+      <tr><td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td><td class="px-4 py-2 font-mono text-xs">{{ r.reference }}</td><td class="px-4 py-2">{{ r.description|default:"—" }}</td><td class="px-4 py-2 text-right">{{ r.debit|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.credit|floatformat:2 }}</td><td class="px-4 py-2 text-right font-semibold">{{ r.balance|floatformat:2 }}</td></tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No posted entries for this period.</td></tr>
+      {% endfor %}
+      <tr class="bg-gray-50 font-semibold"><td colspan="3" class="px-4 py-3">Closing balance</td><td class="px-4 py-3 text-right">{{ total_debit|floatformat:2 }}</td><td class="px-4 py-3 text-right">{{ total_credit|floatformat:2 }}</td><td class="px-4 py-3 text-right" style="color: var(--primary);">{{ closing_balance|floatformat:2 }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

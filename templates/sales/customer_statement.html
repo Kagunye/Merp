@@ -1,0 +1,30 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'sales:invoice_list' as back %}
+{% include "_includes/page_header.html" with title=customer.name subtitle="Account statement" back_url=back %}
+
+<form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
+  <div><label class="text-xs text-gray-500">From</label><input type="date" name="from" value="{{ from_date }}"></div>
+  <div><label class="text-xs text-gray-500">To</label><input type="date" name="to" value="{{ to_date }}"></div>
+  <button type="submit">Apply</button>
+</form>
+
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_debit|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Received</div><div class="font-bold text-lg text-green-700">{{ total_credit|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Outstanding</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }}</div></div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Type</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Detail</th><th class="px-4 py-3 text-right">Debit</th><th class="px-4 py-3 text-right">Credit</th><th class="px-4 py-3 text-right">Balance</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in rows %}
+      <tr><td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td><td class="px-4 py-2">{{ r.type }}</td><td class="px-4 py-2 font-mono text-xs">{{ r.reference }}</td><td class="px-4 py-2 text-gray-500 text-xs">{{ r.detail }}</td><td class="px-4 py-2 text-right">{{ r.debit|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.credit|floatformat:2 }}</td><td class="px-4 py-2 text-right font-semibold">{{ r.balance|floatformat:2 }}</td></tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">Nothing in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

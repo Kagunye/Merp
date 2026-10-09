@@ -11,7 +11,7 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from .forms import AccountForm, JournalEntryForm, JournalEntryLineFormSet
-from .models import Account, JournalEntry
+from .models import Account, JournalEntry, JournalEntryLine
 
 
 class AccountListView(LoginRequiredMixin, ListView):
@@ -228,4 +228,69 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
         ctx["total_debit"] = total_dr
         ctx["total_credit"] = total_cr
         ctx["is_balanced"] = abs(total_dr - total_cr) < Decimal("0.01")
+        return ctx
+
+
+class AccountLedgerView(LoginRequiredMixin, TemplateView):
+    """General-ledger view for a single account: opening balance,
+    every posted line, running balance, closing balance."""
+    template_name = "accounting/account_ledger.html"
+
+    def get_context_data(self, **kwargs):
+        from datetime import date
+        ctx = super().get_context_data(**kwargs)
+        account = get_object_or_404(
+            Account, pk=kwargs["pk"], company=self.request.active_company,
+        )
+        start = self.request.GET.get("from") or ""
+        end = self.request.GET.get("to") or ""
+
+        lines = JournalEntryLine.objects.filter(
+            account=account, journal_entry__status="POSTED",
+        ).select_related("journal_entry").order_by(
+            "journal_entry__posting_date", "journal_entry__created_at", "id",
+        )
+        if start:
+            lines = lines.filter(journal_entry__posting_date__gte=start)
+        if end:
+            lines = lines.filter(journal_entry__posting_date__lte=end)
+
+        running = Decimal("0")
+        rows = []
+        for ln in lines:
+            running += (ln.debit_amount - ln.credit_amount)
+            rows.append({
+                "date": ln.journal_entry.posting_date,
+                "reference": ln.journal_entry.reference,
+                "description": ln.description or ln.journal_entry.narration,
+                "debit": ln.debit_amount,
+                "credit": ln.credit_amount,
+                "balance": running,
+            })
+
+        ctx["account"] = account
+        ctx["rows"] = rows
+        ctx["opening_balance"] = Decimal("0")
+        ctx["closing_balance"] = running
+        ctx["total_debit"] = sum(r["debit"] for r in rows)
+        ctx["total_credit"] = sum(r["credit"] for r in rows)
+        ctx["from_date"] = start
+        ctx["to_date"] = end
+        return ctx
+
+
+class GeneralLedgerIndexView(LoginRequiredMixin, TemplateView):
+    """Chart-of-accounts tree grouped by account type with current balances."""
+    template_name = "accounting/general_ledger.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        accounts = Account.objects.filter(company=company, is_active=True).order_by("code")
+        buckets = {}
+        for a in accounts:
+            buckets.setdefault(a.get_account_type_display(), []).append(a)
+        ctx["buckets"] = buckets
         return ctx

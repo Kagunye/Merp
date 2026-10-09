@@ -12,4 +12,6 @@ urlpatterns = [
     path("invoices/<uuid:pk>/post/", views.InvoicePostView.as_view(), name="invoice_post"),
     path("payments/", views.CustomerPaymentListView.as_view(), name="payment_list"),
     path("payments/new/", views.CustomerPaymentCreateView.as_view(), name="payment_create"),
+    path("statements/<uuid:pk>/", views.CustomerStatementView.as_view(), name="customer_statement"),
+    path("aging/", views.ARAgingView.as_view(), name="ar_aging"),
 ]

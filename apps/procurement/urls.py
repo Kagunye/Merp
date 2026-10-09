@@ -11,4 +11,6 @@ urlpatterns = [
     path("orders/", views.PurchaseOrderListView.as_view(), name="po_list"),
     path("orders/new/", views.PurchaseOrderCreateView.as_view(), name="po_create"),
     path("orders/<uuid:pk>/", views.PurchaseOrderDetailView.as_view(), name="po_detail"),
+    path("statements/<uuid:pk>/", views.SupplierStatementView.as_view(), name="supplier_statement"),
+    path("aging/", views.APAgingView.as_view(), name="ap_aging"),
 ]

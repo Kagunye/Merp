@@ -218,3 +218,87 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Record Payment"
         return ctx
+
+
+class CustomerStatementView(LoginRequiredMixin, TemplateView):
+    """Full AR statement for a single customer — opening balance,
+    invoices, payments, closing balance within a date range."""
+    template_name = "sales/customer_statement.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        from apps.crm.models import Customer
+        from .models import CustomerPayment, Invoice
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        customer = get_object_or_404(Customer, pk=kwargs["pk"], company=company)
+        start = self.request.GET.get("from") or ""
+        end = self.request.GET.get("to") or ""
+
+        invs = Invoice.objects.filter(customer=customer, status__in=["SENT", "PARTIAL", "PAID"])
+        pays = CustomerPayment.objects.filter(customer=customer)
+        if start:
+            invs = invs.filter(invoice_date__gte=start)
+            pays = pays.filter(payment_date__gte=start)
+        if end:
+            invs = invs.filter(invoice_date__lte=end)
+            pays = pays.filter(payment_date__lte=end)
+
+        rows = []
+        for i in invs:
+            rows.append({"date": i.invoice_date, "type": "Invoice", "reference": i.reference,
+                         "debit": i.total_amount, "credit": Decimal("0"), "detail": "Invoice"})
+        for p in pays:
+            rows.append({"date": p.payment_date, "type": "Payment", "reference": p.reference,
+                         "debit": Decimal("0"), "credit": p.amount, "detail": p.get_payment_method_display() if hasattr(p, 'get_payment_method_display') else "Payment"})
+        rows.sort(key=lambda r: r["date"])
+        running = Decimal("0")
+        for r in rows:
+            running += r["debit"] - r["credit"]
+            r["balance"] = running
+
+        ctx["customer"] = customer
+        ctx["rows"] = rows
+        ctx["total_debit"] = sum(r["debit"] for r in rows)
+        ctx["total_credit"] = sum(r["credit"] for r in rows)
+        ctx["closing_balance"] = running
+        ctx["from_date"] = start
+        ctx["to_date"] = end
+        return ctx
+
+
+class ARAgingView(LoginRequiredMixin, TemplateView):
+    """AR aging bucket summary across all customers."""
+    template_name = "sales/ar_aging.html"
+
+    def get_context_data(self, **kwargs):
+        from datetime import date, timedelta
+        from decimal import Decimal
+        from apps.crm.models import Customer
+        from .models import Invoice
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        today = date.today()
+        buckets = {"current": Decimal(0), "d30": Decimal(0), "d60": Decimal(0), "d90": Decimal(0), "d120": Decimal(0)}
+        rows = []
+        for cust in Customer.objects.filter(company=company):
+            per = {"customer": cust, "current": Decimal(0), "d30": Decimal(0), "d60": Decimal(0), "d90": Decimal(0), "d120": Decimal(0), "total": Decimal(0)}
+            for inv in Invoice.objects.filter(customer=cust, status__in=["SENT", "PARTIAL"]):
+                out = inv.outstanding_amount
+                due = inv.due_date or inv.invoice_date
+                age = (today - due).days
+                if age <= 0: key = "current"
+                elif age <= 30: key = "d30"
+                elif age <= 60: key = "d60"
+                elif age <= 90: key = "d90"
+                else: key = "d120"
+                per[key] += out
+                per["total"] += out
+                buckets[key] += out
+            if per["total"] > 0:
+                rows.append(per)
+        ctx["rows"] = rows
+        ctx["buckets"] = buckets
+        return ctx

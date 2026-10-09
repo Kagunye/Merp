@@ -1,0 +1,27 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="General Ledger" subtitle="Chart of accounts organised by type with live balances" action_label="Trial Balance" action_url="accounting:trial_balance" %}
+
+{% for bucket, accounts in buckets.items %}
+<section class="mb-6">
+  <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">{{ bucket }}</h2>
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-2 text-left">Code</th><th class="px-4 py-2 text-left">Name</th><th class="px-4 py-2 text-right">Balance</th><th class="px-4 py-2"></th></tr></thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for a in accounts %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-2 font-mono text-xs">{{ a.code }}</td>
+          <td class="px-4 py-2 text-gray-900">{{ a.name }}</td>
+          <td class="px-4 py-2 text-right font-semibold">{{ a.current_balance|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right"><a href="{% url 'accounting:account_ledger' a.pk %}" class="text-xs" style="color: var(--primary);">View ledger &rarr;</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% empty %}
+<div class="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500">No accounts yet.</div>
+{% endfor %}
+{% endblock %}

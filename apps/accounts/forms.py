@@ -72,3 +72,48 @@ class UserEditForm(forms.ModelForm):
 
 class ChangePasswordForm(PasswordChangeForm):
     pass
+
+
+class RegisterForm(forms.ModelForm):
+    """Public self-service registration form.
+
+    Collects the minimum needed to create a login — the user later picks
+    (or is assigned to) a company via Organizations.
+    """
+    password = forms.CharField(
+        label="Password",
+        min_length=8,
+        widget=forms.PasswordInput(attrs={"placeholder": "At least 8 characters"}),
+    )
+    password_confirm = forms.CharField(
+        label="Confirm password",
+        widget=forms.PasswordInput(attrs={"placeholder": "Re-enter your password"}),
+    )
+    terms_accepted = forms.BooleanField(
+        label="I agree to the Terms of Service and Privacy Policy.",
+        required=True,
+    )
+
+    class Meta:
+        model = User
+        fields = ["first_name", "last_name", "email", "phone"]
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email
+
+    def clean(self):
+        cd = super().clean()
+        if cd.get("password") and cd.get("password") != cd.get("password_confirm"):
+            self.add_error("password_confirm", "Passwords do not match.")
+        return cd
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.username = self.cleaned_data["email"]
+        user.set_password(self.cleaned_data["password"])
+        if commit:
+            user.save()
+        return user

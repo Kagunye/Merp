@@ -1,0 +1,30 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'procurement:bill_list' as back %}
+{% include "_includes/page_header.html" with title=supplier.name subtitle="Supplier statement" back_url=back %}
+
+<form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
+  <div><label class="text-xs text-gray-500">From</label><input type="date" name="from" value="{{ from_date }}"></div>
+  <div><label class="text-xs text-gray-500">To</label><input type="date" name="to" value="{{ to_date }}"></div>
+  <button type="submit">Apply</button>
+</form>
+
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_billed|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Paid</div><div class="font-bold text-lg text-green-700">{{ total_paid|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Owed</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }}</div></div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Bill date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Due</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Paid</th><th class="px-4 py-3 text-right">Outstanding</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in rows %}
+      <tr><td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td><td class="px-4 py-2 font-mono text-xs">{{ r.reference }}</td><td class="px-4 py-2">{{ r.due_date|date:"d M Y" }}</td><td class="px-4 py-2 text-right">{{ r.total|floatformat:2 }}</td><td class="px-4 py-2 text-right text-green-700">{{ r.paid|floatformat:2 }}</td><td class="px-4 py-2 text-right font-semibold">{{ r.outstanding|floatformat:2 }}</td><td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700">{{ r.status }}</span></td></tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No bills in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

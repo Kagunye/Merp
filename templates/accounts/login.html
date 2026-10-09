@@ -579,13 +579,13 @@
 
             <div class="btn-row">
               <button type="submit" class="btn btn-primary" data-i18n="sign_in">Sign in</button>
-              <a href="mailto:sales@merp.local?subject=Request%20MERP%20account" class="btn btn-outline" data-i18n="register">Register</a>
+              <a href="{% url 'accounts:register' %}" class="btn btn-outline" data-i18n="register">Register</a>
             </div>
           </form>
 
           <p class="signup-line">
             <span data-i18n="new_to">New to MERP?</span>
-            <a href="mailto:sales@merp.local?subject=Open%20MERP%20account%20online" data-i18n="open_account">Open an account online</a>
+            <a href="{% url 'accounts:register' %}" data-i18n="open_account">Open an account online</a>
           </p>
 
           <div class="divider"></div>

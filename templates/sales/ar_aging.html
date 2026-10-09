@@ -1,0 +1,25 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="AR Aging" subtitle="Receivables bucketed by overdue days" %}
+
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Current</div><div class="font-bold text-lg">{{ buckets.current|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">1-30</div><div class="font-bold text-lg">{{ buckets.d30|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">31-60</div><div class="font-bold text-lg text-amber-600">{{ buckets.d60|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">61-90</div><div class="font-bold text-lg text-red-600">{{ buckets.d90|floatformat:2 }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">>90</div><div class="font-bold text-lg text-red-700">{{ buckets.d120|floatformat:2 }}</div></div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-right">Current</th><th class="px-4 py-3 text-right">1-30</th><th class="px-4 py-3 text-right">31-60</th><th class="px-4 py-3 text-right">61-90</th><th class="px-4 py-3 text-right">>90</th><th class="px-4 py-3 text-right">Total</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in rows %}
+      <tr><td class="px-4 py-2"><a href="{% url 'sales:customer_statement' r.customer.pk %}" style="color: var(--primary);">{{ r.customer.name }}</a></td><td class="px-4 py-2 text-right">{{ r.current|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.d30|floatformat:2 }}</td><td class="px-4 py-2 text-right text-amber-600">{{ r.d60|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-600">{{ r.d90|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-700">{{ r.d120|floatformat:2 }}</td><td class="px-4 py-2 text-right font-bold">{{ r.total|floatformat:2 }}</td></tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No outstanding receivables.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

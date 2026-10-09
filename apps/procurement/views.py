@@ -188,3 +188,77 @@ class PurchaseOrderDetailView(LoginRequiredMixin, DetailView):
         ctx["lines"] = self.object.lines.select_related("product")
         ctx["bills"] = self.object.bills.all()
         return ctx
+
+
+class SupplierStatementView(LoginRequiredMixin, TemplateView):
+    """Full AP statement for a supplier: bills, outstanding balance."""
+    template_name = "procurement/supplier_statement.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        from apps.crm.models import Supplier
+        from .models import Bill
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        supplier = get_object_or_404(Supplier, pk=kwargs["pk"], company=company)
+        start = self.request.GET.get("from") or ""
+        end = self.request.GET.get("to") or ""
+
+        bills = Bill.objects.filter(supplier=supplier)
+        if start: bills = bills.filter(bill_date__gte=start)
+        if end: bills = bills.filter(bill_date__lte=end)
+
+        rows = []
+        running = Decimal(0)
+        for b in bills.order_by("bill_date"):
+            running += b.total_amount - b.paid_amount
+            rows.append({
+                "date": b.bill_date, "reference": b.reference,
+                "due_date": b.due_date, "total": b.total_amount,
+                "paid": b.paid_amount, "outstanding": b.outstanding_amount,
+                "balance": running, "status": b.get_status_display(),
+            })
+
+        ctx["supplier"] = supplier
+        ctx["rows"] = rows
+        ctx["total_billed"] = sum(r["total"] for r in rows)
+        ctx["total_paid"] = sum(r["paid"] for r in rows)
+        ctx["closing_balance"] = running
+        ctx["from_date"] = start
+        ctx["to_date"] = end
+        return ctx
+
+
+class APAgingView(LoginRequiredMixin, TemplateView):
+    """AP aging buckets across all suppliers."""
+    template_name = "procurement/ap_aging.html"
+
+    def get_context_data(self, **kwargs):
+        from datetime import date
+        from decimal import Decimal
+        from apps.crm.models import Supplier
+        from .models import Bill
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        today = date.today()
+        buckets = {"current": Decimal(0), "d30": Decimal(0), "d60": Decimal(0), "d90": Decimal(0), "d120": Decimal(0)}
+        rows = []
+        for sup in Supplier.objects.filter(company=company):
+            per = {"supplier": sup, "current": Decimal(0), "d30": Decimal(0), "d60": Decimal(0), "d90": Decimal(0), "d120": Decimal(0), "total": Decimal(0)}
+            for b in Bill.objects.filter(supplier=sup, status__in=["RECEIVED", "PARTIAL"]):
+                out = b.outstanding_amount
+                age = (today - b.due_date).days if b.due_date else 0
+                if age <= 0: key = "current"
+                elif age <= 30: key = "d30"
+                elif age <= 60: key = "d60"
+                elif age <= 90: key = "d90"
+                else: key = "d120"
+                per[key] += out; per["total"] += out
+                buckets[key] += out
+            if per["total"] > 0:
+                rows.append(per)
+        ctx["rows"] = rows
+        ctx["buckets"] = buckets
+        return ctx

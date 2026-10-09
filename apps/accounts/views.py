@@ -12,7 +12,7 @@ from django.views.generic import DetailView, ListView, TemplateView, UpdateView,
 
 from .forms import (
     ChangePasswordForm, LoginForm, PasswordResetConfirmForm,
-    PasswordResetRequestForm, UserCreateForm, UserEditForm,
+    PasswordResetRequestForm, RegisterForm, UserCreateForm, UserEditForm,
 )
 from .models import LoginAttempt, PasswordResetToken, User
 
@@ -80,6 +80,35 @@ class LoginView(View):
 
         ctx = {"form": form, "features": features, **self._demo_context()}
         return render(request, self.template_name, ctx)
+
+
+class RegisterView(View):
+    """Public self-service registration page.
+
+    Creates an inactive-pending account that still logs in; a real
+    deployment should gate it behind an admin-approval flow or send an
+    email confirmation. Here we log the user straight in and route to the
+    dashboard, which will show the no-company onboarding card.
+    """
+    template_name = "accounts/register.html"
+
+    def get(self, request):
+        if request.user.is_authenticated:
+            return redirect("dashboard:index")
+        return render(request, self.template_name, {"form": RegisterForm()})
+
+    def post(self, request):
+        form = RegisterForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            messages.success(
+                request,
+                f"Welcome to MERP, {user.first_name or user.email}! "
+                "Finish setting up your company to get started.",
+            )
+            return redirect("dashboard:index")
+        return render(request, self.template_name, {"form": form})
 
 
 class LogoutView(View):

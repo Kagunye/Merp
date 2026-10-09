@@ -15,4 +15,6 @@ urlpatterns = [
     path("journal-entries/<uuid:pk>/post/", views.journal_entry_post, name="journal_entry_post"),
     path("journal-entries/<uuid:pk>/reverse/", views.journal_entry_reverse, name="journal_entry_reverse"),
     path("trial-balance/", views.TrialBalanceView.as_view(), name="trial_balance"),
+    path("general-ledger/", views.GeneralLedgerIndexView.as_view(), name="general_ledger"),
+    path("accounts/<uuid:pk>/ledger/", views.AccountLedgerView.as_view(), name="account_ledger"),
 ]
