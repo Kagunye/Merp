@@ -88,11 +88,23 @@
     .nav-item:not(.active):hover .nav-icon { color: #F3F4F6; }
     .nav-item:not(.active):hover .sidebar-label { color: #F9FAFB; }
 
-    /* Active — collapsed: red rounded tile around the icon only.
+    /* Active — collapsed: red rounded tile around the icon with a subtle red
+       bleed off the right edge of the sidebar (matches the Caritas reference).
        Active — expanded: full-width red pill with white icon + label. */
     .nav-item.active .nav-icon-wrap { background: var(--primary); }
     .nav-item.active .nav-icon { color: #fff; }
     .nav-item.active .sidebar-label { color: #fff; }
+    #sidebar:not(.expanded) .nav-item.active::after {
+      content: "";
+      position: absolute;
+      right: -12px;
+      top: 6px;
+      bottom: 6px;
+      width: 10px;
+      background: var(--primary);
+      border-radius: 10px 0 0 10px;
+      opacity: 0.9;
+    }
     #sidebar.expanded .nav-item.active { background: var(--primary); }
     #sidebar.expanded .nav-item.active .nav-icon-wrap { background: transparent; }
 
@@ -212,8 +224,8 @@
 <!-- SIDEBAR -->
 <aside id="sidebar" class="fixed left-0 top-0 bottom-0 flex flex-col z-40" style="background:#0F1117; border-right:1px solid #1E2130;">
 
-  <!-- Header row: hamburger (always visible) + "Menu" label (expanded only) -->
-  <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid #1E2130;">
+  <!-- Header row: hamburger only (always visible); "Menu" label appears when expanded. -->
+  <div class="h-16 flex items-center shrink-0 px-3">
     <button type="button" onclick="toggleSidebar()" title="Toggle sidebar"
             class="w-11 h-11 flex items-center justify-center rounded-xl shrink-0 hover:bg-white/5 transition-colors">
       <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,19 +233,6 @@
       </svg>
     </button>
     <span class="sidebar-label ml-2 text-sm font-semibold text-white">Menu</span>
-  </div>
-
-  <!-- Brand row -->
-  <div class="flex items-center shrink-0 px-3 py-3" style="border-bottom:1px solid #1E2130;">
-    <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-md" style="background: var(--primary)">
-      <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-      </svg>
-    </div>
-    <div class="sidebar-label ml-3 min-w-0">
-      <div class="text-sm font-bold text-white leading-tight truncate">MERP ERP</div>
-      <div class="text-[11px] text-gray-500 leading-tight">Business Suite</div>
-    </div>
   </div>
 
   <!-- Nav Items -->
@@ -497,6 +496,19 @@
   <!-- TOP BAR -->
   <header id="topbar" class="fixed top-0 right-0 bg-white border-b border-gray-200 flex items-center h-16 px-4 z-30"
           style="left: var(--sidebar-width); transition: left 0.2s ease;">
+
+    <!-- Brand (sits beside the sidebar like the Caritas logo in the reference) -->
+    <a href="{% url 'dashboard:index' %}" class="flex items-center gap-2 mr-6 shrink-0 group">
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background: var(--primary)">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+      </div>
+      <div class="hidden lg:block leading-tight">
+        <div class="text-base font-bold text-gray-900 tracking-tight">MERP</div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Business Suite</div>
+      </div>
+    </a>
 
     <!-- Search -->
     <div class="flex-1 max-w-lg">
