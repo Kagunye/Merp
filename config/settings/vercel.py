@@ -43,14 +43,18 @@ except ImportError:  # pragma: no cover
         }
     }
 
-# Static — WhiteNoise serves pre-collected files from staticfiles_build/static.
-# Use the non-manifest storage: Manifest storage hashes every file and fails
-# collectstatic hard if any {% static %} reference is missing. On a serverless
-# cold-start we want the deploy to succeed even if the asset tree is in flux.
+# Static — WhiteNoise serves directly from STATICFILES_DIRS (the source
+# `static/` dir), skipping collectstatic entirely. On Vercel the explicit
+# `builds` block in vercel.json makes `buildCommand` a no-op, so a
+# collectstatic-at-build-time pipeline silently never runs; serving from
+# finders instead is reliable and lets a single commit of the asset ship
+# straight into the Lambda bundle via vercel.json's `includeFiles`.
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles_build", "static")  # noqa: F405
-STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+WHITENOISE_USE_FINDERS = True
 WHITENOISE_MANIFEST_STRICT = False
+WHITENOISE_AUTOREFRESH = True
 
 # Media on a serverless filesystem is read-only; keep uploads in /tmp.
 MEDIA_ROOT = "/tmp/media"

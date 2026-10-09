@@ -44,11 +44,26 @@
     }
 
     /* ----- LEFT: hero column ----- */
+    /* The background gradient + pattern is a GUARANTEED fallback: even if
+       the hero image fails to load (404, Vercel static-file hiccup, slow
+       network), the column still reads as intentional brand surface. */
     .hero-col {
       position: relative;
       overflow: hidden;
-      background: #0B0E17;
       display: none;
+      background:
+        radial-gradient(ellipse 70% 60% at 25% 30%, rgba(200,16,46,0.22) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 85%, rgba(200,16,46,0.18) 0%, transparent 55%),
+        linear-gradient(135deg, #0B0E17 0%, #1a0a12 55%, #2a0810 100%);
+    }
+    .hero-col::before {
+      content: "";
+      position: absolute; inset: 0;
+      background-image:
+        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+      background-size: 28px 28px;
+      pointer-events: none;
+      opacity: 0.6;
     }
     @media (min-width: 1024px) { .hero-col { display: block; } }
 
@@ -57,12 +72,14 @@
       width: 100%; height: 100%;
       object-fit: cover;
       object-position: center;
+      /* While loading / if broken, let the gradient show through. */
+      background: transparent;
     }
     .hero-tint {
       position: absolute; inset: 0;
       background:
-        linear-gradient(180deg, rgba(0,0,0,0) 60%, rgba(0,0,0,0.35) 100%),
-        linear-gradient(135deg, rgba(200,16,46,0.08) 0%, rgba(0,0,0,0) 55%);
+        linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.45) 100%),
+        linear-gradient(135deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0) 55%);
       pointer-events: none;
     }
 
@@ -388,7 +405,9 @@
 
     <!-- LEFT: HERO IMAGE with welcome card -->
     <aside class="hero-col" aria-hidden="true">
-      <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="hero-img">
+      <img src="{% static 'merp/images/signin-hero.webp' %}" alt=""
+           class="hero-img" loading="eager"
+           onerror="this.style.display='none'">
       <div class="hero-tint"></div>
       <div class="welcome-card">
         <p class="eyebrow">Welcome</p>
