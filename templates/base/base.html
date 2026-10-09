@@ -54,13 +54,15 @@
     body { font-family: 'Inter', system-ui, sans-serif; background: #F5F6F8; color: #111827; }
 
     /* Sidebar */
-    #sidebar { width: var(--sidebar-width); transition: width 0.2s ease; background: #0F1117; }
+    #sidebar { width: var(--sidebar-width); transition: width 0.2s ease; background: #0F1117; overflow: visible; }
     #sidebar.expanded { width: var(--sidebar-expanded); }
     .sidebar-label { opacity: 0; width: 0; overflow: hidden; transition: opacity 0.15s; white-space: nowrap; }
     #sidebar.expanded .sidebar-label { opacity: 1; width: auto; }
 
-    /* Collapse button: hidden when sidebar is collapsed, visible when expanded.
-       Chevron rotates to indicate the action (collapse when expanded, expand when collapsed). */
+    /* Nav scroll area needs to allow the flyout to escape horizontally while still scrolling vertically. */
+    #sidebar-nav { overflow-y: auto; overflow-x: visible; }
+
+    /* Collapse button: hidden when sidebar is collapsed, visible when expanded. */
     .sidebar-collapse-btn { display: none; }
     #sidebar.expanded .sidebar-collapse-btn { display: inline-flex; }
 
@@ -71,6 +73,43 @@
     .nav-item.active .sidebar-label { color: #fff !important; }
     .nav-item:not(.active):hover .nav-icon { color: #d1d5db !important; }
     .nav-item:not(.active):hover .sidebar-label { color: #d1d5db !important; }
+
+    /* Flyout: shows the label (and future sub-items) as a floating panel when the sidebar is collapsed. */
+    .nav-flyout {
+      position: absolute;
+      left: calc(100% + 8px);
+      top: 50%;
+      transform: translateY(-50%);
+      background: #1A1D26;
+      color: #F9FAFB;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      border: 1px solid #2D3147;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.12s ease;
+      z-index: 60;
+    }
+    .nav-flyout::before {
+      content: "";
+      position: absolute;
+      left: -5px;
+      top: 50%;
+      transform: translateY(-50%) rotate(45deg);
+      width: 10px;
+      height: 10px;
+      background: #1A1D26;
+      border-left: 1px solid #2D3147;
+      border-bottom: 1px solid #2D3147;
+    }
+    /* Only show flyout when sidebar is collapsed and the item is hovered. */
+    #sidebar:not(.expanded) .nav-item:hover .nav-flyout { opacity: 1; }
+    /* Dividers (section labels) have no flyout and are hidden entirely when collapsed. */
+    #sidebar:not(.expanded) .nav-divider { display: none; }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -125,7 +164,7 @@
   </div>
 
   <!-- Nav Items -->
-  <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+  <nav id="sidebar-nav" class="flex-1 py-3 px-2 space-y-0.5">
 
     {% with url_name=request.resolver_match.url_name app_name=request.resolver_match.app_name %}
 
@@ -137,10 +176,11 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Dashboard</span>
+      <span class="nav-flyout">Dashboard</span>
     </a>
 
     <!-- Divider label -->
-    <div class="sidebar-label px-2.5 pt-4 pb-1">
+    <div class="nav-divider sidebar-label px-2.5 pt-4 pb-1">
       <span class="text-xs font-semibold uppercase tracking-wider" style="color:#4B5563">Finance</span>
     </div>
 
@@ -152,6 +192,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Accounting</span>
+      <span class="nav-flyout">Accounting</span>
     </a>
 
     <!-- Banking -->
@@ -162,10 +203,11 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Banking</span>
+      <span class="nav-flyout">Banking</span>
     </a>
 
     <!-- Divider -->
-    <div class="sidebar-label px-2.5 pt-4 pb-1">
+    <div class="nav-divider sidebar-label px-2.5 pt-4 pb-1">
       <span class="text-xs font-semibold uppercase tracking-wider" style="color:#4B5563">Sales</span>
     </div>
 
@@ -177,6 +219,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Customers</span>
+      <span class="nav-flyout">Customers</span>
     </a>
 
     <!-- Sales -->
@@ -187,6 +230,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Sales</span>
+      <span class="nav-flyout">Sales</span>
     </a>
 
     <!-- POS -->
@@ -197,10 +241,11 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Point of Sale</span>
+      <span class="nav-flyout">Point of Sale</span>
     </a>
 
     <!-- Divider -->
-    <div class="sidebar-label px-2.5 pt-4 pb-1">
+    <div class="nav-divider sidebar-label px-2.5 pt-4 pb-1">
       <span class="text-xs font-semibold uppercase tracking-wider" style="color:#4B5563">Supply Chain</span>
     </div>
 
@@ -212,6 +257,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Inventory</span>
+      <span class="nav-flyout">Inventory</span>
     </a>
 
     <!-- Procurement -->
@@ -222,10 +268,11 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Procurement</span>
+      <span class="nav-flyout">Procurement</span>
     </a>
 
     <!-- Divider -->
-    <div class="sidebar-label px-2.5 pt-4 pb-1">
+    <div class="nav-divider sidebar-label px-2.5 pt-4 pb-1">
       <span class="text-xs font-semibold uppercase tracking-wider" style="color:#4B5563">People</span>
     </div>
 
@@ -237,6 +284,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">HR</span>
+      <span class="nav-flyout">HR</span>
     </a>
 
     <!-- Payroll -->
@@ -247,10 +295,11 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Payroll</span>
+      <span class="nav-flyout">Payroll</span>
     </a>
 
     <!-- Divider -->
-    <div class="sidebar-label px-2.5 pt-4 pb-1">
+    <div class="nav-divider sidebar-label px-2.5 pt-4 pb-1">
       <span class="text-xs font-semibold uppercase tracking-wider" style="color:#4B5563">Operations</span>
     </div>
 
@@ -262,6 +311,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Projects</span>
+      <span class="nav-flyout">Projects</span>
     </a>
 
     <!-- Expenses -->
@@ -272,6 +322,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Expenses</span>
+      <span class="nav-flyout">Expenses</span>
     </a>
 
     <!-- Reports -->
@@ -282,6 +333,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Reports</span>
+      <span class="nav-flyout">Reports</span>
     </a>
 
     <!-- Documents -->
@@ -292,6 +344,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Documents</span>
+      <span class="nav-flyout">Documents</span>
     </a>
 
     {% endwith %}
@@ -307,6 +360,7 @@
         </svg>
       </div>
       <span class="sidebar-label ml-2.5 text-sm font-medium text-gray-400">Settings</span>
+      <span class="nav-flyout">Settings</span>
     </a>
   </div>
 
