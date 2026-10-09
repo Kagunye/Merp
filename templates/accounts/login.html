@@ -35,12 +35,12 @@
       min-height: 100vh;
     }
     @media (min-width: 1024px) {
-      /* Image column takes ~62% of width, form column ~38%. */
-      .page { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+      /* Image column ~70% of width, form column ~30%. */
+      .page { grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr); }
     }
     @media (min-width: 1536px) {
-      /* On wide screens, give the hero even more room. */
-      .page { grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); }
+      /* On wide screens, give the hero even more room (~74% / 26%). */
+      .page { grid-template-columns: minmax(0, 2.8fr) minmax(0, 1fr); }
     }
 
     /* ----- LEFT: hero column ----- */
@@ -117,7 +117,7 @@
       position: relative;
       display: flex;
       flex-direction: column;
-      padding: 32px clamp(24px, 3.5vw, 48px);
+      padding: 28px clamp(20px, 2.5vw, 36px);
       min-height: 100vh;
       background: var(--surface);
     }
@@ -140,7 +140,9 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 60px;
+      margin-bottom: 40px;
+      gap: 12px;
+      flex-wrap: wrap;
     }
     .brand {
       display: flex; align-items: center; gap: 10px; text-decoration: none;
@@ -200,7 +202,7 @@
 
     /* ----- Form heading ----- */
     .form-wrap {
-      max-width: 400px;
+      max-width: 340px;
       width: 100%;
     }
     .heading-row {
@@ -219,7 +221,7 @@
     }
     .back-btn:hover { background: var(--surface-soft); }
     .title {
-      font-size: 30px;
+      font-size: 26px;
       font-weight: 800;
       letter-spacing: -0.02em;
       color: #0F172A;
