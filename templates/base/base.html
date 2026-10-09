@@ -59,6 +59,11 @@
     .sidebar-label { opacity: 0; width: 0; overflow: hidden; transition: opacity 0.15s; white-space: nowrap; }
     #sidebar.expanded .sidebar-label { opacity: 1; width: auto; }
 
+    /* Collapse button: hidden when sidebar is collapsed, visible when expanded.
+       Chevron rotates to indicate the action (collapse when expanded, expand when collapsed). */
+    .sidebar-collapse-btn { display: none; }
+    #sidebar.expanded .sidebar-collapse-btn { display: inline-flex; }
+
     /* Active nav item */
     .nav-item { position: relative; }
     .nav-item.active .nav-icon-wrap { background: var(--primary); border-radius: 10px; }
@@ -101,13 +106,22 @@
 <!-- SIDEBAR -->
 <aside id="sidebar" class="fixed left-0 top-0 bottom-0 flex flex-col z-40 overflow-hidden" style="background:#0F1117; border-right:1px solid #1E2130;">
 
-  <!-- Logo -->
-  <div class="h-16 flex items-center px-4 shrink-0" style="border-bottom:1px solid #1E2130;">
-    <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style="background: var(--primary)">
-      <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-      </svg>
+  <!-- Logo + Collapse toggle -->
+  <div class="h-16 flex items-center px-4 shrink-0 justify-between" style="border-bottom:1px solid #1E2130;">
+    <div class="flex items-center gap-2 min-w-0">
+      <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style="background: var(--primary)">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+      </div>
+      <span class="sidebar-label text-sm font-semibold text-white truncate">MERP ERP</span>
     </div>
+    <button type="button" onclick="toggleSidebar()" title="Collapse sidebar"
+            class="sidebar-collapse-btn w-8 h-8 flex items-center justify-center rounded-lg shrink-0 hover:bg-white/10 transition-colors">
+      <svg class="sidebar-collapse-icon w-4 h-4 text-gray-300 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+      </svg>
+    </button>
   </div>
 
   <!-- Nav Items -->
