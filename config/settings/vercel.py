@@ -5,6 +5,7 @@ disk, and a tight bundle size. These settings make the project boot without
 every optional service wired up, while still being safe for a live deployment.
 """
 import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .base import *  # noqa: F401, F403
 
@@ -18,14 +19,31 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.vercel.app",
 ] + [o.strip() for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 
-# Database — prefer DATABASE_URL (Postgres, Neon, etc.); fall back to SQLite
-# in /tmp so the app still boots on a cold Vercel preview without a DB attached.
+# Database — support DATABASE_URL and the standard Vercel/Supabase Postgres
+# variables. Fall back to SQLite in /tmp if no database is configured.
+_database_url = (
+    os.environ.get("DATABASE_URL")
+    or os.environ.get("POSTGRES_URL_NON_POOLING")
+    or os.environ.get("POSTGRES_URL")
+    or os.environ.get("POSTGRES_PRISMA_URL")
+)
 try:
     import dj_database_url
-    if os.environ.get("DATABASE_URL"):
+    if _database_url:
+        parsed_url = urlsplit(_database_url)
+        query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(
+                    parsed_url.query, keep_blank_values=True
+                )
+                if key not in {"pgbouncer", "supa"}
+            ]
+        )
+        _database_url = urlunsplit(parsed_url._replace(query=query))
         DATABASES = {
             "default": dj_database_url.parse(
-                os.environ["DATABASE_URL"], conn_max_age=600, ssl_require=True
+                _database_url, conn_max_age=600, ssl_require=True
             )
         }
     else:
