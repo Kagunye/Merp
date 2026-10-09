@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'helpdesk:ticket_list' as back %}
+{% include "_includes/model_form.html" with title="New Support Ticket" subtitle="Capture the request and route it" back_url=back cancel_url=back submit_label="Open Ticket" %}
+{% endblock %}

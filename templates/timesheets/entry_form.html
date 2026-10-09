@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'timesheets:entry_list' as back %}
+{% include "_includes/model_form.html" with title="Log Hours" subtitle="Record time against a project or task" back_url=back cancel_url=back submit_label="Save Entry" %}
+{% endblock %}

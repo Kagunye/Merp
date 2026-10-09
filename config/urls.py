@@ -26,6 +26,9 @@ urlpatterns = [
     path("fixed-assets/", include("apps.fixed_assets.urls")),
     path("manufacturing/", include("apps.manufacturing.urls")),
     path("notifications/", include("apps.notifications.urls")),
+    path("timesheets/", include("apps.timesheets.urls")),
+    path("helpdesk/", include("apps.helpdesk.urls")),
+    path("recruitment/", include("apps.recruitment.urls")),
     path("api/v1/", include("apps.api.urls")),
 ]
 

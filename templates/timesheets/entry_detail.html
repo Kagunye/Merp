@@ -1,0 +1,20 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'timesheets:entry_list' as back %}
+{% include "_includes/page_header.html" with title="Time Entry" subtitle=entry.user back_url=back %}
+<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
+  <div class="grid grid-cols-2 gap-5 text-sm">
+    <div><div class="text-xs text-gray-500">Date</div><div class="font-semibold">{{ entry.entry_date|date:"d M Y" }}</div></div>
+    <div><div class="text-xs text-gray-500">Hours</div><div class="font-bold text-lg" style="color: var(--primary);">{{ entry.hours|floatformat:2 }}</div></div>
+    <div><div class="text-xs text-gray-500">Project</div><div class="font-semibold">{{ entry.project|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Task</div><div class="font-semibold">{{ entry.task|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Billable</div><div class="font-semibold">{% if entry.billable %}Yes{% else %}No{% endif %}</div></div>
+    <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ entry.get_status_display }}</span></div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-sm text-gray-900 mt-1">{{ entry.description|default:"—"|linebreaks }}</div></div>
+  </div>
+  <div class="mt-5 pt-4 border-t flex gap-3">
+    {% if entry.status == 'DRAFT' %}<form method="post" action="{% url 'timesheets:entry_submit' entry.pk %}">{% csrf_token %}<button type="submit">Submit for approval</button></form>{% endif %}
+    {% if entry.status == 'SUBMITTED' %}<form method="post" action="{% url 'timesheets:entry_approve' entry.pk %}">{% csrf_token %}<button type="submit">Approve</button></form>{% endif %}
+  </div>
+</div>
+{% endblock %}

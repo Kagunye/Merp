@@ -1,0 +1,23 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Timesheet Entries" subtitle="All time logged in the organisation" action_label="Log Hours" action_url="timesheets:entry_create" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">User</th><th class="px-4 py-3 text-left">Project / Task</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Hours</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for e in entries %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">{{ e.entry_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3">{{ e.user }}</td>
+        <td class="px-4 py-3"><a href="{% url 'timesheets:entry_detail' e.pk %}" style="color: var(--primary);">{{ e.project|default:"—" }}{% if e.task %} / {{ e.task }}{% endif %}</a></td>
+        <td class="px-4 py-3 text-gray-600 text-xs">{{ e.description|default:"—"|truncatechars:60 }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ e.hours|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ e.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No entries yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Help Desk" subtitle="Customer support tickets" action_label="New Ticket" action_url="helpdesk:ticket_create" %}
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ open_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Waiting on customer</div><div class="text-2xl font-bold text-amber-600">{{ waiting_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Urgent</div><div class="text-2xl font-bold text-red-600">{{ urgent_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Resolved</div><div class="text-2xl font-bold text-green-600">{{ resolved_count|default:0 }}</div></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h3 class="text-sm font-semibold mb-3 text-gray-700">My tickets</h3>
+    <div class="divide-y divide-gray-100">
+      {% for t in my_tickets %}
+      <a href="{% url 'helpdesk:ticket_detail' t.pk %}" class="flex items-center justify-between py-2 hover:bg-gray-50 px-1 rounded">
+        <div class="min-w-0">
+          <div class="text-sm font-medium text-gray-900 truncate">{{ t.subject }}</div>
+          <div class="text-xs text-gray-500">{{ t.reference }} · {{ t.get_priority_display }}</div>
+        </div>
+        <span class="badge bg-gray-100 text-gray-700">{{ t.get_status_display }}</span>
+      </a>
+      {% empty %}
+      <p class="text-sm text-gray-500 py-3">None assigned to you.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h3 class="text-sm font-semibold mb-3 text-gray-700">Recent tickets</h3>
+    <div class="divide-y divide-gray-100">
+      {% for t in recent %}
+      <a href="{% url 'helpdesk:ticket_detail' t.pk %}" class="flex items-center justify-between py-2 hover:bg-gray-50 px-1 rounded">
+        <div class="min-w-0"><div class="text-sm font-medium text-gray-900 truncate">{{ t.subject }}</div><div class="text-xs text-gray-500">{{ t.customer|default:t.requester_name|default:"Unknown" }}</div></div>
+        <span class="badge bg-gray-100 text-gray-700">{{ t.get_status_display }}</span>
+      </a>
+      {% empty %}
+      <p class="text-sm text-gray-500 py-3">No tickets yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

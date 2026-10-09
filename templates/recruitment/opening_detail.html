@@ -1,0 +1,35 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'recruitment:opening_list' as back %}
+{% include "_includes/page_header.html" with title=opening.title subtitle=opening.get_employment_type_display back_url=back action_label="Edit" action_url="recruitment:opening_edit" %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ opening.get_status_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Department</div><div class="font-semibold">{{ opening.department|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Headcount</div><div class="font-semibold">{{ opening.headcount }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Hiring manager</div><div class="font-semibold">{{ opening.hiring_manager|default:"—" }}</div></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 bg-white rounded-xl border p-6">
+    <h3 class="text-sm font-semibold text-gray-700 mb-2">Description</h3>
+    <div class="text-sm text-gray-900 mb-4">{{ opening.description|default:"—"|linebreaks }}</div>
+    <h3 class="text-sm font-semibold text-gray-700 mb-2">Requirements</h3>
+    <div class="text-sm text-gray-900">{{ opening.requirements|default:"—"|linebreaks }}</div>
+  </div>
+  <div class="bg-white rounded-xl border p-5">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Candidates in pipeline</h3>
+    <div class="divide-y divide-gray-100">
+      {% for c in opening.candidates.all|slice:":10" %}
+      <a href="{% url 'recruitment:candidate_detail' c.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
+        <span class="text-sm font-medium">{{ c.full_name }}</span>
+        <span class="badge bg-gray-100 text-gray-700">{{ c.get_stage_display }}</span>
+      </a>
+      {% empty %}
+      <p class="text-sm text-gray-500 py-3">No candidates yet.</p>
+      {% endfor %}
+    </div>
+    <a href="{% url 'recruitment:candidate_create' %}" class="text-xs font-semibold mt-3 inline-block" style="color: var(--primary);">+ Add candidate</a>
+  </div>
+</div>
+{% endblock %}

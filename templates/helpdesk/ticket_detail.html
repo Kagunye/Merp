@@ -1,0 +1,57 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'helpdesk:ticket_list' as back %}
+{% include "_includes/page_header.html" with title=ticket.subject subtitle=ticket.reference back_url=back %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ ticket.get_status_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Priority</div><div class="font-semibold">{{ ticket.get_priority_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Customer</div><div class="font-semibold">{{ ticket.customer|default:ticket.requester_name|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Assignee</div><div class="font-semibold">{{ ticket.assigned_to|default:"—" }}</div></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+    <h3 class="text-sm font-semibold mb-2 text-gray-700">Description</h3>
+    <div class="text-sm text-gray-900 mb-6">{{ ticket.description|default:"(no description)"|linebreaks }}</div>
+
+    <h3 class="text-sm font-semibold mb-3 text-gray-700">Conversation</h3>
+    <div class="space-y-3 mb-6">
+      {% for c in ticket.comments.all %}
+      <div class="rounded-lg border {% if c.is_internal %}bg-amber-50 border-amber-200{% else %}bg-gray-50 border-gray-200{% endif %} p-3">
+        <div class="flex justify-between text-xs text-gray-500 mb-1"><span>{{ c.author|default:"System" }}{% if c.is_internal %} · <strong>Internal note</strong>{% endif %}</span><span>{{ c.created_at|date:"d M Y H:i" }}</span></div>
+        <div class="text-sm text-gray-900">{{ c.body|linebreaks }}</div>
+      </div>
+      {% empty %}
+      <p class="text-sm text-gray-500">No replies yet.</p>
+      {% endfor %}
+    </div>
+
+    {% if ticket.status != 'CLOSED' %}
+    <form method="post" action="{% url 'helpdesk:ticket_comment' ticket.pk %}">
+      {% csrf_token %}
+      <label>Reply</label>
+      {{ comment_form.body }}
+      <label class="form-check mt-2">{{ comment_form.is_internal }} Internal note (hidden from customer)</label>
+      <div class="form-actions"><button type="submit">Post reply</button></div>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+    <h3 class="text-sm font-semibold text-gray-700">Actions</h3>
+    {% if ticket.status not in 'RESOLVED,CLOSED' %}
+      <form method="post" action="{% url 'helpdesk:ticket_resolve' ticket.pk %}">{% csrf_token %}<button type="submit" class="w-full">Mark resolved</button></form>
+    {% endif %}
+    {% if ticket.status != 'CLOSED' %}
+      <form method="post" action="{% url 'helpdesk:ticket_close' ticket.pk %}">{% csrf_token %}<button type="submit" class="w-full btn-outline">Close ticket</button></form>
+    {% endif %}
+    <div class="pt-3 border-t text-xs text-gray-500 space-y-1">
+      <div>Channel: {{ ticket.get_channel_display }}</div>
+      <div>Opened: {{ ticket.opened_at|date:"d M Y H:i" }}</div>
+      {% if ticket.resolved_at %}<div>Resolved: {{ ticket.resolved_at|date:"d M Y H:i" }}</div>{% endif %}
+      {% if ticket.closed_at %}<div>Closed: {{ ticket.closed_at|date:"d M Y H:i" }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

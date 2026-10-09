@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'recruitment:candidate_list' as back %}
+{% include "_includes/model_form.html" with title="Candidate" subtitle="Add or update a candidate's profile" back_url=back cancel_url=back submit_label="Save Candidate" %}
+{% endblock %}

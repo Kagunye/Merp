@@ -1,0 +1,30 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'recruitment:candidate_list' as back %}
+{% include "_includes/page_header.html" with title=candidate.full_name subtitle=candidate.opening.title back_url=back %}
+<div class="max-w-3xl bg-white rounded-xl border p-6">
+  <div class="grid grid-cols-2 gap-5 text-sm">
+    <div><div class="text-xs text-gray-500">Email</div><div class="font-semibold">{{ candidate.email }}</div></div>
+    <div><div class="text-xs text-gray-500">Phone</div><div class="font-semibold">{{ candidate.phone|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Current role</div><div class="font-semibold">{{ candidate.current_role|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Experience</div><div class="font-semibold">{{ candidate.years_experience }} year(s)</div></div>
+    <div><div class="text-xs text-gray-500">Source</div><div class="font-semibold">{{ candidate.source|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Stage</div><div><span class="badge bg-gray-100 text-gray-700">{{ candidate.get_stage_display }}</span></div></div>
+    <div><div class="text-xs text-gray-500">Expected salary</div><div class="font-semibold">{{ candidate.expected_salary|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Rating</div><div class="font-semibold">{{ candidate.rating }} / 5</div></div>
+    {% if candidate.resume %}<div class="col-span-2"><div class="text-xs text-gray-500">Resume</div><a href="{{ candidate.resume.url }}" style="color: var(--primary);" class="font-semibold text-sm">Download &rarr;</a></div>{% endif %}
+  </div>
+
+  <h3 class="text-sm font-semibold mt-6 mb-3">Interviews</h3>
+  <div class="divide-y divide-gray-100">
+    {% for i in candidate.interviews.all %}
+    <div class="py-2 flex justify-between text-sm">
+      <span>{{ i.scheduled_at|date:"d M Y H:i" }} · {{ i.interviewer|default:"—" }}</span>
+      <span class="badge bg-gray-100 text-gray-700">{{ i.get_status_display }}</span>
+    </div>
+    {% empty %}
+    <p class="text-sm text-gray-500 py-2">None scheduled. <a href="{% url 'recruitment:interview_create' %}" style="color: var(--primary);" class="font-semibold">Schedule one</a>.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

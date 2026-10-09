@@ -1,0 +1,39 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Support Tickets" subtitle="All customer tickets" action_label="New Ticket" action_url="helpdesk:ticket_create" %}
+
+<form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
+  <div><label class="text-xs text-gray-500">Status</label>
+    <select name="status">
+      <option value="">All</option>
+      <option value="OPEN" {% if request.GET.status == 'OPEN' %}selected{% endif %}>Open</option>
+      <option value="IN_PROGRESS" {% if request.GET.status == 'IN_PROGRESS' %}selected{% endif %}>In progress</option>
+      <option value="WAITING" {% if request.GET.status == 'WAITING' %}selected{% endif %}>Waiting on customer</option>
+      <option value="RESOLVED" {% if request.GET.status == 'RESOLVED' %}selected{% endif %}>Resolved</option>
+      <option value="CLOSED" {% if request.GET.status == 'CLOSED' %}selected{% endif %}>Closed</option>
+    </select>
+  </div>
+  <button type="submit">Filter</button>
+</form>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Subject</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Priority</th><th class="px-4 py-3 text-left">Assignee</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for t in tickets %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'helpdesk:ticket_detail' t.pk %}" style="color: var(--primary);">{{ t.reference }}</a></td>
+        <td class="px-4 py-3 font-medium">{{ t.subject|truncatechars:60 }}</td>
+        <td class="px-4 py-3">{{ t.customer|default:t.requester_name|default:"—" }}</td>
+        <td class="px-4 py-3"><span class="badge {% if t.priority == 'URGENT' %}bg-red-50 text-red-700{% elif t.priority == 'HIGH' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-700{% endif %}">{{ t.get_priority_display }}</span></td>
+        <td class="px-4 py-3">{{ t.assigned_to|default:"—" }}</td>
+        <td class="px-4 py-3 text-xs">{{ t.opened_at|date:"d M Y H:i" }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ t.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-10 text-center text-gray-500">No tickets match.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

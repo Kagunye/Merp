@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'recruitment:opening_list' as back %}
+{% include "_includes/model_form.html" with title="Job Opening" subtitle="Define the role you're hiring for" back_url=back cancel_url=back submit_label="Save Opening" %}
+{% endblock %}

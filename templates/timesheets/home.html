@@ -1,0 +1,35 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Timesheets" subtitle="Log and approve hours by project" action_label="Log Hours" action_url="timesheets:entry_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">My hours this week</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ my_hours_this_week|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Team hours this week</div><div class="text-2xl font-bold text-gray-900">{{ total_hours_this_week|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Pending approvals</div><div class="text-2xl font-bold text-amber-600">{{ pending_count|default:0 }}</div></div>
+</div>
+
+<div class="flex gap-4 mb-6 text-sm font-semibold">
+  <a href="{% url 'timesheets:entry_list' %}?mine=1" style="color: var(--primary);">My entries &rarr;</a>
+  <a href="{% url 'timesheets:entry_list' %}" style="color: var(--primary);">All entries &rarr;</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent entries</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">User</th><th class="px-4 py-3 text-left">Project</th><th class="px-4 py-3 text-right">Hours</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for e in recent_entries %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">{{ e.entry_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3">{{ e.user }}</td>
+        <td class="px-4 py-3"><a href="{% url 'timesheets:entry_detail' e.pk %}" style="color: var(--primary);">{{ e.project|default:"—" }}</a></td>
+        <td class="px-4 py-3 text-right font-semibold">{{ e.hours|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ e.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No entries yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
