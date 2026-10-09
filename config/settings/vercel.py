@@ -23,9 +23,9 @@ CSRF_TRUSTED_ORIGINS = [
 # variables. Fall back to SQLite in /tmp if no database is configured.
 _database_url = (
     os.environ.get("DATABASE_URL")
-    or os.environ.get("POSTGRES_URL_NON_POOLING")
     or os.environ.get("POSTGRES_URL")
     or os.environ.get("POSTGRES_PRISMA_URL")
+    or os.environ.get("POSTGRES_URL_NON_POOLING")
 )
 try:
     import dj_database_url
