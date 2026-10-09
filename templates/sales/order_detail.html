@@ -1,0 +1,26 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'sales:order_list' as back %}
+{% include "_includes/page_header.html" with title=order.reference subtitle=order.customer.name back_url=back %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Order date</div><div class="font-semibold">{{ order.order_date|date:"d M Y" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Delivery</div><div class="font-semibold">{{ order.delivery_date|date:"d M Y"|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ order.get_status_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Total</div><div class="font-bold text-lg" style="color: var(--primary);">{{ order.total_amount|floatformat:2 }}</div></div>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Line items</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3 text-right">Unit</th><th class="px-4 py-3 text-right">Line total</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for l in order.lines.all %}
+      <tr><td class="px-4 py-2">{{ l.product.name }}</td><td class="px-4 py-2">{{ l.description|default:"—" }}</td><td class="px-4 py-2 text-right">{{ l.quantity }}</td><td class="px-4 py-2 text-right">{{ l.unit_price|floatformat:2 }}</td><td class="px-4 py-2 text-right font-semibold">{{ l.line_total|floatformat:2 }}</td></tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No line items yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

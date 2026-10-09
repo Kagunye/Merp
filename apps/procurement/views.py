@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
-from .models import Bill, PurchaseOrder
+from .models import Bill, PurchaseOrder, PurchaseRequisition
 
 
 class BillListView(LoginRequiredMixin, ListView):
@@ -262,3 +262,70 @@ class APAgingView(LoginRequiredMixin, TemplateView):
         ctx["rows"] = rows
         ctx["buckets"] = buckets
         return ctx
+
+
+class ProcurementIndexView(LoginRequiredMixin, TemplateView):
+    """AP module home — KPI dashboard summarising payables."""
+    template_name = "procurement/index.html"
+
+    def get_context_data(self, **kwargs):
+        from datetime import date
+        from decimal import Decimal
+        from .models import Bill, PurchaseOrder, PurchaseRequisition
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        bills = Bill.objects.filter(company=company)
+        today = date.today()
+        ctx["total_outstanding"] = sum((b.outstanding_amount for b in bills.filter(status__in=["RECEIVED", "PARTIAL"])), Decimal(0))
+        ctx["total_overdue"] = sum((b.outstanding_amount for b in bills.filter(status__in=["RECEIVED", "PARTIAL"], due_date__lt=today)), Decimal(0))
+        ctx["open_po_count"] = PurchaseOrder.objects.filter(company=company, status__in=["DRAFT", "SENT", "PARTIALLY_RECEIVED"]).count()
+        ctx["pending_req_count"] = PurchaseRequisition.objects.filter(company=company, status="PENDING_APPROVAL").count()
+        ctx["recent_bills"] = bills.order_by("-bill_date")[:8]
+        return ctx
+
+
+class PurchaseRequisitionListView(LoginRequiredMixin, ListView):
+    model = PurchaseRequisition
+    template_name = "procurement/requisition_list.html"
+    context_object_name = "requisitions"
+    paginate_by = 25
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return PurchaseRequisition.objects.none()
+        return PurchaseRequisition.objects.filter(company=company).select_related("requested_by")
+
+
+class PurchaseRequisitionCreateView(LoginRequiredMixin, CreateView):
+    model = PurchaseRequisition
+    template_name = "procurement/requisition_form.html"
+
+    def get_form_class(self):
+        from .forms import PurchaseRequisitionForm
+        return PurchaseRequisitionForm
+
+    def form_valid(self, form):
+        form.instance.company = self.request.active_company
+        form.instance.requested_by = self.request.user
+        messages.success(self.request, "Purchase requisition created.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("procurement:requisition_detail", args=[self.object.pk])
+
+
+class PurchaseRequisitionDetailView(LoginRequiredMixin, DetailView):
+    model = PurchaseRequisition
+    template_name = "procurement/requisition_detail.html"
+    context_object_name = "requisition"
+
+
+class GRNView(LoginRequiredMixin, DetailView):
+    """Goods Receipt Note — view & record what came in against a PO."""
+    model = PurchaseOrder
+    template_name = "procurement/grn.html"
+    context_object_name = "po"

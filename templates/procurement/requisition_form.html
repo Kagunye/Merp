@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'procurement:requisition_list' as back %}
+{% include "_includes/model_form.html" with title="Purchase Requisition" subtitle="Request approval to purchase" back_url=back cancel_url=back submit_label="Save Requisition" %}
+{% endblock %}

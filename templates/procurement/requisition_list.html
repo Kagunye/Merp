@@ -1,0 +1,23 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Purchase Requisitions" subtitle="Internal requests to purchase" action_label="New Requisition" action_url="procurement:requisition_create" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Requested by</th><th class="px-4 py-3 text-left">Department</th><th class="px-4 py-3 text-left">Required</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in requisitions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'procurement:requisition_detail' r.pk %}" style="color: var(--primary);">{{ r.reference }}</a></td>
+        <td class="px-4 py-3">{{ r.requested_by }}</td>
+        <td class="px-4 py-3">{{ r.department|default:"—" }}</td>
+        <td class="px-4 py-3">{{ r.required_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-right">{{ r.total_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ r.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No requisitions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

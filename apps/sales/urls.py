@@ -5,8 +5,11 @@ from . import views
 app_name = "sales"
 
 urlpatterns = [
-    path("", views.InvoiceListView.as_view(), name="index"),
+    path("", views.SalesIndexView.as_view(), name="index"),
     path("invoices/", views.InvoiceListView.as_view(), name="invoice_list"),
+    path("orders/", views.SalesOrderListView.as_view(), name="order_list"),
+    path("orders/new/", views.SalesOrderCreateView.as_view(), name="order_create"),
+    path("orders/<uuid:pk>/", views.SalesOrderDetailView.as_view(), name="order_detail"),
     path("invoices/new/", views.InvoiceCreateView.as_view(), name="invoice_create"),
     path("invoices/<uuid:pk>/", views.InvoiceDetailView.as_view(), name="invoice_detail"),
     path("invoices/<uuid:pk>/post/", views.InvoicePostView.as_view(), name="invoice_post"),

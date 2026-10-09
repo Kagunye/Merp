@@ -4,7 +4,11 @@ from . import views
 app_name = "procurement"
 
 urlpatterns = [
-    path("", views.PurchaseOrderListView.as_view(), name="index"),
+    path("", views.ProcurementIndexView.as_view(), name="index"),
+    path("requisitions/", views.PurchaseRequisitionListView.as_view(), name="requisition_list"),
+    path("requisitions/new/", views.PurchaseRequisitionCreateView.as_view(), name="requisition_create"),
+    path("requisitions/<uuid:pk>/", views.PurchaseRequisitionDetailView.as_view(), name="requisition_detail"),
+    path("orders/<uuid:pk>/grn/", views.GRNView.as_view(), name="grn"),
     path("bills/", views.BillListView.as_view(), name="bill_list"),
     path("bills/new/", views.BillCreateView.as_view(), name="bill_create"),
     path("bills/<uuid:pk>/", views.BillDetailView.as_view(), name="bill_detail"),

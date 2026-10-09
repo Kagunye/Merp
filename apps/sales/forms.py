@@ -71,3 +71,21 @@ class CustomerPaymentForm(forms.ModelForm):
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
         if not self.instance.pk:
             self.fields["payment_date"].initial = datetime.date.today()
+
+
+class SalesOrderForm(forms.ModelForm):
+    class Meta:
+        model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
+        fields = ["reference", "customer", "order_date", "delivery_date", "warehouse",
+                  "sales_rep", "currency", "discount_percent", "branch", "notes"]
+        widgets = {
+            "order_date": forms.DateInput(attrs={"type": "date"}),
+            "delivery_date": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+
+
+class SalesOrderLineForm(forms.ModelForm):
+    class Meta:
+        model = __import__('apps.sales.models', fromlist=['SalesOrderLine']).SalesOrderLine
+        fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]

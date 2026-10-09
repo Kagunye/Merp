@@ -302,3 +302,61 @@ class ARAgingView(LoginRequiredMixin, TemplateView):
         ctx["rows"] = rows
         ctx["buckets"] = buckets
         return ctx
+
+
+class SalesOrderListView(LoginRequiredMixin, ListView):
+    model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
+    template_name = "sales/order_list.html"
+    context_object_name = "orders"
+    paginate_by = 25
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return self.model.objects.none()
+        return self.model.objects.filter(company=company).select_related("customer")
+
+
+class SalesOrderCreateView(LoginRequiredMixin, CreateView):
+    template_name = "sales/order_form.html"
+
+    def get_form_class(self):
+        from .forms import SalesOrderForm
+        return SalesOrderForm
+
+    def form_valid(self, form):
+        form.instance.company = self.request.active_company
+        messages.success(self.request, "Sales order created.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("sales:order_detail", args=[self.object.pk])
+
+
+class SalesOrderDetailView(LoginRequiredMixin, DetailView):
+    model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
+    template_name = "sales/order_detail.html"
+    context_object_name = "order"
+
+
+class SalesIndexView(LoginRequiredMixin, TemplateView):
+    """AR module home — a KPI dashboard summarising receivables."""
+    template_name = "sales/index.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        from datetime import date
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        from .models import Invoice, CustomerPayment, SalesOrder
+        invs = Invoice.objects.filter(company=company)
+        today = date.today()
+        ctx["total_outstanding"] = sum((i.outstanding_amount for i in invs.filter(status__in=["SENT", "PARTIAL"])), Decimal(0))
+        ctx["total_overdue"] = sum((i.outstanding_amount for i in invs.filter(status__in=["SENT", "PARTIAL"], due_date__lt=today)), Decimal(0))
+        ctx["total_paid_30d"] = sum((p.amount for p in CustomerPayment.objects.filter(company=company, payment_date__gte=today.replace(day=1))), Decimal(0))
+        ctx["open_orders_count"] = SalesOrder.objects.filter(company=company, status__in=["DRAFT", "CONFIRMED", "PARTIALLY_DELIVERED"]).count()
+        ctx["recent_invoices"] = invs.order_by("-invoice_date")[:8]
+        return ctx

@@ -1,0 +1,56 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Sales & Receivables" subtitle="Accounts receivable, invoices, sales orders" action_label="New Invoice" action_url="sales:invoice_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Outstanding</div>
+    <div class="text-2xl font-bold" style="color: var(--primary);">{{ total_outstanding|floatformat:2|default:"0.00" }}</div>
+    <div class="text-xs text-gray-500 mt-1">Unpaid invoices</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Overdue</div>
+    <div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div>
+    <div class="text-xs text-gray-500 mt-1">Past due date</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Collected this month</div>
+    <div class="text-2xl font-bold text-green-600">{{ total_paid_30d|floatformat:2|default:"0.00" }}</div>
+    <div class="text-xs text-gray-500 mt-1">Customer payments received</div>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <div class="text-xs text-gray-500 mb-1">Open orders</div>
+    <div class="text-2xl font-bold text-gray-900">{{ open_orders_count|default:0 }}</div>
+    <div class="text-xs text-gray-500 mt-1">Pending delivery / invoicing</div>
+  </div>
+</div>
+
+<div class="flex flex-wrap gap-4 mb-6 text-sm font-semibold">
+  <a href="{% url 'sales:invoice_list' %}" style="color: var(--primary);">All invoices &rarr;</a>
+  <a href="{% url 'sales:order_list' %}" style="color: var(--primary);">Sales orders &rarr;</a>
+  <a href="{% url 'sales:payment_list' %}" style="color: var(--primary);">Payments received &rarr;</a>
+  <a href="{% url 'sales:ar_aging' %}" style="color: var(--primary);">AR aging &rarr;</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent invoices</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Due</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Outstanding</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for i in recent_invoices %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'sales:invoice_detail' i.pk %}" style="color: var(--primary);">{{ i.reference }}</a></td>
+        <td class="px-4 py-3">{{ i.customer.name }}</td>
+        <td class="px-4 py-3">{{ i.invoice_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3">{{ i.due_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ i.total_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right">{{ i.outstanding_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ i.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-10 text-center text-gray-500">No invoices yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
