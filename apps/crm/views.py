@@ -203,3 +203,15 @@ class LeadCreateView(LoginRequiredMixin, CreateView):
         ctx["page_title"] = "New Lead"
         ctx["action"] = "Create Lead"
         return ctx
+
+
+class SupplierDetailView(LoginRequiredMixin, DetailView):
+    model = __import__('apps.crm.models', fromlist=['Supplier']).Supplier
+    template_name = "crm/supplier_detail.html"
+    context_object_name = "supplier"
+
+
+class LeadDetailView(LoginRequiredMixin, DetailView):
+    model = __import__('apps.crm.models', fromlist=['Lead']).Lead
+    template_name = "crm/lead_detail.html"
+    context_object_name = "lead"

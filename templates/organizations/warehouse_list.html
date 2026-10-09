@@ -1,0 +1,23 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Warehouses" subtitle="Stock storage locations" action_label="New Warehouse" action_url="organizations:warehouse_create" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Company</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Code</th><th class="px-4 py-3 text-left">Location</th><th class="px-4 py-3"></th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for w in warehouses %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium"><a href="{% url 'organizations:warehouse_detail' w.pk %}" style="color: var(--primary);">{{ w.name }}</a>{% if w.is_default %} <span class="badge bg-green-50 text-green-700 ml-1">Default</span>{% endif %}</td>
+        <td class="px-4 py-3">{{ w.company.name }}</td>
+        <td class="px-4 py-3">{{ w.branch|default:"—" }}</td>
+        <td class="px-4 py-3 font-mono text-xs">{{ w.code|default:"—" }}</td>
+        <td class="px-4 py-3">{{ w.city|default:"—" }}{% if w.country %}, {{ w.country }}{% endif %}</td>
+        <td class="px-4 py-3 text-right"><a href="{% url 'organizations:warehouse_edit' w.pk %}" class="text-xs" style="color: var(--primary);">Edit</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No warehouses yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

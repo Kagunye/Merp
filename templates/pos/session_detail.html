@@ -10,12 +10,13 @@
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ session.get_status_display }}</div></div>
 </div>
 
-{% if session.status == 'OPEN' %}
-  <div class="mb-6 flex gap-3">
+<div class="mb-6 flex gap-3 flex-wrap">
+  {% if session.status == 'OPEN' %}
     <a href="{% url 'pos:terminal' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Resume terminal</a>
     <a href="{% url 'pos:session_close' session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-900 bg-white border border-gray-200 rounded-xl">Close session</a>
-  </div>
-{% endif %}
+  {% endif %}
+  <a href="{% url 'pos:cash_up' session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-900 bg-white border border-gray-200 rounded-xl">Cash-Up report</a>
+</div>
 
 <h2 class="text-sm font-semibold text-gray-700 mb-3">Sales</h2>
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">

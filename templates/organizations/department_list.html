@@ -1,0 +1,23 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Departments" subtitle="Functional groups inside each company" action_label="New Department" action_url="organizations:department_create" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Company</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Code</th><th class="px-4 py-3 text-left">Parent</th><th class="px-4 py-3"></th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for d in departments %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium">{{ d.name }}</td>
+        <td class="px-4 py-3">{{ d.company.name }}</td>
+        <td class="px-4 py-3">{{ d.branch|default:"—" }}</td>
+        <td class="px-4 py-3 font-mono text-xs">{{ d.code|default:"—" }}</td>
+        <td class="px-4 py-3">{{ d.parent|default:"—" }}</td>
+        <td class="px-4 py-3 text-right"><a href="{% url 'organizations:department_edit' d.pk %}" class="text-xs" style="color: var(--primary);">Edit</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No departments yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

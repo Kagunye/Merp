@@ -12,7 +12,9 @@ urlpatterns = [
     path("customers/<uuid:pk>/edit/", views.CustomerUpdateView.as_view(), name="customer_edit"),
     path("suppliers/", views.SupplierListView.as_view(), name="supplier_list"),
     path("suppliers/new/", views.SupplierCreateView.as_view(), name="supplier_create"),
+    path("suppliers/<uuid:pk>/", views.SupplierDetailView.as_view(), name="supplier_detail"),
     path("suppliers/<uuid:pk>/edit/", views.SupplierUpdateView.as_view(), name="supplier_edit"),
     path("leads/", views.LeadListView.as_view(), name="lead_list"),
     path("leads/new/", views.LeadCreateView.as_view(), name="lead_create"),
+    path("leads/<uuid:pk>/", views.LeadDetailView.as_view(), name="lead_detail"),
 ]

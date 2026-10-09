@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'organizations:branch_list' as back %}
+{% include "_includes/model_form.html" with title="Branch" subtitle="A physical or logical office" back_url=back cancel_url=back submit_label="Save Branch" %}
+{% endblock %}

@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'organizations:warehouse_list' as back %}
+{% include "_includes/model_form.html" with title="Warehouse" subtitle="A stock storage location" back_url=back cancel_url=back submit_label="Save Warehouse" %}
+{% endblock %}

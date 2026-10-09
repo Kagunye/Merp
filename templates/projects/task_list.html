@@ -1,0 +1,22 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Tasks" subtitle="Every task across all projects" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Task</th><th class="px-4 py-3 text-left">Project</th><th class="px-4 py-3 text-left">Assignee</th><th class="px-4 py-3 text-left">Due</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for t in tasks %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-medium"><a href="{% url 'projects:task_detail' t.pk %}" style="color: var(--primary);">{{ t.title }}</a></td>
+        <td class="px-4 py-3">{{ t.project.name }}</td>
+        <td class="px-4 py-3">{{ t.assignee|default:"—" }}</td>
+        <td class="px-4 py-3">{{ t.due_date|date:"d M Y"|default:"—" }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ t.get_status_display|default:t.status }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No tasks yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

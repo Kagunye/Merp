@@ -1,0 +1,49 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'pos:session_detail' session.pk as back %}
+{% include "_includes/page_header.html" with title="POS Cash-Up" subtitle="Reconcile the till at session close" back_url=back %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Cashier</div><div class="font-semibold">{{ session.cashier }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opened</div><div class="font-semibold">{{ session.opened_at|date:"d M, H:i" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Closed</div><div class="font-semibold">{{ session.closed_at|date:"d M, H:i"|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ session.get_status_display }}</div></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h3 class="text-sm font-semibold mb-3">Sales by method</h3>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-100">
+        <tr><td class="py-2 text-gray-500">Cash</td><td class="py-2 text-right font-semibold">{{ cash_sales|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Card</td><td class="py-2 text-right font-semibold">{{ card_sales|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">M-Pesa</td><td class="py-2 text-right font-semibold">{{ mpesa_sales|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Bank</td><td class="py-2 text-right font-semibold">{{ bank_sales|floatformat:2 }}</td></tr>
+        <tr class="font-bold border-t"><td class="py-2">Total sales</td><td class="py-2 text-right" style="color: var(--primary);">{{ session.total_sales|floatformat:2 }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h3 class="text-sm font-semibold mb-3">Cash reconciliation</h3>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-100">
+        <tr><td class="py-2 text-gray-500">Opening cash</td><td class="py-2 text-right">{{ session.opening_cash|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">+ Cash sales</td><td class="py-2 text-right">{{ cash_sales|floatformat:2 }}</td></tr>
+        <tr class="font-semibold border-t"><td class="py-2">Expected in drawer</td><td class="py-2 text-right">{{ expected_cash|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Counted</td><td class="py-2 text-right">{{ counted_cash|floatformat:2 }}</td></tr>
+        <tr class="font-bold border-t">
+          <td class="py-2">Variance</td>
+          <td class="py-2 text-right {% if variance == 0 %}text-green-700{% elif variance > 0 %}text-amber-600{% else %}text-red-600{% endif %}">{{ variance|floatformat:2 }}</td>
+        </tr>
+      </tbody>
+    </table>
+    {% if variance == 0 %}
+      <p class="text-sm text-green-700 mt-3">✓ Drawer balances.</p>
+    {% elif variance > 0 %}
+      <p class="text-sm text-amber-600 mt-3">Overage detected. Please investigate.</p>
+    {% else %}
+      <p class="text-sm text-red-600 mt-3">Shortage detected. Please investigate.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

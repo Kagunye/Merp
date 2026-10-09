@@ -1,0 +1,26 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'organizations:company_list' as back %}
+{% include "_includes/page_header.html" with title=company.name subtitle=company.legal_name back_url=back action_label="Edit" action_url="organizations:company_edit" %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Tax ID / KRA PIN</div><div class="font-semibold font-mono">{{ company.tax_id|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Currency / Timezone</div><div class="font-semibold">{{ company.currency }} · {{ company.timezone }}</div></div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Industry</div><div class="font-semibold">{{ company.industry|default:"—" }}</div></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h3 class="text-sm font-semibold mb-3 flex justify-between">Branches <a href="{% url 'organizations:branch_create' %}" class="text-xs" style="color: var(--primary);">+ New</a></h3>
+    {% for b in branches %}<div class="py-2 border-t text-sm"><a href="{% url 'organizations:branch_detail' b.pk %}" style="color: var(--primary);">{{ b.name }}</a>{% if b.is_headquarters %} <span class="badge bg-amber-50 text-amber-700 ml-1">HQ</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h3 class="text-sm font-semibold mb-3 flex justify-between">Departments <a href="{% url 'organizations:department_create' %}" class="text-xs" style="color: var(--primary);">+ New</a></h3>
+    {% for d in departments %}<div class="py-2 border-t text-sm">{{ d.name }}{% if d.code %} <span class="text-xs text-gray-500">({{ d.code }})</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h3 class="text-sm font-semibold mb-3 flex justify-between">Warehouses <a href="{% url 'organizations:warehouse_create' %}" class="text-xs" style="color: var(--primary);">+ New</a></h3>
+    {% for w in warehouses %}<div class="py-2 border-t text-sm"><a href="{% url 'organizations:warehouse_detail' w.pk %}" style="color: var(--primary);">{{ w.name }}</a>{% if w.is_default %} <span class="badge bg-green-50 text-green-700 ml-1">Default</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
+  </div>
+</div>
+{% endblock %}

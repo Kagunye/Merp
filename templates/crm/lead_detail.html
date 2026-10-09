@@ -1,0 +1,14 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'crm:lead_list' as back %}
+{% include "_includes/page_header.html" with title=lead.name subtitle="Lead" back_url=back %}
+<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
+  <div class="grid grid-cols-2 gap-5 text-sm">
+    <div><div class="text-xs text-gray-500">Email</div><div class="font-semibold">{{ lead.email|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Phone</div><div class="font-semibold">{{ lead.phone|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Source</div><div class="font-semibold">{{ lead.source|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ lead.get_status_display|default:lead.status }}</span></div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Notes</div><div class="text-gray-900 text-sm mt-1">{{ lead.notes|default:"—"|linebreaks }}</div></div>
+  </div>
+</div>
+{% endblock %}

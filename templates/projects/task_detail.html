@@ -1,0 +1,16 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'projects:task_list' as back %}
+{% include "_includes/page_header.html" with title=task.title subtitle=task.project.name back_url=back %}
+<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
+  <div class="grid grid-cols-2 gap-5 text-sm">
+    <div><div class="text-xs text-gray-500">Project</div><div class="font-semibold">{{ task.project.name }}</div></div>
+    <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ task.get_status_display|default:task.status }}</span></div></div>
+    <div><div class="text-xs text-gray-500">Assignee</div><div class="font-semibold">{{ task.assignee|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Priority</div><div class="font-semibold">{{ task.get_priority_display|default:task.priority|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Start</div><div class="font-semibold">{{ task.start_date|date:"d M Y"|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Due</div><div class="font-semibold">{{ task.due_date|date:"d M Y"|default:"—" }}</div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-sm text-gray-900 mt-1">{{ task.description|default:"—"|linebreaks }}</div></div>
+  </div>
+</div>
+{% endblock %}

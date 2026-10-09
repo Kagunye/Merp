@@ -139,3 +139,21 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
         ctx["project"] = get_object_or_404(Project, pk=self.kwargs["project_pk"], company=self.request.active_company)
         ctx["page_title"] = "New Task"
         return ctx
+
+
+class TaskDetailView(LoginRequiredMixin, DetailView):
+    model = __import__('apps.projects.models', fromlist=['Task']).Task
+    template_name = "projects/task_detail.html"
+    context_object_name = "task"
+
+
+class TaskListView(LoginRequiredMixin, ListView):
+    template_name = "projects/task_list.html"
+    context_object_name = "tasks"
+    paginate_by = 50
+
+    def get_queryset(self):
+        from apps.projects.models import Task
+        company = self.request.active_company
+        qs = Task.objects.filter(project__company=company) if company else Task.objects.none()
+        return qs.select_related("project", "assignee")

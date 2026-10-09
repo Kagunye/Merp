@@ -114,3 +114,32 @@ class TerminalView(LoginRequiredMixin, TemplateView):
             company=company, cashier=self.request.user, status="OPEN"
         ).first() if company else None
         return ctx
+
+
+class CashUpView(LoginRequiredMixin, DetailView):
+    """Classic Palladium 'POS Cash-Up' screen — reconciles counted cash
+    against expected sales for a session."""
+    model = POSSession
+    template_name = "pos/cash_up.html"
+    context_object_name = "session"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        ctx = super().get_context_data(**kwargs)
+        s = self.object
+        cash_sales = sum(
+            (x.total_amount for x in s.sales.filter(payment_method="CASH")),
+            Decimal(0),
+        )
+        card_sales = sum((x.total_amount for x in s.sales.filter(payment_method="CARD")), Decimal(0))
+        mpesa_sales = sum((x.total_amount for x in s.sales.filter(payment_method="MPESA")), Decimal(0))
+        bank_sales = sum((x.total_amount for x in s.sales.filter(payment_method="BANK")), Decimal(0))
+        expected = s.opening_cash + cash_sales
+        counted = s.closing_cash or Decimal(0)
+        ctx.update({
+            "cash_sales": cash_sales, "card_sales": card_sales,
+            "mpesa_sales": mpesa_sales, "bank_sales": bank_sales,
+            "expected_cash": expected, "counted_cash": counted,
+            "variance": counted - expected,
+        })
+        return ctx

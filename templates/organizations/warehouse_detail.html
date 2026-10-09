@@ -1,0 +1,14 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'organizations:warehouse_list' as back %}
+{% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.company.name back_url=back action_label="Edit" action_url="organizations:warehouse_edit" %}
+<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
+  <div class="grid grid-cols-2 gap-5">
+    <div><div class="text-xs text-gray-500">Company</div><div class="font-semibold">{{ warehouse.company.name }}</div></div>
+    <div><div class="text-xs text-gray-500">Branch</div><div class="font-semibold">{{ warehouse.branch|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Code</div><div class="font-semibold font-mono">{{ warehouse.code|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Default</div><div class="font-semibold">{% if warehouse.is_default %}Yes{% else %}No{% endif %}</div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Address</div><div>{{ warehouse.address_line1|default:"—" }}{% if warehouse.city %}, {{ warehouse.city }}{% endif %}{% if warehouse.country %}, {{ warehouse.country }}{% endif %}</div></div>
+  </div>
+</div>
+{% endblock %}
