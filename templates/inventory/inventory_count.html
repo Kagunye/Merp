@@ -1,0 +1,40 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'inventory:warehouse_detail' warehouse.pk as back_url %}
+{% include "_includes/page_header.html" with title="Cycle Count" subtitle=warehouse.name back_url=back_url %}
+
+<form method="post">
+  {% csrf_token %}
+  <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-end gap-4">
+    <div>
+      <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Count date</label>
+      <input type="date" name="movement_date" value="{% now 'Y-m-d' %}" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+    </div>
+    <p class="text-xs text-gray-500 flex-1">Enter the actual counted quantity for any product. Blank rows are left alone. Variances post ADJUSTMENT_PLUS / ADJUSTMENT_MINUS stock movements.</p>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+        <tr><th class="px-4 py-3 text-left">SKU</th><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">System Qty</th><th class="px-4 py-3 text-right">Counted Qty</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for sl in stock_levels %}
+        <tr>
+          <td class="px-4 py-2 font-mono text-xs text-gray-500">{{ sl.product.sku }}</td>
+          <td class="px-4 py-2 font-medium">{{ sl.product.name }}</td>
+          <td class="px-4 py-2 text-right font-mono text-gray-700">{{ sl.quantity|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right"><input type="number" step="0.01" name="count_{{ sl.pk }}" placeholder="{{ sl.quantity|floatformat:2 }}" class="form-input w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right font-mono" /></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No stock lines in this warehouse yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex items-center gap-3">
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Adjustments</button>
+    <a href="{% url 'inventory:warehouse_detail' warehouse.pk %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
+  </div>
+</form>
+{% endblock %}

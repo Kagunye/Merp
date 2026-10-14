@@ -17,4 +17,11 @@ urlpatterns = [
     path("trial-balance/", views.TrialBalanceView.as_view(), name="trial_balance"),
     path("general-ledger/", views.GeneralLedgerIndexView.as_view(), name="general_ledger"),
     path("accounts/<uuid:pk>/ledger/", views.AccountLedgerView.as_view(), name="account_ledger"),
+    path("fiscal-years/", views.FiscalYearListView.as_view(), name="fiscal_year_list"),
+    path("fiscal-years/new/", views.FiscalYearCreateView.as_view(), name="fiscal_year_create"),
+    path("fiscal-years/<uuid:pk>/close/", views.fiscal_year_close, name="fiscal_year_close"),
+    path("fiscal-years/<uuid:pk>/reopen/", views.fiscal_year_reopen, name="fiscal_year_reopen"),
+    path("periods/<uuid:pk>/close/", views.period_close, name="period_close"),
+    path("periods/<uuid:pk>/reopen/", views.period_reopen, name="period_reopen"),
+    path("opening-balances/", views.OpeningBalanceView.as_view(), name="opening_balances"),
 ]

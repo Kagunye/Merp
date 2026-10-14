@@ -3,10 +3,13 @@ import datetime
 from decimal import Decimal
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import CreateView, DetailView, ListView, TemplateView
+from django.views.decorators.http import require_POST
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from .models import Bill, PurchaseOrder, PurchaseRequisition
 
@@ -329,3 +332,189 @@ class GRNView(LoginRequiredMixin, DetailView):
     model = PurchaseOrder
     template_name = "procurement/grn.html"
     context_object_name = "po"
+
+
+# ------------------------- AP actions -------------------------
+
+
+class BillUpdateView(LoginRequiredMixin, UpdateView):
+    """Edit a bill. Blocks edits once fully paid or cancelled."""
+    model = Bill
+    template_name = "procurement/bill_form.html"
+    fields = ["reference", "supplier", "supplier_reference", "bill_date", "due_date",
+              "subtotal", "tax_amount", "total_amount", "notes"]
+
+    def get_queryset(self):
+        return Bill.objects.filter(company=self.request.active_company)
+
+    def dispatch(self, request, *args, **kwargs):
+        obj = self.get_object()
+        if obj.status in ("PAID", "CANCELLED"):
+            messages.error(request, f"Bill {obj.reference} cannot be edited ({obj.get_status_display()}).")
+            return redirect("procurement:bill_detail", pk=obj.pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        from django import forms as dforms
+        for fname, field in form.fields.items():
+            if isinstance(field.widget, dforms.Select):
+                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            elif isinstance(field.widget, dforms.Textarea):
+                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["rows"] = 3
+            elif isinstance(field.widget, dforms.DateInput):
+                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["type"] = "date"
+            else:
+                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        company = self.request.active_company
+        if company:
+            from apps.crm.models import Supplier
+            form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
+        return form
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
+
+    def form_valid(self, form):
+        messages.success(self.request, f"Bill {form.instance.reference} updated.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = f"Edit Bill {self.object.reference}"
+        ctx["is_edit"] = True
+        return ctx
+
+
+@login_required
+@require_POST
+def bill_cancel(request, pk):
+    bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
+    if bill.paid_amount > 0:
+        messages.error(request, f"Cannot cancel {bill.reference}: already has payments.")
+    else:
+        bill.status = "CANCELLED"
+        bill.save(update_fields=["status"])
+        messages.success(request, f"Bill {bill.reference} cancelled.")
+    return redirect("procurement:bill_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def bill_pay(request, pk):
+    """Record a supplier payment against a bill.
+
+    Creates a posted JournalEntry (Dr AP, Cr Bank/Cash) and updates
+    bill.paid_amount + status. Payment account is picked from the
+    chart of accounts (first PAYABLE and first BANK/CASH).
+    """
+    from decimal import Decimal
+    from django.utils import timezone
+    from apps.accounting.models import Account, JournalEntry, JournalEntryLine
+    from apps.core.models import SequenceCounter
+
+    bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
+    try:
+        amount = Decimal(request.POST.get("amount") or "0")
+    except Exception:
+        messages.error(request, "Invalid amount.")
+        return redirect("procurement:bill_detail", pk=pk)
+    if amount <= 0:
+        messages.error(request, "Payment amount must be positive.")
+        return redirect("procurement:bill_detail", pk=pk)
+    if amount > bill.outstanding_amount:
+        messages.error(request, f"Payment ({amount}) exceeds outstanding ({bill.outstanding_amount}).")
+        return redirect("procurement:bill_detail", pk=pk)
+
+    company = request.active_company
+    ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).first()
+    bank = Account.objects.filter(company=company, account_type__in=["BANK", "CASH"], is_active=True).first()
+    if not (ap and bank):
+        messages.error(request, "Chart of accounts missing a Payable or Bank/Cash account.")
+        return redirect("procurement:bill_detail", pk=pk)
+
+    with transaction.atomic():
+        ref = SequenceCounter.next_number(company, "SPY-")
+        je = JournalEntry.objects.create(
+            company=company,
+            reference=f"JE-{ref}",
+            entry_type="PAYMENT",
+            posting_date=bill.bill_date,
+            notes=f"Supplier payment for bill {bill.reference}",
+            status="POSTED",
+            posted_at=timezone.now(),
+        )
+        JournalEntryLine.objects.create(
+            journal_entry=je, account=ap,
+            description=f"Pay {bill.supplier.name} — {bill.reference}",
+            debit_amount=amount, credit_amount=Decimal("0"),
+        )
+        JournalEntryLine.objects.create(
+            journal_entry=je, account=bank,
+            description=f"Pay {bill.supplier.name} — {bill.reference}",
+            debit_amount=Decimal("0"), credit_amount=amount,
+        )
+        bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
+        bill.outstanding_amount = bill.total_amount - bill.paid_amount
+        if bill.outstanding_amount <= 0:
+            bill.status = "PAID"
+        else:
+            bill.status = "PARTIAL"
+        bill.save(update_fields=["paid_amount", "outstanding_amount", "status"])
+    messages.success(request, f"Payment {amount} recorded for {bill.reference}. GL entry {je.reference} posted.")
+    return redirect("procurement:bill_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def po_send(request, pk):
+    po = get_object_or_404(PurchaseOrder, pk=pk, company=request.active_company)
+    if po.status != "DRAFT":
+        messages.error(request, f"PO {po.reference} is {po.get_status_display()}, cannot send.")
+    else:
+        po.status = "SENT"
+        po.save(update_fields=["status"])
+        messages.success(request, f"PO {po.reference} marked as sent.")
+    return redirect("procurement:po_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def po_cancel(request, pk):
+    po = get_object_or_404(PurchaseOrder, pk=pk, company=request.active_company)
+    if po.status in ("BILLED", "FULLY_RECEIVED"):
+        messages.error(request, f"PO {po.reference} is {po.get_status_display()}, cannot cancel.")
+    else:
+        po.status = "CANCELLED"
+        po.save(update_fields=["status"])
+        messages.success(request, f"PO {po.reference} cancelled.")
+    return redirect("procurement:po_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def requisition_approve(request, pk):
+    req = get_object_or_404(PurchaseRequisition, pk=pk, company=request.active_company)
+    if req.status != "PENDING_APPROVAL":
+        messages.error(request, f"Requisition {req.reference} is {req.get_status_display()}.")
+    else:
+        from django.utils import timezone
+        req.status = "APPROVED"
+        req.approved_by = request.user
+        req.approved_at = timezone.now()
+        req.save(update_fields=["status", "approved_by", "approved_at"])
+        messages.success(request, f"Requisition {req.reference} approved.")
+    return redirect("procurement:requisition_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def requisition_reject(request, pk):
+    req = get_object_or_404(PurchaseRequisition, pk=pk, company=request.active_company)
+    req.status = "REJECTED"
+    req.save(update_fields=["status"])
+    messages.success(request, f"Requisition {req.reference} rejected.")
+    return redirect("procurement:requisition_detail", pk=pk)

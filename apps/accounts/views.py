@@ -48,6 +48,8 @@ class LoginView(View):
         return render(request, self.template_name, ctx)
 
     def post(self, request):
+        import logging
+        log = logging.getLogger(__name__)
         form = LoginForm(request.POST)
         ip = _get_client_ip(request)
         ua = request.META.get("HTTP_USER_AGENT", "")
@@ -58,24 +60,53 @@ class LoginView(View):
             password = form.cleaned_data["password"]
             remember_me = form.cleaned_data.get("remember_me", False)
 
-            user = authenticate(request, username=email, password=password)
+            try:
+                user = authenticate(request, username=email, password=password)
+            except Exception as exc:
+                log.exception("Authentication backend crashed: %s", exc)
+                form.add_error(None, "Login is temporarily unavailable. Please try again shortly.")
+                ctx = {"form": form, "features": features, **self._demo_context()}
+                return render(request, self.template_name, ctx)
+
             if user is not None:
-                login(request, user)
-                LoginAttempt.objects.create(
-                    user=user, email=email, ip_address=ip,
-                    user_agent=ua, success=True,
-                )
-                if not remember_me:
-                    request.session.set_expiry(0)
-                messages.success(request, f"Welcome back, {user.first_name or user.email}!")
+                try:
+                    login(request, user)
+                except Exception as exc:
+                    log.exception("login() failed (likely a session backend issue): %s", exc)
+                    form.add_error(None, "Could not start a session. Please try again.")
+                    ctx = {"form": form, "features": features, **self._demo_context()}
+                    return render(request, self.template_name, ctx)
+
+                # Audit — never block sign-in on an audit write.
+                try:
+                    LoginAttempt.objects.create(
+                        user=user, email=email, ip_address=ip,
+                        user_agent=ua, success=True,
+                    )
+                except Exception as exc:
+                    log.warning("LoginAttempt audit write failed: %s", exc)
+
+                try:
+                    if not remember_me:
+                        request.session.set_expiry(0)
+                except Exception as exc:
+                    log.warning("session.set_expiry failed: %s", exc)
+
+                try:
+                    messages.success(request, f"Welcome back, {user.first_name or user.email}!")
+                except Exception:
+                    pass
                 next_url = request.GET.get("next", "/dashboard/")
                 return redirect(next_url)
             else:
-                LoginAttempt.objects.create(
-                    email=form.cleaned_data.get("email", ""),
-                    ip_address=ip, user_agent=ua, success=False,
-                    failure_reason="Invalid credentials",
-                )
+                try:
+                    LoginAttempt.objects.create(
+                        email=form.cleaned_data.get("email", ""),
+                        ip_address=ip, user_agent=ua, success=False,
+                        failure_reason="Invalid credentials",
+                    )
+                except Exception as exc:
+                    log.warning("LoginAttempt (failure) audit write failed: %s", exc)
                 form.add_error(None, "Invalid email or password. Please try again.")
 
         ctx = {"form": form, "features": features, **self._demo_context()}

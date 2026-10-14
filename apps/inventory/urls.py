@@ -13,4 +13,7 @@ urlpatterns = [
     path("products/<uuid:pk>/edit/", views.ProductUpdateView.as_view(), name="product_edit"),
     path("movements/", views.StockMovementListView.as_view(), name="movement_list"),
     path("movements/adjust/", views.StockAdjustmentCreateView.as_view(), name="adjustment_create"),
+    path("transfer/", views.StockTransferView.as_view(), name="stock_transfer"),
+    path("warehouses/<uuid:pk>/", views.WarehouseDetailView.as_view(), name="warehouse_detail"),
+    path("warehouses/<uuid:pk>/count/", views.InventoryCountView.as_view(), name="inventory_count"),
 ]

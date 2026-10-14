@@ -12,4 +12,7 @@ urlpatterns = [
     path("work-orders/new/", views.WorkOrderCreateView.as_view(), name="work_order_create"),
     path("work-orders/<uuid:pk>/", views.WorkOrderDetailView.as_view(), name="work_order_detail"),
     path("work-orders/<uuid:pk>/complete/", views.work_order_complete, name="work_order_complete"),
+    path("work-orders/<uuid:pk>/release/", views.work_order_release, name="work_order_release"),
+    path("work-orders/<uuid:pk>/start/", views.work_order_start, name="work_order_start"),
+    path("work-orders/<uuid:pk>/cancel/", views.work_order_cancel, name="work_order_cancel"),
 ]

@@ -1,0 +1,84 @@
+{% extends "base/base.html" %}
+{% block title %}{{ po.reference }} — Purchase Order — MERP ERP{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'procurement:po_list' %}" class="hover:underline">Purchase Orders</a> / <span class="text-gray-900 font-medium">{{ po.reference }}</span></nav>
+    <h1 class="text-2xl font-bold text-gray-900">PO: {{ po.reference }}</h1>
+  </div>
+  <div class="flex items-center gap-2">
+    <span class="badge {% if po.status == 'FULLY_RECEIVED' or po.status == 'BILLED' %}bg-green-50 text-green-700{% elif po.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif po.status == 'CANCELLED' %}bg-gray-100 text-gray-500 line-through{% elif po.status == 'PARTIALLY_RECEIVED' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
+      {{ po.get_status_display }}
+    </span>
+    {% if po.status == 'DRAFT' %}
+    <form method="post" action="{% url 'procurement:po_send' po.pk %}" onsubmit="return confirm('Mark this PO as sent to supplier?');">
+      {% csrf_token %}
+      <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Send to Supplier</button>
+    </form>
+    {% endif %}
+    {% if po.status != 'BILLED' and po.status != 'FULLY_RECEIVED' and po.status != 'CANCELLED' %}
+    <a href="{% url 'procurement:grn' po.pk %}" class="px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Receive (GRN)</a>
+    <form method="post" action="{% url 'procurement:po_cancel' po.pk %}" onsubmit="return confirm('Cancel this PO?');">
+      {% csrf_token %}
+      <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Purchase Order Details</h2>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-gray-500">Supplier</dt><dd class="font-medium text-gray-900">{{ po.supplier.name }}</dd></div>
+      <div><dt class="text-gray-500">Order Date</dt><dd class="text-gray-900">{{ po.order_date }}</dd></div>
+      <div><dt class="text-gray-500">Expected Delivery</dt><dd class="text-gray-900">{{ po.expected_delivery_date|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Warehouse</dt><dd class="text-gray-900">{{ po.warehouse.name|default:"—" }}</dd></div>
+    </dl>
+    {% if po.notes %}<p class="text-sm text-gray-600 mt-4">{{ po.notes }}</p>{% endif %}
+
+    <h3 class="text-sm font-semibold text-gray-800 mt-6 mb-2">Lines</h3>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+        <tr><th class="px-3 py-2 text-left">Product</th><th class="px-3 py-2 text-right">Qty</th><th class="px-3 py-2 text-right">Received</th><th class="px-3 py-2 text-right">Unit Cost</th><th class="px-3 py-2 text-right">Total</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for line in lines %}
+        <tr>
+          <td class="px-3 py-2"><p class="font-medium">{{ line.product.name }}</p><p class="text-xs text-gray-400">{{ line.description }}</p></td>
+          <td class="px-3 py-2 text-right font-mono">{{ line.quantity|floatformat:2 }}</td>
+          <td class="px-3 py-2 text-right font-mono text-gray-500">{{ line.received_quantity|floatformat:2 }}</td>
+          <td class="px-3 py-2 text-right font-mono">{{ line.unit_cost|floatformat:2 }}</td>
+          <td class="px-3 py-2 text-right font-mono font-semibold">{{ line.line_total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-3 py-4 text-center text-gray-400 text-sm">No lines on this PO.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-4">Financials</h2>
+    <div class="space-y-3 text-sm">
+      <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span class="font-mono">{{ po.subtotal|floatformat:2 }}</span></div>
+      <div class="flex justify-between"><span class="text-gray-500">Tax</span><span class="font-mono">{{ po.tax_amount|floatformat:2 }}</span></div>
+      <div class="flex justify-between font-bold border-t border-gray-100 pt-2"><span>Total</span><span class="font-mono text-gray-900">{{ po.currency }} {{ po.total_amount|floatformat:2 }}</span></div>
+    </div>
+
+    <h3 class="text-sm font-semibold text-gray-800 mt-6 mb-2">Related Bills</h3>
+    <div class="space-y-2 text-sm">
+      {% for b in bills %}
+      <a href="{% url 'procurement:bill_detail' b.pk %}" class="block px-3 py-2 bg-gray-50 rounded-lg hover:bg-gray-100">
+        <div class="flex justify-between">
+          <span class="font-mono text-xs">{{ b.reference }}</span>
+          <span class="font-mono font-semibold">{{ b.total_amount|floatformat:2 }}</span>
+        </div>
+        <p class="text-xs text-gray-500">{{ b.bill_date }}</p>
+      </a>
+      {% empty %}
+      <p class="text-xs text-gray-400 italic">No bills yet. Use GRN then create a bill.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

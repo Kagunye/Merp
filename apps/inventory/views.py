@@ -232,3 +232,140 @@ class InventoryWarehouseStockView(LoginRequiredMixin, TemplateView):
                 warehouse__company=company,
             ).select_related("warehouse", "product").order_by("warehouse__name", "product__name")
         return ctx
+
+
+# ------------------------- Warehousing deep-dive -------------------------
+from decimal import Decimal
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.views.decorators.http import require_POST
+from django.views.generic import FormView
+
+
+class WarehouseDetailView(LoginRequiredMixin, TemplateView):
+    """Deep view of one warehouse: all stock on hand with reorder flags
+    plus recent movements."""
+    template_name = "inventory/warehouse_detail.html"
+
+    def get_context_data(self, **kwargs):
+        from apps.organizations.models import Warehouse
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        warehouse = get_object_or_404(Warehouse, pk=kwargs["pk"], company=company)
+        ctx["warehouse"] = warehouse
+        ctx["stock_levels"] = StockLevel.objects.filter(warehouse=warehouse).select_related("product").order_by("product__name")
+        ctx["recent_movements"] = StockMovement.objects.filter(
+            warehouse=warehouse
+        ).select_related("product", "performed_by").order_by("-movement_date", "-created_at")[:30]
+        ctx["low_stock"] = [sl for sl in ctx["stock_levels"] if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level]
+        ctx["total_value"] = sum((sl.quantity * (sl.product.cost_price or Decimal(0)) for sl in ctx["stock_levels"]), Decimal(0))
+        return ctx
+
+
+class StockTransferView(LoginRequiredMixin, TemplateView):
+    """Transfer stock from one warehouse to another.
+    Creates paired TRANSFER_OUT / TRANSFER_IN movements."""
+    template_name = "inventory/stock_transfer.html"
+
+    def get_context_data(self, **kwargs):
+        from apps.organizations.models import Warehouse
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        ctx["warehouses"] = Warehouse.objects.filter(company=company, is_active=True)
+        ctx["products"] = Product.objects.filter(company=company, is_active=True, track_inventory=True)
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        from apps.organizations.models import Warehouse
+        company = request.active_company
+        from_pk = request.POST.get("from_warehouse")
+        to_pk = request.POST.get("to_warehouse")
+        product_pk = request.POST.get("product")
+        qty_s = request.POST.get("quantity") or "0"
+        movement_date = request.POST.get("movement_date") or datetime.date.today()
+        reference = request.POST.get("reference") or ""
+
+        if from_pk == to_pk:
+            messages.error(request, "From and To warehouses must differ.")
+            return redirect("inventory:stock_transfer")
+
+        try:
+            qty = Decimal(qty_s)
+        except Exception:
+            qty = Decimal(0)
+        if qty <= 0:
+            messages.error(request, "Quantity must be positive.")
+            return redirect("inventory:stock_transfer")
+
+        from_w = get_object_or_404(Warehouse, pk=from_pk, company=company)
+        to_w = get_object_or_404(Warehouse, pk=to_pk, company=company)
+        product = get_object_or_404(Product, pk=product_pk, company=company)
+
+        with transaction.atomic():
+            StockMovement.objects.create(
+                product=product, warehouse=from_w, movement_type="TRANSFER_OUT",
+                quantity=qty, unit_cost=product.cost_price or Decimal(0),
+                reference=reference or f"TRF-{to_w.code}",
+                movement_date=movement_date, performed_by=request.user,
+                notes=f"Transfer to {to_w.name}",
+            )
+            StockMovement.objects.create(
+                product=product, warehouse=to_w, movement_type="TRANSFER_IN",
+                quantity=qty, unit_cost=product.cost_price or Decimal(0),
+                reference=reference or f"TRF-{from_w.code}",
+                movement_date=movement_date, performed_by=request.user,
+                notes=f"Transfer from {from_w.name}",
+            )
+        messages.success(request, f"Transferred {qty} × {product.name}: {from_w.name} → {to_w.name}.")
+        return redirect("inventory:warehouse_detail", pk=to_w.pk)
+
+
+class InventoryCountView(LoginRequiredMixin, TemplateView):
+    """Cycle count for a warehouse: enter counted quantities per product;
+    posts ADJUSTMENT_PLUS / ADJUSTMENT_MINUS movements for variances."""
+    template_name = "inventory/inventory_count.html"
+
+    def get_context_data(self, **kwargs):
+        from apps.organizations.models import Warehouse
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        warehouse = get_object_or_404(Warehouse, pk=kwargs["pk"], company=company)
+        ctx["warehouse"] = warehouse
+        ctx["stock_levels"] = StockLevel.objects.filter(warehouse=warehouse).select_related("product").order_by("product__name")
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        from apps.organizations.models import Warehouse
+        company = request.active_company
+        warehouse = get_object_or_404(Warehouse, pk=kwargs["pk"], company=company)
+        movement_date = request.POST.get("movement_date") or datetime.date.today()
+        count = 0
+        with transaction.atomic():
+            for sl in StockLevel.objects.filter(warehouse=warehouse).select_related("product"):
+                counted = request.POST.get(f"count_{sl.pk}")
+                if counted is None or counted == "":
+                    continue
+                try:
+                    counted_dec = Decimal(counted)
+                except Exception:
+                    continue
+                variance = counted_dec - sl.quantity
+                if variance == 0:
+                    continue
+                mtype = "ADJUSTMENT_PLUS" if variance > 0 else "ADJUSTMENT_MINUS"
+                StockMovement.objects.create(
+                    product=sl.product, warehouse=warehouse,
+                    movement_type=mtype,
+                    quantity=abs(variance),
+                    unit_cost=sl.product.cost_price or Decimal(0),
+                    reference=f"CYCLE-COUNT-{warehouse.code}",
+                    movement_date=movement_date,
+                    performed_by=request.user,
+                    notes="Cycle count adjustment",
+                )
+                count += 1
+        messages.success(request, f"Cycle count posted: {count} adjustment(s).")
+        return redirect("inventory:warehouse_detail", pk=warehouse.pk)

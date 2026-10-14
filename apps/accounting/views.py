@@ -262,7 +262,7 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
             rows.append({
                 "date": ln.journal_entry.posting_date,
                 "reference": ln.journal_entry.reference,
-                "description": ln.description or ln.journal_entry.narration,
+                "description": ln.description or ln.journal_entry.notes,
                 "debit": ln.debit_amount,
                 "credit": ln.credit_amount,
                 "balance": running,
@@ -294,6 +294,184 @@ class GeneralLedgerIndexView(LoginRequiredMixin, TemplateView):
             buckets.setdefault(a.get_account_type_display(), []).append(a)
         ctx["buckets"] = buckets
         return ctx
+
+
+# ------------------------- Accounting Periods -------------------------
+from django.views.decorators.http import require_POST
+from apps.organizations.models import FiscalYear, AccountingPeriod
+
+
+class FiscalYearListView(LoginRequiredMixin, ListView):
+    template_name = "accounting/fiscal_year_list.html"
+    context_object_name = "fiscal_years"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return FiscalYear.objects.none()
+        return FiscalYear.objects.filter(company=company).prefetch_related("periods")
+
+
+class FiscalYearCreateView(LoginRequiredMixin, CreateView):
+    model = FiscalYear
+    template_name = "accounting/fiscal_year_form.html"
+    fields = ["name", "start_date", "end_date", "is_current"]
+    success_url = reverse_lazy("accounting:fiscal_year_list")
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        from django import forms as dforms
+        for fname, field in form.fields.items():
+            if isinstance(field.widget, dforms.DateInput):
+                field.widget.attrs["type"] = "date"
+                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            elif isinstance(field.widget, dforms.CheckboxInput):
+                field.widget.attrs["class"] = "form-checkbox"
+            else:
+                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        return form
+
+    def form_valid(self, form):
+        import calendar
+        from datetime import date, timedelta
+        form.instance.company = self.request.active_company
+        response = super().form_valid(form)
+        fy = self.object
+        # Auto-generate 12 monthly periods
+        current = fy.start_date
+        n = 1
+        while current <= fy.end_date:
+            last_day = calendar.monthrange(current.year, current.month)[1]
+            period_end = date(current.year, current.month, last_day)
+            if period_end > fy.end_date:
+                period_end = fy.end_date
+            AccountingPeriod.objects.get_or_create(
+                fiscal_year=fy, name=f"P{n:02d} {current.strftime('%b %Y')}",
+                defaults={"start_date": current, "end_date": period_end, "status": "OPEN"},
+            )
+            # advance to first day of next month
+            if current.month == 12:
+                current = date(current.year + 1, 1, 1)
+            else:
+                current = date(current.year, current.month + 1, 1)
+            n += 1
+        messages.success(self.request, f"Fiscal year '{fy.name}' created with {n-1} monthly periods.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = "New Fiscal Year"
+        return ctx
+
+
+@login_required
+@require_POST
+def fiscal_year_close(request, pk):
+    fy = get_object_or_404(FiscalYear, pk=pk, company=request.active_company)
+    fy.is_closed = True
+    fy.save(update_fields=["is_closed"])
+    fy.periods.update(status="LOCKED")
+    messages.success(request, f"Fiscal year {fy.name} closed and all periods locked.")
+    return redirect("accounting:fiscal_year_list")
+
+
+@login_required
+@require_POST
+def fiscal_year_reopen(request, pk):
+    fy = get_object_or_404(FiscalYear, pk=pk, company=request.active_company)
+    fy.is_closed = False
+    fy.save(update_fields=["is_closed"])
+    fy.periods.filter(status="LOCKED").update(status="OPEN")
+    messages.success(request, f"Fiscal year {fy.name} reopened.")
+    return redirect("accounting:fiscal_year_list")
+
+
+@login_required
+@require_POST
+def period_close(request, pk):
+    period = get_object_or_404(AccountingPeriod, pk=pk, fiscal_year__company=request.active_company)
+    period.status = "CLOSED"
+    period.save(update_fields=["status"])
+    messages.success(request, f"Period {period.name} closed.")
+    return redirect("accounting:fiscal_year_list")
+
+
+@login_required
+@require_POST
+def period_reopen(request, pk):
+    period = get_object_or_404(AccountingPeriod, pk=pk, fiscal_year__company=request.active_company)
+    period.status = "OPEN"
+    period.save(update_fields=["status"])
+    messages.success(request, f"Period {period.name} reopened.")
+    return redirect("accounting:fiscal_year_list")
+
+
+class OpeningBalanceView(LoginRequiredMixin, TemplateView):
+    """Enter opening balances for a company's chart of accounts.
+    POSTing creates a single balanced journal entry dated the fiscal year start.
+    """
+    template_name = "accounting/opening_balances.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        ctx["accounts"] = Account.objects.filter(company=company, is_active=True).order_by("code")
+        ctx["fiscal_years"] = FiscalYear.objects.filter(company=company)
+        ctx["page_title"] = "Opening Balances"
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        from django.utils import timezone
+        from django.db import transaction
+        from apps.core.models import SequenceCounter
+        company = request.active_company
+        accounts = Account.objects.filter(company=company, is_active=True)
+        posting_date = request.POST.get("posting_date")
+        if not posting_date:
+            messages.error(request, "Posting date is required.")
+            return redirect("accounting:opening_balances")
+
+        line_data = []
+        total_dr = Decimal("0")
+        total_cr = Decimal("0")
+        for acc in accounts:
+            dr = request.POST.get(f"dr_{acc.pk}") or "0"
+            cr = request.POST.get(f"cr_{acc.pk}") or "0"
+            try:
+                dr_dec = Decimal(dr or "0")
+                cr_dec = Decimal(cr or "0")
+            except Exception:
+                continue
+            if dr_dec > 0 or cr_dec > 0:
+                line_data.append((acc, dr_dec, cr_dec))
+                total_dr += dr_dec
+                total_cr += cr_dec
+
+        if abs(total_dr - total_cr) > Decimal("0.01"):
+            messages.error(request, f"Opening balances must balance: Dr {total_dr} ≠ Cr {total_cr}.")
+            return redirect("accounting:opening_balances")
+        if not line_data:
+            messages.error(request, "No balances were entered.")
+            return redirect("accounting:opening_balances")
+
+        with transaction.atomic():
+            ref = f"OB-{SequenceCounter.next_number(company, 'OB-')}"
+            je = JournalEntry.objects.create(
+                company=company, reference=ref,
+                entry_type="OPENING", posting_date=posting_date,
+                notes="Opening balances", status="POSTED",
+                posted_at=timezone.now(),
+            )
+            for acc, dr_dec, cr_dec in line_data:
+                JournalEntryLine.objects.create(
+                    journal_entry=je, account=acc,
+                    description=f"Opening balance — {acc.name}",
+                    debit_amount=dr_dec, credit_amount=cr_dec,
+                )
+        messages.success(request, f"Opening balance entry {je.reference} posted (Dr/Cr {total_dr}).")
+        return redirect("accounting:journal_entry_detail", pk=je.pk)
 
 
 class AccountingIndexView(LoginRequiredMixin, TemplateView):
