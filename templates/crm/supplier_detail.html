@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'crm:supplier_list' as back %}
-{% include "_includes/page_header.html" with title=supplier.name subtitle="Supplier" back_url=back action_label="Edit" action_url="crm:supplier_edit" %}
+{% url 'crm:supplier_edit' supplier.pk as pa_url %}
+{% include "_includes/page_header.html" with title=supplier.name subtitle="Supplier" back_url=back action_label="Edit" action_url=pa_url %}
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-6">

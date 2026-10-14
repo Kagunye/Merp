@@ -170,4 +170,4 @@ class PayslipListView(LoginRequiredMixin, ListView):
         company = self.request.active_company
         if not company:
             return Payslip.objects.none()
-        return Payslip.objects.filter(run__company=company).select_related("employee", "run")
+        return Payslip.objects.filter(payroll_run__company=company).select_related("employee", "payroll_run")

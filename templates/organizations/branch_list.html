@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Branches" subtitle="Physical and logical offices" action_label="New Branch" action_url="organizations:branch_create" %}
+{% url 'organizations:branch_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Branches" subtitle="Physical and logical offices" action_label="New Branch" action_url=pa_url %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Company</th><th class="px-4 py-3 text-left">Code</th><th class="px-4 py-3 text-left">Manager</th><th class="px-4 py-3"></th></tr></thead>

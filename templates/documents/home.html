@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Documents" subtitle="Shared files, policies and signed records" action_label="Upload" action_url="documents:document_upload" %}
+{% url 'documents:document_upload' as pa_url %}
+{% include "_includes/page_header.html" with title="Documents" subtitle="Shared files, policies and signed records" action_label="Upload" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5">

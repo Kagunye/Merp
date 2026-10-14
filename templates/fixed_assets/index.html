@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Fixed Assets" subtitle="Capital assets and depreciation" action_label="New Asset" action_url="fixed_assets:asset_create" %}
+{% url 'fixed_assets:asset_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Fixed Assets" subtitle="Capital assets and depreciation" action_label="New Asset" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
   <a href="{% url 'fixed_assets:asset_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">

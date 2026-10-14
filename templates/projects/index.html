@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Projects" subtitle="Project portfolio and task tracking" action_label="New Project" action_url="projects:project_create" %}
+{% url 'projects:project_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Projects" subtitle="Project portfolio and task tracking" action_label="New Project" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
   <a href="{% url 'projects:project_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">

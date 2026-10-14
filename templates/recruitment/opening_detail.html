@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'recruitment:opening_list' as back %}
-{% include "_includes/page_header.html" with title=opening.title subtitle=opening.get_employment_type_display back_url=back action_label="Edit" action_url="recruitment:opening_edit" %}
+{% url 'recruitment:opening_edit' opening.pk as pa_url %}
+{% include "_includes/page_header.html" with title=opening.title subtitle=opening.get_employment_type_display back_url=back action_label="Edit" action_url=pa_url %}
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ opening.get_status_display }}</div></div>

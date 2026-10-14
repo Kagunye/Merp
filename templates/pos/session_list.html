@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="POS Sessions" subtitle="Every cashier shift" action_label="Open Session" action_url="pos:session_open" %}
+{% url 'pos:session_open' as pa_url %}
+{% include "_includes/page_header.html" with title="POS Sessions" subtitle="Every cashier shift" action_label="Open Session" action_url=pa_url %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-left">Closed</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3">Status</th></tr></thead>

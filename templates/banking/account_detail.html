@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'banking:account_list' as back %}
-{% include "_includes/page_header.html" with title=account.name subtitle=account.bank_name back_url=back action_label="Edit" action_url="banking:account_edit" %}
+{% url 'banking:account_edit' account.pk as pa_url %}
+{% include "_includes/page_header.html" with title=account.name subtitle=account.bank_name back_url=back action_label="Edit" action_url=pa_url %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5">

@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Expense Claims" subtitle="All submitted and draft claims" action_label="New Claim" action_url="expenses:claim_create" %}
+{% url 'expenses:claim_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Expense Claims" subtitle="All submitted and draft claims" action_label="New Claim" action_url=pa_url %}
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">

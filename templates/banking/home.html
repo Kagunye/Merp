@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Banking" subtitle="Accounts, transactions and reconciliation" action_label="New Transaction" action_url="banking:transaction_create" %}
+{% url 'banking:transaction_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Banking" subtitle="Accounts, transactions and reconciliation" action_label="New Transaction" action_url=pa_url %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
   <a href="{% url 'banking:account_list' %}" class="card bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition">

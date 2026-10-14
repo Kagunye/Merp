@@ -8,10 +8,10 @@
       {% for p in payslips %}
       <tr class="hover:bg-gray-50">
         <td class="px-4 py-2 font-medium"><a href="{% url 'payroll:payslip_detail' p.pk %}" style="color: var(--primary);">{{ p.employee.get_full_name|default:p.employee }}</a></td>
-        <td class="px-4 py-2 text-xs">{{ p.run.reference }}</td>
-        <td class="px-4 py-2 text-right">{{ p.gross_pay|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-xs">{{ p.payroll_run.reference }}</td>
+        <td class="px-4 py-2 text-right">{{ p.gross_salary|floatformat:2 }}</td>
         <td class="px-4 py-2 text-right">{{ p.total_deductions|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-bold">{{ p.net_pay|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-bold">{{ p.net_salary|floatformat:2 }}</td>
       </tr>
       {% empty %}
       <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No payslips yet.</td></tr>

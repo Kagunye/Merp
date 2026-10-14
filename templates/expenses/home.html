@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Expenses" subtitle="Expense claims, categories and approvals" action_label="New Claim" action_url="expenses:claim_create" %}
+{% url 'expenses:claim_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Expenses" subtitle="Expense claims, categories and approvals" action_label="New Claim" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5">

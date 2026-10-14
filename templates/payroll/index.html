@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Payroll" subtitle="Payroll runs and payslips" action_label="New Payroll Run" action_url="payroll:run_create" %}
+{% url 'payroll:run_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Payroll" subtitle="Payroll runs and payslips" action_label="New Payroll Run" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total runs</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ run_count|default:0 }}</div></div>

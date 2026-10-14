@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Timesheets" subtitle="Log and approve hours by project" action_label="Log Hours" action_url="timesheets:entry_create" %}
+{% url 'timesheets:entry_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Timesheets" subtitle="Log and approve hours by project" action_label="Log Hours" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">My hours this week</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ my_hours_this_week|floatformat:2|default:"0.00" }}</div></div>

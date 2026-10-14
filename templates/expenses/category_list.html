@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Expense Categories" subtitle="Classify expenses to the right GL account" action_label="New Category" action_url="expenses:category_create" %}
+{% url 'expenses:category_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Expense Categories" subtitle="Classify expenses to the right GL account" action_label="New Category" action_url=pa_url %}
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">

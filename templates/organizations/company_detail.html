@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'organizations:company_list' as back %}
-{% include "_includes/page_header.html" with title=company.name subtitle=company.legal_name back_url=back action_label="Edit" action_url="organizations:company_edit" %}
+{% url 'organizations:company_edit' company.pk as pa_url %}
+{% include "_includes/page_header.html" with title=company.name subtitle=company.legal_name back_url=back action_label="Edit" action_url=pa_url %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Tax ID / KRA PIN</div><div class="font-semibold font-mono">{{ company.tax_id|default:"—" }}</div></div>

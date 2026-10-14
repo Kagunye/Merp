@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="All Documents" subtitle="Search and filter files" action_label="Upload" action_url="documents:document_upload" %}
+{% url 'documents:document_upload' as pa_url %}
+{% include "_includes/page_header.html" with title="All Documents" subtitle="Search and filter files" action_label="Upload" action_url=pa_url %}
 
 <form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
   <div class="flex-1 min-w-[220px]"><label class="text-xs text-gray-500">Search</label><input type="search" name="q" value="{{ search }}" placeholder="File name"></div>

@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Accounting" subtitle="General ledger, journal entries, financial reports" action_label="New Journal Entry" action_url="accounting:journal_entry_create" %}
+{% url 'accounting:journal_entry_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Accounting" subtitle="General ledger, journal entries, financial reports" action_label="New Journal Entry" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Accounts</div><div class="text-2xl font-bold text-gray-900">{{ account_count|default:0 }}</div></div>

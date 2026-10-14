@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Sales & Receivables" subtitle="Accounts receivable, invoices, sales orders" action_label="New Invoice" action_url="sales:invoice_create" %}
+{% url 'sales:invoice_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Sales & Receivables" subtitle="Accounts receivable, invoices, sales orders" action_label="New Invoice" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5">

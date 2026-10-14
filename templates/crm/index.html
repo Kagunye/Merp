@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Customers & CRM" subtitle="Customers, suppliers, leads and pipeline" action_label="New Customer" action_url="crm:customer_create" %}
+{% url 'crm:customer_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Customers & CRM" subtitle="Customers, suppliers, leads and pipeline" action_label="New Customer" action_url=pa_url %}
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <a href="{% url 'crm:customer_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">

@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="General Ledger" subtitle="Chart of accounts organised by type with live balances" action_label="Trial Balance" action_url="accounting:trial_balance" %}
+{% url 'accounting:trial_balance' as pa_url %}
+{% include "_includes/page_header.html" with title="General Ledger" subtitle="Chart of accounts organised by type with live balances" action_label="Trial Balance" action_url=pa_url %}
 
 {% for bucket, accounts in buckets.items %}
 <section class="mb-6">

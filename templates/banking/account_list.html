@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Bank Accounts" subtitle="All bank accounts across the business" action_label="New Account" action_url="banking:account_create" %}
+{% url 'banking:account_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Bank Accounts" subtitle="All bank accounts across the business" action_label="New Account" action_url=pa_url %}
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">

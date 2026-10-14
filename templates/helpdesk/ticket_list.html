@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Support Tickets" subtitle="All customer tickets" action_label="New Ticket" action_url="helpdesk:ticket_create" %}
+{% url 'helpdesk:ticket_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Support Tickets" subtitle="All customer tickets" action_label="New Ticket" action_url=pa_url %}
 
 <form method="get" class="inline-form flex flex-wrap gap-3 mb-5 items-end">
   <div><label class="text-xs text-gray-500">Status</label>

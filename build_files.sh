@@ -21,3 +21,8 @@ python3.12 manage.py migrate --noinput || echo "BUILD: migrations skipped or fai
 
 echo "BUILD: ensuring default admin user exists (non-fatal)"
 python3.12 manage.py create_default_admin || echo "BUILD: admin seed skipped (no DB attached yet)"
+
+if [ "${SEED_DEMO:-0}" = "1" ]; then
+  echo "BUILD: seeding demo dataset (SEED_DEMO=1)"
+  python3.12 manage.py seed_demo || echo "BUILD: demo seed skipped (DB unreachable)"
+fi

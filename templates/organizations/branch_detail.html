@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'organizations:branch_list' as back %}
-{% include "_includes/page_header.html" with title=branch.name subtitle=branch.company.name back_url=back action_label="Edit" action_url="organizations:branch_edit" %}
+{% url 'organizations:branch_edit' branch.pk as pa_url %}
+{% include "_includes/page_header.html" with title=branch.name subtitle=branch.company.name back_url=back action_label="Edit" action_url=pa_url %}
 <div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
   <div class="grid grid-cols-2 gap-5">
     <div><div class="text-xs text-gray-500">Company</div><div class="font-semibold">{{ branch.company.name }}</div></div>

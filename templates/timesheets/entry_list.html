@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Timesheet Entries" subtitle="All time logged in the organisation" action_label="Log Hours" action_url="timesheets:entry_create" %}
+{% url 'timesheets:entry_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Timesheet Entries" subtitle="All time logged in the organisation" action_label="Log Hours" action_url=pa_url %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">User</th><th class="px-4 py-3 text-left">Project / Task</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Hours</th><th class="px-4 py-3">Status</th></tr></thead>
