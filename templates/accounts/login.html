@@ -57,12 +57,12 @@
       min-height: 100vh;
     }
     @media (min-width: 1024px) {
-      /* Image column ~70% of width, form column ~30%. */
-      .page { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); }
+      /* Compact image column (~45%), form column gets the rest. */
+      .page { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
     }
     @media (min-width: 1536px) {
-      /* On wide screens, give the hero even more room (~74% / 26%). */
-      .page { grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); }
+      /* On wide screens keep the form dominant (~55%). */
+      .page { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
     }
 
     /* ----- LEFT: hero column ----- */
@@ -108,11 +108,12 @@
     /* The dark welcome card in the bottom-left corner */
     .welcome-card {
       position: absolute;
-      left: 48px;
-      bottom: 48px;
-      max-width: 520px;
-      padding: 32px 34px;
-      border-radius: 22px;
+      left: 36px;
+      bottom: 36px;
+      right: 36px;
+      max-width: 420px;
+      padding: 24px 26px;
+      border-radius: 18px;
       background: linear-gradient(160deg, rgba(10,12,20,0.78) 0%, rgba(28,8,14,0.82) 100%);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
@@ -129,7 +130,7 @@
       margin-bottom: 10px;
     }
     .welcome-card h2 {
-      font-size: 36px;
+      font-size: 28px;
       font-weight: 800;
       line-height: 1.12;
       letter-spacing: -0.015em;
@@ -139,10 +140,10 @@
       font-family: 'Playfair Display', serif;
       font-style: italic;
       font-weight: 700;
-      font-size: 28px;
+      font-size: 22px;
       color: var(--primary);
       line-height: 1.1;
-      margin: 0 0 16px;
+      margin: 0 0 12px;
     }
     .welcome-card p {
       font-size: 14px;
