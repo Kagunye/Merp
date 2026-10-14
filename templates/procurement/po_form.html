@@ -1,0 +1,26 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'procurement:po_list' as back_url %}
+{% include "_includes/page_header.html" with title=page_title back_url=back_url %}
+<div class="bg-white rounded-xl border border-gray-200 p-6">
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {% for field in form %}
+      <div class="{% if field.name == 'notes' %}md:col-span-2{% endif %}">
+        <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors.0 }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="flex gap-3 pt-2">
+      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Save Purchase Order</button>
+      <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

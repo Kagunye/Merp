@@ -2,13 +2,16 @@
 {% block content %}
 {% url 'inventory:adjustment_create' as pa_url %}
 {% include "_includes/page_header.html" with title="Stock Levels" subtitle="Quantity on hand per warehouse" action_label="New Adjustment" action_url=pa_url %}
+<div class="mb-4 flex items-center gap-2">
+  <a href="{% url 'inventory:stock_transfer' %}" class="px-3 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">Transfer Stock</a>
+</div>
 <div class="bg-white rounded-xl border overflow-hidden">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Warehouse</th><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-left">SKU</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3 text-right">Reorder</th></tr></thead>
     <tbody class="divide-y divide-gray-100">
       {% for s in stock_levels %}
       <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2 font-medium">{{ s.warehouse.name }}</td>
+        <td class="px-4 py-2 font-medium"><a href="{% url 'inventory:warehouse_detail' s.warehouse.pk %}" style="color:var(--primary)">{{ s.warehouse.name }}</a></td>
         <td class="px-4 py-2"><a href="{% url 'inventory:product_detail' s.product.pk %}" style="color: var(--primary);">{{ s.product.name }}</a></td>
         <td class="px-4 py-2 text-xs font-mono">{{ s.product.sku }}</td>
         <td class="px-4 py-2 text-right font-semibold {% if s.quantity <= s.product.reorder_level %}text-red-600{% endif %}">{{ s.quantity|floatformat:4 }}</td>

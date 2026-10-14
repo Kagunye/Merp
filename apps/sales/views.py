@@ -5,9 +5,12 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DetailView, ListView, TemplateView, View
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm
 from .models import Invoice, CustomerPayment
@@ -360,3 +363,65 @@ class SalesIndexView(LoginRequiredMixin, TemplateView):
         ctx["open_orders_count"] = SalesOrder.objects.filter(company=company, status__in=["DRAFT", "CONFIRMED", "PARTIALLY_DELIVERED"]).count()
         ctx["recent_invoices"] = invs.order_by("-invoice_date")[:8]
         return ctx
+
+
+# ------------------------- AR actions -------------------------
+
+
+class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
+    """Invoice edit — reuses InvoiceForm. Blocks edits once posted/paid."""
+    model = Invoice
+    form_class = InvoiceForm
+    template_name = "sales/invoice_form.html"
+
+    def get_queryset(self):
+        return Invoice.objects.filter(company=self.request.active_company)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def dispatch(self, request, *args, **kwargs):
+        obj = self.get_object()
+        if obj.status in ("PAID", "CANCELLED", "CREDIT_NOTE"):
+            messages.error(request, f"Invoice {obj.reference} cannot be edited ({obj.get_status_display()}).")
+            return redirect("sales:invoice_detail", pk=obj.pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("sales:invoice_detail", args=[self.object.pk])
+
+    def form_valid(self, form):
+        messages.success(self.request, f"Invoice {form.instance.reference} updated.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = f"Edit Invoice {self.object.reference}"
+        ctx["is_edit"] = True
+        return ctx
+
+
+@login_required
+@require_POST
+def invoice_mark_credit_note(request, pk):
+    inv = get_object_or_404(Invoice, pk=pk, company=request.active_company)
+    inv.status = "CREDIT_NOTE"
+    inv.save(update_fields=["status"])
+    messages.success(request, f"Invoice {inv.reference} marked as credit note.")
+    return redirect("sales:invoice_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def invoice_cancel(request, pk):
+    inv = get_object_or_404(Invoice, pk=pk, company=request.active_company)
+    if inv.status == "PAID":
+        messages.error(request, f"Cannot cancel {inv.reference}: already paid.")
+    else:
+        inv.status = "CANCELLED"
+        inv.save(update_fields=["status"])
+        messages.success(request, f"Invoice {inv.reference} cancelled.")
+    return redirect("sales:invoice_detail", pk=pk)

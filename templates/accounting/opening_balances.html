@@ -1,0 +1,40 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounting:index' as back_url %}
+{% include "_includes/page_header.html" with title="Opening Balances" subtitle="Enter balances by account. Total debits must equal total credits." back_url=back_url %}
+
+<form method="post" class="space-y-4">
+  {% csrf_token %}
+  <div class="bg-white rounded-xl border border-gray-200 p-4 flex items-end gap-4">
+    <div>
+      <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Posting date</label>
+      <input type="date" name="posting_date" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+    </div>
+    <p class="text-xs text-gray-500 flex-1">A single journal entry labelled "Opening balances" will be created and posted.</p>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+        <tr><th class="px-4 py-3 text-left">Code</th><th class="px-4 py-3 text-left">Account</th><th class="px-4 py-3 text-left">Type</th><th class="px-4 py-3 text-right">Debit</th><th class="px-4 py-3 text-right">Credit</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for acc in accounts %}
+        <tr>
+          <td class="px-4 py-2 font-mono text-xs text-gray-500">{{ acc.code }}</td>
+          <td class="px-4 py-2 font-medium">{{ acc.name }}</td>
+          <td class="px-4 py-2 text-xs text-gray-500">{{ acc.get_account_type_display }}</td>
+          <td class="px-4 py-2 text-right"><input type="number" step="0.01" name="dr_{{ acc.pk }}" class="form-input w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right font-mono" placeholder="0.00" /></td>
+          <td class="px-4 py-2 text-right"><input type="number" step="0.01" name="cr_{{ acc.pk }}" class="form-input w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right font-mono" placeholder="0.00" /></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Opening Balances</button>
+    <a href="{% url 'accounting:index' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
+  </div>
+</form>
+{% endblock %}

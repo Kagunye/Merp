@@ -1,0 +1,68 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounting:fiscal_year_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Fiscal Years & Periods" subtitle="Open, close and lock accounting periods" action_label="New Fiscal Year" action_url=pa_url %}
+
+<div class="space-y-4">
+  {% for fy in fiscal_years %}
+  <div class="bg-white rounded-xl border border-gray-200">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+      <div class="flex items-center gap-3">
+        <div>
+          <h3 class="font-semibold text-gray-900">{{ fy.name }}</h3>
+          <p class="text-xs text-gray-500">{{ fy.start_date|date:"d M Y" }} → {{ fy.end_date|date:"d M Y" }}</p>
+        </div>
+        {% if fy.is_current %}<span class="badge bg-emerald-50 text-emerald-700 text-xs px-2 py-0.5">Current</span>{% endif %}
+        {% if fy.is_closed %}<span class="badge bg-gray-100 text-gray-500 text-xs px-2 py-0.5">Closed</span>{% else %}<span class="badge bg-blue-50 text-blue-700 text-xs px-2 py-0.5">Open</span>{% endif %}
+      </div>
+      <div class="flex gap-2">
+        {% if fy.is_closed %}
+        <form method="post" action="{% url 'accounting:fiscal_year_reopen' fy.pk %}" onsubmit="return confirm('Reopen this fiscal year?');">
+          {% csrf_token %}
+          <button type="submit" class="px-3 py-1.5 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Reopen</button>
+        </form>
+        {% else %}
+        <form method="post" action="{% url 'accounting:fiscal_year_close' fy.pk %}" onsubmit="return confirm('Close this fiscal year? All periods will be locked.');">
+          {% csrf_token %}
+          <button type="submit" class="px-3 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Close Year</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+        <tr><th class="px-5 py-2 text-left">Period</th><th class="px-5 py-2 text-left">Start</th><th class="px-5 py-2 text-left">End</th><th class="px-5 py-2 text-left">Status</th><th class="px-5 py-2 text-right">Actions</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for p in fy.periods.all %}
+        <tr>
+          <td class="px-5 py-2 font-medium">{{ p.name }}</td>
+          <td class="px-5 py-2 text-gray-600">{{ p.start_date|date:"d M Y" }}</td>
+          <td class="px-5 py-2 text-gray-600">{{ p.end_date|date:"d M Y" }}</td>
+          <td class="px-5 py-2"><span class="badge {% if p.status == 'OPEN' %}bg-blue-50 text-blue-700{% elif p.status == 'CLOSED' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ p.get_status_display }}</span></td>
+          <td class="px-5 py-2 text-right">
+            {% if p.status == 'OPEN' %}
+            <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline">
+              {% csrf_token %}<button type="submit" class="text-xs text-amber-700 hover:underline">Close</button>
+            </form>
+            {% else %}
+            <form method="post" action="{% url 'accounting:period_reopen' p.pk %}" class="inline">
+              {% csrf_token %}<button type="submit" class="text-xs text-blue-700 hover:underline">Reopen</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-5 py-4 text-center text-gray-400 text-sm">No periods generated yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% empty %}
+  <div class="bg-white rounded-xl border border-gray-200 p-10 text-center">
+    <p class="text-gray-500 text-sm mb-4">No fiscal years yet.</p>
+    <a href="{% url 'accounting:fiscal_year_create' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Create your first fiscal year</a>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

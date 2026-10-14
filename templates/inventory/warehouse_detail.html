@@ -1,0 +1,64 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'inventory:stock_levels' as back_url %}
+{% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.code back_url=back_url %}
+
+<div class="grid grid-cols-4 gap-4 mb-5">
+  <div class="bg-white rounded-xl border p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">SKUs on hand</p>
+    <p class="text-2xl font-bold mt-1">{{ stock_levels|length }}</p>
+  </div>
+  <div class="bg-white rounded-xl border p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Stock Value</p>
+    <p class="text-2xl font-bold mt-1 font-mono">{{ total_value|floatformat:2 }}</p>
+  </div>
+  <div class="bg-white rounded-xl border p-4 {% if low_stock %}border-amber-200 bg-amber-50{% endif %}">
+    <p class="text-xs {% if low_stock %}text-amber-700{% else %}text-gray-500{% endif %} uppercase tracking-wider font-semibold">Low Stock Items</p>
+    <p class="text-2xl font-bold mt-1 {% if low_stock %}text-amber-700{% endif %}">{{ low_stock|length }}</p>
+  </div>
+  <div class="bg-white rounded-xl border p-4 flex items-center justify-center">
+    <div class="flex gap-2 flex-wrap justify-center">
+      <a href="{% url 'inventory:stock_transfer' %}" class="px-3 py-2 text-xs font-semibold text-white rounded-lg" style="background:var(--primary)">Transfer Stock</a>
+      <a href="{% url 'inventory:inventory_count' warehouse.pk %}" class="px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cycle Count</a>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+  <div class="lg:col-span-2 bg-white rounded-xl border overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Stock on Hand</h3></div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-2 text-left">SKU</th><th class="px-4 py-2 text-left">Product</th><th class="px-4 py-2 text-right">Quantity</th><th class="px-4 py-2 text-right">Reorder</th></tr></thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for sl in stock_levels %}
+        <tr class="{% if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level %}bg-amber-50/40{% endif %}">
+          <td class="px-4 py-2 font-mono text-xs text-gray-500">{{ sl.product.sku }}</td>
+          <td class="px-4 py-2 font-medium">{{ sl.product.name }}</td>
+          <td class="px-4 py-2 text-right font-mono">{{ sl.quantity|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right text-xs text-gray-500">{{ sl.product.reorder_level|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No stock in this warehouse yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-white rounded-xl border overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Recent Movements</h3></div>
+    <div class="divide-y divide-gray-100 max-h-[480px] overflow-auto">
+      {% for m in recent_movements %}
+      <div class="px-4 py-2 text-sm">
+        <div class="flex justify-between">
+          <span class="font-medium">{{ m.product.name }}</span>
+          <span class="font-mono {% if 'OUT' in m.movement_type or 'MINUS' in m.movement_type or 'DELIVERY' in m.movement_type %}text-red-600{% else %}text-green-700{% endif %}">{{ m.quantity|floatformat:2 }}</span>
+        </div>
+        <div class="text-xs text-gray-400">{{ m.get_movement_type_display }} · {{ m.movement_date|date:"d M Y" }} · {{ m.reference }}</div>
+      </div>
+      {% empty %}
+      <p class="px-4 py-4 text-center text-sm text-gray-400">No movements recorded.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -254,6 +254,51 @@ def work_order_complete(request, pk):
     return redirect("manufacturing:work_order_detail", pk=pk)
 
 
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+
+
+@login_required
+@require_POST
+def work_order_release(request, pk):
+    wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
+    if wo.status != "DRAFT":
+        messages.error(request, f"WO {wo.reference} cannot be released from {wo.get_status_display()}.")
+    else:
+        wo.status = "RELEASED"
+        wo.save(update_fields=["status"])
+        messages.success(request, f"WO {wo.reference} released to production.")
+    return redirect("manufacturing:work_order_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def work_order_start(request, pk):
+    from django.utils import timezone
+    wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
+    if wo.status != "RELEASED":
+        messages.error(request, f"WO {wo.reference} must be RELEASED to start (currently {wo.get_status_display()}).")
+    else:
+        wo.status = "IN_PROGRESS"
+        wo.actual_start = timezone.now().date()
+        wo.save(update_fields=["status", "actual_start"])
+        messages.success(request, f"WO {wo.reference} started.")
+    return redirect("manufacturing:work_order_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def work_order_cancel(request, pk):
+    wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
+    if wo.status == "COMPLETED":
+        messages.error(request, f"WO {wo.reference} is completed; cannot cancel.")
+    else:
+        wo.status = "CANCELLED"
+        wo.save(update_fields=["status"])
+        messages.success(request, f"WO {wo.reference} cancelled.")
+    return redirect("manufacturing:work_order_detail", pk=pk)
+
+
 class ManufacturingIndexView(LoginRequiredMixin, TemplateView):
     template_name = "manufacturing/index.html"
 

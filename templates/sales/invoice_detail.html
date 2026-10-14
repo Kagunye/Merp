@@ -17,8 +17,19 @@
       </div>
     </div>
     <div class="flex gap-2">
+      {% if invoice.status != 'PAID' and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
+      <a href="{% url 'sales:invoice_edit' invoice.pk %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
       <a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Record Payment</a>
-      {% if not invoice.journal_entry_id %}
+      <form method="post" action="{% url 'sales:invoice_credit_note' invoice.pk %}" onsubmit="return confirm('Mark this invoice as a credit note?');">
+        {% csrf_token %}
+        <button type="submit" class="px-3 py-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100">Credit Note</button>
+      </form>
+      <form method="post" action="{% url 'sales:invoice_cancel' invoice.pk %}" onsubmit="return confirm('Cancel this invoice? This cannot be undone.');">
+        {% csrf_token %}
+        <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
+      </form>
+      {% endif %}
+      {% if not invoice.journal_entry_id and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
       <form method="post" action="{% url 'sales:invoice_post' invoice.pk %}">
         {% csrf_token %}
         <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
