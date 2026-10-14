@@ -1,0 +1,14 @@
+{
+  "name": "merp-tailwind",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local-only Tailwind build for MERP ERP static CSS. Not deployed to Vercel.",
+  "scripts": {
+    "build:css": "tailwindcss -i ./static/css/tailwind.input.css -o ./static/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./static/css/tailwind.input.css -o ./static/css/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.9",
+    "tailwindcss": "^3.4.17"
+  }
+}
