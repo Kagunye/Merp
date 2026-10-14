@@ -84,6 +84,13 @@ SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
+# Sessions — store them in a signed cookie instead of the DB. On Vercel the
+# `django_session` table may not exist yet on the first cold-start request
+# (migrate races the traffic), which makes `login()` blow up with "Could not
+# start a session". Signed cookies have no server-side table dependency, so
+# sign-in works as soon as the app boots.
+SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+
 # Logging to stdout so Vercel captures it. Django's request-exception logger
 # is set to ERROR explicitly so unhandled 500s print a full traceback in the
 # Vercel Runtime Logs instead of a bare "Server Error (500)".
