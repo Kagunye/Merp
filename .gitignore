@@ -8,3 +8,7 @@ staticfiles/
 staticfiles_build/
 .pytest_cache/
 .vercel
+
+# Node (Tailwind CLI build only — not deployed)
+node_modules/
+static/css/tailwind.input.css.map
