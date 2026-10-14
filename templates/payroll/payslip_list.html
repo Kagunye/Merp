@@ -1,0 +1,22 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Payslips" subtitle="All payslips across every run" %}
+<div class="bg-white rounded-xl border overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Employee</th><th class="px-4 py-3 text-left">Run</th><th class="px-4 py-3 text-right">Gross</th><th class="px-4 py-3 text-right">Deductions</th><th class="px-4 py-3 text-right">Net</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for p in payslips %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-2 font-medium"><a href="{% url 'payroll:payslip_detail' p.pk %}" style="color: var(--primary);">{{ p.employee.get_full_name|default:p.employee }}</a></td>
+        <td class="px-4 py-2 text-xs">{{ p.run.reference }}</td>
+        <td class="px-4 py-2 text-right">{{ p.gross_pay|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right">{{ p.total_deductions|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-bold">{{ p.net_pay|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No payslips yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

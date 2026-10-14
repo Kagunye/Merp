@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import CreateView, DetailView, FormView, ListView
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
 from .forms import AssetCategoryForm, AssetDisposalForm, DepreciationRunForm, FixedAssetForm
 from .models import AssetCategory, AssetDepreciation, AssetDisposal, FixedAsset
@@ -237,3 +237,26 @@ class AssetDisposalCreateView(LoginRequiredMixin, CreateView):
             asset.save(update_fields=["status", "updated_at"])
         messages.success(self.request, f"Asset {asset.code} disposed. Gain/Loss: {disposal.gain_loss:,.2f}")
         return redirect(self.get_success_url())
+
+
+class FixedAssetsIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "fixed_assets/index.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        assets = FixedAsset.objects.filter(company=company)
+        ctx["asset_count"] = assets.filter(status="ACTIVE").count()
+        ctx["disposed_count"] = assets.filter(status="DISPOSED").count()
+        ctx["category_count"] = AssetCategory.objects.filter(company=company).count()
+        try:
+            ctx["gross_value"] = sum((a.cost for a in assets.filter(status="ACTIVE")), Decimal(0))
+            ctx["net_book_value"] = sum((a.net_book_value for a in assets.filter(status="ACTIVE")), Decimal(0))
+        except Exception:
+            ctx["gross_value"] = Decimal(0)
+            ctx["net_book_value"] = Decimal(0)
+        ctx["recent_assets"] = assets.order_by("-created_at")[:8]
+        return ctx

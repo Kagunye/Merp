@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import CreateView, DetailView, ListView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from .models import Project, Task
 
@@ -157,3 +157,26 @@ class TaskListView(LoginRequiredMixin, ListView):
         company = self.request.active_company
         qs = Task.objects.filter(project__company=company) if company else Task.objects.none()
         return qs.select_related("project", "assignee")
+
+
+class ProjectsIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "projects/index.html"
+
+    def get_context_data(self, **kwargs):
+        from datetime import date, timedelta
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        projs = Project.objects.filter(company=company)
+        ctx["active_projects"] = projs.filter(status__in=["PLANNING", "ACTIVE"]).count()
+        ctx["completed_projects"] = projs.filter(status="COMPLETED").count()
+        tasks = Task.objects.filter(project__company=company)
+        ctx["open_tasks"] = tasks.exclude(status__in=["DONE", "CANCELLED"]).count()
+        today = date.today()
+        ctx["due_this_week"] = tasks.filter(
+            due_date__gte=today, due_date__lte=today + timedelta(days=7),
+        ).exclude(status__in=["DONE", "CANCELLED"]).count()
+        ctx["recent_projects"] = projs.order_by("-created_at")[:6]
+        ctx["recent_tasks"] = tasks.select_related("project").order_by("-created_at")[:6]
+        return ctx

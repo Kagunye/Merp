@@ -1,0 +1,33 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Payroll" subtitle="Payroll runs and payslips" action_label="New Payroll Run" action_url="payroll:run_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total runs</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ run_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Draft</div><div class="text-2xl font-bold text-gray-900">{{ draft_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Approved</div><div class="text-2xl font-bold text-green-600">{{ approved_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5">
+    <div class="text-xs text-gray-500 mb-1">Latest period</div>
+    <div class="font-semibold">{{ last_run.period_end|date:"d M Y"|default:"—" }}</div>
+  </div>
+</div>
+
+<div class="flex gap-4 mb-6 text-sm font-semibold">
+  <a href="{% url 'payroll:run_list' %}" style="color: var(--primary);">All runs &rarr;</a>
+  <a href="{% url 'payroll:payslip_list' %}" style="color: var(--primary);">All payslips &rarr;</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent payroll runs</h2>
+<div class="bg-white rounded-xl border overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Period</th><th class="px-4 py-3 text-right">Gross</th><th class="px-4 py-3 text-right">Net</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in recent_runs %}
+      <tr><td class="px-4 py-2 font-mono text-xs"><a href="{% url 'payroll:run_detail' r.pk %}" style="color: var(--primary);">{{ r.reference }}</a></td><td class="px-4 py-2">{{ r.period_start|date:"d M" }} – {{ r.period_end|date:"d M Y" }}</td><td class="px-4 py-2 text-right">{{ r.total_gross|floatformat:2|default:"0.00" }}</td><td class="px-4 py-2 text-right font-semibold">{{ r.total_net|floatformat:2|default:"0.00" }}</td><td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700">{{ r.get_status_display }}</span></td></tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No payroll runs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

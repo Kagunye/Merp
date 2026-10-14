@@ -4,7 +4,7 @@ from . import views
 app_name = "fixed_assets"
 
 urlpatterns = [
-    path("", views.FixedAssetListView.as_view(), name="index"),
+    path("", views.FixedAssetsIndexView.as_view(), name="index"),
     path("assets/", views.FixedAssetListView.as_view(), name="asset_list"),
     path("assets/new/", views.FixedAssetCreateView.as_view(), name="asset_create"),
     path("assets/<uuid:pk>/", views.FixedAssetDetailView.as_view(), name="asset_detail"),

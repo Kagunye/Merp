@@ -5,7 +5,8 @@ from . import views
 app_name = "inventory"
 
 urlpatterns = [
-    path("", views.ProductListView.as_view(), name="index"),
+    path("", views.InventoryIndexView.as_view(), name="index"),
+    path("stock/", views.InventoryWarehouseStockView.as_view(), name="stock_levels"),
     path("products/", views.ProductListView.as_view(), name="product_list"),
     path("products/new/", views.ProductCreateView.as_view(), name="product_create"),
     path("products/<uuid:pk>/", views.ProductDetailView.as_view(), name="product_detail"),

@@ -5,7 +5,7 @@ from . import views
 app_name = "crm"
 
 urlpatterns = [
-    path("", views.CustomerListView.as_view(), name="index"),
+    path("", views.CRMIndexView.as_view(), name="index"),
     path("customers/", views.CustomerListView.as_view(), name="customer_list"),
     path("customers/new/", views.CustomerCreateView.as_view(), name="customer_create"),
     path("customers/<uuid:pk>/", views.CustomerDetailView.as_view(), name="customer_detail"),

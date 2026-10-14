@@ -1,0 +1,32 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Manufacturing" subtitle="Bills of materials and work orders" action_label="New Work Order" action_url="manufacturing:work_order_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Active work orders</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ active_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Completed</div><div class="text-2xl font-bold text-green-600">{{ completed_count|default:0 }}</div></div>
+  <a href="{% url 'manufacturing:bom_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">Bills of materials</div>
+    <div class="text-2xl font-bold text-gray-900">{{ bom_count|default:0 }}</div>
+  </a>
+</div>
+
+<div class="flex gap-4 mb-6 text-sm font-semibold">
+  <a href="{% url 'manufacturing:work_order_list' %}" style="color: var(--primary);">All work orders &rarr;</a>
+  <a href="{% url 'manufacturing:bom_list' %}" style="color: var(--primary);">All BOMs &rarr;</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent work orders</h2>
+<div class="bg-white rounded-xl border overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for w in recent_orders %}
+      <tr><td class="px-4 py-2 font-mono text-xs"><a href="{% url 'manufacturing:work_order_detail' w.pk %}" style="color: var(--primary);">{{ w.reference }}</a></td><td class="px-4 py-2">{{ w.bom.product.name|default:"—" }}</td><td class="px-4 py-2 text-right">{{ w.quantity }}</td><td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700">{{ w.get_status_display }}</span></td></tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-10 text-center text-gray-500">No work orders yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

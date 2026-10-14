@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from .models import Employee, LeaveRequest, LeaveType
 
@@ -202,3 +202,28 @@ def leave_approve(request, pk):
             messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
     from django.urls import reverse
     return redirect(reverse("hr:leave_list"))
+
+
+class HRIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "hr/index.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if company:
+            from .models import Employee, LeaveRequest
+            emps = Employee.objects.filter(company=company)
+            ctx["employee_count"] = emps.filter(status="ACTIVE").count()
+            ctx["total_headcount"] = emps.count()
+            lr = LeaveRequest.objects.filter(employee__company=company)
+            ctx["leaves_pending"] = lr.filter(status="PENDING").count()
+            ctx["leaves_approved"] = lr.filter(status="APPROVED").count()
+            ctx["recent_employees"] = emps.order_by("-created_at")[:6]
+            ctx["recent_leaves"] = lr.select_related("employee").order_by("-created_at")[:6]
+        return ctx
+
+
+class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
+    model = LeaveRequest
+    template_name = "hr/leave_detail.html"
+    context_object_name = "leave"

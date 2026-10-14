@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import CreateView, DetailView, ListView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from .models import PayrollRun, Payslip
 
@@ -140,3 +140,34 @@ class PayslipDetailView(LoginRequiredMixin, DetailView):
         ps = self.object
         ctx["page_title"] = f"Payslip — {ps.employee.full_name}"
         return ctx
+
+
+class PayrollIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "payroll/index.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        runs = PayrollRun.objects.filter(company=company)
+        ctx["run_count"] = runs.count()
+        ctx["last_run"] = runs.order_by("-period_end").first()
+        ctx["draft_count"] = runs.filter(status="DRAFT").count()
+        ctx["approved_count"] = runs.filter(status="APPROVED").count()
+        ctx["recent_runs"] = runs.order_by("-period_end")[:8]
+        return ctx
+
+
+class PayslipListView(LoginRequiredMixin, ListView):
+    model = Payslip
+    template_name = "payroll/payslip_list.html"
+    context_object_name = "payslips"
+    paginate_by = 50
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return Payslip.objects.none()
+        return Payslip.objects.filter(run__company=company).select_related("employee", "run")

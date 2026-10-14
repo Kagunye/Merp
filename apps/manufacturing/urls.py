@@ -4,7 +4,7 @@ from . import views
 app_name = "manufacturing"
 
 urlpatterns = [
-    path("", views.WorkOrderListView.as_view(), name="index"),
+    path("", views.ManufacturingIndexView.as_view(), name="index"),
     path("boms/", views.BOMListView.as_view(), name="bom_list"),
     path("boms/new/", views.BOMCreateView.as_view(), name="bom_create"),
     path("boms/<uuid:pk>/", views.BOMDetailView.as_view(), name="bom_detail"),

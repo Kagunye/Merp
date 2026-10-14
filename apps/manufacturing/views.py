@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import CreateView, DetailView, FormView, ListView
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
 from .forms import BOMForm, BOMLineFormSet, CompleteWorkOrderForm, WorkOrderForm
 from .models import BillOfMaterials, WorkOrder, WorkOrderConsumption
@@ -252,3 +252,19 @@ def work_order_complete(request, pk):
 
     messages.success(request, f"Work Order {wo.reference} completed. Output: {actual_qty} {wo.bom.product.name}")
     return redirect("manufacturing:work_order_detail", pk=pk)
+
+
+class ManufacturingIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "manufacturing/index.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        wos = WorkOrder.objects.filter(company=company)
+        ctx["active_count"] = wos.filter(status__in=["DRAFT", "RELEASED", "IN_PROGRESS"]).count()
+        ctx["completed_count"] = wos.filter(status="COMPLETED").count()
+        ctx["bom_count"] = BillOfMaterials.objects.filter(company=company).count()
+        ctx["recent_orders"] = wos.select_related("bom").order_by("-created_at")[:8]
+        return ctx

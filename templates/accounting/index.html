@@ -1,0 +1,38 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Accounting" subtitle="General ledger, journal entries, financial reports" action_label="New Journal Entry" action_url="accounting:journal_entry_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Accounts</div><div class="text-2xl font-bold text-gray-900">{{ account_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total assets</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ asset_balance|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total liabilities</div><div class="text-2xl font-bold text-amber-600">{{ liability_balance|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Draft entries</div><div class="text-2xl font-bold text-gray-900">{{ draft_count|default:0 }}</div></div>
+</div>
+
+<div class="flex flex-wrap gap-4 mb-6 text-sm font-semibold">
+  <a href="{% url 'accounting:account_list' %}" style="color: var(--primary);">Chart of accounts &rarr;</a>
+  <a href="{% url 'accounting:general_ledger' %}" style="color: var(--primary);">General ledger &rarr;</a>
+  <a href="{% url 'accounting:journal_entry_list' %}" style="color: var(--primary);">Journal entries &rarr;</a>
+  <a href="{% url 'accounting:trial_balance' %}" style="color: var(--primary);">Trial balance &rarr;</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent journal entries</h2>
+<div class="bg-white rounded-xl border overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Narration</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for e in recent_entries %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">{{ e.posting_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'accounting:journal_entry_detail' e.pk %}" style="color: var(--primary);">{{ e.reference }}</a></td>
+        <td class="px-4 py-3">{{ e.narration|truncatechars:50 }}</td>
+        <td class="px-4 py-3 text-right font-semibold">{{ e.total_debit|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ e.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No entries yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

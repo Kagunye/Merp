@@ -1,0 +1,46 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Human Resources" subtitle="Employees, leave and contracts" action_label="New Employee" action_url="hr:employee_create" %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <a href="{% url 'hr:employee_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">Active employees</div>
+    <div class="text-2xl font-bold" style="color: var(--primary);">{{ employee_count|default:0 }}</div>
+    <div class="text-xs text-gray-500 mt-1">Total headcount: {{ total_headcount|default:0 }}</div>
+  </a>
+  <a href="{% url 'hr:leave_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">Leave pending</div>
+    <div class="text-2xl font-bold text-amber-600">{{ leaves_pending|default:0 }}</div>
+  </a>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Leave approved</div><div class="text-2xl font-bold text-green-600">{{ leaves_approved|default:0 }}</div></div>
+  <a href="{% url 'recruitment:home' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
+    <div class="text-xs text-gray-500 mb-1">Recruitment</div>
+    <div class="text-2xl font-bold text-blue-600">Open &rarr;</div>
+  </a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="bg-white rounded-xl border p-5">
+    <h3 class="text-sm font-semibold mb-3">Recent employees</h3>
+    <div class="divide-y divide-gray-100">
+      {% for e in recent_employees %}
+      <a href="{% url 'hr:employee_detail' e.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
+        <span class="text-sm font-medium">{{ e.get_full_name|default:e.employee_number }}</span>
+        <span class="text-xs text-gray-500">{{ e.job_title|default:"—" }}</span>
+      </a>
+      {% empty %}<p class="text-sm text-gray-500 py-3">No employees yet.</p>{% endfor %}
+    </div>
+  </div>
+  <div class="bg-white rounded-xl border p-5">
+    <h3 class="text-sm font-semibold mb-3">Recent leave requests</h3>
+    <div class="divide-y divide-gray-100">
+      {% for l in recent_leaves %}
+      <a href="{% url 'hr:leave_detail' l.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
+        <span class="text-sm">{{ l.employee.get_full_name|default:l.employee }}</span>
+        <span class="badge bg-gray-100 text-gray-700">{{ l.get_status_display|default:l.status }}</span>
+      </a>
+      {% empty %}<p class="text-sm text-gray-500 py-3">No leave requests yet.</p>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

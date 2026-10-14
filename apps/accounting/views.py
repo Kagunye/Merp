@@ -294,3 +294,24 @@ class GeneralLedgerIndexView(LoginRequiredMixin, TemplateView):
             buckets.setdefault(a.get_account_type_display(), []).append(a)
         ctx["buckets"] = buckets
         return ctx
+
+
+class AccountingIndexView(LoginRequiredMixin, TemplateView):
+    """Accounting / GL module dashboard."""
+    template_name = "accounting/index.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        from datetime import date
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        accs = Account.objects.filter(company=company, is_active=True)
+        ctx["account_count"] = accs.count()
+        ctx["asset_balance"] = sum((a.current_balance for a in accs.filter(account_type__in=["ASSET", "CASH", "BANK"])), Decimal(0))
+        ctx["liability_balance"] = sum((a.current_balance for a in accs.filter(account_type="LIABILITY")), Decimal(0))
+        ctx["equity_balance"] = sum((a.current_balance for a in accs.filter(account_type="EQUITY")), Decimal(0))
+        ctx["recent_entries"] = JournalEntry.objects.filter(company=company).order_by("-posting_date", "-created_at")[:8]
+        ctx["draft_count"] = JournalEntry.objects.filter(company=company, status="DRAFT").count()
+        return ctx

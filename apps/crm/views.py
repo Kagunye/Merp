@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from .forms import CustomerForm, LeadForm, SupplierForm
 from .models import Customer, Lead, Supplier
@@ -215,3 +215,20 @@ class LeadDetailView(LoginRequiredMixin, DetailView):
     model = __import__('apps.crm.models', fromlist=['Lead']).Lead
     template_name = "crm/lead_detail.html"
     context_object_name = "lead"
+
+
+class CRMIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "crm/index.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if company:
+            from .models import Customer, Lead, Supplier
+            ctx["customer_count"] = Customer.objects.filter(company=company, is_active=True).count()
+            ctx["supplier_count"] = Supplier.objects.filter(company=company, is_active=True).count()
+            ctx["lead_count"] = Lead.objects.filter(company=company).count()
+            ctx["active_lead_count"] = Lead.objects.filter(company=company, status__in=["NEW", "CONTACTED", "QUALIFIED"]).count() if hasattr(Lead, "_meta") else 0
+            ctx["recent_customers"] = Customer.objects.filter(company=company).order_by("-created_at")[:6]
+            ctx["recent_leads"] = Lead.objects.filter(company=company).order_by("-created_at")[:6]
+        return ctx

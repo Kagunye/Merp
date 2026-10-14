@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q, Sum
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from .forms import ProductForm, StockMovementForm
 from .models import Product, StockLevel, StockMovement
@@ -182,4 +182,53 @@ class StockAdjustmentCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Stock Adjustment"
+        return ctx
+
+
+class InventoryIndexView(LoginRequiredMixin, TemplateView):
+    template_name = "inventory/index.html"
+
+    def get_context_data(self, **kwargs):
+        from decimal import Decimal
+        from django.db.models import F, Sum, ExpressionWrapper, DecimalField
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if not company:
+            return ctx
+        ctx["product_count"] = Product.objects.filter(company=company, is_active=True).count()
+        try:
+            ctx["inventory_value"] = StockLevel.objects.filter(
+                warehouse__company=company,
+            ).aggregate(
+                v=Sum(ExpressionWrapper(
+                    F("quantity") * F("product__cost_price"),
+                    output_field=DecimalField(),
+                ))
+            )["v"] or Decimal(0)
+        except Exception:
+            ctx["inventory_value"] = Decimal(0)
+        try:
+            ctx["low_stock_count"] = StockLevel.objects.filter(
+                warehouse__company=company,
+                quantity__lte=F("product__reorder_level"),
+            ).count()
+        except Exception:
+            ctx["low_stock_count"] = 0
+        ctx["recent_movements"] = StockMovement.objects.filter(
+            product__company=company,
+        ).select_related("product").order_by("-created_at")[:8]
+        return ctx
+
+
+class InventoryWarehouseStockView(LoginRequiredMixin, TemplateView):
+    """Stock-on-hand grouped by warehouse / product."""
+    template_name = "inventory/stock_levels.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        if company:
+            ctx["stock_levels"] = StockLevel.objects.filter(
+                warehouse__company=company,
+            ).select_related("warehouse", "product").order_by("warehouse__name", "product__name")
         return ctx
