@@ -21,12 +21,29 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Database — support DATABASE_URL and the standard Vercel/Supabase Postgres
 # variables. Fall back to SQLite in /tmp if no database is configured.
-_database_url = (
-    os.environ.get("DATABASE_URL")
-    or os.environ.get("POSTGRES_URL")
-    or os.environ.get("POSTGRES_PRISMA_URL")
-    or os.environ.get("POSTGRES_URL_NON_POOLING")
-)
+#
+# Prefer a NON-transaction-pooler URL. Supabase's :6543 "pooler" is a PgBouncer
+# *transaction* pooler, which breaks Django's connection handling (prepared
+# statements / session state) and shows up as intermittent 500s on auth and
+# writes. The session pooler (:5432, POSTGRES_URL_NON_POOLING) or a direct
+# connection is the correct target for Django.
+def _is_txn_pooler(url):
+    try:
+        return urlsplit(url).port == 6543
+    except ValueError:
+        return False
+
+_candidates = [
+    os.environ.get("DATABASE_URL"),
+    os.environ.get("POSTGRES_URL_NON_POOLING"),
+    os.environ.get("POSTGRES_URL"),
+    os.environ.get("POSTGRES_PRISMA_URL"),
+]
+_candidates = [c for c in _candidates if c]
+# Use the first candidate that is NOT the transaction pooler; only fall back to
+# a :6543 URL if that is all we have.
+_database_url = next((c for c in _candidates if not _is_txn_pooler(c)), None) \
+    or (_candidates[0] if _candidates else None)
 try:
     import dj_database_url
     if _database_url:
@@ -41,9 +58,12 @@ try:
             ]
         )
         _database_url = urlunsplit(parsed_url._replace(query=query))
+        # conn_max_age=0 — do not hold connections open across Lambda
+        # freeze/resume; a pooled connection left in-transaction breaks the
+        # next request that reuses the same warm instance.
         DATABASES = {
             "default": dj_database_url.parse(
-                _database_url, conn_max_age=600, ssl_require=True
+                _database_url, conn_max_age=0, ssl_require=True
             )
         }
     else:
