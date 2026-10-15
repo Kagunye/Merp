@@ -20,7 +20,12 @@ Tone classes: mint rose amber sky violet teal peach slate
   .launcher-bar h1 { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
   .launcher-bar p { font-size: 13px; margin: 0; opacity: 0.9; }
   .launcher-bar .datebox { text-align: right; font-size: 13px; opacity: 0.95; line-height: 1.3; }
-  .launcher-section-label { font-size: 14px; font-weight: 600; color: #111827; margin: 24px 0 12px; }
+  .launcher-section-label {
+    font-size: 14px; font-weight: 600; color: #111827;
+    margin: 24px 0 12px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .launcher-section-count { font-size: 11.5px; font-weight: 500; color: #6B7280; }
   .launcher-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
