@@ -1,43 +1,22 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'projects:project_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Projects" subtitle="Project portfolio and task tracking" action_label="New Project" action_url=pa_url %}
+{% include "_includes/launcher.html" with launcher_title="Projects" launcher_subtitle="Projects, tasks and milestones" launcher_bar="#047857" %}
 
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-  <a href="{% url 'projects:project_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Active projects</div>
-    <div class="text-2xl font-bold" style="color: var(--primary);">{{ active_projects|default:0 }}</div>
-  </a>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Completed</div><div class="text-2xl font-bold text-green-600">{{ completed_projects|default:0 }}</div></div>
-  <a href="{% url 'projects:task_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Open tasks</div>
-    <div class="text-2xl font-bold text-gray-900">{{ open_tasks|default:0 }}</div>
-  </a>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Due this week</div><div class="text-2xl font-bold text-amber-600">{{ due_this_week|default:0 }}</div></div>
+<div class="launcher-section-label">Processing</div>
+<div class="launcher-grid">
+  <a href="{% url 'projects:project_create' %}" class="launcher-tile"><div class="ico ico-mint">📁</div><span class="label">New Project</span></a>
+  <a href="{% url 'projects:task_create' %}" class="launcher-tile"><div class="ico ico-sky">✅</div><span class="label">New Task</span></a>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <div class="bg-white rounded-xl border p-5">
-    <h3 class="text-sm font-semibold mb-3">Recent projects</h3>
-    <div class="divide-y divide-gray-100">
-      {% for p in recent_projects %}
-      <a href="{% url 'projects:project_detail' p.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
-        <span class="text-sm font-medium">{{ p.name }}</span>
-        <span class="badge bg-gray-100 text-gray-700">{{ p.get_status_display|default:p.status }}</span>
-      </a>
-      {% empty %}<p class="text-sm text-gray-500 py-3">No projects yet.</p>{% endfor %}
-    </div>
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <h3 class="text-sm font-semibold mb-3">Recent tasks</h3>
-    <div class="divide-y divide-gray-100">
-      {% for t in recent_tasks %}
-      <a href="{% url 'projects:task_detail' t.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
-        <span class="text-sm">{{ t.title }}</span>
-        <span class="text-xs text-gray-500">{{ t.project.name }}</span>
-      </a>
-      {% empty %}<p class="text-sm text-gray-500 py-3">No tasks yet.</p>{% endfor %}
-    </div>
-  </div>
+<div class="launcher-section-label">Lists</div>
+<div class="launcher-grid">
+  <a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-mint">📂</div><span class="label">Projects</span></a>
+  <a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-sky">🗒️</div><span class="label">Tasks</span></a>
+</div>
+
+<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Active projects</div><div class="text-2xl font-bold">{{ active_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open tasks</div><div class="text-2xl font-bold">{{ open_task_count|default:0 }}</div></div>
 </div>
 {% endblock %}

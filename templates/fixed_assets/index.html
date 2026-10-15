@@ -1,32 +1,16 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'fixed_assets:asset_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Fixed Assets" subtitle="Capital assets and depreciation" action_label="New Asset" action_url=pa_url %}
+{% include "_includes/launcher.html" with launcher_title="Fixed Assets" launcher_subtitle="Asset register, depreciation and disposals" launcher_bar="#4F46E5" %}
 
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-  <a href="{% url 'fixed_assets:asset_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Active assets</div>
-    <div class="text-2xl font-bold" style="color: var(--primary);">{{ asset_count|default:0 }}</div>
-  </a>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Gross value</div><div class="text-2xl font-bold text-gray-900">{{ gross_value|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Net book value</div><div class="text-2xl font-bold text-green-700">{{ net_book_value|floatformat:2|default:"0.00" }}</div></div>
-  <a href="{% url 'fixed_assets:category_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Categories</div>
-    <div class="text-2xl font-bold text-gray-900">{{ category_count|default:0 }}</div>
-  </a>
+<div class="launcher-section-label">Processing</div>
+<div class="launcher-grid">
+  <a href="{% url 'fixed_assets:asset_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">New Asset</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">📉</div><span class="label">Depreciation Run</span></a>
 </div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent assets</h2>
-<div class="bg-white rounded-xl border overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Code</th><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Category</th><th class="px-4 py-3 text-right">Cost</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for a in recent_assets %}
-      <tr><td class="px-4 py-2 font-mono text-xs"><a href="{% url 'fixed_assets:asset_detail' a.pk %}" style="color: var(--primary);">{{ a.code }}</a></td><td class="px-4 py-2 font-medium">{{ a.name }}</td><td class="px-4 py-2">{{ a.category|default:"—" }}</td><td class="px-4 py-2 text-right">{{ a.cost|floatformat:2 }}</td><td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700">{{ a.get_status_display|default:a.status }}</span></td></tr>
-      {% empty %}
-      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No assets yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="launcher-section-label">Lists</div>
+<div class="launcher-grid">
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Asset Register</span></a>
+  <a href="{% url 'fixed_assets:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Categories</span></a>
 </div>
 {% endblock %}

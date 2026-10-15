@@ -1,32 +1,47 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'manufacturing:work_order_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Manufacturing" subtitle="Bills of materials and work orders" action_label="New Work Order" action_url=pa_url %}
+{% include "_includes/launcher.html" with launcher_title="Manufacturing" launcher_subtitle="Bills of materials, work orders and production tracking" launcher_bar="#CA8A04" %}
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Active work orders</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ active_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Completed</div><div class="text-2xl font-bold text-green-600">{{ completed_count|default:0 }}</div></div>
-  <a href="{% url 'manufacturing:bom_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Bills of materials</div>
-    <div class="text-2xl font-bold text-gray-900">{{ bom_count|default:0 }}</div>
-  </a>
+<div class="launcher-section-label">Processing</div>
+<div class="launcher-grid">
+  <a href="{% url 'manufacturing:bom_create' %}" class="launcher-tile"><div class="ico ico-mint">📐</div><span class="label">New BOM</span></a>
+  <a href="{% url 'manufacturing:work_order_create' %}" class="launcher-tile"><div class="ico ico-sky">⚙️</div><span class="label">New Work Order</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}?status=RELEASED" class="launcher-tile"><div class="ico ico-amber">▶️</div><span class="label">Start Production</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-peach">🏁</div><span class="label">Complete WOs</span></a>
 </div>
 
-<div class="flex gap-4 mb-6 text-sm font-semibold">
-  <a href="{% url 'manufacturing:work_order_list' %}" style="color: var(--primary);">All work orders &rarr;</a>
-  <a href="{% url 'manufacturing:bom_list' %}" style="color: var(--primary);">All BOMs &rarr;</a>
+<div class="launcher-section-label">Lists</div>
+<div class="launcher-grid">
+  <a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Bills of Materials</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-sky">🔧</div><span class="label">Work Orders</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛍️</div><span class="label">Products</span></a>
 </div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent work orders</h2>
-<div class="bg-white rounded-xl border overflow-hidden">
+<div class="launcher-section-label">Reports</div>
+<div class="launcher-grid">
+  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Material Movements</span></a>
+</div>
+
+<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Active WOs</div><div class="text-2xl font-bold text-amber-600">{{ active_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Completed WOs</div><div class="text-2xl font-bold text-green-700">{{ completed_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">BOMs</div><div class="text-2xl font-bold">{{ bom_count|default:0 }}</div></div>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent orders</h2>
+<div class="bg-white rounded-xl border overflow-hidden mb-10">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3">Status</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3 text-left">Status</th></tr></thead>
     <tbody class="divide-y divide-gray-100">
       {% for w in recent_orders %}
-      <tr><td class="px-4 py-2 font-mono text-xs"><a href="{% url 'manufacturing:work_order_detail' w.pk %}" style="color: var(--primary);">{{ w.reference }}</a></td><td class="px-4 py-2">{{ w.bom.product.name|default:"—" }}</td><td class="px-4 py-2 text-right">{{ w.quantity }}</td><td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700">{{ w.get_status_display }}</span></td></tr>
-      {% empty %}
-      <tr><td colspan="4" class="px-4 py-10 text-center text-gray-500">No work orders yet.</td></tr>
-      {% endfor %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'manufacturing:work_order_detail' w.pk %}" style="color:var(--primary)">{{ w.reference }}</a></td>
+        <td class="px-4 py-2">{{ w.bom.product.name }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ w.planned_quantity|floatformat:2 }}</td>
+        <td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700 text-xs px-2 py-0.5">{{ w.get_status_display }}</span></td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">No work orders yet.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
