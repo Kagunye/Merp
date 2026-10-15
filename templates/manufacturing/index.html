@@ -1,25 +1,28 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Manufacturing" launcher_subtitle="Bills of materials, work orders and production tracking" launcher_bar="#CA8A04" %}
+{% include "_includes/launcher.html" with launcher_title="Manufacturing" launcher_subtitle="Bills of materials, work orders and production jobs" launcher_bar="#1F6DE8" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">5 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'manufacturing:bom_create' %}" class="launcher-tile"><div class="ico ico-mint">📐</div><span class="label">New BOM</span></a>
-  <a href="{% url 'manufacturing:work_order_create' %}" class="launcher-tile"><div class="ico ico-sky">⚙️</div><span class="label">New Work Order</span></a>
-  <a href="{% url 'manufacturing:work_order_list' %}?status=RELEASED" class="launcher-tile"><div class="ico ico-amber">▶️</div><span class="label">Start Production</span></a>
-  <a href="{% url 'manufacturing:work_order_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-peach">🏁</div><span class="label">Complete WOs</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Process Jobs</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}?status=RELEASED" class="launcher-tile"><div class="ico ico-slate">🏁</div><span class="label">Close Jobs</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-slate">🔁</div><span class="label">Transfer Jobs</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-slate">📅</div><span class="label">Production Schedule</span></a>
+  <a href="{% url 'manufacturing:work_order_create' %}" class="launcher-tile"><div class="ico ico-amber">🔥</div><span class="label">Issue Work In Progress</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
-<div class="launcher-grid">
-  <a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Bills of Materials</span></a>
-  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-sky">🔧</div><span class="label">Work Orders</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛍️</div><span class="label">Products</span></a>
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">4 modules</span>
 </div>
-
-<div class="launcher-section-label">Reports</div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Material Movements</span></a>
+  <a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-slate">📐</div><span class="label">Bill Of Materials</span></a>
+  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-peach">🏭</div><span class="label">Work Centres</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-sky">👷</div><span class="label">Labour</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">🛠️</div><span class="label">Machinery</span></a>
 </div>
 
 <div class="launcher-section-label" style="margin-top:36px">At a glance</div>
