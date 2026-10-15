@@ -1,0 +1,31 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/launcher.html" with launcher_title="SMS" launcher_subtitle="Manage SMS messaging and communications" launcher_bar="#1F6DE8" %}
+
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">8 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-sky">💬</div><span class="label">Messages</span></a>
+  <a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-mint">📨</div><span class="label">Send SMS</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-rose">📢</div><span class="label">Bulk SMS</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-rose">📣</div><span class="label">Marketing SMS</span></a>
+  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Debt Collection</span></a>
+  <a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-amber">🔔</div><span class="label">Reminders</span></a>
+  <a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-peach">🔔</div><span class="label">Notifications</span></a>
+  <a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-sky">📜</div><span class="label">SMS History</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">5 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📝</div><span class="label">SMS Templates</span></a>
+  <a href="{% url 'banking:account_list' %}" class="launcher-tile"><div class="ico ico-mint">💳</div><span class="label">SMS Credits</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">SMS Settings</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">👥</div><span class="label">Contact Groups</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-mint">🌐</div><span class="label">SMS Providers</span></a>
+</div>
+{% endblock %}

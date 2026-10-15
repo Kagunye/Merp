@@ -1,0 +1,103 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/launcher.html" with launcher_title="Control Panel" launcher_subtitle="System configuration and administration" launcher_bar="#1F6DE8" %}
+
+<div class="launcher-section-label">
+  Company Setup
+  <span class="launcher-section-count">25 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'organizations:company_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Setup</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Options</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">％</div><span class="label">Standard VAT</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-rose">🔗</div><span class="label">Linked Accounts</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">📜</div><span class="label">Terms</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-mint">💱</div><span class="label">Currencies</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-amber">📊</div><span class="label">Exchange Rates</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">＃</div><span class="label">Custom Date Formats</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Forms Setup</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-rose">📊</div><span class="label">Custom Reports</span></a>
+  <a href="{% url 'pos:home' %}" class="launcher-tile"><div class="ico ico-sky">🖥️</div><span class="label">POS File Displays</span></a>
+  <a href="{% url 'accounting:opening_balances' %}" class="launcher-tile"><div class="ico ico-amber">🎯</div><span class="label">Budgets &amp; Targets</span></a>
+  <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Document Status Types</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-rose">🏷️</div><span class="label">Report Codes</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-mint">🗂️</div><span class="label">Central Display Names</span></a>
+  <a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-amber">💳</div><span class="label">Tender Types</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-slate">💼</div><span class="label">Job Titles</span></a>
+  <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-rose">✅</div><span class="label">Approve Setup</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-amber">👥</div><span class="label">CRM Activity Group</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-rose">📈</div><span class="label">CRM Activity Status</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">CRM Action Status</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">CRM Activity Priority</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-slate">🎨</div><span class="label">Report Designer</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-sky">🗺️</div><span class="label">GMAP Integration</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">🔒</div><span class="label">Password Policy</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Company Administration
+  <span class="launcher-section-count">8 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'accounting:trial_balance' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Check Data Integrity</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-rose">🗑️</div><span class="label">Clear Data</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Archive Data</span></a>
+  <a href="{% url 'accounting:fiscal_year_list' %}" class="launcher-tile"><div class="ico ico-sky">📅</div><span class="label">Close Period</span></a>
+  <a href="{% url 'accounting:fiscal_year_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Perform Year End</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">💬</div><span class="label">Finish Greeting History</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-slate">👁️</div><span class="label">Exclusive Mode</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">View Users In Company</span></a>
+</div>
+
+<div class="launcher-section-label">
+  System Administrator
+  <span class="launcher-section-count">2 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Users</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-amber">🔑</div><span class="label">Server Password</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Import &amp; Export
+  <span class="launcher-section-count">26 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-sky">📄</div><span class="label">Import Template Examples</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Ledger Accounts</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-sky">📦</div><span class="label">Inventory Items</span></a>
+  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-slate">🏭</div><span class="label">Vendors</span></a>
+  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-slate">👤</div><span class="label">Vendor Contacts</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">🧑</div><span class="label">Customers</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-rose">🗂️</div><span class="label">Customer Items</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">👥</div><span class="label">Customer Contacts</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-rose">🚚</div><span class="label">Customer Delivery</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-sky">📦</div><span class="label">Inventory</span></a>
+  <a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-rose">📍</div><span class="label">Inventory Locations</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">🗃️</div><span class="label">Inventory Bin Locations</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">🖼️</div><span class="label">Inventory Images</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">📦</div><span class="label">Inventory Container Items</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📝</div><span class="label">Inventory Item Descriptions</span></a>
+  <a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-slate">📐</div><span class="label">Manufacture BOM</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">💰</div><span class="label">Inventory Vendor Prioritise</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">💲</div><span class="label">Pricelists</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">🔢</div><span class="label">Pricelists Calculated</span></a>
+  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-amber">📊</div><span class="label">Sales Data</span></a>
+  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-rose">＃</div><span class="label">Serial / Lot Numbers</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-slate">🏢</div><span class="label">Fixed Assets</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Contract Bill Invoice</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Employees</span></a>
+  <a href="{% url 'accounting:opening_balances' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Account Budgets</span></a>
+  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Department Budgets</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Data Conversion
+  <span class="launcher-section-count">3 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">📥</div><span class="label">ACCPAC Simply</span></a>
+  <a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">📥</div><span class="label">Data Importer Utility</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">📤</div><span class="label">Data Extractor Utility</span></a>
+</div>
+{% endblock %}

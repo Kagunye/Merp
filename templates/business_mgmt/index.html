@@ -1,0 +1,49 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/launcher.html" with launcher_title="Business Management" launcher_subtitle="Manage business operations and financial reporting" launcher_bar="#1F6DE8" %}
+
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">8 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-mint">💰</div><span class="label">Cash Book</span></a>
+  <a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-sky">🏦</div><span class="label">Bank Transactions</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-rose">📊</div><span class="label">Financial Reports</span></a>
+  <a href="{% url 'accounting:opening_balances' %}" class="launcher-tile"><div class="ico ico-amber">📈</div><span class="label">Budget Planning</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-mint">💧</div><span class="label">Cash Flow</span></a>
+  <a href="{% url 'banking:home' %}" class="launcher-tile"><div class="ico ico-sky">🔁</div><span class="label">Reconciliation</span></a>
+  <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-slate">📝</div><span class="label">Journal Entries</span></a>
+  <a href="{% url 'accounting:journal_entry_create' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Voucher Entry</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Reports
+  <span class="launcher-section-count">8 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-rose">📈</div><span class="label">Profit &amp; Loss</span></a>
+  <a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-mint">📊</div><span class="label">Balance Sheet</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-slate">💧</div><span class="label">Cash Flow Statement</span></a>
+  <a href="{% url 'reporting:trial_balance' %}" class="launcher-tile"><div class="ico ico-amber">⚖️</div><span class="label">Trial Balance</span></a>
+  <a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">Aged Reports</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-peach">🔍</div><span class="label">Financial Analysis</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Budget Reports</span></a>
+  <a href="{% url 'organizations:company_list' %}" class="launcher-tile"><div class="ico ico-slate">🔗</div><span class="label">Consolidation</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">8 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-rose">📂</div><span class="label">Projects / Job Costing</span></a>
+  <a href="{% url 'banking:account_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Bank Configurations</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-amber">💱</div><span class="label">Currencies</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-sky">📋</div><span class="label">Chart of Accounts</span></a>
+  <a href="{% url 'accounting:fiscal_year_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Fiscal Periods</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Business Parameters</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-peach">🗂️</div><span class="label">Account Sets</span></a>
+  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
+</div>
+{% endblock %}
