@@ -1,0 +1,63 @@
+{% comment %}
+Launcher CSS + header bar — include once per page before the tile sections.
+Required caller variables: launcher_title, launcher_subtitle.
+Optional: launcher_bar (CSS color, defaults to blue).
+Tile markup lives inline in each page using the .launcher-* classes below.
+Tone classes: mint rose amber sky violet teal peach slate
+{% endcomment %}
+<style>
+  :root { --launcher-bar: {{ launcher_bar|default:"#1F6DE8" }}; }
+  .launcher-bar {
+    background: var(--launcher-bar);
+    color: #fff;
+    border-radius: 12px;
+    padding: 18px 24px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+  .launcher-bar h1 { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
+  .launcher-bar p { font-size: 13px; margin: 0; opacity: 0.9; }
+  .launcher-bar .datebox { text-align: right; font-size: 13px; opacity: 0.95; line-height: 1.3; }
+  .launcher-section-label { font-size: 14px; font-weight: 600; color: #111827; margin: 24px 0 12px; }
+  .launcher-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 10px; row-gap: 18px;
+  }
+  .launcher-tile {
+    text-align: center; text-decoration: none; color: #111827;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 6px; border-radius: 10px;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  .launcher-tile:hover { background: #F3F4F6; transform: translateY(-1px); }
+  .launcher-tile .ico {
+    width: 56px; height: 56px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; font-size: 26px;
+  }
+  .launcher-tile .label {
+    font-size: 11.5px; line-height: 1.25; font-weight: 500; color: #374151; max-width: 110px;
+  }
+  .ico-mint   { background: #DCFCE7; color: #065F46; }
+  .ico-rose   { background: #FEE2E2; color: #9F1239; }
+  .ico-amber  { background: #FEF3C7; color: #92400E; }
+  .ico-sky    { background: #DBEAFE; color: #1E40AF; }
+  .ico-violet { background: #EDE9FE; color: #5B21B6; }
+  .ico-teal   { background: #CCFBF1; color: #115E59; }
+  .ico-peach  { background: #FFEDD5; color: #9A3412; }
+  .ico-slate  { background: #E5E7EB; color: #374151; }
+</style>
+
+<div class="launcher-bar">
+  <div>
+    <h1>{{ launcher_title }}</h1>
+    <p>{{ launcher_subtitle }}</p>
+  </div>
+  <div class="datebox">
+    <div>{% now "l, F j, Y" %}</div>
+    <div>{% now "H:i" %}</div>
+  </div>
+</div>
+

@@ -1,44 +1,31 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'crm:customer_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Customers & CRM" subtitle="Customers, suppliers, leads and pipeline" action_label="New Customer" action_url=pa_url %}
+{% include "_includes/launcher.html" with launcher_title="CRM" launcher_subtitle="Customers, suppliers, leads and contact management" launcher_bar="#7C3AED" %}
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <a href="{% url 'crm:customer_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Customers</div>
-    <div class="text-2xl font-bold" style="color: var(--primary);">{{ customer_count|default:0 }}</div>
-  </a>
-  <a href="{% url 'crm:supplier_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Suppliers</div>
-    <div class="text-2xl font-bold text-gray-900">{{ supplier_count|default:0 }}</div>
-  </a>
-  <a href="{% url 'crm:lead_list' %}" class="bg-white rounded-xl border p-5 hover:shadow-md transition">
-    <div class="text-xs text-gray-500 mb-1">Leads</div>
-    <div class="text-2xl font-bold text-blue-600">{{ lead_count|default:0 }}</div>
-  </a>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Active in pipeline</div><div class="text-2xl font-bold text-amber-600">{{ active_lead_count|default:0 }}</div></div>
+<div class="launcher-section-label">Processing</div>
+<div class="launcher-grid">
+  <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">New Customer</span></a>
+  <a href="{% url 'crm:supplier_create' %}" class="launcher-tile"><div class="ico ico-amber">🏭</div><span class="label">New Supplier</span></a>
+  <a href="{% url 'crm:lead_create' %}" class="launcher-tile"><div class="ico ico-sky">🎯</div><span class="label">New Lead</span></a>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <div class="bg-white rounded-xl border p-5">
-    <h3 class="text-sm font-semibold mb-3">Recent customers</h3>
-    <div class="divide-y divide-gray-100">
-      {% for c in recent_customers %}
-      <a href="{% url 'crm:customer_detail' c.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
-        <span class="text-sm font-medium">{{ c.name }}</span><span class="text-xs text-gray-500">{{ c.created_at|date:"d M" }}</span>
-      </a>
-      {% empty %}<p class="text-sm text-gray-500 py-3">No customers yet.</p>{% endfor %}
-    </div>
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <h3 class="text-sm font-semibold mb-3">Recent leads</h3>
-    <div class="divide-y divide-gray-100">
-      {% for l in recent_leads %}
-      <a href="{% url 'crm:lead_detail' l.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
-        <span class="text-sm font-medium">{{ l.name }}</span><span class="text-xs text-gray-500">{{ l.created_at|date:"d M" }}</span>
-      </a>
-      {% empty %}<p class="text-sm text-gray-500 py-3">No leads yet.</p>{% endfor %}
-    </div>
-  </div>
+<div class="launcher-section-label">Lists</div>
+<div class="launcher-grid">
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">🧑‍🤝‍🧑</div><span class="label">Customers</span></a>
+  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-amber">🏢</div><span class="label">Suppliers</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Leads</span></a>
+</div>
+
+<div class="launcher-section-label">Linked</div>
+<div class="launcher-grid">
+  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">AR Aging</span></a>
+  <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-peach">⏱️</div><span class="label">AP Aging</span></a>
+</div>
+
+<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Customers</div><div class="text-2xl font-bold">{{ customer_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Suppliers</div><div class="text-2xl font-bold">{{ supplier_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open leads</div><div class="text-2xl font-bold">{{ open_leads|default:0 }}</div></div>
 </div>
 {% endblock %}

@@ -1,53 +1,53 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'procurement:bill_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Procurement & Payables" subtitle="Accounts payable, bills, purchase orders" action_label="New Bill" action_url=pa_url %}
+{% include "_includes/launcher.html" with launcher_title="Procurement & Payables" launcher_subtitle="Requisitions, purchase orders, supplier bills and payments" launcher_bar="#9333EA" %}
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Owed to suppliers</div>
-    <div class="text-2xl font-bold" style="color: var(--primary);">{{ total_outstanding|floatformat:2|default:"0.00" }}</div>
-    <div class="text-xs text-gray-500 mt-1">Unpaid bills</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Overdue</div>
-    <div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Open POs</div>
-    <div class="text-2xl font-bold text-gray-900">{{ open_po_count|default:0 }}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Pending requisitions</div>
-    <div class="text-2xl font-bold text-amber-600">{{ pending_req_count|default:0 }}</div>
-  </div>
+<div class="launcher-section-label">Processing</div>
+<div class="launcher-grid">
+  <a href="{% url 'procurement:requisition_create' %}" class="launcher-tile"><div class="ico ico-violet">📝</div><span class="label">New Requisition</span></a>
+  <a href="{% url 'procurement:po_create' %}" class="launcher-tile"><div class="ico ico-sky">📦</div><span class="label">New Purchase Order</span></a>
+  <a href="{% url 'procurement:bill_create' %}" class="launcher-tile"><div class="ico ico-amber">🧾</div><span class="label">New Supplier Bill</span></a>
+  <a href="{% url 'crm:supplier_create' %}" class="launcher-tile"><div class="ico ico-mint">🏭</div><span class="label">New Supplier</span></a>
+  <a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="launcher-tile"><div class="ico ico-rose">✅</div><span class="label">Approve Requisitions</span></a>
 </div>
 
-<div class="flex flex-wrap gap-4 mb-6 text-sm font-semibold">
-  <a href="{% url 'procurement:bill_list' %}" style="color: var(--primary);">All bills &rarr;</a>
-  <a href="{% url 'procurement:po_list' %}" style="color: var(--primary);">Purchase orders &rarr;</a>
-  <a href="{% url 'procurement:requisition_list' %}" style="color: var(--primary);">Requisitions &rarr;</a>
-  <a href="{% url 'procurement:ap_aging' %}" style="color: var(--primary);">AP aging &rarr;</a>
+<div class="launcher-section-label">Lists</div>
+<div class="launcher-grid">
+  <a href="{% url 'procurement:requisition_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Requisitions</span></a>
+  <a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-sky">📦</div><span class="label">Purchase Orders</span></a>
+  <a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Supplier Bills</span></a>
+  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-mint">🏢</div><span class="label">Suppliers</span></a>
+</div>
+
+<div class="launcher-section-label">Reports</div>
+<div class="launcher-grid">
+  <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">AP Aging</span></a>
+  <a href="{% url 'reporting:aged_creditors' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Aged Creditors</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">💧</div><span class="label">Cash Flow</span></a>
+</div>
+
+<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Outstanding</div><div class="text-2xl font-bold text-amber-600">{{ total_outstanding|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Overdue</div><div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open POs</div><div class="text-2xl font-bold">{{ open_po_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Pending approvals</div><div class="text-2xl font-bold">{{ pending_req_count|default:0 }}</div></div>
 </div>
 
 <h2 class="text-sm font-semibold text-gray-700 mb-3">Recent bills</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+<div class="bg-white rounded-xl border overflow-hidden mb-10">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Supplier</th><th class="px-4 py-3 text-left">Bill date</th><th class="px-4 py-3 text-left">Due</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Outstanding</th><th class="px-4 py-3">Status</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Supplier</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Outstanding</th></tr></thead>
     <tbody class="divide-y divide-gray-100">
       {% for b in recent_bills %}
       <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'procurement:bill_detail' b.pk %}" style="color: var(--primary);">{{ b.reference }}</a></td>
-        <td class="px-4 py-3">{{ b.supplier.name }}</td>
-        <td class="px-4 py-3">{{ b.bill_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3">{{ b.due_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3 text-right font-semibold">{{ b.total_amount|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right">{{ b.outstanding_amount|floatformat:2 }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ b.get_status_display }}</span></td>
+        <td class="px-4 py-2">{{ b.bill_date|date:"d M Y" }}</td>
+        <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'procurement:bill_detail' b.pk %}" style="color:var(--primary)">{{ b.reference }}</a></td>
+        <td class="px-4 py-2">{{ b.supplier.name }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ b.total_amount|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono text-amber-600">{{ b.outstanding_amount|floatformat:2 }}</td>
       </tr>
-      {% empty %}
-      <tr><td colspan="7" class="px-4 py-10 text-center text-gray-500">No bills yet.</td></tr>
-      {% endfor %}
+      {% empty %}<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">No bills yet.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
