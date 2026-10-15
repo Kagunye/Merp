@@ -126,6 +126,8 @@ Layout:
   .pl-form {
     display: flex; flex-direction: column; gap: 0;
     width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
     background: #FBFCFE;
     border: 1px solid #D5DAE1;
     border-radius: 6px;
@@ -149,7 +151,7 @@ Layout:
     transition: background 0.1s, border-color 0.1s;
   }
   .pl-tool svg, .pl-tool-form button svg { width: 18px; height: 18px; }
-  .pl-tool:hover { background: #DBEAFE; border-color: #93C5FD; }
+  .pl-tool:hover { background: #F3F4F6; border-color: #D1D5DB; }
   .pl-tool-primary { color: #065F46; }
   .pl-tool-primary:hover { background: #DCFCE7; border-color: #86EFAC; }
   .pl-tool-danger { color: #9F1239; }
@@ -170,7 +172,7 @@ Layout:
     padding: 0 8px; margin-left: 6px;
     font-size: 12px; font-weight: 700;
     letter-spacing: 0.04em; text-transform: uppercase;
-    color: #1E40AF;
+    color: #374151;
     background: #fff;
   }
   .pl-alert {
@@ -247,8 +249,8 @@ Layout:
   .pl-form select:focus,
   .pl-form textarea:focus {
     outline: none;
-    border-color: #2563EB;
-    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(200,16,46,0.12);
   }
   .pl-form input[type="checkbox"],
   .pl-form input[type="radio"] {
