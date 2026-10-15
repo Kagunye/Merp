@@ -1,0 +1,39 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/launcher.html" with launcher_title="Workshop" launcher_subtitle="Service jobs, quotations, inventory issues and scheduling" launcher_bar="#1F6DE8" %}
+
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">9 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Account Enquiries</span></a>
+  <a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Invoice Job</span></a>
+  <a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-sky">🔧</div><span class="label">Process Job</span></a>
+  <a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-mint">💬</div><span class="label">Create Quotation</span></a>
+  <a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Credit Notes</span></a>
+  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Credit Requests</span></a>
+  <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Receipts</span></a>
+  <a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Workshop Schedule</span></a>
+  <a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-rose">📦</div><span class="label">Inventory Issue</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">5 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛠️</div><span class="label">Serviceable Item</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Serviceable Item Type</span></a>
+  <a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Job Template</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">👨‍🔧</div><span class="label">Setup Technician</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Owners</span></a>
+</div>
+
+<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open jobs</div><div class="text-2xl font-bold text-amber-600">{{ open_jobs|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Invoiced jobs</div><div class="text-2xl font-bold text-green-700">{{ invoiced_jobs|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Technicians</div><div class="text-2xl font-bold">{{ technicians|default:0 }}</div></div>
+</div>
+{% endblock %}
