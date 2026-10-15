@@ -1,0 +1,44 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/launcher.html" with launcher_title="Warehouse Management" launcher_subtitle="Manage picking, shipping, and warehouse operations" launcher_bar="#1F6DE8" %}
+
+<div class="launcher-section-label">
+  Picking
+  <span class="launcher-section-count">3 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-amber">🎫</div><span class="label">Pick Tickets</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🖨️</div><span class="label">Print Pick Tickets</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-peach">📦</div><span class="label">Stock Pick</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Shipping
+  <span class="launcher-section-count">5 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Shipment Enquiries</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🚚</div><span class="label">Shipments</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🖨️</div><span class="label">Print Packing Slips</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Shipment Containers</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-sky">🖨️</div><span class="label">Print Container Manifest</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">4 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Delivery Drivers</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">🚐</div><span class="label">Delivery Vehicles</span></a>
+  <a href="{% url 'organizations:branch_list' %}" class="launcher-tile"><div class="ico ico-amber">🗺️</div><span class="label">Delivery Routes</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">📦</div><span class="label">Delivery Methods</span></a>
+</div>
+
+<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Warehouses</div><div class="text-2xl font-bold">{{ warehouse_count|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">SKUs on hand</div><div class="text-2xl font-bold">{{ skus_on_hand|default:0 }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Recent movements</div><div class="text-2xl font-bold">{{ recent_movement_count|default:0 }}</div></div>
+</div>
+{% endblock %}
