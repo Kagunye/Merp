@@ -1,178 +1,301 @@
 {% comment %}
-eCitizen-style full-width model form card.
+Palladium / Pastel WinForms-style data-entry form.
 
-Expected context:
-  form           — the Django form
-  title          — card title
-  subtitle       — small line under title
-  back_url       — optional "← Back" link (passed to page_header)
-  cancel_url     — optional cancel link in form actions
-  submit_label   — submit button label (default: "Save")
-  section_label  — optional section heading above fields (default: title)
+Context expected:
+  form            — the Django form
+  title           — card title (toolbar left)
+  subtitle        — small line under title (optional)
+  back_url        — "← Back" link in the page header (optional)
+  cancel_url      — target for the Close toolbar button + Cancel link
+  submit_label    — submit button label (default: "Save")
+  section_label   — group-box title above the fields (default: "Details")
+  new_url         — target for the "New" toolbar button (optional)
+  delete_url      — target for the "Delete" toolbar button (optional)
+  print_url       — target for the "Print" toolbar button (optional)
 
-Each field spans a single column on mobile and auto-flows into a 2-column
-grid at md+. Textareas and file inputs always span both columns.
+Layout:
+  * Toolbar strip at top with Save / New / Delete / Print / Close icon-buttons.
+  * GroupBox panel with the title breaking the top border on the left.
+  * Horizontal rows: label-left (right-aligned, 180px), input-right (fills).
+  * Textareas, file inputs and checkboxes stretch across the row.
+  * Compact 28px input height, light gray background.
+  * Status bar footer with a saved-draft hint and the submit button.
 {% endcomment %}
 
 {% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url %}
 
-<div class="form-shell">
-  <form method="post" enctype="multipart/form-data" novalidate class="form-card">
-    {% csrf_token %}
+<form method="post" enctype="multipart/form-data" novalidate class="pl-form">
+  {% csrf_token %}
+
+  <!-- Toolbar -->
+  <div class="pl-toolbar">
+    <button type="submit" class="pl-tool pl-tool-primary" title="Save (Alt+S)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17 21v-8H7v8M7 3v5h8"/>
+      </svg>
+      <span>Save</span>
+    </button>
+    {% if new_url %}
+    <a href="{{ new_url }}" class="pl-tool" title="New record">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+      </svg>
+      <span>New</span>
+    </a>
+    {% endif %}
+    {% if delete_url %}
+    <form method="post" action="{{ delete_url }}" class="pl-tool-form"
+          onsubmit="return confirm('Delete this record? This cannot be undone.');">
+      {% csrf_token %}
+      <button type="submit" class="pl-tool pl-tool-danger" title="Delete">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/>
+        </svg>
+        <span>Delete</span>
+      </button>
+    </form>
+    {% endif %}
+    {% if print_url %}
+    <a href="{{ print_url }}" class="pl-tool" title="Print" target="_blank">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+      </svg>
+      <span>Print</span>
+    </a>
+    {% endif %}
+    <div class="pl-tool-spacer"></div>
+    {% if cancel_url %}
+    <a href="{{ cancel_url }}" class="pl-tool" title="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+      <span>Close</span>
+    </a>
+    {% endif %}
+  </div>
+
+  <!-- GroupBox: form body -->
+  <fieldset class="pl-groupbox">
+    <legend class="pl-groupbox-legend">{{ section_label|default:"Details" }}</legend>
 
     {% if form.non_field_errors %}
-      <div class="form-alert form-alert-error">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="pl-alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"/>
         </svg>
         <div>{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
       </div>
     {% endif %}
 
-    {% if section_label %}
-      <h3 class="form-section-label">{{ section_label }}</h3>
-    {% endif %}
-
-    <div class="form-grid">
+    <div class="pl-rows">
       {% for field in form %}
         {% with wt=field.field.widget.input_type %}
-        <div class="form-field {% if wt == 'textarea' or wt == 'file' or wt == 'checkbox' %}form-field-full{% endif %}">
-          <label for="{{ field.id_for_label }}" class="form-label">
-            {{ field.label }}{% if field.field.required %} <span class="form-required">*</span>{% endif %}
+        <div class="pl-row {% if wt == 'textarea' or wt == 'file' or wt == 'checkbox' %}pl-row-wide{% endif %}">
+          <label for="{{ field.id_for_label }}" class="pl-label">
+            {{ field.label }}{% if field.field.required %}<span class="pl-req">*</span>{% endif %}
           </label>
-          {{ field }}
-          {% if field.help_text %}<p class="form-helptext">{{ field.help_text }}</p>{% endif %}
-          {% if field.errors %}
-            <ul class="form-errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>
-          {% endif %}
+          <div class="pl-input">
+            {{ field }}
+            {% if field.help_text %}<p class="pl-help">{{ field.help_text }}</p>{% endif %}
+            {% if field.errors %}
+              <ul class="pl-errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+            {% endif %}
+          </div>
         </div>
         {% endwith %}
       {% endfor %}
     </div>
+  </fieldset>
 
-    <div class="form-actions">
-      {% if cancel_url %}<a href="{{ cancel_url }}" class="btn-outline">Cancel</a>{% endif %}
-      <button type="submit" class="btn-primary">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-        </svg>
-        {{ submit_label|default:"Save" }}
-      </button>
+  <!-- Status bar -->
+  <div class="pl-statusbar">
+    <span class="pl-status-hint">
+      <span class="pl-dot"></span>
+      Press <kbd>Alt</kbd>+<kbd>S</kbd> or click Save to commit.
+      Required fields are marked with <span class="pl-req">*</span>.
+    </span>
+    <div class="pl-status-actions">
+      {% if cancel_url %}<a href="{{ cancel_url }}" class="pl-btn-outline">Cancel</a>{% endif %}
+      <button type="submit" class="pl-btn-primary">{{ submit_label|default:"Save" }}</button>
     </div>
-  </form>
-</div>
+  </div>
+</form>
 
 <style>
-  .form-shell { width: 100%; }
-  .form-card {
+  .pl-form {
+    display: flex; flex-direction: column; gap: 0;
+    width: 100%;
+    background: #FBFCFE;
+    border: 1px solid #D5DAE1;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  /* --- Toolbar --- */
+  .pl-toolbar {
+    display: flex; align-items: stretch; gap: 0;
+    background: linear-gradient(180deg, #F7F8FA 0%, #ECEEF2 100%);
+    border-bottom: 1px solid #D5DAE1;
+    padding: 6px 8px;
+  }
+  .pl-tool, .pl-tool-form button {
+    display: inline-flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 4px 10px;
+    border: 1px solid transparent; border-radius: 4px;
+    background: transparent; color: #1F2937;
+    font-size: 11.5px; font-weight: 500;
+    text-decoration: none; cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .pl-tool svg, .pl-tool-form button svg { width: 18px; height: 18px; }
+  .pl-tool:hover { background: #DBEAFE; border-color: #93C5FD; }
+  .pl-tool-primary { color: #065F46; }
+  .pl-tool-primary:hover { background: #DCFCE7; border-color: #86EFAC; }
+  .pl-tool-danger { color: #9F1239; }
+  .pl-tool-danger:hover { background: #FEE2E2; border-color: #FCA5A5; }
+  .pl-tool-form { margin: 0; padding: 0; }
+  .pl-tool-spacer { flex: 1; }
+
+  /* --- GroupBox (fieldset) --- */
+  .pl-groupbox {
+    margin: 20px 16px 0;
+    padding: 18px 16px 14px;
+    border: 1px solid #C9CFD7;
+    border-radius: 4px;
     background: #fff;
-    border: 1px solid #E5E7EB;
-    border-radius: 14px;
-    padding: 28px 32px 24px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    position: relative;
+  }
+  .pl-groupbox-legend {
+    padding: 0 8px; margin-left: 6px;
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    color: #1E40AF;
+    background: #fff;
+  }
+  .pl-alert {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px; margin-bottom: 14px;
+    background: #FEF2F2; color: #991B1B;
+    border: 1px solid #FECACA; border-radius: 4px;
+    font-size: 12.5px;
+  }
+  .pl-alert svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+  .pl-alert p { margin: 0; line-height: 1.4; }
+
+  /* --- Rows (label-left, input-right) --- */
+  .pl-rows { display: flex; flex-direction: column; gap: 10px; }
+  .pl-row {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 16px; align-items: start;
   }
   @media (max-width: 640px) {
-    .form-card { padding: 18px; border-radius: 12px; }
+    .pl-row { grid-template-columns: 1fr; gap: 4px; }
   }
-  .form-alert {
-    display: flex; gap: 10px; align-items: flex-start;
-    padding: 12px 14px; border-radius: 10px;
-    font-size: 13.5px; margin-bottom: 20px;
+  .pl-row-wide { grid-template-columns: 1fr; gap: 6px; }
+  .pl-label {
+    font-size: 12.5px; font-weight: 500;
+    color: #374151; text-align: right;
+    padding-top: 7px;
   }
-  .form-alert-error { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
-  .form-alert svg { flex-shrink: 0; margin-top: 1px; }
-  .form-alert p { margin: 0; line-height: 1.4; }
-  .form-section-label {
-    font-size: 13px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--primary);
-    padding-bottom: 10px; margin: 0 0 20px;
-    border-bottom: 1px solid #F3F4F6;
-  }
-  .form-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px 24px;
-  }
-  @media (max-width: 768px) {
-    .form-grid { grid-template-columns: 1fr; gap: 14px; }
-  }
-  .form-field-full { grid-column: 1 / -1; }
-  .form-label {
-    display: block; font-size: 12.5px; font-weight: 600;
-    color: #374151; margin-bottom: 6px; letter-spacing: 0.01em;
-  }
-  .form-required { color: var(--primary); font-weight: 700; }
-  .form-helptext { font-size: 12px; color: #6B7280; margin: 4px 0 0; }
-  .form-errorlist {
+  @media (max-width: 640px) { .pl-label { text-align: left; } }
+  .pl-row-wide .pl-label { text-align: left; padding-top: 0; }
+  .pl-req { color: #B91C1C; margin-left: 3px; font-weight: 700; }
+  .pl-input { min-width: 0; }
+  .pl-help { font-size: 11.5px; color: #6B7280; margin: 4px 0 0; }
+  .pl-errorlist {
     list-style: none; padding: 0; margin: 4px 0 0;
-    font-size: 12.5px; color: #B91C1C;
+    font-size: 12px; color: #B91C1C;
   }
-  .form-actions {
-    display: flex; justify-content: flex-end; gap: 12px;
-    margin-top: 24px; padding-top: 20px;
-    border-top: 1px solid #F3F4F6;
-  }
-  .btn-primary, .btn-outline {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 10px 20px; font-size: 14px; font-weight: 600;
-    border-radius: 10px; cursor: pointer; text-decoration: none;
-    transition: background 0.15s, box-shadow 0.15s;
-    border: 1px solid transparent;
-  }
-  .btn-primary {
-    background: var(--primary); color: #fff;
-    box-shadow: 0 1px 2px rgba(200,16,46,0.2);
-  }
-  .btn-primary:hover { background: var(--primary-dark, #9B000E); }
-  .btn-outline {
-    background: #fff; color: #374151; border-color: #E5E7EB;
-  }
-  .btn-outline:hover { background: #F9FAFB; }
 
-  /* Base input / select / textarea styling applied inside the card.
-     Scoped to .form-card so we don't disturb filter rows and inline inputs
-     elsewhere on module list pages. */
-  .form-card input[type="text"],
-  .form-card input[type="email"],
-  .form-card input[type="password"],
-  .form-card input[type="number"],
-  .form-card input[type="date"],
-  .form-card input[type="datetime-local"],
-  .form-card input[type="tel"],
-  .form-card input[type="url"],
-  .form-card input[type="file"],
-  .form-card select,
-  .form-card textarea {
+  /* --- Inputs --- */
+  .pl-form input[type="text"],
+  .pl-form input[type="email"],
+  .pl-form input[type="password"],
+  .pl-form input[type="number"],
+  .pl-form input[type="date"],
+  .pl-form input[type="datetime-local"],
+  .pl-form input[type="tel"],
+  .pl-form input[type="url"],
+  .pl-form input[type="file"],
+  .pl-form select,
+  .pl-form textarea {
     width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #D1D5DB;
-    border-radius: 10px;
-    font-size: 14px;
+    padding: 5px 8px;
+    border: 1px solid #B4BCC6;
+    border-radius: 3px;
+    font-size: 13px;
     color: #111827;
     background: #fff;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    height: 28px;
     box-sizing: border-box;
+    font-family: inherit;
+    transition: border-color 0.1s, box-shadow 0.1s;
   }
-  .form-card select {
+  .pl-form select {
     appearance: none;
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236B7280'%3e%3cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3e%3c/svg%3e");
     background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 16px;
-    padding-right: 36px;
+    background-position: right 6px center;
+    background-size: 14px;
+    padding-right: 24px;
   }
-  .form-card textarea { min-height: 90px; resize: vertical; }
-  .form-card input:focus,
-  .form-card select:focus,
-  .form-card textarea:focus {
+  .pl-form textarea { height: auto; min-height: 72px; padding: 6px 8px; resize: vertical; }
+  .pl-form input[type="file"] { height: auto; padding: 4px 6px; }
+  .pl-form input:focus,
+  .pl-form select:focus,
+  .pl-form textarea:focus {
     outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(200,16,46,0.12);
+    border-color: #2563EB;
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
   }
-  .form-card input[type="checkbox"],
-  .form-card input[type="radio"] {
+  .pl-form input[type="checkbox"],
+  .pl-form input[type="radio"] {
     accent-color: var(--primary);
-    width: 16px; height: 16px;
+    width: 14px; height: 14px;
     margin-right: 6px;
+    vertical-align: middle;
   }
+
+  /* --- Status bar / footer --- */
+  .pl-statusbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 16px;
+    background: #F7F8FA;
+    border-top: 1px solid #D5DAE1;
+    margin-top: 20px;
+    font-size: 12px; color: #6B7280;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .pl-status-hint { display: flex; align-items: center; gap: 6px; }
+  .pl-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #22C55E;
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.15);
+  }
+  .pl-statusbar kbd {
+    font-family: inherit; font-size: 10.5px;
+    background: #fff; border: 1px solid #D1D5DB; border-bottom-width: 2px;
+    padding: 1px 5px; border-radius: 3px; color: #374151;
+    margin: 0 2px;
+  }
+  .pl-status-actions { display: flex; gap: 8px; align-items: center; }
+  .pl-btn-primary, .pl-btn-outline {
+    display: inline-flex; align-items: center;
+    padding: 6px 16px;
+    font-size: 13px; font-weight: 600;
+    border-radius: 3px; cursor: pointer; text-decoration: none;
+    border: 1px solid transparent;
+  }
+  .pl-btn-primary {
+    background: var(--primary); color: #fff;
+    border-color: var(--primary);
+  }
+  .pl-btn-primary:hover { background: var(--primary-dark, #9B000E); }
+  .pl-btn-outline {
+    background: #fff; color: #374151; border-color: #C9CFD7;
+  }
+  .pl-btn-outline:hover { background: #F3F4F6; }
 </style>
