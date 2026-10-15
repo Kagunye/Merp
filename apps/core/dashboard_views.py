@@ -40,7 +40,96 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ctx.update(self._get_inventory_summary(company))
         ctx.update(self._get_hr_summary(company))
         ctx.update(self._get_recent_activity(company))
+        ctx.update(self._get_dashboard_widgets(company))
+        ctx["net_profit_mtd"] = ctx.get("monthly_revenue", 0) - ctx.get("monthly_expenses", 0)
         return ctx
+
+    def _get_dashboard_widgets(self, company):
+        """Extra lists / counts the dashboard surface needs."""
+        from datetime import date
+        from decimal import Decimal
+        out = {
+            "net_profit_mtd": Decimal("0"),
+            "open_invoices": [],
+            "open_bills": [],
+            "open_sales_orders": 0,
+            "open_purchase_orders": 0,
+            "pending_requisitions": 0,
+            "pending_expense_claims": 0,
+            "pending_leave_requests": 0,
+            "pending_timesheets": 0,
+            "recent_journal_entries": [],
+        }
+        try:
+            from apps.sales.models import Invoice, SalesOrder
+            out["open_invoices"] = list(
+                Invoice.objects.filter(
+                    company=company,
+                    status__in=["SENT", "PARTIAL", "OVERDUE"],
+                ).select_related("customer").order_by("due_date")[:6]
+            )
+            out["open_sales_orders"] = SalesOrder.objects.filter(
+                company=company,
+                status__in=["DRAFT", "CONFIRMED", "PARTIALLY_DELIVERED"],
+            ).count()
+        except Exception:
+            pass
+
+        try:
+            from apps.procurement.models import Bill, PurchaseOrder, PurchaseRequisition
+            out["open_bills"] = list(
+                Bill.objects.filter(
+                    company=company,
+                    status__in=["RECEIVED", "PARTIAL", "OVERDUE"],
+                ).select_related("supplier").order_by("due_date")[:6]
+            )
+            out["open_purchase_orders"] = PurchaseOrder.objects.filter(
+                company=company,
+                status__in=["DRAFT", "SENT", "PARTIALLY_RECEIVED"],
+            ).count()
+            out["pending_requisitions"] = PurchaseRequisition.objects.filter(
+                company=company, status="PENDING_APPROVAL",
+            ).count()
+        except Exception:
+            pass
+
+        try:
+            from apps.expenses.models import ExpenseClaim
+            out["pending_expense_claims"] = ExpenseClaim.objects.filter(
+                company=company, status="SUBMITTED",
+            ).count()
+        except Exception:
+            pass
+
+        try:
+            from apps.hr.models import LeaveRequest
+            out["pending_leave_requests"] = LeaveRequest.objects.filter(
+                company=company, status="PENDING",
+            ).count()
+        except Exception:
+            pass
+
+        try:
+            from apps.timesheets.models import TimesheetEntry
+            out["pending_timesheets"] = TimesheetEntry.objects.filter(
+                company=company, status="SUBMITTED",
+            ).count()
+        except Exception:
+            pass
+
+        try:
+            from apps.accounting.models import JournalEntry
+            out["recent_journal_entries"] = list(
+                JournalEntry.objects.filter(
+                    company=company, status="POSTED",
+                ).order_by("-posting_date", "-created_at")[:6]
+            )
+        except Exception:
+            pass
+
+        # net_profit_mtd: computed from the financial summary already in context,
+        # so fall back to 0 and let the view-level computation set it below.
+        return out
 
     def _get_financial_summary(self, company):
         today = date.today()
