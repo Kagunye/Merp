@@ -206,7 +206,7 @@
           {% if active_company.logo %}
             <img src="{{ active_company.logo.url }}" alt="{{ active_company.name }}">
           {% else %}
-            {{ active_company.name|default:"M"|slice:":1"|upper }}
+            <img src="{% static 'img/mofisi-mark.png' %}" alt="mofisi">
           {% endif %}
         </div>
         <div>

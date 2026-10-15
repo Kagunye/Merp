@@ -10,7 +10,8 @@ const CACHE = 'mofisi-v1';
 const SHELL = [
   '/offline/',
   '/static/css/tailwind.css',
-  '/static/img/mofisi-mark.svg',
+  '/static/img/mofisi-mark.png',
+  '/static/img/mofisi-logo.png',
   '/static/manifest.webmanifest',
 ];
 

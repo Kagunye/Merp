@@ -11,8 +11,8 @@
   <!-- PWA -->
   <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
   <meta name="theme-color" content="{{ brand_primary|default:'#DC2538' }}">
-  <link rel="icon" type="image/svg+xml" href="{% static 'img/mofisi-mark.svg' %}">
-  <link rel="apple-touch-icon" href="{% static 'img/mofisi-mark.svg' %}">
+  <link rel="icon" type="image/png" href="{% static 'img/mofisi-mark.png' %}">
+  <link rel="apple-touch-icon" href="{% static 'img/mofisi-mark.png' %}">
 
   <!-- Tailwind CSS — pre-built via `npm run build:css` from tailwind.config.js -->
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
@@ -425,8 +425,8 @@
   <!-- Header row: brand (expanded) + hamburger toggle -->
   <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid rgba(255,255,255,0.14);">
     <div class="flex items-center gap-2 min-w-0 flex-1">
-      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-white shadow-sm">
-        <img src="{% static 'img/mofisi-mark.svg' %}" alt="mofisi" class="w-7 h-7">
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+        <img src="{% static 'img/mofisi-mark.png' %}" alt="mofisi" class="w-full h-full object-cover">
       </div>
       <div class="sidebar-label min-w-0">
         <div class="text-base font-bold text-white leading-tight" style="letter-spacing:-0.01em;">mofisi</div>

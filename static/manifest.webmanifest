@@ -9,7 +9,7 @@
   "background_color": "#F5F6F8",
   "theme_color": "#DC2538",
   "icons": [
-    { "src": "/static/img/mofisi-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/static/img/mofisi-mark.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "shortcuts": [
     { "name": "Dashboard", "url": "/" },
