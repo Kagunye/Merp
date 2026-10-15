@@ -1,39 +1,206 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'accounting:journal_entry_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Accounting" subtitle="General ledger, journal entries, financial reports" action_label="New Journal Entry" action_url=pa_url %}
+<style>
+  .gl-launcher {
+    --gl-bar: #1F6DE8;
+    --tile-size: 112px;
+  }
+  .gl-bar {
+    background: var(--gl-bar);
+    color: #fff;
+    border-radius: 12px;
+    padding: 18px 24px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 28px;
+  }
+  .gl-bar h1 { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
+  .gl-bar p { font-size: 13px; margin: 0; opacity: 0.9; }
+  .gl-bar .datebox { text-align: right; font-size: 13px; opacity: 0.95; line-height: 1.3; }
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Accounts</div><div class="text-2xl font-bold text-gray-900">{{ account_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total assets</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ asset_balance|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total liabilities</div><div class="text-2xl font-bold text-amber-600">{{ liability_balance|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Draft entries</div><div class="text-2xl font-bold text-gray-900">{{ draft_count|default:0 }}</div></div>
-</div>
+  .gl-section-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+    margin: 24px 0 12px;
+  }
+  .gl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--tile-size), 1fr));
+    gap: 10px;
+    row-gap: 18px;
+  }
+  .gl-tile {
+    text-align: center;
+    text-decoration: none;
+    color: #111827;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 10px;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  .gl-tile:hover { background: #F3F4F6; transform: translateY(-1px); }
+  .gl-tile .ico {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+  }
+  .gl-tile .label {
+    font-size: 11.5px;
+    line-height: 1.25;
+    font-weight: 500;
+    color: #374151;
+    max-width: 110px;
+  }
+  /* Pastel tints echoing Palladium's palette */
+  .ico-mint    { background: #DCFCE7; color: #065F46; }
+  .ico-rose    { background: #FEE2E2; color: #9F1239; }
+  .ico-amber   { background: #FEF3C7; color: #92400E; }
+  .ico-sky     { background: #DBEAFE; color: #1E40AF; }
+  .ico-violet  { background: #EDE9FE; color: #5B21B6; }
+  .ico-teal    { background: #CCFBF1; color: #115E59; }
+  .ico-peach   { background: #FFEDD5; color: #9A3412; }
+  .ico-slate   { background: #E5E7EB; color: #374151; }
+</style>
 
-<div class="flex flex-wrap gap-4 mb-6 text-sm font-semibold">
-  <a href="{% url 'accounting:account_list' %}" style="color: var(--primary);">Chart of accounts &rarr;</a>
-  <a href="{% url 'accounting:general_ledger' %}" style="color: var(--primary);">General ledger &rarr;</a>
-  <a href="{% url 'accounting:journal_entry_list' %}" style="color: var(--primary);">Journal entries &rarr;</a>
-  <a href="{% url 'accounting:trial_balance' %}" style="color: var(--primary);">Trial balance &rarr;</a>
-</div>
+<div class="gl-launcher">
+  <div class="gl-bar">
+    <div>
+      <h1>General Ledger</h1>
+      <p>Manage your chart of accounts and journal entries</p>
+    </div>
+    <div class="datebox">
+      <div>{% now "l, F j, Y" %}</div>
+      <div>{% now "H:i" %}</div>
+    </div>
+  </div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent journal entries</h2>
-<div class="bg-white rounded-xl border overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Narration</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for e in recent_entries %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3">{{ e.posting_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'accounting:journal_entry_detail' e.pk %}" style="color: var(--primary);">{{ e.reference }}</a></td>
-        <td class="px-4 py-3">{{ e.narration|truncatechars:50 }}</td>
-        <td class="px-4 py-3 text-right font-semibold">{{ e.total_debit|floatformat:2 }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ e.get_status_display }}</span></td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No entries yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <!-- Processing -->
+  <div class="gl-section-label">Processing</div>
+  <div class="gl-grid">
+    <a href="{% url 'accounting:journal_entry_create' %}" class="gl-tile">
+      <div class="ico ico-mint">📝</div><span class="label">Journal Entry</span>
+    </a>
+    <a href="{% url 'sales:payment_list' %}" class="gl-tile">
+      <div class="ico ico-rose">💰</div><span class="label">Receipt &amp; Payment Journal</span>
+    </a>
+    <a href="{% url 'banking:transaction_create' %}" class="gl-tile">
+      <div class="ico ico-amber">🔁</div><span class="label">Bank Transfer</span>
+    </a>
+    <a href="{% url 'banking:transaction_list' %}" class="gl-tile">
+      <div class="ico ico-sky">🧾</div><span class="label">Deposit Slips</span>
+    </a>
+    <a href="{% url 'banking:home' %}" class="gl-tile">
+      <div class="ico ico-slate">⚖️</div><span class="label">Reconciliation</span>
+    </a>
+    <a href="{% url 'sales:payment_list' %}" class="gl-tile">
+      <div class="ico ico-teal">🔗</div><span class="label">Account Open Item Allocations</span>
+    </a>
+    <a href="{% url 'accounting:general_ledger' %}" class="gl-tile">
+      <div class="ico ico-peach">📚</div><span class="label">Subsidiary Ledger</span>
+    </a>
+    <a href="{% url 'accounting:account_list' %}" class="gl-tile">
+      <div class="ico ico-amber">🗂️</div><span class="label">Merge Accounts</span>
+    </a>
+  </div>
+
+  <!-- Reports -->
+  <div class="gl-section-label">Reports</div>
+  <div class="gl-grid">
+    <a href="{% url 'accounting:trial_balance' %}" class="gl-tile">
+      <div class="ico ico-slate">⚖️</div><span class="label">Trial Balance</span>
+    </a>
+    <a href="{% url 'reporting:profit_loss' %}" class="gl-tile">
+      <div class="ico ico-mint">📈</div><span class="label">Profit &amp; Loss</span>
+    </a>
+    <a href="{% url 'reporting:balance_sheet' %}" class="gl-tile">
+      <div class="ico ico-sky">📊</div><span class="label">Balance Sheet</span>
+    </a>
+    <a href="{% url 'accounting:general_ledger' %}" class="gl-tile">
+      <div class="ico ico-amber">💰</div><span class="label">Account Balances</span>
+    </a>
+    <a href="{% url 'accounting:journal_entry_list' %}" class="gl-tile">
+      <div class="ico ico-peach">📚</div><span class="label">General Ledger</span>
+    </a>
+    <a href="{% url 'accounting:account_list' %}" class="gl-tile">
+      <div class="ico ico-slate">📋</div><span class="label">Chart of Accounts</span>
+    </a>
+  </div>
+
+  <!-- Maintenance -->
+  <div class="gl-section-label">Maintenance</div>
+  <div class="gl-grid">
+    <a href="{% url 'accounting:account_list' %}" class="gl-tile">
+      <div class="ico ico-amber">💰</div><span class="label">Accounts</span>
+    </a>
+    <a href="{% url 'organizations:department_list' %}" class="gl-tile">
+      <div class="ico ico-sky">🏢</div><span class="label">Departments</span>
+    </a>
+    <a href="{% url 'accounting:account_list' %}" class="gl-tile">
+      <div class="ico ico-slate">⚙️</div><span class="label">Account Sets</span>
+    </a>
+    <a href="{% url 'accounting:journal_entry_list' %}" class="gl-tile">
+      <div class="ico ico-rose">📅</div><span class="label">Journal Codes</span>
+    </a>
+    <a href="{% url 'accounting:fiscal_year_list' %}" class="gl-tile">
+      <div class="ico ico-peach">📜</div><span class="label">Contract Management</span>
+    </a>
+  </div>
+
+  <!-- Profit Centers -->
+  <div class="gl-section-label">Profit Centers</div>
+  <div class="gl-grid">
+    <a href="{% url 'organizations:branch_list' %}" class="gl-tile">
+      <div class="ico ico-sky">🏷️</div><span class="label">Profit Centers</span>
+    </a>
+    <a href="{% url 'accounting:opening_balances' %}" class="gl-tile">
+      <div class="ico ico-rose">🧩</div><span class="label">Profit Centers Templates</span>
+    </a>
+  </div>
+
+  {# Keep the KPI summary & recent entries beneath, but secondary. #}
+  <div class="gl-section-label" style="margin-top:36px">At a glance</div>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Accounts</div><div class="text-2xl font-bold text-gray-900">{{ account_count|default:0 }}</div></div>
+    <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total assets</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ asset_balance|floatformat:2|default:"0.00" }}</div></div>
+    <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total liabilities</div><div class="text-2xl font-bold text-amber-600">{{ liability_balance|floatformat:2|default:"0.00" }}</div></div>
+    <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Draft entries</div><div class="text-2xl font-bold text-gray-900">{{ draft_count|default:0 }}</div></div>
+  </div>
+
+  <h2 class="text-sm font-semibold text-gray-700 mb-3">Recent journal entries</h2>
+  <div class="bg-white rounded-xl border overflow-hidden mb-10">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+        <tr>
+          <th class="px-4 py-3 text-left">Date</th>
+          <th class="px-4 py-3 text-left">Reference</th>
+          <th class="px-4 py-3 text-left">Narration</th>
+          <th class="px-4 py-3 text-left">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for e in recent_entries %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-2">{{ e.posting_date|date:"d M Y" }}</td>
+          <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'accounting:journal_entry_detail' e.pk %}" style="color:var(--primary)">{{ e.reference }}</a></td>
+          <td class="px-4 py-2">{{ e.notes|truncatechars:60 }}</td>
+          <td class="px-4 py-2">
+            <span class="badge {% if e.status == 'POSTED' %}bg-green-50 text-green-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ e.get_status_display }}</span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">No journal entries yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}
