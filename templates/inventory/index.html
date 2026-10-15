@@ -1,26 +1,69 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Inventory" launcher_subtitle="Products, stock levels, transfers, counts and movements" launcher_bar="#0891B2" %}
+{% include "_includes/launcher.html" with launcher_title="Inventory" launcher_subtitle="Products, stock movements, assemblies and master data" launcher_bar="#1F6DE8" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">17 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:product_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">New Product</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-sky">🔁</div><span class="label">Stock Transfer</span></a>
-  <a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-amber">⚖️</div><span class="label">Stock Adjustment</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Stock on Hand</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Product Inquiry</span></a>
+  <a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-amber">📝</div><span class="label">Stock Adjustments</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-rose">📦</div><span class="label">Stock Transfers</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Cycle Counting</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📊</div><span class="label">Reorder Points</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-rose">🗂️</div><span class="label">Products</span></a>
+  <a href="{% url 'procurement:requisition_create' %}" class="launcher-tile"><div class="ico ico-amber">📝</div><span class="label">Issue Requisition</span></a>
+  <a href="{% url 'procurement:requisition_list' %}" class="launcher-tile"><div class="ico ico-rose">📝</div><span class="label">Internal Requisition</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">📥</div><span class="label">Branch Transfer Receipt</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">🔁</div><span class="label">Branch Transfer</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">📤</div><span class="label">Branch Transfer Order</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-slate">🗃️</div><span class="label">Bin Transfer</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-slate">📱</div><span class="label">Stock Count PDT</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">🔮</div><span class="label">Inventory Forecasting</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📶</div><span class="label">Barcode Loader</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Item Cost Updater</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Bulk Label Printing</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Repackaging
+  <span class="launcher-section-count">1 module</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">🛍️</div><span class="label">Products</span></a>
-  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-slate">📜</div><span class="label">Movements</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-sky">🏪</div><span class="label">Warehouses &amp; Stock</span></a>
+  <a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Repackaging</span></a>
 </div>
 
-<div class="launcher-section-label">Reports</div>
+<div class="launcher-section-label">
+  Assembly
+  <span class="launcher-section-count">4 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-rose">⚠️</div><span class="label">Low Stock</span></a>
-  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-peach">📈</div><span class="label">Stock Movement Report</span></a>
+  <a href="{% url 'manufacturing:bom_create' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Assembly</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Works Order</span></a>
+  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-amber">📅</div><span class="label">Production Schedule</span></a>
+  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-amber">🏭</div><span class="label">Work Centres</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">14 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Inventory &amp; Services</span></a>
+  <a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-rose">📍</div><span class="label">Locations</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">🗂️</div><span class="label">Categories</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Employees</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">📋</div><span class="label">Pricelists</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Contract Pricing</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">％</div><span class="label">Price Discount Matrix</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Serial / Lot Types</span></a>
+  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-amber">⏱️</div><span class="label">Lot Number Expiry Dates</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-sky">🔢</div><span class="label">Item Renumbering</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-amber">🛒</div><span class="label">Webstore Setup</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📐</div><span class="label">Dimension Profile</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-rose">👷</div><span class="label">Emp. Materials Issue Profile</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">⚙️</div><span class="label">GL Integration</span></a>
 </div>
 
 <div class="launcher-section-label" style="margin-top:36px">At a glance</div>
