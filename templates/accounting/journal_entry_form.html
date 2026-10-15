@@ -1,103 +1,95 @@
 {% extends "base/base.html" %}
 {% block content %}
-<div class="max-w-4xl">
-  <div class="flex items-center gap-3 mb-6">
-    <a href="{% url 'accounting:journal_entry_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-    </a>
-    <h1 class="text-xl font-bold text-gray-900">{{ page_title }}</h1>
-  </div>
+{% url 'accounting:journal_entry_list' as back_url %}
+{% include "_includes/page_header.html" with title=page_title back_url=back_url %}
 
-  <form method="post" id="je-form">
-    {% csrf_token %}
+<form method="post" id="je-form" class="je-form">
+  {% csrf_token %}
 
-    <!-- Header -->
-    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-4 grid grid-cols-3 gap-4">
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Reference *</label>
-        <input type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono">
-        {% if form.reference.errors %}<p class="text-xs text-red-600 mt-1">{{ form.reference.errors.0 }}</p>{% endif %}
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Entry Type</label>
-        <select name="{{ form.entry_type.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-          {% for val, label in form.entry_type.field.choices %}
-            <option value="{{ val }}" {% if form.entry_type.value == val %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Posting Date *</label>
-        <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:'' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
-      </div>
-      <div class="col-span-3">
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Notes</label>
-        <textarea name="{{ form.notes.html_name }}" rows="2"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none">{{ form.notes.value|default:'' }}</textarea>
+  <!-- Unified card -->
+  <div class="je-card">
+
+    <!-- Header section -->
+    <div class="je-section">
+      <div class="je-section-title">Entry Details</div>
+      <div class="je-head-grid">
+        <div class="je-field">
+          <label class="je-label">Reference <span class="je-req">*</span></label>
+          <input type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}" class="je-input je-mono" required>
+          {% if form.reference.errors %}<p class="je-err">{{ form.reference.errors.0 }}</p>{% endif %}
+        </div>
+        <div class="je-field">
+          <label class="je-label">Entry Type</label>
+          <select name="{{ form.entry_type.html_name }}" class="je-input">
+            {% for val, label in form.entry_type.field.choices %}
+              <option value="{{ val }}" {% if form.entry_type.value == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="je-field">
+          <label class="je-label">Posting Date <span class="je-req">*</span></label>
+          <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:'' }}" class="je-input" required>
+          {% if form.posting_date.errors %}<p class="je-err">{{ form.posting_date.errors.0 }}</p>{% endif %}
+        </div>
+        <div class="je-field je-field-wide">
+          <label class="je-label">Notes</label>
+          <textarea name="{{ form.notes.html_name }}" rows="2" class="je-input je-textarea" placeholder="Short narration for this journal entry">{{ form.notes.value|default:'' }}</textarea>
+        </div>
       </div>
     </div>
 
-    <!-- Lines -->
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="font-semibold text-gray-800">Journal Lines</h3>
-        <div class="flex gap-4 text-xs text-gray-500">
-          <span>Total Dr: <span id="total-dr" class="font-mono font-semibold text-gray-800">0.00</span></span>
-          <span>Total Cr: <span id="total-cr" class="font-mono font-semibold text-gray-800">0.00</span></span>
-          <span id="balance-indicator" class="font-semibold text-gray-400">Balanced</span>
+    <!-- Lines section -->
+    <div class="je-section je-section-lines">
+      <div class="je-section-head">
+        <div class="je-section-title">Journal Lines</div>
+        <div class="je-totals">
+          <span>Total Dr <span id="total-dr" class="je-mono je-total-num">0.00</span></span>
+          <span>Total Cr <span id="total-cr" class="je-mono je-total-num">0.00</span></span>
+          <span id="balance-indicator" class="je-badge je-badge-ok">Balanced</span>
         </div>
       </div>
 
       {{ line_formset.management_form }}
 
-      <div id="lines-container">
-        <table class="w-full text-sm">
+      <div class="je-table-wrap">
+        <table class="je-table">
           <thead>
-            <tr class="bg-gray-50/50 border-b border-gray-100">
-              <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-1/3">Account</th>
-              <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Description</th>
-              <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Debit</th>
-              <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Credit</th>
-              <th class="w-8"></th>
+            <tr>
+              <th style="width:34%">Account</th>
+              <th>Description</th>
+              <th style="width:140px" class="t-right">Debit</th>
+              <th style="width:140px" class="t-right">Credit</th>
+              <th style="width:40px"></th>
             </tr>
           </thead>
           <tbody id="lines-tbody">
             {% for line_form in line_formset %}
-              <tr class="line-row border-b border-gray-50 {% if line_form.instance.pk and not line_form.instance.pk %}hidden{% endif %}" data-index="{{ forloop.counter0 }}">
+              <tr class="line-row" data-index="{{ forloop.counter0 }}">
                 {% for hidden in line_form.hidden_fields %}{{ hidden }}{% endfor %}
-                <td class="px-3 py-2">
-                  <select name="{{ line_form.account.html_name }}"
-                    class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+                <td>
+                  <select name="{{ line_form.account.html_name }}" class="je-cell je-cell-select">
                     <option value="">— Select account</option>
                     {% for acc in accounts %}
                       <option value="{{ acc.id }}" {% if line_form.account.value|stringformat:"s" == acc.id|stringformat:"s" %}selected{% endif %}>{{ acc.code }} — {{ acc.name }}</option>
                     {% endfor %}
                   </select>
                 </td>
-                <td class="px-3 py-2">
-                  <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}"
-                    class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    placeholder="Description">
+                <td>
+                  <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}" class="je-cell" placeholder="Line description">
                 </td>
-                <td class="px-3 py-2">
-                  <input type="number" name="{{ line_form.debit_amount.html_name }}" value="{{ line_form.debit_amount.value|default:'0' }}"
-                    step="0.01" min="0"
-                    class="line-debit w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
-                    oninput="updateTotals()">
+                <td>
+                  <input type="number" name="{{ line_form.debit_amount.html_name }}" value="{{ line_form.debit_amount.value|default:'0' }}" step="0.01" min="0" class="je-cell je-cell-num line-debit" oninput="updateTotals()">
                 </td>
-                <td class="px-3 py-2">
-                  <input type="number" name="{{ line_form.credit_amount.html_name }}" value="{{ line_form.credit_amount.value|default:'0' }}"
-                    step="0.01" min="0"
-                    class="line-credit w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
-                    oninput="updateTotals()">
+                <td>
+                  <input type="number" name="{{ line_form.credit_amount.html_name }}" value="{{ line_form.credit_amount.value|default:'0' }}" step="0.01" min="0" class="je-cell je-cell-num line-credit" oninput="updateTotals()">
                 </td>
-                <td class="px-3 py-2 text-center">
+                <td class="t-center">
                   {% if line_form.DELETE %}
-                    <input type="checkbox" name="{{ line_form.DELETE.html_name }}" class="delete-checkbox hidden">
-                    <button type="button" onclick="deleteLine(this)" class="text-gray-300 hover:text-red-500">
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    <input type="checkbox" name="{{ line_form.DELETE.html_name }}" class="delete-checkbox" hidden>
+                    <button type="button" onclick="deleteLine(this)" class="je-rowdel" title="Remove line">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
                     </button>
                   {% endif %}
                 </td>
@@ -107,22 +99,217 @@
         </table>
       </div>
 
-      <div class="px-4 py-3 border-t border-gray-100">
-        <button type="button" onclick="addLine()" class="text-sm text-primary hover:underline flex items-center gap-1">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Add Line
+      <div class="je-addline">
+        <button type="button" onclick="addLine()" class="je-addbtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add line
         </button>
       </div>
     </div>
 
-    <div class="flex items-center justify-end gap-3">
-      <a href="{% url 'accounting:journal_entry_list' %}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>
-      <button type="submit" class="px-5 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
-        Save as Draft
-      </button>
+    <!-- Actions -->
+    <div class="je-actions">
+      <a href="{% url 'accounting:journal_entry_list' %}" class="je-btn je-btn-ghost">Cancel</a>
+      <button type="submit" class="je-btn je-btn-primary">Save Draft</button>
     </div>
-  </form>
-</div>
+  </div>
+</form>
+
+<style>
+  .je-form { width: 100%; max-width: 1120px; margin: 0 auto; }
+  .je-card {
+    background: #fff;
+    border: 1px solid #EEF0F3;
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05);
+    overflow: hidden;
+  }
+
+  .je-section { padding: 24px 28px; }
+  .je-section + .je-section { border-top: 1px solid #F3F4F6; }
+  .je-section-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .je-section-title {
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    color: #9CA3AF;
+    margin-bottom: 14px;
+  }
+  .je-section-head .je-section-title { margin-bottom: 0; }
+
+  /* Head grid: reference / type / date in one row, notes full-width */
+  .je-head-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 20px;
+  }
+  @media (max-width: 720px) { .je-head-grid { grid-template-columns: 1fr; } }
+  .je-field-wide { grid-column: 1 / -1; }
+
+  .je-label {
+    display: block; font-size: 13px; font-weight: 500;
+    color: #374151; margin-bottom: 6px;
+  }
+  .je-req { color: var(--primary); margin-left: 2px; font-weight: 600; }
+  .je-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    font-size: 14px; line-height: 1.4;
+    color: #111827;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+  .je-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(200,16,46,0.1);
+  }
+  .je-input::placeholder { color: #9CA3AF; }
+  .je-textarea { min-height: 72px; resize: vertical; padding: 10px 12px; }
+  .je-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  select.je-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239CA3AF'%3e%3cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+    padding-right: 36px;
+  }
+  .je-err { font-size: 12.5px; color: #B91C1C; margin: 6px 0 0; }
+
+  /* Lines totals / balanced badge */
+  .je-totals {
+    display: inline-flex; align-items: center; gap: 20px;
+    font-size: 12.5px; color: #6B7280;
+  }
+  .je-total-num { color: #111827; font-weight: 600; margin-left: 6px; }
+  .je-badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .je-badge-ok { background: #ECFDF5; color: #047857; }
+  .je-badge-bad { background: #FEF2F2; color: #B91C1C; }
+
+  /* Lines table */
+  .je-table-wrap {
+    border: 1px solid #EEF0F3;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .je-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .je-table thead th {
+    background: #F9FAFB;
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.07em; text-transform: uppercase;
+    color: #6B7280;
+    border-bottom: 1px solid #EEF0F3;
+  }
+  .je-table thead th.t-right { text-align: right; }
+  .je-table tbody td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #F3F4F6;
+    vertical-align: top;
+  }
+  .je-table tbody tr:last-child td { border-bottom: none; }
+  .je-table tbody tr:hover { background: #FAFAFB; }
+  .je-table tbody tr.hidden { display: none; }
+
+  .je-cell {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #111827;
+    font-family: inherit;
+    box-sizing: border-box;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .je-cell:hover { background: #F9FAFB; }
+  .je-cell:focus {
+    outline: none;
+    background: #fff;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(200,16,46,0.08);
+  }
+  .je-cell-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .je-cell-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239CA3AF'%3e%3cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 14px;
+    padding-right: 28px;
+  }
+  .je-rowdel {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px;
+    border: none; background: transparent; color: #9CA3AF;
+    border-radius: 6px; cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+  }
+  .je-rowdel:hover { background: #FEF2F2; color: #B91C1C; }
+  .t-center { text-align: center; }
+
+  /* Add-line button */
+  .je-addline { padding: 14px 0 0; }
+  .je-addbtn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px dashed #D1D5DB;
+    border-radius: 10px;
+    font-size: 13px; font-weight: 500;
+    color: #6B7280;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .je-addbtn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: #FEF2F2;
+  }
+
+  /* Actions bar */
+  .je-actions {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 18px 28px;
+    background: #FAFBFC;
+    border-top: 1px solid #F3F4F6;
+  }
+  .je-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 10px 20px;
+    font-size: 14px; font-weight: 600;
+    border-radius: 10px;
+    cursor: pointer; text-decoration: none;
+    border: 1px solid transparent;
+  }
+  .je-btn-primary {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(200,16,46,0.2);
+  }
+  .je-btn-primary:hover { background: var(--primary-dark, #9B000E); }
+  .je-btn-ghost {
+    background: transparent; color: #6B7280;
+  }
+  .je-btn-ghost:hover { background: #F3F4F6; color: #374151; }
+</style>
 
 <script>
 function updateTotals() {
@@ -139,8 +326,13 @@ function updateTotals() {
   document.getElementById('total-cr').textContent = cr.toFixed(2);
   const ind = document.getElementById('balance-indicator');
   const balanced = Math.abs(dr - cr) < 0.01;
-  ind.textContent = balanced ? 'Balanced' : 'Unbalanced: ' + Math.abs(dr - cr).toFixed(2);
-  ind.className = 'font-semibold ' + (balanced ? 'text-green-600' : 'text-red-600');
+  if (balanced) {
+    ind.textContent = 'Balanced';
+    ind.className = 'je-badge je-badge-ok';
+  } else {
+    ind.textContent = 'Out by ' + Math.abs(dr - cr).toFixed(2);
+    ind.className = 'je-badge je-badge-bad';
+  }
 }
 
 function deleteLine(btn) {
