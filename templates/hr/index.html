@@ -1,28 +1,70 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Human Resources" launcher_subtitle="Employees, departments, leave and attendance" launcher_bar="#DB2777" %}
+{% include "_includes/launcher.html" with launcher_title="Human Resources Management" launcher_subtitle="Manage employees, payroll, time & attendance, and performance" launcher_bar="#1F6DE8" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Employee Management
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'hr:employee_create' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">New Employee</span></a>
-  <a href="{% url 'hr:leave_create' %}" class="launcher-tile"><div class="ico ico-sky">🌴</div><span class="label">Leave Request</span></a>
-  <a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-amber">⏰</div><span class="label">Log Timesheet</span></a>
-  <a href="{% url 'recruitment:opening_create' %}" class="launcher-tile"><div class="ico ico-violet">💼</div><span class="label">Open Vacancy</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-slate">👤</div><span class="label">Employee Records</span></a>
+  <a href="{% url 'hr:employee_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">Employee Onboarding</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">📒</div><span class="label">Employee Directory</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">🪪</div><span class="label">Employee Profiles</span></a>
+  <a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-amber">💼</div><span class="label">Job Positions</span></a>
+  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Payroll Processing
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">🧑‍🤝‍🧑</div><span class="label">Employees</span></a>
-  <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-sky">📅</div><span class="label">Leave Requests</span></a>
-  <a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-amber">🕒</div><span class="label">Timesheets</span></a>
-  <a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-violet">📄</div><span class="label">Vacancies</span></a>
-  <a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Candidates</span></a>
+  <a href="{% url 'payroll:run_create' %}" class="launcher-tile"><div class="ico ico-mint">▶️</div><span class="label">Process Payroll</span></a>
+  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Payroll Reports</span></a>
+  <a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Salary Management</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">🧮</div><span class="label">Tax Calculations</span></a>
+  <a href="{% url 'payroll:index' %}" class="launcher-tile"><div class="ico ico-rose">🛡️</div><span class="label">Benefits Administration</span></a>
+  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-amber">📜</div><span class="label">Payroll History</span></a>
 </div>
 
-<div class="launcher-section-label">Payroll &amp; Admin</div>
+<div class="launcher-section-label">
+  Time &amp; Attendance
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'payroll:index' %}" class="launcher-tile"><div class="ico ico-rose">💵</div><span class="label">Payroll</span></a>
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-slate">🏢</div><span class="label">Departments</span></a>
+  <a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-rose">⏰</div><span class="label">Time Clock</span></a>
+  <a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Attendance Tracking</span></a>
+  <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-amber">🌴</div><span class="label">Leave Management</span></a>
+  <a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-slate">⏱️</div><span class="label">Overtime Tracking</span></a>
+  <a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-sky">📅</div><span class="label">Schedule Management</span></a>
+  <a href="{% url 'timesheets:home' %}" class="launcher-tile"><div class="ico ico-mint">📊</div><span class="label">Time Reports</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Performance &amp; Development
+  <span class="launcher-section-count">6 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">Performance Reviews</span></a>
+  <a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-rose">🎯</div><span class="label">Goal Management</span></a>
+  <a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-sky">📚</div><span class="label">Training Programs</span></a>
+  <a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-amber">🏆</div><span class="label">Skill Assessment</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Career Development</span></a>
+  <a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-violet">💬</div><span class="label">Employee Feedback</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">6 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">HR Settings</span></a>
+  <a href="{% url 'payroll:index' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Payroll Configuration</span></a>
+  <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Holiday Calendar</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📄</div><span class="label">Document Templates</span></a>
+  <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Approval Workflows</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">🛡️</div><span class="label">Security Roles</span></a>
 </div>
 
 <div class="launcher-section-label" style="margin-top:36px">At a glance</div>

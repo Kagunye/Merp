@@ -1,16 +1,30 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Fixed Assets" launcher_subtitle="Asset register, depreciation and disposals" launcher_bar="#4F46E5" %}
+{% include "_includes/launcher.html" with launcher_title="Fixed Assets" launcher_subtitle="Manage fixed assets, depreciation, and disposals" launcher_bar="#1F6DE8" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'fixed_assets:asset_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">New Asset</span></a>
-  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">📉</div><span class="label">Depreciation Run</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-sky">🔄</div><span class="label">Run Depreciation</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-rose">🗑️</div><span class="label">Assets Disposal</span></a>
+  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-mint">↔️</div><span class="label">Asset Transfers</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">📊</div><span class="label">Asset Revaluation</span></a>
+  <a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-slate">🔧</div><span class="label">Asset Maintenance</span></a>
+  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-rose">📄</div><span class="label">Asset Reports</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Asset Register</span></a>
-  <a href="{% url 'fixed_assets:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Categories</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-peach">📁</div><span class="label">Assets</span></a>
+  <a href="{% url 'fixed_assets:category_list' %}" class="launcher-tile"><div class="ico ico-amber">🏷️</div><span class="label">Asset Types</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">📐</div><span class="label">Depreciation Methods</span></a>
+  <a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-amber">💳</div><span class="label">Expense Types</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-rose">❌</div><span class="label">Disposal Reasons</span></a>
+  <a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-sky">📍</div><span class="label">Locations</span></a>
 </div>
 {% endblock %}
