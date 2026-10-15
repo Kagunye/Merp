@@ -1,29 +1,50 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Sales & Receivables" launcher_subtitle="Invoices, orders, customer payments and AR reports" launcher_bar="#059669" %}
+{% include "_includes/launcher.html" with launcher_title="Accounts Receivable" launcher_subtitle="Manage your receivables and customer transactions" launcher_bar="#1F6DE8" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">11 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">🧾</div><span class="label">New Invoice</span></a>
-  <a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-sky">🛒</div><span class="label">New Sales Order</span></a>
-  <a href="{% url 'sales:payment_create' %}" class="launcher-tile"><div class="ico ico-amber">💵</div><span class="label">Record Payment</span></a>
-  <a href="{% url 'sales:invoice_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-slate">📝</div><span class="label">Draft Invoices</span></a>
-  <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-violet">👤</div><span class="label">New Customer</span></a>
+  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Account Enquiries</span></a>
+  <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Customer Setup</span></a>
+  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Sales Invoices</span></a>
+  <a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Credit Notes</span></a>
+  <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Receipts</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Customer Statements</span></a>
+  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-peach">📈</div><span class="label">Age Analysis</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Customer Management</span></a>
+  <a href="{% url 'banking:home' %}" class="launcher-tile"><div class="ico ico-mint">🏦</div><span class="label">Bank Reconciliation</span></a>
+  <a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-rose">📄</div><span class="label">Collection Reports</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">AR Settings</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Batch Sending
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-sky">📄</div><span class="label">All Invoices</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-mint">📦</div><span class="label">Sales Orders</span></a>
-  <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Customer Payments</span></a>
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-violet">🧑‍🤝‍🧑</div><span class="label">Customers</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Send Customer Pricelists</span></a>
+  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">🖨️</div><span class="label">Print Batches</span></a>
+  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-peach">✉️</div><span class="label">Email Batches</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Courier Waybill Audit Trail</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-mint">🔁</div><span class="label">Sales Order EDI</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Send Customer Order Forms</span></a>
 </div>
 
-<div class="launcher-section-label">Reports</div>
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">7 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">AR Aging</span></a>
-  <a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Aged Debtors</span></a>
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Profit &amp; Loss</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">👤</div><span class="label">Customers</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">🧑‍💼</div><span class="label">Sales Persons</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">％</div><span class="label">Trade Discount Matrix Types</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Contract Billing</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">📋</div><span class="label">Contract Billing Types</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">🎯</div><span class="label">Leads &amp; Opportunities</span></a>
 </div>
 
 <div class="launcher-section-label" style="margin-top:36px">At a glance</div>
