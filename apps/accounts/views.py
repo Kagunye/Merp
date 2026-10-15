@@ -49,6 +49,8 @@ class LoginView(View):
 
     def post(self, request):
         import logging
+        import os
+        from django.db import OperationalError, ProgrammingError
         log = logging.getLogger(__name__)
         form = LoginForm(request.POST)
         ip = _get_client_ip(request)
@@ -60,8 +62,27 @@ class LoginView(View):
             password = form.cleaned_data["password"]
             remember_me = form.cleaned_data.get("remember_me", False)
 
+            def _try_auth():
+                return authenticate(request, username=email, password=password)
+
             try:
-                user = authenticate(request, username=email, password=password)
+                user = _try_auth()
+            except (OperationalError, ProgrammingError) as exc:
+                # Likely cause: migrations haven't actually completed yet.
+                # Lazily migrate and try authenticating one more time.
+                log.warning("Auth hit %s — running lazy migrate + retry", type(exc).__name__)
+                try:
+                    from django.core.management import call_command
+                    call_command("migrate", "--noinput", verbosity=0)
+                    if os.environ.get("ADMIN_EMAIL") and os.environ.get("ADMIN_PASSWORD"):
+                        call_command("create_default_admin")
+                    user = _try_auth()
+                except Exception as inner:
+                    log.exception("Lazy-migrate retry failed: %s", inner)
+                    form.add_error(None,
+                        "The database is still initializing. Please refresh in a few seconds.")
+                    ctx = {"form": form, "features": features, **self._demo_context()}
+                    return render(request, self.template_name, ctx)
             except Exception as exc:
                 log.exception("Authentication backend crashed: %s", exc)
                 form.add_error(None, "Login is temporarily unavailable. Please try again shortly.")
