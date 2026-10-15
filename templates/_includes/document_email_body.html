@@ -1,0 +1,14 @@
+{# Standalone HTML email body — no base template, inline-only styles are fine
+   for most clients, but we include a <style> block for the ones that honour it. #}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #F3F4F6; padding: 24px; color: #111827; }
+</style>
+</head>
+<body>
+{% include "_includes/document_shell.html" %}
+</body>
+</html>

@@ -1,0 +1,74 @@
+{% extends "base/base.html" %}
+{% block title %}Email {{ doc_label }} {{ doc_object.reference }}{% endblock %}
+{% block content %}
+<style>
+  .em-shell { max-width: 640px; margin: 32px auto; padding: 0 24px; }
+  .em-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 14px;
+             box-shadow: 0 1px 2px rgba(15,23,42,0.03); padding: 28px 30px; }
+  .em-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+  .em-head-icon { width: 44px; height: 44px; border-radius: 10px;
+                  background: var(--primary); color: #fff; display: flex;
+                  align-items: center; justify-content: center; }
+  .em-title { font-size: 18px; font-weight: 700; color: #0F172A; }
+  .em-sub { font-size: 13px; color: #6B7280; margin-top: 2px; }
+  .em-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .em-row label { font-size: 12.5px; font-weight: 600; color: #374151; }
+  .em-row input, .em-row textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid #D1D5DB; border-radius: 8px;
+    font-size: 13.5px; color: #111827; background: #FAFAFA; font-family: inherit;
+  }
+  .em-row input:focus, .em-row textarea:focus {
+    outline: none; border-color: var(--primary); background: #fff;
+    box-shadow: 0 0 0 3px rgba(200,16,46,0.08);
+  }
+  .em-row textarea { min-height: 140px; resize: vertical; }
+  .em-help { font-size: 11.5px; color: #6B7280; margin-top: 4px; }
+  .em-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+  .em-btn-primary { padding: 10px 20px; background: var(--primary); color: #fff;
+                    border: none; border-radius: 8px; font-weight: 600; font-size: 13.5px;
+                    cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+  .em-btn-primary:hover { background: var(--primary-dark); }
+  .em-btn-ghost { padding: 10px 18px; color: #4B5563; background: #fff;
+                  border: 1px solid #D1D5DB; border-radius: 8px; font-weight: 500;
+                  font-size: 13.5px; cursor: pointer; text-decoration: none; }
+</style>
+
+<div class="em-shell">
+  <div class="em-card">
+    <div class="em-head">
+      <div class="em-head-icon">
+        <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      </div>
+      <div>
+        <div class="em-title">Share by Email</div>
+        <div class="em-sub">{{ doc_label }} {{ doc_object.reference }} — the full document is delivered as the message body.</div>
+      </div>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="em-row">
+        <label>To</label>
+        <input type="text" name="to" value="{{ default_to }}" placeholder="customer@example.com, finance@customer.com" required>
+        <div class="em-help">Separate multiple addresses with commas.</div>
+      </div>
+      <div class="em-row">
+        <label>Subject</label>
+        <input type="text" name="subject" value="{{ default_subject }}">
+      </div>
+      <div class="em-row">
+        <label>Message</label>
+        <textarea name="message">{{ default_message }}</textarea>
+        <div class="em-help">A rendered copy of the document is included in the email body with your company letterhead and bank details.</div>
+      </div>
+      <div class="em-actions">
+        <a href="{% url print_url_name pk=doc_object.pk %}" class="em-btn-ghost">Back</a>
+        <button type="submit" class="em-btn-primary">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+          Send Email
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

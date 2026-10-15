@@ -10,6 +10,8 @@ urlpatterns = [
     path("companies/new/", views.CompanyCreateView.as_view(), name="company_create"),
     path("companies/<uuid:pk>/", views.CompanyDetailView.as_view(), name="company_detail"),
     path("companies/<uuid:pk>/edit/", views.CompanyUpdateView.as_view(), name="company_edit"),
+    path("branding/", views.CompanyBrandingView.as_view(), name="branding"),
+    path("branding/<uuid:pk>/", views.CompanyBrandingView.as_view(), name="branding_company"),
     # Branches
     path("branches/", views.BranchListView.as_view(), name="branch_list"),
     path("branches/new/", views.BranchCreateView.as_view(), name="branch_create"),

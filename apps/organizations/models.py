@@ -19,6 +19,33 @@ class Company(BaseModel, AddressMixin, ContactMixin, NotesMixin):
     industry = models.CharField(max_length=100, blank=True, default="")
     is_default = models.BooleanField(default=False)
 
+    # --- Branding (used for in-app theme and printed/emailed documents) ---
+    tagline = models.CharField(
+        max_length=200, blank=True, default="",
+        help_text="Short tagline shown under the company name on documents.",
+    )
+    primary_color = models.CharField(
+        max_length=7, default="#DC2538",
+        help_text="Hex primary brand colour, e.g. #DC2538.",
+    )
+    accent_color = models.CharField(
+        max_length=7, default="#111827",
+        help_text="Hex accent colour used for document headings.",
+    )
+    document_header = models.TextField(
+        blank=True, default="",
+        help_text="Optional HTML/text block shown above the letterhead on documents.",
+    )
+    document_footer = models.TextField(
+        blank=True, default="",
+        help_text="Shown at the bottom of every printed/emailed document (payment "
+                  "terms, bank details, thank-you note).",
+    )
+    bank_details = models.TextField(
+        blank=True, default="",
+        help_text="Bank account details printed on invoices for customer remittance.",
+    )
+
     class Meta:
         verbose_name_plural = "companies"
         ordering = ["name"]

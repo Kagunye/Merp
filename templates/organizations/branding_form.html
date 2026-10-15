@@ -1,0 +1,218 @@
+{% extends "base/base.html" %}
+{% load static %}
+{% block title %}Branding — {{ object.name }}{% endblock %}
+
+{% block content %}
+<style>
+  .br-shell { max-width: 1100px; margin: 0 auto; padding: 24px 24px 80px; }
+  .br-hero { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .br-hero h1 { font-size: 24px; font-weight: 700; color: #0F172A; }
+  .br-hero p  { font-size: 13.5px; color: #6B7280; margin-top: 2px; }
+  .br-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 960px) { .br-grid { grid-template-columns: 1fr; } }
+
+  .br-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 14px;
+             box-shadow: 0 1px 2px rgba(15,23,42,0.03); padding: 20px 22px; }
+  .br-card h2 { font-size: 13px; font-weight: 600; color: #0F172A;
+                text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
+
+  .br-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .br-row label { font-size: 12.5px; font-weight: 600; color: #374151; }
+  .br-row input[type="text"], .br-row input[type="url"], .br-row input[type="email"],
+  .br-row textarea, .br-row input[type="file"] {
+    width: 100%; padding: 9px 11px; border: 1px solid #D1D5DB; border-radius: 8px;
+    font-size: 13.5px; color: #111827; background: #FAFAFA; font-family: inherit;
+  }
+  .br-row input:focus, .br-row textarea:focus {
+    outline: none; border-color: var(--primary); background: #fff;
+    box-shadow: 0 0 0 3px rgba(200,16,46,0.08);
+  }
+  .br-row textarea { min-height: 72px; resize: vertical; }
+  .br-colour-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .br-color-input { display: flex; align-items: center; gap: 10px; }
+  .br-color-input input[type="color"] { height: 36px; width: 54px; border: 1px solid #D1D5DB; border-radius: 8px; padding: 2px; cursor: pointer; }
+  .br-color-input input[type="text"] { flex: 1; font-family: 'SF Mono', Consolas, monospace; font-size: 12.5px; text-transform: uppercase; }
+
+  .br-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+  .br-btn-primary { padding: 10px 20px; background: var(--primary); color: #fff;
+                    border: none; border-radius: 8px; font-weight: 600; font-size: 13.5px;
+                    cursor: pointer; }
+  .br-btn-primary:hover { background: var(--primary-dark); }
+  .br-btn-ghost { padding: 10px 18px; color: #4B5563; background: #fff;
+                  border: 1px solid #D1D5DB; border-radius: 8px; font-weight: 500;
+                  font-size: 13.5px; cursor: pointer; text-decoration: none; }
+
+  /* ---- Live preview card: fake letterhead ---- */
+  .brp-wrap { position: sticky; top: 90px; }
+  .brp-paper { background: #fff; border: 1px solid #E5E7EB; border-radius: 10px;
+               padding: 32px 28px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  .brp-stripe { height: 6px; border-radius: 3px; margin-bottom: 20px; background: var(--brand); }
+  .brp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+  .brp-logo { width: 72px; height: 72px; border-radius: 10px; background: var(--brand); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: 700; overflow: hidden; }
+  .brp-logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+  .brp-coname { font-size: 20px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+  .brp-tagline { font-size: 12.5px; color: #6B7280; }
+  .brp-meta { text-align: right; font-size: 12px; color: #4B5563; line-height: 1.5; }
+
+  .brp-doctitle { font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
+                  text-transform: uppercase; color: var(--brand); margin-bottom: 4px; }
+  .brp-docref { font-size: 18px; font-weight: 700; color: #0F172A; margin-bottom: 16px; }
+
+  .brp-table { width: 100%; font-size: 12.5px; border-collapse: collapse; margin: 10px 0; }
+  .brp-table thead th { text-align: left; background: #F8FAFC; color: #4B5563;
+                        font-weight: 600; padding: 7px 10px; font-size: 11px;
+                        text-transform: uppercase; letter-spacing: 0.05em;
+                        border-bottom: 2px solid var(--brand); }
+  .brp-table tbody td { padding: 8px 10px; border-bottom: 1px solid #F1F5F9; color: #374151; }
+  .brp-totalline { font-weight: 700; color: var(--accent); background: #F8FAFC; }
+
+  .brp-footer { margin-top: 20px; padding-top: 14px; border-top: 1px solid #E5E7EB;
+                font-size: 11.5px; color: #6B7280; line-height: 1.5; white-space: pre-line; }
+</style>
+
+<div class="br-shell">
+  <div class="br-hero">
+    <div style="width:52px;height:52px;border-radius:14px;background:var(--primary);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;">🎨</div>
+    <div>
+      <h1>Branding &amp; Document Theme</h1>
+      <p>Customise {{ object.name }} — logo, colours, letterhead and the footer that appears on every printed or emailed document.</p>
+    </div>
+  </div>
+
+  <form method="post" enctype="multipart/form-data" id="brandingForm">
+    {% csrf_token %}
+    <div class="br-grid">
+
+      <!-- LEFT: form -->
+      <div>
+        <div class="br-card">
+          <h2>Identity</h2>
+          <div class="br-row">
+            <label for="{{ form.logo.id_for_label }}">Company Logo</label>
+            {{ form.logo }}
+            <small style="color:#6B7280;font-size:11.5px;">PNG or SVG, at least 200×200. Transparent background recommended.</small>
+          </div>
+          <div class="br-row">
+            <label for="{{ form.tagline.id_for_label }}">Tagline</label>
+            {{ form.tagline }}
+          </div>
+        </div>
+
+        <div class="br-card" style="margin-top:16px;">
+          <h2>Theme Colours</h2>
+          <div class="br-colour-row">
+            <div class="br-row">
+              <label>Primary (brand)</label>
+              <div class="br-color-input">
+                <input type="color" id="primary_color_picker" value="{{ object.primary_color|default:'#C8102E' }}">
+                <input type="text" name="primary_color" id="{{ form.primary_color.id_for_label }}"
+                       value="{{ object.primary_color|default:'#C8102E' }}" pattern="^#[0-9A-Fa-f]{6}$">
+              </div>
+            </div>
+            <div class="br-row">
+              <label>Accent (headings)</label>
+              <div class="br-color-input">
+                <input type="color" id="accent_color_picker" value="{{ object.accent_color|default:'#111827' }}">
+                <input type="text" name="accent_color" id="{{ form.accent_color.id_for_label }}"
+                       value="{{ object.accent_color|default:'#111827' }}" pattern="^#[0-9A-Fa-f]{6}$">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="br-card" style="margin-top:16px;">
+          <h2>Letterhead Content</h2>
+          <div class="br-row">
+            <label for="{{ form.document_header.id_for_label }}">Document Header</label>
+            {{ form.document_header }}
+            <small style="color:#6B7280;font-size:11.5px;">Shown above every printed document. Keep it short — a motto or a KRA notice.</small>
+          </div>
+          <div class="br-row">
+            <label for="{{ form.document_footer.id_for_label }}">Document Footer</label>
+            {{ form.document_footer }}
+            <small style="color:#6B7280;font-size:11.5px;">Payment terms, thank-you note, compliance disclaimers.</small>
+          </div>
+          <div class="br-row">
+            <label for="{{ form.bank_details.id_for_label }}">Bank Details</label>
+            {{ form.bank_details }}
+            <small style="color:#6B7280;font-size:11.5px;">Appears on invoices so customers know where to remit.</small>
+          </div>
+        </div>
+
+        <div class="br-actions">
+          <a href="{% url 'organizations:home' %}" class="br-btn-ghost">Cancel</a>
+          <button type="submit" class="br-btn-primary">Save Branding</button>
+        </div>
+      </div>
+
+      <!-- RIGHT: live preview -->
+      <div class="brp-wrap">
+        <div style="font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Live Preview</div>
+        <div class="brp-paper" id="brPreview" style="--brand: {{ object.primary_color|default:'#C8102E' }}; --accent: {{ object.accent_color|default:'#111827' }};">
+          <div class="brp-stripe"></div>
+          <div class="brp-head">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+              <div class="brp-logo" id="brLogoBox">
+                {% if object.logo %}<img src="{{ object.logo.url }}" alt="logo">{% else %}{{ object.name|slice:":1"|upper }}{% endif %}
+              </div>
+              <div>
+                <div class="brp-coname">{{ object.name }}</div>
+                <div class="brp-tagline" id="brTagline">{{ object.tagline|default:"Your trusted business partner" }}</div>
+              </div>
+            </div>
+            <div class="brp-meta">
+              {{ object.address_line1|default:"P.O. Box 00100, Nairobi" }}<br>
+              {{ object.city|default:"Nairobi" }}, {{ object.country|default:"Kenya" }}<br>
+              {{ object.phone|default:"+254 700 000 000" }}<br>
+              KRA PIN {{ object.tax_id|default:"P000000000X" }}
+            </div>
+          </div>
+
+          <div class="brp-doctitle">Tax Invoice</div>
+          <div class="brp-docref">INV-2026-0042</div>
+
+          <table class="brp-table">
+            <thead>
+              <tr><th>Description</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Consulting services</td><td style="text-align:right;">10</td><td style="text-align:right;">5,000</td><td style="text-align:right;">50,000</td></tr>
+              <tr><td>VAT 16%</td><td></td><td></td><td style="text-align:right;">8,000</td></tr>
+              <tr class="brp-totalline"><td colspan="3" style="text-align:right;">Total KES</td><td style="text-align:right;">58,000.00</td></tr>
+            </tbody>
+          </table>
+
+          <div class="brp-footer" id="brFooter">{{ object.document_footer|default:"Thank you for your business. Payment due within 30 days." }}</div>
+        </div>
+      </div>
+
+    </div>
+  </form>
+</div>
+
+<script>
+  (function() {
+    const primaryPicker = document.getElementById('primary_color_picker');
+    const primaryText = document.getElementById('{{ form.primary_color.id_for_label }}');
+    const accentPicker = document.getElementById('accent_color_picker');
+    const accentText = document.getElementById('{{ form.accent_color.id_for_label }}');
+    const preview = document.getElementById('brPreview');
+    const taglineInput = document.getElementById('{{ form.tagline.id_for_label }}');
+    const taglineOut = document.getElementById('brTagline');
+    const footerInput = document.getElementById('{{ form.document_footer.id_for_label }}');
+    const footerOut = document.getElementById('brFooter');
+
+    function sync(picker, text, varName) {
+      picker.addEventListener('input', () => { text.value = picker.value.toUpperCase(); preview.style.setProperty(varName, picker.value); });
+      text.addEventListener('input', () => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(text.value)) { picker.value = text.value; preview.style.setProperty(varName, text.value); }
+      });
+    }
+    sync(primaryPicker, primaryText, '--brand');
+    sync(accentPicker, accentText, '--accent');
+
+    taglineInput.addEventListener('input', () => { taglineOut.textContent = taglineInput.value || 'Your trusted business partner'; });
+    footerInput.addEventListener('input', () => { footerOut.textContent = footerInput.value || 'Thank you for your business. Payment due within 30 days.'; });
+  })();
+</script>
+{% endblock %}

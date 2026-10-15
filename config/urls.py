@@ -3,9 +3,21 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import TemplateView
+from django.views.decorators.cache import never_cache
+
+
+# Service worker must be served from the site root so it can control / scope.
+sw_view = never_cache(TemplateView.as_view(
+    template_name="sw.js", content_type="application/javascript"
+))
+offline_view = TemplateView.as_view(template_name="offline.html")
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("sw.js", sw_view, name="service_worker"),
+    path("offline/", offline_view, name="offline"),
     path("", include("apps.core.urls")),
     path("auth/", include("apps.accounts.urls")),
     path("dashboard/", include("apps.core.dashboard_urls")),

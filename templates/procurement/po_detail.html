@@ -10,6 +10,14 @@
     <span class="badge {% if po.status == 'FULLY_RECEIVED' or po.status == 'BILLED' %}bg-green-50 text-green-700{% elif po.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif po.status == 'CANCELLED' %}bg-gray-100 text-gray-500 line-through{% elif po.status == 'PARTIALLY_RECEIVED' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
       {{ po.get_status_display }}
     </span>
+    <a href="{% url 'procurement:po_print' po.pk %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+      Print
+    </a>
+    <a href="{% url 'procurement:po_email' po.pk %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 inline-flex items-center gap-1.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      Email
+    </a>
     {% if po.status == 'DRAFT' %}
     <form method="post" action="{% url 'procurement:po_send' po.pk %}" onsubmit="return confirm('Mark this PO as sent to supplier?');">
       {% csrf_token %}

@@ -4,10 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}MERP ERP{% endblock %}</title>
+  <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}mofisi{% endblock %}</title>
+
+  {% load static %}
+
+  <!-- PWA -->
+  <link rel="manifest" href="{% static 'manifest.webmanifest' %}">
+  <meta name="theme-color" content="{{ brand_primary|default:'#DC2538' }}">
+  <link rel="icon" type="image/svg+xml" href="{% static 'img/mofisi-mark.svg' %}">
+  <link rel="apple-touch-icon" href="{% static 'img/mofisi-mark.svg' %}">
 
   <!-- Tailwind CSS — pre-built via `npm run build:css` from tailwind.config.js -->
-  {% load static %}
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
 
   <!-- Inter Font -->
@@ -23,9 +30,10 @@
   <!-- Heroicons (inline SVG approach via a small library) -->
   <style>
     :root {
-      --primary: #C8102E;
-      --primary-light: #E8304E;
-      --primary-dark: #9B000E;
+      --primary: {{ brand_primary|default:"#C8102E" }};
+      --primary-light: {{ brand_primary_light|default:"#E8304E" }};
+      --primary-dark: {{ brand_primary_dark|default:"#9B000E" }};
+      --accent: {{ brand_accent|default:"#111827" }};
       --sidebar-width: 72px;
       --sidebar-expanded: 280px;
       --topbar-height: 64px;
@@ -417,13 +425,11 @@
   <!-- Header row: brand (expanded) + hamburger toggle -->
   <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid rgba(255,255,255,0.14);">
     <div class="flex items-center gap-2 min-w-0 flex-1">
-      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background: rgba(255,255,255,0.14);">
-        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-        </svg>
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-white shadow-sm">
+        <img src="{% static 'img/mofisi-mark.svg' %}" alt="mofisi" class="w-7 h-7">
       </div>
       <div class="sidebar-label min-w-0">
-        <div class="text-sm font-bold text-white leading-tight">MERP</div>
+        <div class="text-base font-bold text-white leading-tight" style="letter-spacing:-0.01em;">mofisi</div>
         <div class="text-[10px] font-medium leading-tight" style="color:rgba(255,255,255,0.72); letter-spacing:0.12em; text-transform:uppercase;">Business Suite</div>
       </div>
     </div>
@@ -843,6 +849,15 @@
             </svg>
             Change Password
           </a>
+          {% if active_company %}
+          <div class="border-t border-gray-100 my-1"></div>
+          <a href="{% url 'organizations:branding' %}" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
+            </svg>
+            Branding &amp; Theme
+          </a>
+          {% endif %}
           <div class="border-t border-gray-100 my-1"></div>
           <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
@@ -1001,5 +1016,50 @@
 </script>
 
 {% block extra_scripts %}{% endblock %}
+
+<!-- Offline / sync banner -->
+<div id="offlineBanner" style="position:fixed;left:50%;bottom:16px;transform:translateX(-50%) translateY(80px);
+    background:#78350F;color:#FEF3C7;padding:10px 16px;border-radius:999px;font-size:12.5px;
+    font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,0.15);z-index:100;transition:transform 0.25s;
+    display:flex;align-items:center;gap:8px;">
+  <span style="width:8px;height:8px;border-radius:50%;background:#F59E0B;"></span>
+  <span id="offlineText">Offline — changes will sync when you reconnect</span>
+</div>
+
+<script>
+  // Service worker registration (PWA offline support)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .catch((err) => console.warn('[mofisi] sw register failed', err));
+    });
+  }
+
+  // Online / offline UI
+  (function() {
+    const banner = document.getElementById('offlineBanner');
+    const text = document.getElementById('offlineText');
+    function show(msg, bg, fg, dot) {
+      text.textContent = msg;
+      banner.style.background = bg; banner.style.color = fg;
+      banner.firstElementChild.style.background = dot;
+      banner.style.transform = 'translateX(-50%) translateY(0)';
+    }
+    function hide() { banner.style.transform = 'translateX(-50%) translateY(80px)'; }
+    function sync() {
+      if (!navigator.onLine) show('Offline — changes will sync when you reconnect', '#78350F', '#FEF3C7', '#F59E0B');
+      else {
+        show('Back online — syncing queued changes…', '#064E3B', '#D1FAE5', '#10B981');
+        setTimeout(hide, 2500);
+        if ('serviceWorker' in navigator && navigator.serviceWorker.ready && 'SyncManager' in window) {
+          navigator.serviceWorker.ready.then(r => r.sync && r.sync.register('mofisi-outbox').catch(()=>{}));
+        }
+      }
+    }
+    window.addEventListener('online', sync);
+    window.addEventListener('offline', sync);
+    if (!navigator.onLine) sync();
+  })();
+</script>
 </body>
 </html>

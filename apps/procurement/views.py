@@ -9,9 +9,11 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_POST
-from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
+from django.urls import reverse_lazy
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from .models import Bill, PurchaseOrder, PurchaseRequisition
+from apps.core.doc_views import DocumentPrintMixin, DocumentEmailView, lines_from_queryset
 
 
 class BillListView(LoginRequiredMixin, ListView):
@@ -518,3 +520,95 @@ def requisition_reject(request, pk):
     req.save(update_fields=["status"])
     messages.success(request, f"Requisition {req.reference} rejected.")
     return redirect("procurement:requisition_detail", pk=pk)
+
+
+# ============================================================
+# Printable + emailable documents (PO, Bill)
+# ============================================================
+
+def _po_doc(obj):
+    return {
+        "doc_title": "Purchase Order",
+        "doc_reference": obj.reference,
+        "doc_date": obj.order_date,
+        "doc_status": obj.get_status_display(),
+        "doc_party_label": "Vendor",
+        "doc_party": obj.supplier,
+        "doc_meta": [
+            ("Order Date", obj.order_date.strftime("%d %b %Y")),
+            ("Expected", obj.expected_delivery_date.strftime("%d %b %Y") if obj.expected_delivery_date else "—"),
+            ("Currency", obj.currency),
+        ],
+        "doc_lines": [
+            {
+                "description": line.description or (line.product.name if line.product else ""),
+                "sku": line.product.sku if line.product else "",
+                "qty": line.quantity,
+                "unit_price": line.unit_cost,
+                "line_total": line.line_total,
+            }
+            for line in obj.lines.all()
+        ],
+        "doc_subtotal": obj.subtotal,
+        "doc_tax": obj.tax_amount,
+        "doc_total": obj.total_amount,
+        "doc_currency": obj.currency,
+        "doc_notes": getattr(obj, "notes", ""),
+        "doc_show_bank": False,
+        "doc_back_url": reverse_lazy("procurement:po_detail", args=[obj.pk]),
+        "doc_email_url": reverse_lazy("procurement:po_email", args=[obj.pk]),
+    }
+
+
+class POPrintView(DocumentPrintMixin, View):
+    model = PurchaseOrder
+    def _build_doc(self, obj):
+        return _po_doc(obj)
+
+
+class POEmailView(DocumentEmailView):
+    model = PurchaseOrder
+    print_url_name = "procurement:po_print"
+    doc_label = "Purchase Order"
+    def build_doc(self, obj):
+        return _po_doc(obj)
+
+
+def _bill_doc(obj):
+    return {
+        "doc_title": "Supplier Bill",
+        "doc_reference": obj.reference,
+        "doc_date": obj.bill_date,
+        "doc_status": obj.get_status_display(),
+        "doc_party_label": "From Supplier",
+        "doc_party": obj.supplier,
+        "doc_meta": [
+            ("Bill Date", obj.bill_date.strftime("%d %b %Y")),
+            ("Due Date", obj.due_date.strftime("%d %b %Y")),
+            ("Supplier Ref", obj.supplier_reference or "—"),
+            ("Currency", obj.currency),
+        ],
+        "doc_lines": lines_from_queryset(obj.lines.all()) if hasattr(obj, "lines") else [],
+        "doc_subtotal": obj.subtotal,
+        "doc_tax": obj.tax_amount,
+        "doc_total": obj.total_amount,
+        "doc_currency": obj.currency,
+        "doc_notes": getattr(obj, "notes", ""),
+        "doc_show_bank": False,
+        "doc_back_url": reverse_lazy("procurement:bill_detail", args=[obj.pk]),
+        "doc_email_url": reverse_lazy("procurement:bill_email", args=[obj.pk]),
+    }
+
+
+class BillPrintView(DocumentPrintMixin, View):
+    model = Bill
+    def _build_doc(self, obj):
+        return _bill_doc(obj)
+
+
+class BillEmailView(DocumentEmailView):
+    model = Bill
+    print_url_name = "procurement:bill_print"
+    doc_label = "Supplier Bill"
+    def build_doc(self, obj):
+        return _bill_doc(obj)

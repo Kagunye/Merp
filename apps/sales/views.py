@@ -13,7 +13,8 @@ from django.utils.decorators import method_decorator
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm
-from .models import Invoice, CustomerPayment
+from .models import Invoice, CustomerPayment, SalesOrder
+from apps.core.doc_views import DocumentPrintMixin, DocumentEmailView, lines_from_queryset
 
 
 class InvoiceListView(LoginRequiredMixin, ListView):
@@ -425,3 +426,84 @@ def invoice_cancel(request, pk):
         inv.save(update_fields=["status"])
         messages.success(request, f"Invoice {inv.reference} cancelled.")
     return redirect("sales:invoice_detail", pk=pk)
+
+
+# ============================================================
+# Printable + emailable documents
+# ============================================================
+
+def _invoice_doc(obj):
+    return {
+        "doc_title": "Tax Invoice" if obj.status != "CREDIT_NOTE" else "Credit Note",
+        "doc_reference": obj.reference,
+        "doc_date": obj.invoice_date,
+        "doc_status": obj.get_status_display(),
+        "doc_party_label": "Bill To",
+        "doc_party": obj.customer,
+        "doc_meta": [
+            ("Invoice Date", obj.invoice_date.strftime("%d %b %Y")),
+            ("Due Date", obj.due_date.strftime("%d %b %Y")),
+            ("Currency", obj.currency),
+        ],
+        "doc_lines": lines_from_queryset(obj.lines.all()),
+        "doc_subtotal": obj.subtotal,
+        "doc_tax": obj.tax_amount,
+        "doc_total": obj.total_amount,
+        "doc_currency": obj.currency,
+        "doc_notes": obj.notes if hasattr(obj, "notes") else "",
+        "doc_show_bank": True,
+        "doc_back_url": reverse_lazy("sales:invoice_detail", args=[obj.pk]),
+        "doc_email_url": reverse_lazy("sales:invoice_email", args=[obj.pk]),
+    }
+
+
+class InvoicePrintView(DocumentPrintMixin, View):
+    model = Invoice
+    def _build_doc(self, obj):
+        return _invoice_doc(obj)
+
+
+class InvoiceEmailView(DocumentEmailView):
+    model = Invoice
+    print_url_name = "sales:invoice_print"
+    doc_label = "Invoice"
+    def build_doc(self, obj):
+        return _invoice_doc(obj)
+
+
+def _salesorder_doc(obj):
+    return {
+        "doc_title": "Quotation" if obj.status == "DRAFT" else "Sales Order",
+        "doc_reference": obj.reference,
+        "doc_date": obj.order_date,
+        "doc_status": obj.get_status_display(),
+        "doc_party_label": "Quote To",
+        "doc_party": obj.customer,
+        "doc_meta": [
+            ("Order Date", obj.order_date.strftime("%d %b %Y")),
+            ("Currency", getattr(obj, "currency", "KES")),
+        ],
+        "doc_lines": lines_from_queryset(obj.lines.all()) if hasattr(obj, "lines") else [],
+        "doc_subtotal": obj.subtotal,
+        "doc_tax": obj.tax_amount,
+        "doc_total": obj.total_amount,
+        "doc_currency": getattr(obj, "currency", "KES"),
+        "doc_notes": getattr(obj, "notes", ""),
+        "doc_show_bank": False,
+        "doc_back_url": reverse_lazy("sales:order_detail", args=[obj.pk]),
+        "doc_email_url": reverse_lazy("sales:order_email", args=[obj.pk]),
+    }
+
+
+class SalesOrderPrintView(DocumentPrintMixin, View):
+    model = SalesOrder
+    def _build_doc(self, obj):
+        return _salesorder_doc(obj)
+
+
+class SalesOrderEmailView(DocumentEmailView):
+    model = SalesOrder
+    print_url_name = "sales:order_print"
+    doc_label = "Quotation"
+    def build_doc(self, obj):
+        return _salesorder_doc(obj)

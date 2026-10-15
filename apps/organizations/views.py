@@ -5,7 +5,7 @@ from django.views.generic import (
     CreateView, DetailView, ListView, TemplateView, UpdateView,
 )
 
-from .forms import BranchForm, CompanyForm, DepartmentForm, WarehouseForm
+from .forms import BranchForm, CompanyBrandingForm, CompanyForm, DepartmentForm, WarehouseForm
 from .models import Branch, Company, Department, Warehouse
 
 
@@ -42,6 +42,30 @@ class CompanyUpdateView(LoginRequiredMixin, UpdateView):
     form_class = CompanyForm
     template_name = "organizations/company_form.html"
     success_url = reverse_lazy("organizations:company_list")
+
+
+class CompanyBrandingView(LoginRequiredMixin, UpdateView):
+    """Edit logo, colours, letterhead header/footer and bank-details block."""
+    model = Company
+    form_class = CompanyBrandingForm
+    template_name = "organizations/branding_form.html"
+
+    def get_object(self, queryset=None):
+        # Prefer the active company; fall back to pk if supplied.
+        pk = self.kwargs.get("pk")
+        if pk:
+            return Company.objects.get(pk=pk)
+        active = getattr(self.request, "active_company", None)
+        if not active:
+            raise Company.DoesNotExist("No active company to brand.")
+        return active
+
+    def get_success_url(self):
+        return reverse_lazy("organizations:branding")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Branding saved. Documents will reflect the new theme.")
+        return super().form_valid(form)
 
 
 class CompanyDetailView(LoginRequiredMixin, DetailView):

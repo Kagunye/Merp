@@ -1,0 +1,19 @@
+{
+  "name": "mofisi Business Suite",
+  "short_name": "mofisi",
+  "description": "mofisi ERP — Finance, Sales, Inventory, HR and more.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F5F6F8",
+  "theme_color": "#DC2538",
+  "icons": [
+    { "src": "/static/img/mofisi-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard", "url": "/" },
+    { "name": "New Invoice", "url": "/sales/invoices/new/" },
+    { "name": "Record Payment", "url": "/sales/payments/new/" }
+  ]
+}
