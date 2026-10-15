@@ -1,16 +1,35 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Documents" launcher_subtitle="Upload, categorise and retrieve company files" launcher_bar="#52525B" %}
+{% include "_includes/launcher.html" with launcher_title="Documents" launcher_subtitle="Upload, categorise and retrieve company files" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">4 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">📤</div><span class="label">Upload Document</span></a>
   <a href="{% url 'documents:category_create' %}" class="launcher-tile"><div class="ico ico-sky">🏷️</div><span class="label">New Category</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">🔍</div><span class="label">Search Documents</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📎</div><span class="label">Share Link</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Lists
+  <span class="launcher-section-count">3 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">All Documents</span></a>
   <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">⭐</div><span class="label">Recent Uploads</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">3 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Document Types</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">🔒</div><span class="label">Access Permissions</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💾</div><span class="label">Storage Settings</span></a>
 </div>
 {% endblock %}

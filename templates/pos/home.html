@@ -1,16 +1,38 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Point of Sale" launcher_subtitle="Register sessions, sales and cash-ups" launcher_bar="#B45309" %}
+{% include "_includes/launcher.html" with launcher_title="Point of Sale" launcher_subtitle="Register sessions, sales, cash-ups and shift reports" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'pos:terminal' %}" class="launcher-tile"><div class="ico ico-mint">🛒</div><span class="label">Open Terminal</span></a>
   <a href="{% url 'pos:session_open' %}" class="launcher-tile"><div class="ico ico-amber">🔓</div><span class="label">Open Register</span></a>
+  <a href="{% url 'pos:session_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-sky">💼</div><span class="label">Active Sessions</span></a>
+  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Today's Sales</span></a>
+  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-rose">🔒</div><span class="label">Close Register</span></a>
+  <a href="{% url 'sales:payment_create' %}" class="launcher-tile"><div class="ico ico-slate">💵</div><span class="label">Record Payment</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Lists
+  <span class="launcher-section-count">4 modules</span>
+</div>
 <div class="launcher-grid">
-  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-sky">💼</div><span class="label">Sessions</span></a>
-  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Sales</span></a>
+  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-sky">💼</div><span class="label">All Sessions</span></a>
+  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">All Sales</span></a>
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛍️</div><span class="label">Products</span></a>
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Customers</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Reports
+  <span class="launcher-section-count">3 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-rose">📊</div><span class="label">Shift Report</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Cash Movement</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Stock on Hand</span></a>
 </div>
 {% endblock %}

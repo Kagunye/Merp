@@ -1,16 +1,37 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Expenses" launcher_subtitle="Employee expense claims and approvals" launcher_bar="#C2410C" %}
+{% include "_includes/launcher.html" with launcher_title="Expenses" launcher_subtitle="Employee expense claims, approvals and reimbursements" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">6 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'expenses:claim_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">New Claim</span></a>
   <a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="launcher-tile"><div class="ico ico-amber">✅</div><span class="label">Approve Claims</span></a>
+  <a href="{% url 'expenses:claim_list' %}?status=APPROVED" class="launcher-tile"><div class="ico ico-sky">💵</div><span class="label">Reimburse Claims</span></a>
+  <a href="{% url 'expenses:claim_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-slate">📝</div><span class="label">My Draft Claims</span></a>
+  <a href="{% url 'expenses:category_create' %}" class="launcher-tile"><div class="ico ico-rose">🏷️</div><span class="label">New Category</span></a>
+  <a href="{% url 'procurement:bill_create' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Convert to Bill</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Lists
+  <span class="launcher-section-count">3 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-sky">📄</div><span class="label">All Claims</span></a>
-  <a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Categories</span></a>
+  <a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Claimants</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Reports
+  <span class="launcher-section-count">3 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Expenses by Category</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Reimbursement Flow</span></a>
+  <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-peach">📚</div><span class="label">Posted Entries</span></a>
 </div>
 {% endblock %}

@@ -1,24 +1,52 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Payroll" launcher_subtitle="Payroll runs, payslips and statutory deductions" launcher_bar="#B91C1C" %}
+{% include "_includes/launcher.html" with launcher_title="Payroll" launcher_subtitle="Payroll runs, payslips, deductions and statutory filings" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">7 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'payroll:run_create' %}" class="launcher-tile"><div class="ico ico-mint">▶️</div><span class="label">New Payroll Run</span></a>
   <a href="{% url 'payroll:run_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-amber">✍️</div><span class="label">Draft Runs</span></a>
-  <a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-sky">📄</div><span class="label">All Payslips</span></a>
+  <a href="{% url 'payroll:run_list' %}?status=APPROVED" class="launcher-tile"><div class="ico ico-sky">💵</div><span class="label">Pay Employees</span></a>
+  <a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">All Payslips</span></a>
+  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Salary Review</span></a>
+  <a href="{% url 'accounting:journal_entry_list' %}?type=PAYROLL" class="launcher-tile"><div class="ico ico-mint">📚</div><span class="label">Payroll Journals</span></a>
+  <a href="{% url 'banking:transaction_create' %}" class="launcher-tile"><div class="ico ico-rose">🏦</div><span class="label">Bank Payment File</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Lists
+  <span class="launcher-section-count">3 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Payroll Runs</span></a>
   <a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-mint">💶</div><span class="label">Payslips</span></a>
   <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-slate">👤</div><span class="label">Employees</span></a>
 </div>
 
-<div class="launcher-section-label">Reports</div>
+<div class="launcher-section-label">
+  Reports
+  <span class="launcher-section-count">5 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-peach">📈</div><span class="label">Salary Expense (P&amp;L)</span></a>
+  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-sky">🧮</div><span class="label">PAYE Report</span></a>
+  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-mint">🛡️</div><span class="label">NSSF / NHIF</span></a>
+  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-amber">🏘️</div><span class="label">Housing Levy</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-rose">💧</div><span class="label">Payroll Cash Flow</span></a>
+</div>
+
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">4 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Payroll Settings</span></a>
+  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">🗂️</div><span class="label">Pay Elements</span></a>
+  <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-mint">📅</div><span class="label">Holiday Calendar</span></a>
+  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
 </div>
 
 <div class="launcher-section-label" style="margin-top:36px">At a glance</div>
@@ -27,23 +55,5 @@
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Draft runs</div><div class="text-2xl font-bold text-amber-600">{{ draft_count|default:0 }}</div></div>
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Approved runs</div><div class="text-2xl font-bold text-green-700">{{ approved_count|default:0 }}</div></div>
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Last run</div><div class="text-base font-semibold text-gray-900">{% if last_run %}{{ last_run.reference }}{% else %}—{% endif %}</div></div>
-</div>
-
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent runs</h2>
-<div class="bg-white rounded-xl border overflow-hidden mb-10">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Period</th><th class="px-4 py-3 text-right">Gross</th><th class="px-4 py-3 text-right">Net</th><th class="px-4 py-3 text-left">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for r in recent_runs %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'payroll:run_detail' r.pk %}" style="color:var(--primary)">{{ r.reference }}</a></td>
-        <td class="px-4 py-2">{{ r.period_start|date:"d M" }} – {{ r.period_end|date:"d M Y" }}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ r.total_gross|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ r.total_net|floatformat:2 }}</td>
-        <td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700 text-xs px-2 py-0.5">{{ r.get_status_display|default:r.status }}</span></td>
-      </tr>
-      {% empty %}<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">No payroll runs yet.</td></tr>{% endfor %}
-    </tbody>
-  </table>
 </div>
 {% endblock %}

@@ -1,31 +1,52 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="CRM" launcher_subtitle="Customers, suppliers, leads and contact management" launcher_bar="#7C3AED" %}
+{% include "_includes/launcher.html" with launcher_title="CRM" launcher_subtitle="Customers, suppliers, leads and activity management" %}
 
-<div class="launcher-section-label">Processing</div>
+<div class="launcher-section-label">
+  Processing
+  <span class="launcher-section-count">8 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">New Customer</span></a>
   <a href="{% url 'crm:supplier_create' %}" class="launcher-tile"><div class="ico ico-amber">🏭</div><span class="label">New Supplier</span></a>
   <a href="{% url 'crm:lead_create' %}" class="launcher-tile"><div class="ico ico-sky">🎯</div><span class="label">New Lead</span></a>
+  <a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-peach">💬</div><span class="label">Create Quotation</span></a>
+  <a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">🧾</div><span class="label">Invoice Customer</span></a>
+  <a href="{% url 'crm:lead_list' %}?stage=QUALIFIED" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">Qualify Leads</span></a>
+  <a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-rose">🎫</div><span class="label">Log Support Case</span></a>
+  <a href="{% url 'sms:index' %}" class="launcher-tile"><div class="ico ico-sky">💬</div><span class="label">Send SMS</span></a>
 </div>
 
-<div class="launcher-section-label">Lists</div>
+<div class="launcher-section-label">
+  Lists
+  <span class="launcher-section-count">4 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">🧑‍🤝‍🧑</div><span class="label">Customers</span></a>
   <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-amber">🏢</div><span class="label">Suppliers</span></a>
   <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Leads</span></a>
+  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-peach">📄</div><span class="label">Quotations</span></a>
 </div>
 
-<div class="launcher-section-label">Linked</div>
+<div class="launcher-section-label">
+  Reports
+  <span class="launcher-section-count">4 modules</span>
+</div>
 <div class="launcher-grid">
   <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">AR Aging</span></a>
   <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-peach">⏱️</div><span class="label">AP Aging</span></a>
+  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Lead Pipeline</span></a>
+  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-sky">💰</div><span class="label">Revenue by Customer</span></a>
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Customers</div><div class="text-2xl font-bold">{{ customer_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Suppliers</div><div class="text-2xl font-bold">{{ supplier_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open leads</div><div class="text-2xl font-bold">{{ open_leads|default:0 }}</div></div>
+<div class="launcher-section-label">
+  Maintenance
+  <span class="launcher-section-count">4 modules</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Customer Groups</span></a>
+  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">👔</div><span class="label">Sales Reps</span></a>
+  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💱</div><span class="label">Price Lists</span></a>
+  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Templates</span></a>
 </div>
 {% endblock %}
