@@ -930,30 +930,33 @@
 <div id="main-wrapper" class="flex-1 flex flex-col" style="margin-left: var(--sidebar-width); transition: margin-left 0.2s ease;">
 
   <!-- TOP BAR -->
-  <header id="topbar" class="fixed top-0 right-0 bg-white border-b border-gray-200 flex items-center h-16 px-4 z-30"
+  <header id="topbar" class="fixed top-0 right-0 bg-white border-b border-gray-200 flex items-center h-16 px-5 z-30"
           style="left: var(--sidebar-width); transition: left 0.2s ease;">
 
-    <!-- Hamburger — opens drawer on phone, toggles rail on desktop -->
+    <!-- Hamburger — phone only (desktop uses the sidebar collapse chevron) -->
     <button type="button" onclick="toggleSidebar()" title="Menu"
-            class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 mr-3 shrink-0">
+            class="w-10 h-10 md:hidden flex items-center justify-center rounded-lg hover:bg-gray-100 mr-2 shrink-0">
       <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
       </svg>
     </button>
 
-    <!-- Search -->
-    <div class="flex-1 max-w-lg">
+    <!-- Search — bounded so it doesn't dominate -->
+    <div class="w-full max-w-sm">
       <div class="relative">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
         </svg>
-        <input type="text" id="global-search" placeholder="Search transactions, customers, products..."
-               class="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent"
+        <input type="text" id="global-search" placeholder="Search transactions, customers, products…"
+               class="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:bg-white focus:border-transparent transition"
                style="--tw-ring-color: var(--primary);">
       </div>
     </div>
 
-    <div class="flex items-center gap-2 ml-4">
+    <!-- Spacer -->
+    <div class="flex-1"></div>
+
+    <div class="flex items-center gap-3">
 
       <!-- Company switcher -->
       {% if active_company %}
@@ -978,7 +981,20 @@
           {% endfor %}
         </div>
       </div>
+      {% else %}
+      <!-- No company → inline setup CTA -->
+      <a href="{% url 'organizations:company_create' %}"
+         class="hidden md:inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition shadow-sm"
+         style="background: var(--primary);">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Set up company
+      </a>
       {% endif %}
+
+      <!-- Vertical divider -->
+      <div class="hidden md:block h-6 w-px bg-gray-200"></div>
 
       <!-- Notifications -->
       <div class="relative">
@@ -1036,8 +1052,8 @@
           </div>
           <div class="hidden md:block text-left">
             <p class="text-sm font-medium text-gray-900 leading-tight">{{ request.user.full_name }}</p>
-            <p class="text-xs text-gray-500 leading-tight">
-              {% if active_company %}{{ request.user.get_company_role|default:'User' }}{% else %}No company{% endif %}
+            <p class="text-xs leading-tight {% if active_company %}text-gray-500{% else %}text-amber-600{% endif %}">
+              {% if active_company %}{{ request.user.get_company_role|default:'User' }}{% else %}Set up company →{% endif %}
             </p>
           </div>
           <svg class="w-3.5 h-3.5 text-gray-400 ml-1" fill="currentColor" viewBox="0 0 20 20">
