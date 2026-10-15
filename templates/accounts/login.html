@@ -57,12 +57,12 @@
       min-height: 100vh;
     }
     @media (min-width: 1024px) {
-      /* Compact image column (~45%), form column gets the rest. */
-      .page { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
+      /* Slightly larger image column (~55%) with a comfortable form column. */
+      .page { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
     }
     @media (min-width: 1536px) {
-      /* On wide screens keep the form dominant (~55%). */
-      .page { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+      /* On wide screens let the hero stretch a bit further (~57%). */
+      .page { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
     }
 
     /* ----- LEFT: hero column ----- */
