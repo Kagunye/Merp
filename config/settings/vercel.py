@@ -33,13 +33,29 @@ def _is_txn_pooler(url):
     except ValueError:
         return False
 
+def _is_postgres_url(url):
+    """True iff the URL looks like a usable Postgres connection string."""
+    if not url:
+        return False
+    try:
+        scheme = urlsplit(url).scheme.lower()
+    except ValueError:
+        return False
+    return scheme in {"postgres", "postgresql", "postgres+psycopg2", "postgresql+psycopg2"}
+
+
+# Only consider Postgres URLs here — a stray DATABASE_URL=sqlite:///... (left
+# over from a dev default) must not route through dj_database_url with
+# ssl_require=True, because dj_database_url happily sets ENGINE=sqlite3 and
+# then injects OPTIONS[sslmode], which crashes with
+# "'sslmode' is an invalid keyword argument for Connection()".
 _candidates = [
     os.environ.get("DATABASE_URL"),
     os.environ.get("POSTGRES_URL_NON_POOLING"),
     os.environ.get("POSTGRES_URL"),
     os.environ.get("POSTGRES_PRISMA_URL"),
 ]
-_candidates = [c for c in _candidates if c]
+_candidates = [c for c in _candidates if _is_postgres_url(c)]
 # Use the first candidate that is NOT the transaction pooler; only fall back to
 # a :6543 URL if that is all we have.
 _database_url = next((c for c in _candidates if not _is_txn_pooler(c)), None) \
@@ -66,6 +82,13 @@ try:
                 _database_url, conn_max_age=0, ssl_require=True
             )
         }
+        # Belt + braces: strip sslmode if dj_database_url somehow routed us
+        # to a non-Postgres backend. The sqlite3 driver chokes on sslmode.
+        _engine = DATABASES["default"].get("ENGINE", "")
+        if "postgresql" not in _engine:
+            opts = DATABASES["default"].get("OPTIONS") or {}
+            opts.pop("sslmode", None)
+            DATABASES["default"]["OPTIONS"] = opts
     else:
         DATABASES = {
             "default": {
