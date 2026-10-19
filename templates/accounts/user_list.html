@@ -1,0 +1,62 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounts:user_create' as new_url %}
+{% include "_includes/page_header.html" with title="Users" subtitle="Everyone who can sign in to Mofisi" action_label="New user" action_url=new_url %}
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="p-4 border-b border-gray-100">
+    <form method="get" class="flex flex-wrap gap-2">
+      <input type="text" name="q" value="{{ search_query }}" placeholder="Search by name or email"
+        class="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
+      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background: var(--primary)">Search</button>
+      {% if search_query %}<a href="{% url 'accounts:user_list' %}" class="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Clear</a>{% endif %}
+    </form>
+  </div>
+
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr>
+        <th class="px-4 py-3 text-left">Name</th>
+        <th class="px-4 py-3 text-left">Email</th>
+        <th class="px-4 py-3 text-left">Job title</th>
+        <th class="px-4 py-3 text-left">Companies</th>
+        <th class="px-4 py-3 text-center">Active</th>
+        <th class="px-4 py-3 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for u in users %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="{% url 'accounts:user_detail' u.pk %}" class="font-medium text-gray-900 hover:underline" style="color: var(--primary)">{{ u.full_name }}</a>
+          {% if u.is_system_admin %}<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 uppercase tracking-wider">admin</span>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-600">{{ u.email }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ u.job_title|default:"—" }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ u.memberships.count }}</td>
+        <td class="px-4 py-3 text-center">
+          {% if u.is_active %}<span class="text-xs font-medium text-green-700">Active</span>
+          {% else %}<span class="text-xs font-medium text-red-600">Disabled</span>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-right whitespace-nowrap">
+          <a href="{% url 'accounts:user_edit' u.pk %}" class="text-xs font-medium text-gray-600 hover:text-gray-900 mr-3">Edit</a>
+          {% if u != request.user %}
+          <form method="post" action="{% url 'accounts:user_toggle' u.pk %}" class="inline"
+                {% if u.is_active %}onsubmit="return confirm('Disable {{ u.full_name }}? They will not be able to sign in.');"{% endif %}>
+            {% csrf_token %}
+            <button type="submit" class="text-xs font-medium {% if u.is_active %}text-red-600 hover:underline{% else %}text-green-700 hover:underline{% endif %}">
+              {% if u.is_active %}Disable{% else %}Enable{% endif %}
+            </button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No users found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% include "_includes/pagination.html" %}
+</div>
+{% endblock %}

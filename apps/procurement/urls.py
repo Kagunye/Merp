@@ -13,6 +13,7 @@ urlpatterns = [
     path("bills/new/", views.BillCreateView.as_view(), name="bill_create"),
     path("bills/<uuid:pk>/", views.BillDetailView.as_view(), name="bill_detail"),
     path("bills/<uuid:pk>/edit/", views.BillUpdateView.as_view(), name="bill_edit"),
+    path("bills/<uuid:pk>/post/", views.bill_post, name="bill_post"),
     path("bills/<uuid:pk>/cancel/", views.bill_cancel, name="bill_cancel"),
     path("bills/<uuid:pk>/pay/", views.bill_pay, name="bill_pay"),
     path("orders/", views.PurchaseOrderListView.as_view(), name="po_list"),

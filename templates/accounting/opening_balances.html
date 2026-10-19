@@ -7,8 +7,8 @@
   {% csrf_token %}
   <div class="bg-white rounded-xl border border-gray-200 p-4 flex items-end gap-4">
     <div>
-      <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Posting date</label>
-      <input type="date" name="posting_date" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+      <label for="id_posting_date" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Posting date</label>
+      <input id="id_posting_date" type="date" name="posting_date" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
     </div>
     <p class="text-xs text-gray-500 flex-1">A single journal entry labelled "Opening balances" will be created and posted.</p>
   </div>

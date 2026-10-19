@@ -7,8 +7,8 @@
   {% csrf_token %}
   <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-end gap-4">
     <div>
-      <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Count date</label>
-      <input type="date" name="movement_date" value="{% now 'Y-m-d' %}" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+      <label for="id_movement_date" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Count date</label>
+      <input id="id_movement_date" type="date" name="movement_date" value="{% now 'Y-m-d' %}" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
     </div>
     <p class="text-xs text-gray-500 flex-1">Enter the actual counted quantity for any product. Blank rows are left alone. Variances post ADJUSTMENT_PLUS / ADJUSTMENT_MINUS stock movements.</p>
   </div>

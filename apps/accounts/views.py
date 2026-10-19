@@ -156,7 +156,7 @@ class RegisterView(View):
             login(request, user)
             messages.success(
                 request,
-                f"Welcome to MERP, {user.first_name or user.email}! "
+                f"Welcome to Mofisi, {user.first_name or user.email}! "
                 "Finish setting up your company to get started.",
             )
             return redirect("dashboard:index")
@@ -238,7 +238,7 @@ class PasswordResetRequestView(View):
                 # Send email (using Django's built-in mechanism)
                 from django.core.mail import send_mail
                 send_mail(
-                    subject="Password Reset Request — MERP",
+                    subject="Password Reset Request — Mofisi",
                     message=f"Click to reset your password: {reset_url}\n\nThis link expires in 24 hours.",
                     from_email=None,
                     recipient_list=[email],
@@ -287,7 +287,14 @@ class UserListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = User.objects.all().order_by("first_name", "last_name")
+        company = self.request.active_company
+        if not company:
+            return User.objects.none()
+        qs = (
+            User.objects.filter(
+                memberships__company=company, memberships__is_active=True,
+            ).distinct().order_by("first_name", "last_name")
+        )
         q = self.request.GET.get("q", "").strip()
         if q:
             from django.db.models import Q
@@ -323,6 +330,17 @@ class UserCreateView(LoginRequiredMixin, View):
 
 class UserDetailView(LoginRequiredMixin, DetailView):
     model = User
+
+    def get_queryset(self):
+        from django.db.models import Q
+        company = self.request.active_company
+        qs = User.objects.all()
+        if company:
+            qs = qs.filter(
+                Q(memberships__company=company, memberships__is_active=True)
+                | Q(pk=self.request.user.pk)
+            ).distinct()
+        return qs
     template_name = "accounts/user_detail.html"
     context_object_name = "profile_user"
 

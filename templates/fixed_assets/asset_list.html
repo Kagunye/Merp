@@ -1,12 +1,12 @@
 {% extends "base/base.html" %}
-{% block title %}Fixed Assets — MERP ERP{% endblock %}
+{% block title %}Fixed Assets — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Fixed Assets Register</h1>
     <p class="text-sm text-gray-500 mt-1">Track assets, depreciation schedules and disposals</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{% url 'fixed_assets:category_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Categories</a>
     <a href="{% url 'fixed_assets:asset_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Asset</a>
   </div>

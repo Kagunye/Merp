@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from .models import PayrollRun, Payslip
+from apps.core.forms import ISO_DATE
 
 
 class PayrollRunListView(LoginRequiredMixin, ListView):
@@ -47,6 +48,7 @@ class PayrollRunCreateView(LoginRequiredMixin, CreateView):
             elif isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 field.widget.attrs["type"] = "date"
+                field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
         company = self.request.active_company

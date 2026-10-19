@@ -1,4 +1,5 @@
 from django import forms
+from apps.core.forms import date_input
 from .models import Document, DocumentCategory
 
 
@@ -12,4 +13,4 @@ class DocumentForm(forms.ModelForm):
     class Meta:
         model = Document
         fields = ["name", "category", "file", "description", "expiry_date"]
-        widgets = {"expiry_date": forms.DateInput(attrs={"type": "date"})}
+        widgets = {"expiry_date": date_input()}

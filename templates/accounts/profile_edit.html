@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounts:profile' as back %}
+{% include "_includes/model_form.html" with title=page_title|default:"Edit Profile" subtitle="Your name, contact details and interface preferences" back_url=back cancel_url=back submit_label="Save changes" %}
+{% endblock %}

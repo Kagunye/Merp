@@ -34,13 +34,5 @@
   </table>
 </div>
 
-{% if is_paginated %}
-<div class="mt-4 flex items-center justify-between text-sm text-gray-500">
-  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-  <div class="flex gap-2">
-    {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1 border border-gray-200 rounded">&larr; Prev</a>{% endif %}
-    {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1 border border-gray-200 rounded">Next &rarr;</a>{% endif %}
-  </div>
-</div>
-{% endif %}
+{% include "_includes/pagination.html" %}
 {% endblock %}

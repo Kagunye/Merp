@@ -1,5 +1,5 @@
 {% extends "base/base.html" %}
-{% block title %}{{ asset.code }} — Fixed Assets — MERP ERP{% endblock %}
+{% block title %}{{ asset.code }} — Fixed Assets — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -9,7 +9,7 @@
     </nav>
     <h1 class="text-2xl font-bold text-gray-900">{{ asset.name }}</h1>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     {% if asset.status == 'ACTIVE' %}
     <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Run Depreciation</a>
     <a href="{% url 'fixed_assets:asset_dispose' asset.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-700 hover:bg-gray-800">Dispose Asset</a>
@@ -122,7 +122,7 @@
 {% if disposal %}
 <div class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-6">
   <h2 class="text-base font-semibold text-amber-900 mb-3">Disposal Record</h2>
-  <dl class="grid grid-cols-3 gap-6 text-sm">
+  <dl class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
     <div><dt class="text-amber-700">Date</dt><dd class="font-medium text-amber-900">{{ disposal.disposal_date }}</dd></div>
     <div><dt class="text-amber-700">Type</dt><dd class="text-amber-900">{{ disposal.get_disposal_type_display }}</dd></div>
     <div><dt class="text-amber-700">Proceeds</dt><dd class="text-amber-900">{{ disposal.proceeds|floatformat:2 }}</dd></div>
@@ -131,7 +131,7 @@
         {{ disposal.gain_loss|floatformat:2 }}
       </dd>
     </div>
-    {% if disposal.notes %}<div class="col-span-2"><dt class="text-amber-700">Notes</dt><dd class="text-amber-900">{{ disposal.notes }}</dd></div>{% endif %}
+    {% if disposal.notes %}<div class="md:col-span-2"><dt class="text-amber-700">Notes</dt><dd class="text-amber-900">{{ disposal.notes }}</dd></div>{% endif %}
   </dl>
 </div>
 {% endif %}

@@ -77,6 +77,12 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
     template_name = "pos/session_detail.html"
     context_object_name = "session"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return POSSession.objects.none()
+        return POSSession.objects.filter(company=company)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["sales"] = self.object.sales.all()[:50]
@@ -101,6 +107,12 @@ class SaleDetailView(LoginRequiredMixin, DetailView):
     template_name = "pos/sale_detail.html"
     context_object_name = "sale"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return POSSale.objects.none()
+        return POSSale.objects.filter(session__company=company)
+
 
 class TerminalView(LoginRequiredMixin, TemplateView):
     """Simple cashier terminal view. Full product-grid interactions
@@ -122,6 +134,12 @@ class CashUpView(LoginRequiredMixin, DetailView):
     model = POSSession
     template_name = "pos/cash_up.html"
     context_object_name = "session"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return POSSession.objects.none()
+        return POSSession.objects.filter(company=company)
 
     def get_context_data(self, **kwargs):
         from decimal import Decimal

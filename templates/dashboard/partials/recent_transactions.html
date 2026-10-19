@@ -1,0 +1,29 @@
+{% comment %}HTMX fragment: recent activity list from /dashboard/widgets/recent-transactions/{% endcomment %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-5 py-4 border-b border-gray-100">
+    <h2 class="font-semibold text-gray-800">Recent activity</h2>
+  </div>
+  <ul class="divide-y divide-gray-100">
+    {% for a in recent_activities %}
+    <li class="flex items-center gap-3 px-5 py-3">
+      <span class="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0
+        {% if a.color == 'green' %}bg-emerald-50 text-emerald-600
+        {% elif a.color == 'red' %}bg-rose-50 text-rose-600
+        {% elif a.color == 'amber' %}bg-amber-50 text-amber-600
+        {% else %}bg-blue-50 text-blue-600{% endif %}">
+        {{ a.type|first|upper }}
+      </span>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium text-gray-900 truncate">{{ a.label }}</p>
+        <p class="text-xs text-gray-500 truncate">{{ a.detail }}</p>
+      </div>
+      <div class="text-right shrink-0">
+        <p class="text-sm font-semibold text-gray-900 tabular-nums">{{ a.amount|floatformat:2 }}</p>
+        <p class="text-[11px] text-gray-400">{{ a.time|timesince }} ago</p>
+      </div>
+    </li>
+    {% empty %}
+    <li class="px-5 py-10 text-center text-sm text-gray-500">Nothing recorded yet.</li>
+    {% endfor %}
+  </ul>
+</div>

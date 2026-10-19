@@ -1,12 +1,16 @@
 {% extends "base/base.html" %}
-{% block title %}Aged Debtors — MERP ERP{% endblock %}
+{% load reporting_extras %}
+{% block title %}Aged Debtors — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Aged Debtors</h1>
     <p class="text-sm text-gray-500 mt-1">As at {{ today }}</p>
   </div>
-  <a href="{% url 'reporting:index' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+  <div class="flex items-center gap-2">
+    {% include "_includes/print_button.html" %}
+    <a href="{% url 'reporting:index' %}" class="no-print px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+  </div>
 </div>
 
 <!-- Summary cards -->

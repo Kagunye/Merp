@@ -12,8 +12,27 @@ from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
-from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm
-from .models import Invoice, CustomerPayment
+from apps.core.mixins import CompanyRequiredMixin
+
+from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
+from .models import Invoice, CustomerPayment, SalesOrder
+
+
+def _recalculate_invoice_totals(invoice):
+    """Recompute header totals from the stored lines, which are the source of truth."""
+    lines = invoice.lines.all()
+    subtotal = sum((line.line_total for line in lines), Decimal("0"))
+    tax = sum((line.tax_amount for line in lines), Decimal("0"))
+    invoice.subtotal = subtotal
+    invoice.tax_amount = tax
+    invoice.total_amount = subtotal + tax
+    invoice.outstanding_amount = invoice.total_amount - invoice.paid_amount
+    Invoice.objects.filter(pk=invoice.pk).update(
+        subtotal=subtotal,
+        tax_amount=tax,
+        total_amount=subtotal + tax,
+        outstanding_amount=subtotal + tax - invoice.paid_amount,
+    )
 
 
 class InvoiceListView(LoginRequiredMixin, ListView):
@@ -49,7 +68,7 @@ class InvoiceListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class InvoiceCreateView(LoginRequiredMixin, CreateView):
+class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = Invoice
     form_class = InvoiceForm
     template_name = "sales/invoice_form.html"
@@ -61,16 +80,13 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        company = self.request.active_company
+        form_kwargs = {"company": self.request.active_company}
         if self.request.POST:
-            ctx["line_formset"] = InvoiceLineFormSet(self.request.POST, prefix="lines")
+            ctx["line_formset"] = InvoiceLineFormSet(
+                self.request.POST, prefix="lines", form_kwargs=form_kwargs
+            )
         else:
-            ctx["line_formset"] = InvoiceLineFormSet(prefix="lines")
-        if company:
-            from apps.inventory.models import Product
-            ctx["products"] = list(Product.objects.filter(company=company, is_active=True).values(
-                "id", "name", "selling_price", "sku"
-            ))
+            ctx["line_formset"] = InvoiceLineFormSet(prefix="lines", form_kwargs=form_kwargs)
         ctx["page_title"] = "New Invoice"
         return ctx
 
@@ -87,39 +103,34 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
                 self.object = form.save()
                 formset.instance = self.object
                 formset.save()
-                self._recalculate_totals(self.object)
+                _recalculate_invoice_totals(self.object)
                 # Reload so totals are fresh
                 self.object.refresh_from_db()
                 # Post to GL
-                self._post_to_gl(self.object)
-            messages.success(self.request, f"Invoice '{self.object.reference}' created and posted.")
+                posted = self._post_to_gl(self.object)
+            if posted:
+                messages.success(self.request, f"Invoice '{self.object.reference}' created and posted to the GL.")
+            else:
+                messages.info(
+                    self.request,
+                    f"Invoice '{self.object.reference}' is still DRAFT. Use Post to GL once the issue above is fixed.",
+                )
             return redirect("sales:invoice_detail", pk=self.object.pk)
         return self.render_to_response(ctx)
 
-    def _recalculate_totals(self, invoice):
-        lines = invoice.lines.all()
-        subtotal = sum(line.line_total for line in lines)
-        tax = sum(line.tax_amount for line in lines)
-        invoice.subtotal = subtotal
-        invoice.tax_amount = tax
-        invoice.total_amount = subtotal + tax
-        invoice.outstanding_amount = invoice.total_amount - invoice.paid_amount
-        Invoice.objects.filter(pk=invoice.pk).update(
-            subtotal=subtotal, tax_amount=tax,
-            total_amount=subtotal + tax,
-            outstanding_amount=subtotal + tax - invoice.paid_amount,
-        )
-
     def _post_to_gl(self, invoice):
-        """Attempt GL posting; warn but don't fail if chart of accounts is incomplete."""
+        """Post to GL, surfacing failures: a silent skip would leave an
+        invoice that looks complete but has no ledger entry."""
         try:
             from apps.accounting.gl_service import post_invoice
             post_invoice(invoice, user=self.request.user)
+            return True
         except Exception as exc:
-            messages.warning(
+            messages.error(
                 self.request,
-                f"Invoice saved, but GL posting was skipped: {exc}",
+                f"Invoice '{invoice.reference}' saved, but GL posting failed: {exc}",
             )
+            return False
 
 
 class InvoiceDetailView(LoginRequiredMixin, DetailView):
@@ -181,7 +192,7 @@ class CustomerPaymentListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class CustomerPaymentCreateView(LoginRequiredMixin, CreateView):
+class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = CustomerPayment
     form_class = CustomerPaymentForm
     template_name = "sales/payment_form.html"
@@ -201,21 +212,24 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CreateView):
 
         with transaction.atomic():
             self.object = form.save()
-            self._post_to_gl(self.object)
+            posted = self._post_to_gl(self.object)
 
-        messages.success(self.request, f"Payment '{self.object.reference}' recorded.")
+        if posted:
+            messages.success(self.request, f"Payment '{self.object.reference}' recorded and posted to the GL.")
         return redirect(self.success_url)
 
     def _post_to_gl(self, payment):
-        """Attempt GL posting; warn but don't fail if accounts are missing."""
+        """Post to GL, surfacing failures instead of silently skipping."""
         try:
             from apps.accounting.gl_service import post_customer_payment
             post_customer_payment(payment, user=self.request.user)
+            return True
         except Exception as exc:
-            messages.warning(
+            messages.error(
                 self.request,
-                f"Payment saved, but GL posting was skipped: {exc}",
+                f"Payment '{payment.reference}' saved, but GL posting failed: {exc}",
             )
+            return False
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -308,7 +322,7 @@ class ARAgingView(LoginRequiredMixin, TemplateView):
 
 
 class SalesOrderListView(LoginRequiredMixin, ListView):
-    model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
+    model = SalesOrder
     template_name = "sales/order_list.html"
     context_object_name = "orders"
     paginate_by = 25
@@ -320,17 +334,50 @@ class SalesOrderListView(LoginRequiredMixin, ListView):
         return self.model.objects.filter(company=company).select_related("customer")
 
 
-class SalesOrderCreateView(LoginRequiredMixin, CreateView):
+class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
+    model = SalesOrder
+    form_class = SalesOrderForm
     template_name = "sales/order_form.html"
 
-    def get_form_class(self):
-        from .forms import SalesOrderForm
-        return SalesOrderForm
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return SalesOrderLineFormSet(self.request.POST, prefix="lines", form_kwargs=form_kwargs)
+        return SalesOrderLineFormSet(prefix="lines", form_kwargs=form_kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        ctx["page_title"] = "New Sales Order"
+        return ctx
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
-        messages.success(self.request, "Sales order created.")
-        return super().form_valid(form)
+        company = self.request.active_company
+        form.instance.company = company
+        if not form.instance.reference:
+            from apps.core.models import SequenceCounter
+            form.instance.reference = SequenceCounter.next_number(company, "SO-")
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        with transaction.atomic():
+            self.object = form.save()
+            formset.instance = self.object
+            formset.save()
+            self.object.calculate_totals()
+        messages.success(
+            self.request,
+            f"Sales order '{self.object.reference}' created — total {self.object.total_amount}.",
+        )
+        return redirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        return self.render_to_response(self.get_context_data(form=form))
 
     def get_success_url(self):
         from django.urls import reverse
@@ -338,9 +385,12 @@ class SalesOrderCreateView(LoginRequiredMixin, CreateView):
 
 
 class SalesOrderDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
+    model = SalesOrder
     template_name = "sales/order_detail.html"
     context_object_name = "order"
+
+    def get_queryset(self):
+        return SalesOrder.objects.filter(company=self.request.active_company).select_related("customer")
 
 
 class SalesIndexView(LoginRequiredMixin, TemplateView):
@@ -393,14 +443,40 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         from django.urls import reverse
         return reverse("sales:invoice_detail", args=[self.object.pk])
 
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return InvoiceLineFormSet(
+                self.request.POST, instance=self.object, prefix="lines", form_kwargs=form_kwargs
+            )
+        return InvoiceLineFormSet(instance=self.object, prefix="lines", form_kwargs=form_kwargs)
+
     def form_valid(self, form):
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        previous_total = self.object.total_amount
+        with transaction.atomic():
+            self.object = form.save()
+            formset.instance = self.object
+            formset.save()
+            _recalculate_invoice_totals(self.object)
+            self.object.refresh_from_db()
         messages.success(self.request, f"Invoice {form.instance.reference} updated.")
-        return super().form_valid(form)
+        if self.object.journal_entry_id and self.object.total_amount != previous_total:
+            messages.warning(
+                self.request,
+                f"This invoice is already posted to the GL for {previous_total}, but the saved "
+                f"lines total {self.object.total_amount}. Reverse that entry or issue a credit "
+                "note before the ledger and the document agree again.",
+            )
+        return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"Edit Invoice {self.object.reference}"
         ctx["is_edit"] = True
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
         return ctx
 
 

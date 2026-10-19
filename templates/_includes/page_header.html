@@ -17,11 +17,16 @@ back_url is similarly a resolved URL / href.
     {% if subtitle %}<p class="text-sm text-gray-500 mt-0.5">{{ subtitle }}</p>{% endif %}
   </div>
   {% if action_label and action_url %}
-  <a href="{{ action_url }}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary); box-shadow: 0 6px 14px rgba(200,16,46,0.18);">
-    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4v16m8-8H4"/>
-    </svg>
-    {{ action_label }}
-  </a>
+  <div class="flex items-center gap-2 no-print">
+    {% include "_includes/print_button.html" %}
+    <a href="{{ action_url }}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary); box-shadow: 0 6px 14px rgba(200,16,46,0.18);">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4v16m8-8H4"/>
+      </svg>
+      {{ action_label }}
+    </a>
+  </div>
+  {% else %}
+  <div class="no-print">{% include "_includes/print_button.html" %}</div>
   {% endif %}
 </div>

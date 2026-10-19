@@ -15,7 +15,7 @@
         {% if fy.is_current %}<span class="badge bg-emerald-50 text-emerald-700 text-xs px-2 py-0.5">Current</span>{% endif %}
         {% if fy.is_closed %}<span class="badge bg-gray-100 text-gray-500 text-xs px-2 py-0.5">Closed</span>{% else %}<span class="badge bg-blue-50 text-blue-700 text-xs px-2 py-0.5">Open</span>{% endif %}
       </div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         {% if fy.is_closed %}
         <form method="post" action="{% url 'accounting:fiscal_year_reopen' fy.pk %}" onsubmit="return confirm('Reopen this fiscal year?');">
           {% csrf_token %}
@@ -42,7 +42,7 @@
           <td class="px-5 py-2"><span class="badge {% if p.status == 'OPEN' %}bg-blue-50 text-blue-700{% elif p.status == 'CLOSED' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ p.get_status_display }}</span></td>
           <td class="px-5 py-2 text-right">
             {% if p.status == 'OPEN' %}
-            <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline">
+            <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline" onsubmit="return confirm('Close {{ p.name }}? Bookings dated inside it are then treated as locked.');">
               {% csrf_token %}<button type="submit" class="text-xs text-amber-700 hover:underline">Close</button>
             </form>
             {% else %}

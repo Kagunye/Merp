@@ -6,7 +6,9 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
+from apps.accounts.models import User
 from .models import Project, Task
+from apps.core.forms import ISO_DATE
 
 
 class ProjectListView(LoginRequiredMixin, ListView):
@@ -58,6 +60,7 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
             elif isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 field.widget.attrs["type"] = "date"
+                field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
         if company:
@@ -108,13 +111,27 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
     template_name = "projects/task_form.html"
     fields = ["title", "description", "status", "priority", "assigned_to", "due_date", "estimated_hours", "notes"]
 
-    def get_success_url(self):
-        from django.urls import reverse
-        return reverse("projects:project_detail", kwargs={"pk": self.kwargs["project_pk"]})
+    @property
+    def project(self):
+        """The project fixed by the URL, or None when creating a task standalone."""
+        return get_object_or_404(
+            Project, pk=self.kwargs["project_pk"], company=self.request.active_company
+        )
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         from django import forms as dforms
+        company = self.request.active_company
+        if "project_pk" not in self.kwargs:
+            form.fields["project"] = dforms.ModelChoiceField(
+                label="Project",
+                queryset=Project.objects.filter(company=company, is_active=True).order_by("name"),
+                required=True,
+            )
+        if "assigned_to" in form.fields:
+            form.fields["assigned_to"].queryset = User.objects.filter(
+                memberships__company=company, is_active=True
+            ).distinct().order_by("first_name", "last_name")
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
                 field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -124,27 +141,42 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
             elif isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 field.widget.attrs["type"] = "date"
+                field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        # Keep "project" first in the visual order when it is present.
+        if "project" in form.fields:
+            order = ["project", "title", "description", "status", "priority",
+                     "assigned_to", "due_date", "estimated_hours", "notes"]
+            form.fields = {k: form.fields[k] for k in order if k in form.fields}
         return form
 
+    def get_success_url(self):
+        from django.urls import reverse
+        if "project_pk" in self.kwargs:
+            return reverse("projects:project_detail", kwargs={"pk": self.kwargs["project_pk"]})
+        return reverse("projects:task_detail", kwargs={"pk": self.object.pk})
+
     def form_valid(self, form):
-        project = get_object_or_404(Project, pk=self.kwargs["project_pk"], company=self.request.active_company)
-        form.instance.project = project
+        if "project_pk" in self.kwargs:
+            form.instance.project = self.project
         messages.success(self.request, f"Task '{form.instance.title}' added.")
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["project"] = get_object_or_404(Project, pk=self.kwargs["project_pk"], company=self.request.active_company)
+        ctx["project"] = self.project if "project_pk" in self.kwargs else None
         ctx["page_title"] = "New Task"
         return ctx
 
 
 class TaskDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.projects.models', fromlist=['Task']).Task
+    model = Task
     template_name = "projects/task_detail.html"
     context_object_name = "task"
+
+    def get_queryset(self):
+        return Task.objects.filter(project__company=self.request.active_company)
 
 
 class TaskListView(LoginRequiredMixin, ListView):
@@ -156,7 +188,7 @@ class TaskListView(LoginRequiredMixin, ListView):
         from apps.projects.models import Task
         company = self.request.active_company
         qs = Task.objects.filter(project__company=company) if company else Task.objects.none()
-        return qs.select_related("project", "assignee")
+        return qs.select_related("project", "assigned_to")
 
 
 class ProjectsIndexView(LoginRequiredMixin, TemplateView):

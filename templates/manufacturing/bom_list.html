@@ -1,19 +1,19 @@
 {% extends "base/base.html" %}
-{% block title %}Bills of Materials — MERP ERP{% endblock %}
+{% block title %}Bills of Materials — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Bills of Materials</h1>
     <p class="text-sm text-gray-500 mt-1">Define product recipes and component requirements</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{% url 'manufacturing:work_order_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Work Orders</a>
     <a href="{% url 'manufacturing:bom_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New BOM</a>
   </div>
 </div>
 
 <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="flex gap-3">
+  <form method="get" class="no-print flex flex-wrap gap-3">
     <input type="text" name="q" value="{{ q }}" placeholder="Search BOMs..."
            class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
     <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Search</button>
@@ -54,4 +54,5 @@
     </tbody>
   </table>
 </div>
+{% include "_includes/pagination.html" %}
 {% endblock %}

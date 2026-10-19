@@ -1,14 +1,14 @@
 {% extends "base/base.html" %}
-{% block title %}{{ project.name }} — Projects — MERP ERP{% endblock %}
+{% block title %}{{ project.name }} — Projects — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'projects:project_list' %}" class="hover:underline">Projects</a> / <span class="text-gray-900 font-medium">{{ project.reference }}</span></nav>
     <h1 class="text-2xl font-bold text-gray-900">{{ project.name }}</h1>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <span class="badge {% if project.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif project.status == 'COMPLETED' %}bg-blue-50 text-blue-700{% elif project.status == 'PLANNING' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %} text-sm px-3 py-1.5">{{ project.get_status_display }}</span>
-    <a href="{% url 'projects:task_create' project.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Add Task</a>
+    <a href="{% url 'projects:project_task_create' project.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Add Task</a>
   </div>
 </div>
 
@@ -34,7 +34,7 @@
     <div class="bg-gray-200 rounded-full h-2 mb-4">
       <div class="bg-green-500 h-2 rounded-full" style="width:{{ project.progress_percent }}%"></div>
     </div>
-    <div class="grid grid-cols-3 gap-2 text-center text-sm">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-center text-sm">
       <div class="bg-blue-50 rounded-lg p-2"><p class="text-xl font-bold text-blue-700">{{ task_counts.total }}</p><p class="text-xs text-blue-600">Total</p></div>
       <div class="bg-amber-50 rounded-lg p-2"><p class="text-xl font-bold text-amber-700">{{ task_counts.in_progress }}</p><p class="text-xs text-amber-600">In Progress</p></div>
       <div class="bg-green-50 rounded-lg p-2"><p class="text-xl font-bold text-green-700">{{ task_counts.done }}</p><p class="text-xs text-green-600">Done</p></div>
@@ -45,7 +45,7 @@
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
     <h2 class="text-base font-semibold text-gray-900">Tasks</h2>
-    <a href="{% url 'projects:task_create' project.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Add Task</a>
+    <a href="{% url 'projects:project_task_create' project.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Add Task</a>
   </div>
   <table class="w-full text-sm">
     <thead class="bg-gray-50">
@@ -77,7 +77,7 @@
         <td class="px-4 py-3 text-right text-gray-600">{{ task.estimated_hours|default:"—" }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No tasks yet. <a href="{% url 'projects:task_create' project.pk %}" style="color:var(--primary)" class="font-medium">Add first task</a></td></tr>
+      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No tasks yet. <a href="{% url 'projects:project_task_create' project.pk %}" style="color:var(--primary)" class="font-medium">Add first task</a></td></tr>
       {% endfor %}
     </tbody>
   </table>

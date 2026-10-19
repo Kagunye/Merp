@@ -143,10 +143,13 @@ class StockMovement(BaseModel, NotesMixin):
         self.total_cost = self.quantity * self.unit_cost
         # Determine whether this is a new record (no pk yet means first save)
         is_new = self._state.adding
-        super().save(*args, **kwargs)
-        self._update_stock_level()
-        if is_new:
-            self._post_gl()
+        # The row, the stock level and the GL entry are one event: if the stock
+        # check fails the movement must not survive as an orphan record.
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            self._update_stock_level()
+            if is_new:
+                self._post_gl()
 
     def _update_stock_level(self):
         with transaction.atomic():

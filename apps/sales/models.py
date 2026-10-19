@@ -38,10 +38,10 @@ class SalesOrder(BaseModel, NotesMixin):
 
     def calculate_totals(self):
         lines = self.lines.all()
-        subtotal = sum(l.line_total for l in lines)
+        subtotal = sum((l.line_total for l in lines), Decimal("0"))
         discount = subtotal * (self.discount_percent / 100)
         taxable = subtotal - discount
-        tax = sum(l.tax_amount for l in lines)
+        tax = sum((l.tax_amount for l in lines), Decimal("0"))
         self.subtotal = subtotal
         self.tax_amount = tax
         self.total_amount = taxable + tax
@@ -111,10 +111,13 @@ class Invoice(BaseModel, NotesMixin):
 
     def save(self, *args, **kwargs):
         self.outstanding_amount = self.total_amount - self.paid_amount
-        if self.outstanding_amount <= 0:
-            self.status = "PAID"
-        elif self.paid_amount > 0:
-            self.status = "PARTIAL"
+        # A draft with no lines yet has nothing to settle, so it must not be
+        # reported as settled.
+        if self.total_amount > 0:
+            if self.outstanding_amount <= 0:
+                self.status = "PAID"
+            elif self.paid_amount > 0:
+                self.status = "PARTIAL"
         super().save(*args, **kwargs)
 
 

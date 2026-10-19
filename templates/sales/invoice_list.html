@@ -5,10 +5,11 @@
     <div>
       <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
       {% if total_outstanding %}
-      <p class="text-sm text-gray-500 mt-0.5">Outstanding: <span class="font-semibold text-gray-900">KSh {{ total_outstanding|floatformat:2 }}</span></p>
+      <p class="text-sm text-gray-500 mt-0.5">Outstanding: <span class="font-semibold text-gray-900">{{ active_company.currency|default:"KES" }} {{ total_outstanding|floatformat:2 }}</span></p>
       {% endif %}
     </div>
-    <div class="flex gap-2">
+    <div class="flex gap-2 flex-wrap no-print">
+      {% include "_includes/print_button.html" %}
       <a href="{% url 'sales:payment_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Payments</a>
       <a href="{% url 'sales:invoice_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -78,14 +79,6 @@
     </table>
   </div>
 
-  {% if is_paginated %}
-  <div class="flex items-center justify-between text-sm text-gray-500">
-    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-    <div class="flex gap-1">
-      {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Prev</a>{% endif %}
-      {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Next</a>{% endif %}
-    </div>
-  </div>
-  {% endif %}
+  {% include "_includes/pagination.html" %}
 </div>
 {% endblock %}

@@ -16,13 +16,13 @@
         <p class="text-sm text-gray-500 mt-0.5">{{ customer.city }}{% if customer.city and customer.country %}, {% endif %}{{ customer.country }}</p>
       </div>
     </div>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
       <a href="{% url 'sales:invoice_create' %}?customer={{ customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">New Invoice</a>
       <a href="{% url 'crm:customer_edit' customer.pk %}" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Edit</a>
     </div>
   </div>
 
-  <div class="grid grid-cols-3 gap-5">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
     <!-- Contact card -->
     <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
       <h3 class="font-semibold text-gray-800">Contact</h3>
@@ -40,7 +40,7 @@
     </div>
 
     <!-- Invoices -->
-    <div class="col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="font-semibold text-gray-800">Recent Invoices</h3>
         <a href="{% url 'sales:invoice_create' %}" class="text-xs text-primary hover:underline">+ New Invoice</a>

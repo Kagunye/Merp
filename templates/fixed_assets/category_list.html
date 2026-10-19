@@ -1,9 +1,9 @@
 {% extends "base/base.html" %}
-{% block title %}Asset Categories — MERP ERP{% endblock %}
+{% block title %}Asset Categories — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-bold text-gray-900">Asset Categories</h1>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{% url 'fixed_assets:asset_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Back to Assets</a>
     <a href="{% url 'fixed_assets:category_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Category</a>
   </div>

@@ -1,0 +1,38 @@
+{% comment %}HTMX fragment: KPI tiles refreshed from /dashboard/widgets/kpis/{% endcomment %}
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Cash on hand</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ total_cash|floatformat:2|default:"0.00" }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Receivables</p>
+    <p class="text-xl font-bold mt-1 tabular-nums" style="color: var(--primary);">{{ accounts_receivable|floatformat:2|default:"0.00" }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Payables</p>
+    <p class="text-xl font-bold text-amber-600 mt-1 tabular-nums">{{ accounts_payable|floatformat:2|default:"0.00" }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Revenue (MTD)</p>
+    <p class="text-xl font-bold text-emerald-600 mt-1 tabular-nums">{{ monthly_revenue|floatformat:2|default:"0.00" }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Expenses (MTD)</p>
+    <p class="text-xl font-bold text-rose-600 mt-1 tabular-nums">{{ monthly_expenses|floatformat:2|default:"0.00" }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Gross profit (MTD)</p>
+    <p class="text-xl font-bold mt-1 tabular-nums {% if gross_profit >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">{{ gross_profit|floatformat:2|default:"0.00" }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Inventory value</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ inventory_value|floatformat:2|default:"0.00" }}</p>
+    <p class="text-[11px] {% if low_stock_count %}text-amber-600{% else %}text-gray-400{% endif %} mt-1">
+      {{ total_products|default:0 }} products, {{ low_stock_count|default:0 }} low on stock
+    </p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Active staff</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ headcount|default:0 }}</p>
+  </div>
+</div>

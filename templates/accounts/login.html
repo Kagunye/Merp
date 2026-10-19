@@ -4,8 +4,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign In — MERP ERP</title>
+  <title>Sign In — Mofisi</title>
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@1,500;1,700&display=swap" rel="stylesheet">
   <style>
@@ -35,7 +36,6 @@
       color: var(--text);
       margin: 0;
     }
-    [data-theme="dark"] .brand-text .name { color: #F3F4F6; }
     [data-theme="dark"] .title { color: #F9FAFB; }
     [data-theme="dark"] .field-label label { color: #D1D5DB; }
     [data-theme="dark"] .back-btn { color: #F3F4F6; }
@@ -185,20 +185,12 @@
       flex-wrap: wrap;
     }
     .brand {
-      display: flex; align-items: center; gap: 10px; text-decoration: none;
+      display: flex; align-items: center; text-decoration: none;
     }
-    .brand-mark {
-      width: 44px; height: 44px;
-      border-radius: 12px;
-      background: var(--primary);
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 6px 16px rgba(200,16,46,0.25);
-    }
-    .brand-text {
-      line-height: 1.1;
-    }
-    .brand-text .name { font-size: 15px; font-weight: 800; color: #111827; letter-spacing: -0.01em; }
-    .brand-text .tag  { font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #9CA3AF; }
+    .brand-logo { height: 52px; width: auto; display: block; }
+    .brand-logo-inverted { display: none; }
+    [data-theme="dark"] .brand-logo { display: none; }
+    [data-theme="dark"] .brand-logo-inverted { display: block; }
 
     .top-utilities {
       display: flex;
@@ -478,7 +470,7 @@
       <div class="hero-tint"></div>
       <div class="welcome-card">
         <p class="eyebrow" data-i18n="eyebrow">Welcome</p>
-        <h2 data-i18n="welcome_h">Welcome to<br>MERP Business Suite</h2>
+        <h2 data-i18n="welcome_h">Welcome to<br>Mofisi Business Suite</h2>
         <p class="tagline" data-i18n="tagline">Twaimarisha Biashara</p>
         <p data-i18n="welcome_body">More than just an ERP: run your accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.</p>
       </div>
@@ -488,17 +480,9 @@
     <section class="form-col">
 
       <header class="top-bar">
-        <a href="/" class="brand">
-          <div class="brand-mark">
-            <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-            </svg>
-          </div>
-          <div class="brand-text">
-            <div class="name">MERP</div>
-            <div class="tag">Business Suite</div>
-          </div>
+        <a href="/" class="brand" aria-label="Mofisi">
+          <img src="{% static 'merp/images/mofisi-logo.png' %}" alt="Mofisi" class="brand-logo">
+          <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="brand-logo-inverted">
         </a>
 
         <div class="top-utilities">
@@ -585,7 +569,7 @@
           </form>
 
           <p class="signup-line">
-            <span data-i18n="new_to">New to MERP?</span>
+            <span data-i18n="new_to">New to Mofisi?</span>
             <a href="{% url 'accounts:register' %}" data-i18n="open_account">Open an account online</a>
           </p>
 
@@ -596,7 +580,7 @@
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M12 15v2m-6 4h12a2 2 0 002-2v-7a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2zm10-11V7a4 4 0 00-8 0v4h8z"/>
             </svg>
-            <p data-i18n="security">Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.</p>
+            <p data-i18n="security">Keep your password and codes to yourself. Mofisi will never call, text or email you to ask for them.</p>
           </div>
 
           {% if demo_email and demo_password %}
@@ -680,7 +664,7 @@
   const DICT = {
     en: {
       eyebrow: 'Welcome',
-      welcome_h: 'Welcome to<br>MERP Business Suite',
+      welcome_h: 'Welcome to<br>Mofisi Business Suite',
       tagline: 'Twaimarisha Biashara',
       welcome_body: 'More than just an ERP: run your accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.',
       title: 'Sign in',
@@ -692,14 +676,14 @@
       remember: 'Remember this device for 30 days',
       sign_in: 'Sign in',
       register: 'Register',
-      new_to: 'New to MERP?',
+      new_to: 'New to Mofisi?',
       open_account: 'Open an account online',
-      security: 'Keep your password and codes to yourself. MERP will never call, text or email you to ask for them.',
+      security: 'Keep your password and codes to yourself. Mofisi will never call, text or email you to ask for them.',
       show: 'Show', hide: 'Hide',
     },
     sw: {
       eyebrow: 'Karibu',
-      welcome_h: 'Karibu<br>MERP Business Suite',
+      welcome_h: 'Karibu<br>Mofisi Business Suite',
       tagline: 'Twaimarisha Biashara',
       welcome_body: 'Zaidi ya ERP tu: endesha hesabu, bidhaa, HR, mishahara, mauzo na wateja — kutoka simu au kompyuta, wakati wowote.',
       title: 'Ingia',
@@ -711,9 +695,9 @@
       remember: 'Kumbuka kifaa hiki kwa siku 30',
       sign_in: 'Ingia',
       register: 'Jisajili',
-      new_to: 'Mpya MERP?',
+      new_to: 'Mpya Mofisi?',
       open_account: 'Fungua akaunti mtandaoni',
-      security: 'Weka nenosiri lako siri. MERP haitawahi kukupigia simu, kutuma ujumbe au barua pepe kuomba.',
+      security: 'Weka nenosiri lako siri. Mofisi haitawahi kukupigia simu, kutuma ujumbe au barua pepe kuomba.',
       show: 'Onyesha', hide: 'Ficha',
     },
   };

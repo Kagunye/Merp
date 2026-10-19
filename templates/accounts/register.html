@@ -4,8 +4,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Create account — MERP ERP</title>
+  <title>Create account — Mofisi</title>
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@1,500;1,700&display=swap" rel="stylesheet">
   <style>
@@ -50,10 +51,8 @@
     /* Form column */
     .form-col { position: relative; display: flex; flex-direction: column; padding: 32px clamp(24px, 3.5vw, 48px); min-height: 100vh; background: var(--surface); }
     .top-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; gap: 12px; flex-wrap: wrap; }
-    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-    .brand-mark { width: 44px; height: 44px; border-radius: 12px; background: var(--primary); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(200,16,46,0.25); }
-    .brand-text .name { font-size: 15px; font-weight: 800; color: #111827; letter-spacing: -0.01em; }
-    .brand-text .tag { font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #9CA3AF; }
+    .brand { display: flex; align-items: center; text-decoration: none; }
+    .brand-logo { height: 40px; width: auto; display: block; }
     .top-link { font-size: 13.5px; color: #6B7280; }
     .top-link a { color: var(--primary); font-weight: 600; text-decoration: none; }
     .top-link a:hover { color: var(--primary-dark); }
@@ -109,7 +108,7 @@
       <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="hero-img" onerror="this.style.display='none'">
       <div class="hero-tint"></div>
       <div class="welcome-card">
-        <p class="eyebrow">Join MERP</p>
+        <p class="eyebrow">Join Mofisi</p>
         <h2>Run your whole business from one place.</h2>
         <p class="tagline">Twaimarisha Biashara</p>
         <p>Create a free account to get instant access to accounting, inventory, HR, payroll, sales and customers — in one unified suite.</p>
@@ -119,16 +118,8 @@
     <!-- RIGHT: FORM -->
     <section class="form-col">
       <header class="top-bar">
-        <a href="/" class="brand">
-          <div class="brand-mark">
-            <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-            </svg>
-          </div>
-          <div class="brand-text">
-            <div class="name">MERP</div>
-            <div class="tag">Business Suite</div>
-          </div>
+        <a href="/" class="brand" aria-label="Mofisi">
+          <img src="{% static 'merp/images/mofisi-logo.png' %}" alt="Mofisi" class="brand-logo">
         </a>
         <div class="top-link">Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a></div>
       </header>
@@ -197,7 +188,7 @@
 
             <label class="terms-row" for="id_terms_accepted">
               <input type="checkbox" name="terms_accepted" id="id_terms_accepted" required>
-              <span>I agree to the <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.</span>
+              <span>I agree to the Mofisi terms of service and privacy policy.</span>
             </label>
             {% if form.terms_accepted.errors %}<p class="field-error">{{ form.terms_accepted.errors.0 }}</p>{% endif %}
 

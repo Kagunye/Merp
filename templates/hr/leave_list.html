@@ -1,18 +1,18 @@
 {% extends "base/base.html" %}
-{% block title %}Leave Requests — MERP ERP{% endblock %}
+{% block title %}Leave Requests — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Leave Requests</h1>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{% url 'hr:employee_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Employees</a>
     <a href="{% url 'hr:leave_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Request Leave</a>
   </div>
 </div>
 
 <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="flex gap-3">
+  <form method="get" class="no-print flex flex-wrap gap-3">
     <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
       <option value="">All Statuses</option>
       {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -54,7 +54,7 @@
           <form method="post" action="{% url 'hr:leave_approve' lr.pk %}" class="inline-flex gap-2">
             {% csrf_token %}
             <button name="action" value="approve" type="submit" class="px-3 py-1 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700">Approve</button>
-            <button name="action" value="reject" type="submit" class="px-3 py-1 rounded text-xs font-medium text-red-600 border border-red-300 hover:bg-red-50">Reject</button>
+            <button name="action" value="reject" type="submit" onclick="return confirm('Reject this leave request?')" class="px-3 py-1 rounded text-xs font-medium text-red-600 border border-red-300 hover:bg-red-50">Reject</button>
           </form>
           {% endif %}
         </td>
@@ -65,4 +65,5 @@
     </tbody>
   </table>
 </div>
+{% include "_includes/pagination.html" %}
 {% endblock %}

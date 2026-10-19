@@ -14,13 +14,29 @@
     <div class="text-xs text-gray-500 mt-1">Claim date: {{ claim.claim_date|date:"d M Y" }}</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-2">
+    <div class="text-xs text-gray-500 mb-1">Actions</div>
     {% if claim.status == 'DRAFT' %}
-      <form method="post" action="{% url 'expenses:claim_submit' claim.pk %}">{% csrf_token %}<button class="w-full">Submit for approval</button></form>
+      <form method="post" action="{% url 'expenses:claim_submit' claim.pk %}">{% csrf_token %}<button class="btn-primary w-full">Submit for approval</button></form>
     {% elif claim.status == 'SUBMITTED' %}
-      <form method="post" action="{% url 'expenses:claim_approve' claim.pk %}">{% csrf_token %}<button class="w-full">Approve</button></form>
-      <form method="post" action="{% url 'expenses:claim_reject' claim.pk %}">{% csrf_token %}<button class="w-full btn-outline">Reject</button></form>
+      <form method="post" action="{% url 'expenses:claim_approve' claim.pk %}">{% csrf_token %}<button class="btn-primary w-full">Approve</button></form>
+      <form method="post" action="{% url 'expenses:claim_reject' claim.pk %}">{% csrf_token %}<button type="submit" onclick="return confirm('Reject this claim?')" class="btn-outline w-full">Reject</button></form>
     {% elif claim.status == 'APPROVED' %}
-      <span class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }}</span>
+      <p class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}</p>
+      <form method="post" action="{% url 'expenses:claim_pay' claim.pk %}" class="flex flex-col gap-2">
+        {% csrf_token %}
+        <label for="id_bank_account" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Paid from</label>
+        <select id="id_bank_account" name="bank_account" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+          <option value="">— Cash on Hand (1100)</option>
+          {% for acct in payment_accounts %}
+            <option value="{{ acct.pk }}">{{ acct.name }} — {{ acct.bank_name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn-primary w-full">Pay &amp; post to GL</button>
+      </form>
+      <p class="text-xs text-gray-500">Posts Dr each line's expense account, Cr the selected account for {{ claim.total_amount }}.</p>
+    {% elif claim.status == 'PAID' %}
+      <p class="text-sm text-gray-700">Paid on {{ claim.paid_at|date:"d M Y" }}</p>
+      {% if claim.journal_entry %}<p class="text-xs text-gray-500">GL entry <a href="{% url 'accounting:journal_entry_detail' claim.journal_entry.pk %}" class="hover:underline" style="color:var(--primary)">{{ claim.journal_entry.reference }}</a></p>{% endif %}
     {% endif %}
   </div>
 </div>

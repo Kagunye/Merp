@@ -11,7 +11,25 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.mixins import CompanyRequiredMixin
+
+from .forms import BillForm
 from .models import Bill, PurchaseOrder, PurchaseRequisition
+from apps.core.forms import ISO_DATE
+
+
+def _post_bill_to_gl(request, bill, user=None) -> bool:
+    """Post a bill to the ledger, surfacing failures instead of skipping silently."""
+    try:
+        from apps.accounting.gl_service import post_bill
+        post_bill(bill, user=user)
+        return True
+    except Exception as exc:
+        messages.error(
+            request,
+            f"Bill '{bill.reference}' saved, but GL posting failed: {exc}",
+        )
+        return False
 
 
 class BillListView(LoginRequiredMixin, ListView):
@@ -41,49 +59,40 @@ class BillListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class BillCreateView(LoginRequiredMixin, CreateView):
+class BillCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = Bill
+    form_class = BillForm
     template_name = "procurement/bill_form.html"
-    fields = ["reference", "supplier", "supplier_reference", "bill_date", "due_date", "subtotal", "tax_amount", "total_amount", "notes"]
 
     def get_success_url(self):
         from django.urls import reverse
         return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        from django import forms as dforms
-        for fname, field in form.fields.items():
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        if company:
-            from apps.crm.models import Supplier
-            form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
-            from apps.core.models import SequenceCounter
-            form.fields["reference"].initial = SequenceCounter.next_number(company, "BILL-")
-        form.fields["bill_date"].initial = datetime.date.today()
-        form.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
-        # Set outstanding_amount
+        company = self.request.active_company
         bill = form.save(commit=False)
-        bill.outstanding_amount = bill.total_amount - bill.paid_amount
-        bill.company = self.request.active_company
+        bill.company = company
+        if not bill.reference:
+            from apps.core.models import SequenceCounter
+            bill.reference = SequenceCounter.next_number(company, "BILL-")
         bill.save()
-        messages.success(self.request, f"Bill '{bill.reference}' created.")
-        from django.urls import reverse
-        return redirect(reverse("procurement:bill_detail", kwargs={"pk": bill.pk}))
+        self.object = bill
+        # The bill must survive a posting failure (it stays DRAFT for re-posting),
+        # so this runs outside the caller's transaction.
+        posted = _post_bill_to_gl(self.request, bill, self.request.user)
+        if posted:
+            messages.success(self.request, f"Bill '{bill.reference}' created and posted to the GL.")
+        else:
+            messages.info(
+                self.request,
+                f"Bill '{bill.reference}' is still DRAFT. Use Post to GL once the issue above is fixed.",
+            )
+        return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -154,6 +163,7 @@ class PurchaseOrderCreateView(LoginRequiredMixin, CreateView):
             elif isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 field.widget.attrs["type"] = "date"
+                field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
         if company:
@@ -326,6 +336,12 @@ class PurchaseRequisitionDetailView(LoginRequiredMixin, DetailView):
     template_name = "procurement/requisition_detail.html"
     context_object_name = "requisition"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return PurchaseRequisition.objects.none()
+        return PurchaseRequisition.objects.filter(company=company)
+
 
 class GRNView(LoginRequiredMixin, DetailView):
     """Goods Receipt Note — view & record what came in against a PO."""
@@ -333,16 +349,20 @@ class GRNView(LoginRequiredMixin, DetailView):
     template_name = "procurement/grn.html"
     context_object_name = "po"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return PurchaseOrder.objects.none()
+        return PurchaseOrder.objects.filter(company=company)
+
 
 # ------------------------- AP actions -------------------------
-
 
 class BillUpdateView(LoginRequiredMixin, UpdateView):
     """Edit a bill. Blocks edits once fully paid or cancelled."""
     model = Bill
+    form_class = BillForm
     template_name = "procurement/bill_form.html"
-    fields = ["reference", "supplier", "supplier_reference", "bill_date", "due_date",
-              "subtotal", "tax_amount", "total_amount", "notes"]
 
     def get_queryset(self):
         return Bill.objects.filter(company=self.request.active_company)
@@ -354,33 +374,28 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
             return redirect("procurement:bill_detail", pk=obj.pk)
         return super().dispatch(request, *args, **kwargs)
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        from django import forms as dforms
-        for fname, field in form.fields.items():
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        company = self.request.active_company
-        if company:
-            from apps.crm.models import Supplier
-            form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_success_url(self):
         from django.urls import reverse
         return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
 
     def form_valid(self, form):
+        previous_total = self.object.total_amount
+        was_posted = bool(self.object.journal_entry_id)
+        response = super().form_valid(form)
         messages.success(self.request, f"Bill {form.instance.reference} updated.")
-        return super().form_valid(form)
+        if was_posted and self.object.total_amount != previous_total:
+            messages.warning(
+                self.request,
+                f"This bill is already posted to the GL for {previous_total}, but the saved "
+                f"bill total is {self.object.total_amount}. Reverse that entry or post a "
+                "correction before the ledger and the bill agree again.",
+            )
+        return response
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -399,6 +414,21 @@ def bill_cancel(request, pk):
         bill.status = "CANCELLED"
         bill.save(update_fields=["status"])
         messages.success(request, f"Bill {bill.reference} cancelled.")
+    return redirect("procurement:bill_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def bill_post(request, pk):
+    """Post a DRAFT bill's journal entry (Dr Inventory/VAT Input, Cr AP)."""
+    bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
+    if bill.journal_entry_id:
+        messages.info(request, "Bill is already posted to GL.")
+    elif bill.status == "CANCELLED":
+        messages.error(request, f"Cannot post {bill.reference}: the bill is cancelled.")
+    else:
+        if _post_bill_to_gl(request, bill, request.user):
+            messages.success(request, f"Bill '{bill.reference}' posted to GL.")
     return redirect("procurement:bill_detail", pk=pk)
 
 
@@ -430,8 +460,14 @@ def bill_pay(request, pk):
         return redirect("procurement:bill_detail", pk=pk)
 
     company = request.active_company
-    ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).first()
-    bank = Account.objects.filter(company=company, account_type__in=["BANK", "CASH"], is_active=True).first()
+    if not bill.journal_entry_id:
+        # Paying an unposted bill would debit AP with no matching credit.
+        with transaction.atomic():
+            if not _post_bill_to_gl(request, bill, request.user):
+                return redirect("procurement:bill_detail", pk=pk)
+        messages.info(request, f"Bill {bill.reference} was posted to the GL first.")
+    ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).order_by("code").first()
+    bank = Account.objects.filter(company=company, account_type__in=["BANK", "CASH"], is_active=True).order_by("code").first()
     if not (ap and bank):
         messages.error(request, "Chart of accounts missing a Payable or Bank/Cash account.")
         return redirect("procurement:bill_detail", pk=pk)

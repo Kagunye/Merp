@@ -9,6 +9,8 @@ from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.mixins import CompanyRequiredMixin
+
 from .forms import ProductForm, StockMovementForm
 from .models import Product, StockLevel, StockMovement
 
@@ -51,21 +53,16 @@ class ProductListView(LoginRequiredMixin, ListView):
         return low
 
 
-class ProductCreateView(LoginRequiredMixin, CreateView):
+class ProductCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = Product
     form_class = ProductForm
     template_name = "inventory/product_form.html"
     success_url = reverse_lazy("inventory:product_list")
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        if company:
-            from .models import ProductCategory, UnitOfMeasure
-            form.fields["category"].queryset = ProductCategory.objects.filter(company=company, is_active=True)
-            form.fields["category"].empty_label = "— No category"
-            form.fields["unit_of_measure"].queryset = UnitOfMeasure.objects.filter(company=company, is_active=True)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -88,14 +85,10 @@ class ProductUpdateView(LoginRequiredMixin, UpdateView):
     def get_queryset(self):
         return Product.objects.filter(company=self.request.active_company)
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        if company:
-            from .models import ProductCategory, UnitOfMeasure
-            form.fields["category"].queryset = ProductCategory.objects.filter(company=company, is_active=True)
-            form.fields["unit_of_measure"].queryset = UnitOfMeasure.objects.filter(company=company, is_active=True)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         messages.success(self.request, f"Product '{form.instance.name}' updated.")
@@ -153,7 +146,7 @@ class StockMovementListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class StockAdjustmentCreateView(LoginRequiredMixin, CreateView):
+class StockAdjustmentCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = StockMovement
     form_class = StockMovementForm
     template_name = "inventory/stock_adjustment_form.html"

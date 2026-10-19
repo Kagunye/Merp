@@ -62,6 +62,12 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
     template_name = "helpdesk/ticket_detail.html"
     context_object_name = "ticket"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return Ticket.objects.none()
+        return Ticket.objects.filter(company=company)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["comment_form"] = TicketCommentForm()

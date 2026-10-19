@@ -4,11 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}MERP ERP{% endblock %}</title>
+  <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}Mofisi{% endblock %}</title>
 
   <!-- Tailwind CSS — pre-built via `npm run build:css` from tailwind.config.js -->
   {% load static %}
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
 
   <!-- Inter Font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -63,6 +64,12 @@
       transition: opacity 0.15s;
     }
     #sidebar.expanded .sidebar-label { opacity: 1; width: auto; }
+
+    /* Brand: square mark on the collapsed rail, full lockup once there is room */
+    .sidebar-brand-mark { display: block; width: 36px; height: 36px; flex-shrink: 0; }
+    .sidebar-brand-lockup { display: none; height: 30px; width: auto; flex-shrink: 0; }
+    #sidebar.expanded .sidebar-brand-mark { display: none; }
+    #sidebar.expanded .sidebar-brand-lockup { display: block; }
 
     #sidebar-nav { flex: 1 1 auto; overflow-y: auto; }
     #sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); }
@@ -181,6 +188,25 @@
     }
     main form.inline-form,
     main form.no-card { background: transparent; border: none; padding: 0; }
+
+    /* Compact filter bars (list pages, statements): controls sit side by side,
+       so they must not inherit the full-width card treatment above. */
+    main form.inline-form label { font-size: 11px; margin-bottom: 3px; }
+    main form.inline-form input[type="text"],
+    main form.inline-form input[type="search"],
+    main form.inline-form input[type="date"],
+    main form.inline-form input[type="month"],
+    main form.inline-form select {
+      width: auto; min-width: 150px; padding: 8px 11px; font-size: 13px;
+    }
+    main form.inline-form button[type="submit"],
+    main form.inline-form input[type="submit"] {
+      padding: 9px 16px; font-size: 13px; font-weight: 600; font-family: inherit;
+      color: #fff; background: var(--primary); border: 0; border-radius: 10px;
+      cursor: pointer; white-space: nowrap;
+    }
+    main form.inline-form button[type="submit"]:hover,
+    main form.inline-form input[type="submit"]:hover { filter: brightness(1.08); }
 
     /* Labels — same muted uppercase accent used on the sign-in form,
        but visually subordinate to the sign-in's bigger titles. */
@@ -400,6 +426,124 @@
 
     /* Badge */
     .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 18px; }
+
+    /* ── Responsive utilities the pre-built tailwind.css is missing ────────
+       static/css/tailwind.css is a purge build; the breakpoint variants used
+       by these templates were not in it, so `npm run build:css` cannot be
+       relied on here. These definitions match Tailwind's own output
+       (sm 640 / md 768 / lg 1024) and this block is later in the cascade. */
+    @media (min-width: 640px) {
+      .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .sm\:col-span-2 { grid-column: span 2 / span 2; }
+    }
+    @media (min-width: 768px) {
+      .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .md\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .md\:col-span-2 { grid-column: span 2 / span 2; }
+      .md\:col-span-3 { grid-column: span 3 / span 3; }
+      .md\:block { display: block; }
+      .md\:inline-flex { display: inline-flex; }
+      .md\:hidden { display: none; }
+    }
+    @media (min-width: 1024px) {
+      .lg\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .lg\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .lg\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .lg\:grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .lg\:col-span-2 { grid-column: span 2 / span 2; }
+      .lg\:col-span-3 { grid-column: span 3 / span 3; }
+    }
+
+    /* ── Narrow screens ──────────────────────────────────────────────────── */
+    /* A flex item's default min-width:auto means #main-wrapper could never
+       become narrower than the widest thing inside it, so list and form pages
+       pushed the whole document sideways on phones and tablets. */
+    #main-wrapper, #main-wrapper > main { min-width: 0; }
+
+    @media (max-width: 767px) {
+      /* Data tables are far wider than a phone. Turning the table into a
+         scroll container lets its rows scroll sideways while the children
+         keep their table layout — one rule instead of 80 wrappers. */
+      main table {
+        display: block; max-width: 100%; overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      /* The topbar is a fixed-height row: the search box shrinks so the
+         icon controls never get pushed off screen. */
+      .topbar-search { flex: 1 1 auto; min-width: 0; }
+    }
+    /* The topbar is a fixed-height row whose right-hand cluster (icons, company
+       switcher, profile) has a content-driven width. The search box therefore
+       takes whatever that cluster leaves: a fixed 384px search pushed the
+       profile button off screen as soon as the full sidebar was in place. */
+    @media (min-width: 768px) {
+      .topbar-search { flex: 1 1 auto; min-width: 0; max-width: 24rem; }
+      #topbar > div:last-child { flex-shrink: 0; }
+    }
+
+    /* ── Printing ──────────────────────────────────────────────────────────
+       Screen chrome (sidebar, topbar, action buttons) drops away and the
+       document prints in black on white with repeating table headers.
+       Multi-column card grids stack so wide tables get the full page. */
+    .print-header { display: none; }
+
+    @media print {
+      @page { margin: 14mm 12mm; }
+      html { font-size: 12px; }
+      body { background: #fff !important; color: #000 !important; }
+
+      #sidebar, #sidebar-backdrop, #topbar, #toast-container,
+      .no-print, button, input[type="submit"], input[type="button"],
+      .hidden-dropdown, .htmx-indicator { display: none !important; }
+
+      #main-wrapper { margin-left: 0 !important; }
+      main { padding-top: 0 !important; min-height: 0 !important; }
+      main > div { padding: 0 !important; }
+
+      /* Letterhead — only visible on paper. */
+      .print-header {
+        display: flex !important; align-items: flex-start; justify-content: space-between;
+        gap: 16px; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 14px;
+      }
+      .print-header img { max-height: 48px; max-width: 150px; object-fit: contain; }
+      .print-header .ph-name { font-size: 17px; font-weight: 700; }
+      .print-header .ph-sub { font-size: 10px; color: #333; margin-top: 2px; }
+      .print-header .ph-doc { text-align: right; flex-shrink: 0; }
+      .print-header .ph-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+      .print-header .ph-meta { font-size: 10px; color: #333; margin-top: 2px; }
+
+      /* Stack dashboard-style grids into a readable column flow. */
+      [class*="grid"] { display: block !important; gap: 0 !important; }
+      [class*="grid"] > * { margin-bottom: 8px !important; }
+
+      .card, [class*="bg-white"], [class*="rounded"] {
+        background: #fff !important; border: 1px solid #bbb !important;
+        border-radius: 4px !important; box-shadow: none !important;
+      }
+      [class*="bg-gray-50"], [class*="bg-orange-50"], [class*="bg-red-50"],
+      [class*="bg-green-50"], [class*="bg-blue-50"], [class*="bg-amber-50"] { background: #fff !important; }
+
+      /* Dark mode must never print dark. */
+      [data-theme="dark"] body, [data-theme="dark"] .card,
+      [data-theme="dark"] main form input, [data-theme="dark"] main form select,
+      [data-theme="dark"] main form textarea, [data-theme="dark"] main form label {
+        background: #fff !important; color: #000 !important; border-color: #bbb !important;
+      }
+
+      table { width: 100% !important; border-collapse: collapse !important; }
+      main table { display: table !important; overflow: visible !important; max-width: none !important; }
+      thead { display: table-header-group; }
+      th, td { border-color: #ccc !important; color: #000 !important; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+      h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+
+      a { color: #000 !important; text-decoration: none !important; }
+      .badge { border: 1px solid #999 !important; background: #fff !important; color: #000 !important; }
+      canvas { max-width: 100% !important; }
+    }
   </style>
 
   {% block extra_head %}{% endblock %}
@@ -416,16 +560,9 @@
 
   <!-- Header row: brand (expanded) + hamburger toggle -->
   <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid rgba(255,255,255,0.14);">
-    <div class="flex items-center gap-2 min-w-0 flex-1">
-      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style="background: rgba(255,255,255,0.14);">
-        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-        </svg>
-      </div>
-      <div class="sidebar-label min-w-0">
-        <div class="text-sm font-bold text-white leading-tight">MERP</div>
-        <div class="text-[10px] font-medium leading-tight" style="color:rgba(255,255,255,0.72); letter-spacing:0.12em; text-transform:uppercase;">Business Suite</div>
-      </div>
+    <div class="flex items-center min-w-0 flex-1">
+      <img src="{% static 'merp/images/mofisi-mark-white.png' %}" alt="Mofisi" class="sidebar-brand-mark">
+      <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="sidebar-brand-lockup">
     </div>
     <button type="button" onclick="toggleSidebar()" title="Toggle sidebar"
             class="sidebar-collapse-btn w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
@@ -711,16 +848,17 @@
       </svg>
     </button>
 
-    <!-- Search — bounded so it doesn't dominate -->
-    <div class="w-full max-w-sm">
-      <div class="relative">
+    <!-- Search — submits to the global search page -->
+    <div class="topbar-search">
+      <form method="get" action="{% url 'dashboard:search' %}" class="relative">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
         </svg>
-        <input type="text" id="global-search" placeholder="Search transactions, customers, products…"
+        <input type="search" id="global-search" name="q" value="{{ request.GET.q|default:'' }}"
+               placeholder="Search invoices, customers, products…"
                class="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:bg-white focus:border-transparent transition"
                style="--tw-ring-color: var(--primary);">
-      </div>
+      </form>
     </div>
 
     <!-- Spacer -->
@@ -730,7 +868,7 @@
 
       <!-- Company switcher -->
       {% if active_company %}
-      <div class="relative" x-data="{ open: false }">
+      <div class="relative">
         <button onclick="this.nextElementSibling.classList.toggle('hidden')"
                 class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg border border-gray-200">
           <div class="w-5 h-5 rounded" style="background: var(--primary)"></div>
@@ -765,6 +903,15 @@
 
       <!-- Vertical divider -->
       <div class="hidden md:block h-6 w-px bg-gray-200"></div>
+
+      <!-- Print current page -->
+      <button type="button" onclick="window.print()" title="Print this page"
+              class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100">
+        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2m0 0v4H6v-4h12z"/>
+        </svg>
+      </button>
 
       <!-- Notifications -->
       <div class="relative">
@@ -861,6 +1008,26 @@
   <!-- PAGE CONTENT -->
   <main class="flex-1 pt-16 min-h-screen">
     <div class="p-6">
+
+      <!-- Letterhead: only rendered on paper (see the print stylesheet) -->
+      <div class="print-header">
+        <div class="flex items-start gap-3">
+          {% if active_company.logo %}<img src="{{ active_company.logo.url }}" alt="">{% endif %}
+          <div>
+            <div class="ph-name">{{ active_company.name|default:"Mofisi" }}</div>
+            <div class="ph-sub">
+              {{ active_company.full_address }}
+              {% if active_company.phone %} · Tel {{ active_company.phone }}{% endif %}
+              {% if active_company.email %} · {{ active_company.email }}{% endif %}
+              {% if active_company.tax_id %} · PIN {{ active_company.tax_id }}{% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="ph-doc">
+          <div class="ph-title">{{ page_title|default:"Mofisi" }}</div>
+          <div class="ph-meta">Printed {% now "d M Y H:i" %}</div>
+        </div>
+      </div>
 
       <!-- Breadcrumbs -->
       {% if breadcrumbs %}
@@ -979,11 +1146,15 @@
     });
   });
 
-  // Close dropdowns when clicking outside
+  // Close dropdowns when clicking outside them. Panels are the element right
+  // after a toggle button and open/closed by toggling the `hidden` class.
   document.addEventListener('click', function(e) {
-    if (!e.target.closest('[onclick]')) {
-      document.querySelectorAll('.hidden-dropdown').forEach(el => el.classList.add('hidden'));
-    }
+    document.querySelectorAll('button[onclick*="nextElementSibling"]').forEach(btn => {
+      const panel = btn.nextElementSibling;
+      if (panel && btn.parentElement && !btn.parentElement.contains(e.target)) {
+        panel.classList.add('hidden');
+      }
+    });
   });
 
   // Toast function
@@ -991,7 +1162,9 @@
     const colors = { info: 'bg-blue-600', success: 'bg-green-600', error: 'bg-red-600', warning: 'bg-amber-500' };
     const toast = document.createElement('div');
     toast.className = `${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2 max-w-sm`;
-    toast.innerHTML = `<span>${message}</span>`;
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.appendChild(text);
     document.getElementById('toast-container').appendChild(toast);
     setTimeout(() => toast.remove(), 3500);
   }

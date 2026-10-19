@@ -1,17 +1,20 @@
 {% extends "base/base.html" %}
-{% block title %}Balance Sheet — MERP ERP{% endblock %}
+{% block title %}Balance Sheet — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Balance Sheet</h1>
     <p class="text-sm text-gray-500 mt-1">As at {{ date_to }}</p>
   </div>
-  <a href="{% url 'reporting:index' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+  <div class="flex items-center gap-2">
+    {% include "_includes/print_button.html" %}
+    <a href="{% url 'reporting:index' %}" class="no-print px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
+  </div>
 </div>
 
 <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="flex gap-3">
-    <div><label class="text-xs text-gray-500">As at</label><input type="date" name="date_to" value="{{ date_to }}" class="block border border-gray-300 rounded-lg px-3 py-1.5 text-sm"></div>
+  <form method="get" class="no-print flex flex-wrap gap-3">
+    <div><label for="id_date_to" class="text-xs text-gray-500">As at</label><input id="id_date_to" type="date" name="date_to" value="{{ date_to|date:'Y-m-d' }}" class="block border border-gray-300 rounded-lg px-3 py-1.5 text-sm"></div>
     <div class="self-end"><button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Run</button></div>
   </form>
 </div>

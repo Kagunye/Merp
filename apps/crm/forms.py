@@ -1,5 +1,6 @@
 """CRM forms."""
 from django import forms
+from apps.core.forms import date_input, lock_currency
 from .models import Customer, Supplier, Lead
 
 
@@ -19,6 +20,12 @@ class CustomerForm(forms.ModelForm):
             "country": forms.TextInput(attrs={"placeholder": "Kenya"}),
         }
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if company:
+            lock_currency(self, company)
+
 
 class SupplierForm(forms.ModelForm):
     class Meta:
@@ -33,6 +40,12 @@ class SupplierForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 3}),
         }
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if company:
+            lock_currency(self, company)
+
 
 class LeadForm(forms.ModelForm):
     class Meta:
@@ -43,6 +56,6 @@ class LeadForm(forms.ModelForm):
             "assigned_to", "notes",
         ]
         widgets = {
-            "expected_close_date": forms.DateInput(attrs={"type": "date"}),
+            "expected_close_date": date_input(),
             "notes": forms.Textarea(attrs={"rows": 3}),
         }

@@ -76,12 +76,24 @@ class DocumentDetailView(LoginRequiredMixin, DetailView):
     template_name = "documents/document_detail.html"
     context_object_name = "doc"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return Document.objects.none()
+        return Document.objects.filter(company=company)
+
 
 class DocumentDeleteView(LoginRequiredMixin, DeleteView):
     model = Document
     template_name = "documents/document_delete.html"
     success_url = reverse_lazy("documents:document_list")
     context_object_name = "doc"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return Document.objects.none()
+        return Document.objects.filter(company=company)
 
 
 class CategoryListView(LoginRequiredMixin, ListView):

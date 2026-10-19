@@ -42,6 +42,11 @@ class CustomerCreateView(LoginRequiredMixin, CreateView):
     template_name = "crm/customer_form.html"
     success_url = reverse_lazy("crm:customer_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         messages.success(self.request, f"Customer '{form.instance.name}' created.")
@@ -59,6 +64,11 @@ class CustomerUpdateView(LoginRequiredMixin, UpdateView):
     form_class = CustomerForm
     template_name = "crm/customer_form.html"
     success_url = reverse_lazy("crm:customer_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_queryset(self):
         return Customer.objects.filter(company=self.request.active_company)
@@ -118,6 +128,11 @@ class SupplierCreateView(LoginRequiredMixin, CreateView):
     template_name = "crm/supplier_form.html"
     success_url = reverse_lazy("crm:supplier_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         messages.success(self.request, f"Supplier '{form.instance.name}' created.")
@@ -135,6 +150,11 @@ class SupplierUpdateView(LoginRequiredMixin, UpdateView):
     form_class = SupplierForm
     template_name = "crm/supplier_form.html"
     success_url = reverse_lazy("crm:supplier_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_queryset(self):
         return Supplier.objects.filter(company=self.request.active_company)
@@ -206,15 +226,21 @@ class LeadCreateView(LoginRequiredMixin, CreateView):
 
 
 class SupplierDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.crm.models', fromlist=['Supplier']).Supplier
+    model = Supplier
     template_name = "crm/supplier_detail.html"
     context_object_name = "supplier"
 
+    def get_queryset(self):
+        return Supplier.objects.filter(company=self.request.active_company)
+
 
 class LeadDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.crm.models', fromlist=['Lead']).Lead
+    model = Lead
     template_name = "crm/lead_detail.html"
     context_object_name = "lead"
+
+    def get_queryset(self):
+        return Lead.objects.filter(company=self.request.active_company)
 
 
 class CRMIndexView(LoginRequiredMixin, TemplateView):

@@ -6,7 +6,7 @@
   <div class="grid grid-cols-2 gap-5 text-sm">
     <div><div class="text-xs text-gray-500">Project</div><div class="font-semibold">{{ task.project.name }}</div></div>
     <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ task.get_status_display|default:task.status }}</span></div></div>
-    <div><div class="text-xs text-gray-500">Assignee</div><div class="font-semibold">{{ task.assignee|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Assignee</div><div class="font-semibold">{{ task.assigned_to.full_name|default:"—" }}</div></div>
     <div><div class="text-xs text-gray-500">Priority</div><div class="font-semibold">{{ task.get_priority_display|default:task.priority|default:"—" }}</div></div>
     <div><div class="text-xs text-gray-500">Start</div><div class="font-semibold">{{ task.start_date|date:"d M Y"|default:"—" }}</div></div>
     <div><div class="text-xs text-gray-500">Due</div><div class="font-semibold">{{ task.due_date|date:"d M Y"|default:"—" }}</div></div>

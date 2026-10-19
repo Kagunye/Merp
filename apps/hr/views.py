@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from .models import Employee, LeaveRequest, LeaveType
+from apps.core.forms import ISO_DATE
 
 
 class EmployeeListView(LoginRequiredMixin, ListView):
@@ -69,6 +70,7 @@ class EmployeeCreateView(LoginRequiredMixin, CreateView):
             elif isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 field.widget.attrs["type"] = "date"
+                field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
         if company:
@@ -164,6 +166,7 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
             elif isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 field.widget.attrs["type"] = "date"
+                field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
         if company:
@@ -227,3 +230,10 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
     model = LeaveRequest
     template_name = "hr/leave_detail.html"
     context_object_name = "leave"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return LeaveRequest.objects.none()
+        return LeaveRequest.objects.filter(employee__company=company)
+

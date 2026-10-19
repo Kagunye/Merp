@@ -5,13 +5,17 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.mixins import CompanyRequiredMixin
+
 from .forms import AccountForm, JournalEntryForm, JournalEntryLineFormSet
 from .models import Account, JournalEntry, JournalEntryLine
+from apps.core.forms import ISO_DATE
 
 
 class AccountListView(LoginRequiredMixin, ListView):
@@ -40,19 +44,16 @@ class AccountListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class AccountCreateView(LoginRequiredMixin, CreateView):
+class AccountCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = Account
     form_class = AccountForm
     template_name = "accounting/account_form.html"
     success_url = reverse_lazy("accounting:account_list")
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        if company:
-            form.fields["parent"].queryset = Account.objects.filter(company=company, is_active=True)
-            form.fields["parent"].empty_label = "— No parent (top-level)"
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -75,14 +76,10 @@ class AccountUpdateView(LoginRequiredMixin, UpdateView):
     def get_queryset(self):
         return Account.objects.filter(company=self.request.active_company)
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        if company:
-            form.fields["parent"].queryset = Account.objects.filter(
-                company=company, is_active=True
-            ).exclude(pk=self.object.pk)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         messages.success(self.request, f"Account '{form.instance.name}' updated.")
@@ -122,17 +119,22 @@ class JournalEntryListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class JournalEntryCreateView(LoginRequiredMixin, CreateView):
+class JournalEntryCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = JournalEntry
     form_class = JournalEntryForm
     template_name = "accounting/journal_entry_form.html"
 
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return JournalEntryLineFormSet(
+                self.request.POST, prefix="lines", form_kwargs=form_kwargs
+            )
+        return JournalEntryLineFormSet(prefix="lines", form_kwargs=form_kwargs)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        if self.request.POST:
-            ctx["line_formset"] = JournalEntryLineFormSet(self.request.POST, prefix="lines")
-        else:
-            ctx["line_formset"] = JournalEntryLineFormSet(prefix="lines")
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
         company = self.request.active_company
         if company:
             ctx["accounts"] = Account.objects.filter(company=company, is_active=True).values("id", "code", "name")
@@ -144,23 +146,22 @@ class JournalEntryCreateView(LoginRequiredMixin, CreateView):
         company = self.request.active_company
         if company:
             from apps.core.models import SequenceCounter
-            next_ref = SequenceCounter.next_number(company, "JE-")
-            form.fields["reference"].initial = next_ref
+            form.fields["reference"].initial = SequenceCounter.next_number(company, "JE-")
         import datetime
         form.fields["posting_date"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
-        ctx = self.get_context_data(form=form)
-        formset = ctx["line_formset"]
-        if formset.is_valid():
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        with transaction.atomic():
             self.object = form.save()
             formset.instance = self.object
             formset.save()
-            messages.success(self.request, f"Journal entry '{self.object.reference}' created.")
-            return redirect("accounting:journal_entry_detail", pk=self.object.pk)
-        return self.render_to_response(ctx)
+        messages.success(self.request, f"Journal entry '{self.object.reference}' saved as DRAFT.")
+        return redirect("accounting:journal_entry_detail", pk=self.object.pk)
 
 
 class JournalEntryDetailView(LoginRequiredMixin, DetailView):
@@ -312,7 +313,7 @@ class FiscalYearListView(LoginRequiredMixin, ListView):
         return FiscalYear.objects.filter(company=company).prefetch_related("periods")
 
 
-class FiscalYearCreateView(LoginRequiredMixin, CreateView):
+class FiscalYearCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = FiscalYear
     template_name = "accounting/fiscal_year_form.html"
     fields = ["name", "start_date", "end_date", "is_current"]
@@ -325,6 +326,7 @@ class FiscalYearCreateView(LoginRequiredMixin, CreateView):
             if isinstance(field.widget, dforms.DateInput):
                 field.widget.attrs["type"] = "date"
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.format = ISO_DATE
             elif isinstance(field.widget, dforms.CheckboxInput):
                 field.widget.attrs["class"] = "form-checkbox"
             else:

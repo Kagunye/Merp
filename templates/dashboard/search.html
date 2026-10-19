@@ -1,0 +1,55 @@
+{% extends "base/base.html" %}
+{% block title %}Search — Mofisi{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Search</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      {% if query %}
+        {{ result_count }} match{{ result_count|pluralize }} for “{{ query }}” in {{ company_name }}
+      {% else %}
+        Type anything — documents, ledger entries, people and products in {{ company_name|default:"your company" }}.
+      {% endif %}
+    </p>
+  </div>
+
+  <form method="get" action="{% url 'dashboard:search' %}">
+    <div class="relative">
+      <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      <input type="text" name="q" value="{{ query }}" autofocus placeholder="Invoice number, customer, product, journal entry…"
+             class="form-input w-full pl-12 pr-4 py-3 text-sm bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2"
+             style="--tw-ring-color: var(--primary);">
+    </div>
+  </form>
+
+  {% if query and not groups %}
+  <div class="bg-white rounded-xl border border-gray-200 p-10 text-center">
+    <p class="text-gray-500">Nothing matched “{{ query }}”.</p>
+    <p class="text-sm text-gray-400 mt-1">Try a document reference, a name, an SKU or an employee number.</p>
+  </div>
+  {% endif %}
+
+  {% for group in groups %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-700">
+      {{ group.label }} <span class="text-gray-400 font-normal">({{ group.items|length }})</span>
+    </div>
+    <div class="divide-y divide-gray-100">
+      {% for item in group.items %}
+      <a href="{{ item.url }}" class="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50">
+        <span class="min-w-0">
+          <span class="block text-sm font-medium text-gray-900 truncate">{{ item.title }}</span>
+          {% if item.subtitle %}<span class="block text-xs text-gray-500 truncate mt-0.5">{{ item.subtitle }}</span>{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -14,13 +14,13 @@
       <div class="je-section-title">Entry Details</div>
       <div class="je-head-grid">
         <div class="je-field">
-          <label class="je-label">Reference <span class="je-req">*</span></label>
-          <input type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}" class="je-input je-mono" required>
+          <label class="je-label" for="{{ form.reference.id_for_label }}">Reference <span class="je-req">*</span></label>
+          <input type="text" id="{{ form.reference.id_for_label }}" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}" class="je-input je-mono" required>
           {% if form.reference.errors %}<p class="je-err">{{ form.reference.errors.0 }}</p>{% endif %}
         </div>
         <div class="je-field">
-          <label class="je-label">Entry Type</label>
-          <select name="{{ form.entry_type.html_name }}" class="je-input">
+          <label for="{{ form.entry_type.id_for_label }}" class="je-label">Entry Type</label>
+          <select id="{{ form.entry_type.id_for_label }}" name="{{ form.entry_type.html_name }}" class="je-input">
             {% for val, label in form.entry_type.field.choices %}
               <option value="{{ val }}" {% if form.entry_type.value == val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -28,12 +28,12 @@
         </div>
         <div class="je-field">
           <label class="je-label">Posting Date <span class="je-req">*</span></label>
-          <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:'' }}" class="je-input" required>
+          <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:''|date:'Y-m-d' }}" class="je-input" required>
           {% if form.posting_date.errors %}<p class="je-err">{{ form.posting_date.errors.0 }}</p>{% endif %}
         </div>
         <div class="je-field je-field-wide">
-          <label class="je-label">Notes</label>
-          <textarea name="{{ form.notes.html_name }}" rows="2" class="je-input je-textarea" placeholder="Short narration for this journal entry">{{ form.notes.value|default:'' }}</textarea>
+          <label for="{{ form.notes.id_for_label }}" class="je-label">Notes</label>
+          <textarea id="{{ form.notes.id_for_label }}" name="{{ form.notes.html_name }}" rows="2" class="je-input je-textarea" placeholder="Short narration for this journal entry">{{ form.notes.value|default:'' }}</textarea>
         </div>
       </div>
     </div>

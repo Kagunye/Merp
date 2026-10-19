@@ -12,26 +12,26 @@
     {% csrf_token %}
 
     <!-- Header -->
-    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-4 grid grid-cols-3 gap-4">
+    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
       <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Reference</label>
-        <input type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}"
+        <label for="{{ form.reference.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Reference</label>
+        <input id="{{ form.reference.id_for_label }}" type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
           placeholder="Auto-generated if blank">
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Invoice Date *</label>
-        <input type="date" name="{{ form.invoice_date.html_name }}" value="{{ form.invoice_date.value|default:'' }}"
+        <label for="{{ form.invoice_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Invoice Date *</label>
+        <input id="{{ form.invoice_date.id_for_label }}" type="date" name="{{ form.invoice_date.html_name }}" value="{{ form.invoice_date.value|default:''|date:'Y-m-d' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Due Date *</label>
-        <input type="date" name="{{ form.due_date.html_name }}" value="{{ form.due_date.value|default:'' }}"
+        <label for="{{ form.due_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Due Date *</label>
+        <input id="{{ form.due_date.id_for_label }}" type="date" name="{{ form.due_date.html_name }}" value="{{ form.due_date.value|default:''|date:'Y-m-d' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
       </div>
-      <div class="col-span-2">
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Customer *</label>
-        <select name="{{ form.customer.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+      <div class="md:col-span-2">
+        <label for="{{ form.customer.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Customer *</label>
+        <select id="{{ form.customer.id_for_label }}" name="{{ form.customer.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
           <option value="">— Select customer</option>
           {% for c in form.customer.field.queryset %}
             <option value="{{ c.pk }}" {% if form.customer.value|stringformat:"s" == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
@@ -40,13 +40,14 @@
         {% if form.customer.errors %}<p class="text-xs text-red-600 mt-1">{{ form.customer.errors.0 }}</p>{% endif %}
       </div>
       <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Currency</label>
-        <input type="text" name="{{ form.currency.html_name }}" value="{{ form.currency.value|default:'KES' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono">
+        <label for="{{ form.currency.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Currency</label>
+        <input id="{{ form.currency.id_for_label }}" type="text" name="{{ form.currency.html_name }}" value="{{ form.currency.value|default:'KES' }}" readonly
+          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-600 font-mono">
+        <p class="text-xs text-gray-500 mt-1">{{ form.currency.help_text }}</p>
       </div>
-      <div class="col-span-3">
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Notes</label>
-        <textarea name="{{ form.notes.html_name }}" rows="2"
+      <div class="md:col-span-3">
+        <label for="{{ form.notes.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Notes</label>
+        <textarea id="{{ form.notes.id_for_label }}" name="{{ form.notes.html_name }}" rows="2"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none">{{ form.notes.value|default:'' }}</textarea>
       </div>
     </div>
@@ -55,10 +56,14 @@
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
       <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="font-semibold text-gray-800">Line Items</h3>
-        <div class="text-sm font-semibold text-gray-700">
-          Total: <span id="invoice-total" class="font-mono text-gray-900">0.00</span>
-        </div>
+        <span class="text-xs text-gray-500">Line totals exclude tax</span>
       </div>
+
+      {% if line_formset.non_form_errors %}
+        <div class="px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700">
+          {% for e in line_formset.non_form_errors %}<p>{{ e }}</p>{% endfor %}
+        </div>
+      {% endif %}
 
       {{ line_formset.management_form }}
 
@@ -70,7 +75,8 @@
             <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-20">Qty</th>
             <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Unit Price</th>
             <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-20">Disc %</th>
-            <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Line Total</th>
+            <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-20">Line Total</th>
+            <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-32">Tax</th>
             <th class="w-8"></th>
           </tr>
         </thead>
@@ -85,6 +91,7 @@
                 <option value="">— Custom item</option>
                 {% for p in line_form.product.field.queryset %}
                   <option value="{{ p.pk }}" data-price="{{ p.selling_price }}" data-name="{{ p.name }}"
+                    data-tax="{{ p.tax_rate_id|default:'' }}"
                     {% if line_form.product.value|stringformat:"s" == p.pk|stringformat:"s" %}selected{% endif %}>
                     {{ p.sku }} — {{ p.name }}
                   </option>
@@ -117,6 +124,20 @@
             <td class="px-3 py-2 text-right">
               <span class="line-total font-mono font-semibold text-gray-900 text-xs">0.00</span>
             </td>
+            <td class="px-3 py-2">
+              <select name="{{ line_form.tax_rate.html_name }}"
+                class="line-tax w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                onchange="updateLineTotal(this)">
+                {% if line_form.tax_rate.field.empty_label %}<option value="" data-rate="0">{{ line_form.tax_rate.field.empty_label }}</option>{% endif %}
+                {% for t in line_form.tax_rate.field.queryset %}
+                  <option value="{{ t.pk }}" data-rate="{{ t.rate }}"
+                    {% if line_form.tax_rate.value|stringformat:"s" == t.pk|stringformat:"s" %}selected{% endif %}>
+                    {{ t.name }} ({{ t.rate }}%)
+                  </option>
+                {% endfor %}
+              </select>
+              {% if line_form.tax_rate.errors %}<p class="text-[10px] text-red-600 mt-0.5">{{ line_form.tax_rate.errors.0 }}</p>{% endif %}
+            </td>
             <td class="px-3 py-2 text-center">
               {% if line_form.DELETE %}
                 <input type="checkbox" name="{{ line_form.DELETE.html_name }}" class="delete-checkbox hidden">
@@ -129,11 +150,25 @@
           {% endfor %}
         </tbody>
       </table>
-      <div class="px-4 py-3 border-t border-gray-100">
+      <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between gap-6">
         <button type="button" onclick="addLine()" class="text-sm text-primary hover:underline flex items-center gap-1">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           Add Line
         </button>
+        <div class="w-64 text-sm space-y-1.5">
+          <div class="flex justify-between text-gray-600">
+            <span>Subtotal</span>
+            <span id="invoice-subtotal" class="font-mono text-gray-900">0.00</span>
+          </div>
+          <div class="flex justify-between text-gray-600">
+            <span>Tax</span>
+            <span id="invoice-tax" class="font-mono text-gray-900">0.00</span>
+          </div>
+          <div class="flex justify-between pt-1.5 mt-1 border-t border-gray-100 font-semibold text-gray-800">
+            <span>Grand Total</span>
+            <span id="invoice-grand" class="font-mono text-gray-900">0.00</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -145,16 +180,18 @@
 </div>
 
 <script>
-const products = {{ products|safe }};
-
 function fillFromProduct(sel) {
   const row = sel.closest('tr');
   const opt = sel.options[sel.selectedIndex];
-  const price = opt.dataset.price || '0';
-  const name = opt.dataset.name || '';
-  row.querySelector('.line-price').value = price;
+  row.querySelector('.line-price').value = opt.dataset.price || '0';
   const desc = row.querySelector('[name$="-description"]');
-  if (desc && !desc.value) desc.value = name;
+  if (desc && !desc.value) desc.value = opt.dataset.name || '';
+  const taxSel = row.querySelector('.line-tax');
+  const taxId = opt.dataset.tax;
+  if (taxSel && taxId) {
+    const match = Array.from(taxSel.options).find(o => o.value === String(taxId));
+    if (match) taxSel.value = match.value;
+  }
   updateLineTotal(sel);
 }
 
@@ -166,19 +203,31 @@ function getRowTotal(row) {
   return base - (base * disc / 100);
 }
 
-function updateLineTotal(el) {
-  const row = el.closest('tr');
-  const total = getRowTotal(row);
-  row.querySelector('.line-total').textContent = total.toFixed(2);
-  updateInvoiceTotal();
+function getRowRate(row) {
+  const sel = row.querySelector('.line-tax');
+  if (!sel || !sel.options.length) return 0;
+  return parseFloat(sel.options[sel.selectedIndex].dataset.rate) || 0;
 }
 
-function updateInvoiceTotal() {
-  let total = 0;
+function getRowTax(row) {
+  return getRowTotal(row) * getRowRate(row) / 100;
+}
+
+function updateLineTotal(el) {
+  const row = el.closest('tr');
+  row.querySelector('.line-total').textContent = getRowTotal(row).toFixed(2);
+  updateInvoiceTotals();
+}
+
+function updateInvoiceTotals() {
+  let subtotal = 0, tax = 0;
   document.querySelectorAll('.line-row:not(.hidden)').forEach(row => {
-    total += getRowTotal(row);
+    subtotal += getRowTotal(row);
+    tax += getRowTax(row);
   });
-  document.getElementById('invoice-total').textContent = total.toFixed(2);
+  document.getElementById('invoice-subtotal').textContent = subtotal.toFixed(2);
+  document.getElementById('invoice-tax').textContent = tax.toFixed(2);
+  document.getElementById('invoice-grand').textContent = (subtotal + tax).toFixed(2);
 }
 
 function deleteLine(btn) {
@@ -186,7 +235,7 @@ function deleteLine(btn) {
   const chk = row.querySelector('.delete-checkbox');
   if (chk) { chk.checked = true; row.classList.add('hidden'); }
   else row.remove();
-  updateInvoiceTotal();
+  updateInvoiceTotals();
 }
 
 function addLine() {
@@ -197,10 +246,15 @@ function addLine() {
   if (!rows.length) return;
   const newRow = rows[0].cloneNode(true);
   newRow.querySelectorAll('input,select').forEach(el => {
-    el.name = el.name.replace(/-\d+-/, `-${idx}-`);
-    if (el.type === 'number') el.value = el.name.includes('quantity') ? '1' : '0';
-    else if (el.type !== 'checkbox') el.value = '';
+    const oldIndex = el.name.match(/-(\d+)-/);
+    if (oldIndex) {
+      el.name = el.name.replace(/-\d+-/, `-${idx}-`);
+      el.id = el.id.replace(/-\d+-/, `-${idx}-`);
+    }
     if (el.type === 'checkbox') el.checked = false;
+    else if (el.type === 'number') el.value = el.name.includes('quantity') ? '1' : '0';
+    else if (el.type === 'select-one') el.selectedIndex = 0;
+    else el.value = '';
   });
   newRow.querySelector('.line-total').textContent = '0.00';
   newRow.classList.remove('hidden');
@@ -208,11 +262,9 @@ function addLine() {
   totalForms.value = idx + 1;
 }
 
-// Initialize line totals on load
 document.querySelectorAll('.line-row').forEach(row => {
-  const total = getRowTotal(row);
-  row.querySelector('.line-total').textContent = total.toFixed(2);
+  row.querySelector('.line-total').textContent = getRowTotal(row).toFixed(2);
 });
-updateInvoiceTotal();
+updateInvoiceTotals();
 </script>
 {% endblock %}

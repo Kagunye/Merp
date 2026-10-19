@@ -1,12 +1,12 @@
 {% extends "base/base.html" %}
-{% block title %}Supplier Bills — MERP ERP{% endblock %}
+{% block title %}Supplier Bills — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Supplier Bills</h1>
     <p class="text-sm text-gray-500 mt-1">Manage supplier invoices and payments</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Purchase Orders</a>
     <a href="{% url 'procurement:bill_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Bill</a>
   </div>
@@ -58,4 +58,5 @@
     </tbody>
   </table>
 </div>
+{% include "_includes/pagination.html" %}
 {% endblock %}

@@ -49,6 +49,11 @@ class OpeningCreateView(LoginRequiredMixin, CreateView):
     form_class = JobOpeningForm
     template_name = "recruitment/opening_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         return super().form_valid(form)
@@ -62,6 +67,17 @@ class OpeningUpdateView(LoginRequiredMixin, UpdateView):
     form_class = JobOpeningForm
     template_name = "recruitment/opening_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return JobOpening.objects.none()
+        return JobOpening.objects.filter(company=company)
+
     def get_success_url(self):
         return reverse("recruitment:opening_detail", args=[self.object.pk])
 
@@ -71,8 +87,15 @@ class OpeningDetailView(LoginRequiredMixin, DetailView):
     template_name = "recruitment/opening_detail.html"
     context_object_name = "opening"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return JobOpening.objects.none()
+        return JobOpening.objects.filter(company=company)
+
 
 # ---- Candidates ----
+
 class CandidateListView(LoginRequiredMixin, ListView):
     model = Candidate
     template_name = "recruitment/candidate_list.html"
@@ -92,6 +115,11 @@ class CandidateCreateView(LoginRequiredMixin, CreateView):
     template_name = "recruitment/candidate_form.html"
     success_url = reverse_lazy("recruitment:candidate_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         messages.success(self.request, "Candidate added.")
         return super().form_valid(form)
@@ -102,8 +130,15 @@ class CandidateDetailView(LoginRequiredMixin, DetailView):
     template_name = "recruitment/candidate_detail.html"
     context_object_name = "candidate"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return Candidate.objects.none()
+        return Candidate.objects.filter(opening__company=company)
+
 
 # ---- Interviews ----
+
 class InterviewListView(LoginRequiredMixin, ListView):
     model = Interview
     template_name = "recruitment/interview_list.html"
@@ -119,3 +154,8 @@ class InterviewCreateView(LoginRequiredMixin, CreateView):
     form_class = InterviewForm
     template_name = "recruitment/interview_form.html"
     success_url = reverse_lazy("recruitment:interview_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs

@@ -3,7 +3,7 @@
 {% url 'inventory:stock_levels' as back_url %}
 {% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.code back_url=back_url %}
 
-<div class="grid grid-cols-4 gap-4 mb-5">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
   <div class="bg-white rounded-xl border p-4">
     <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">SKUs on hand</p>
     <p class="text-2xl font-bold mt-1">{{ stock_levels|length }}</p>

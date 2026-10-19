@@ -1,4 +1,5 @@
 from django import forms
+from apps.core.forms import date_input
 from django.forms import inlineformset_factory
 from .models import BillOfMaterials, BOMLine, WorkOrder
 
@@ -45,8 +46,8 @@ class WorkOrderForm(forms.ModelForm):
             "reference": forms.TextInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
             "bom": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
             "planned_quantity": forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
-            "planned_start": forms.DateInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "type": "date"}),
-            "planned_end": forms.DateInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "type": "date"}),
+            "planned_start": date_input({"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
+            "planned_end": date_input({"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
             "warehouse": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
             "notes": forms.Textarea(attrs={"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 3}),
         }
@@ -58,5 +59,5 @@ class CompleteWorkOrderForm(forms.Form):
         widget=forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
     )
     actual_end = forms.DateField(
-        widget=forms.DateInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "type": "date"}),
+        widget=date_input({"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
     )

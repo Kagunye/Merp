@@ -88,3 +88,10 @@ def entry_approve(request, pk):
         e.save(update_fields=["status", "approved_by", "approved_at"])
         messages.success(request, "Approved.")
     return redirect("timesheets:entry_detail", pk=pk)
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return TimesheetEntry.objects.none()
+        return TimesheetEntry.objects.filter(company=company)
+

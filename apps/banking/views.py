@@ -43,6 +43,11 @@ class BankAccountCreateView(LoginRequiredMixin, CreateView):
     template_name = "banking/account_form.html"
     success_url = reverse_lazy("banking:account_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         messages.success(self.request, "Bank account created.")
@@ -55,11 +60,28 @@ class BankAccountUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "banking/account_form.html"
     success_url = reverse_lazy("banking:account_list")
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return BankAccount.objects.none()
+        return BankAccount.objects.filter(company=company)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
 
 class BankAccountDetailView(LoginRequiredMixin, DetailView):
     model = BankAccount
     template_name = "banking/account_detail.html"
     context_object_name = "account"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return BankAccount.objects.none()
+        return BankAccount.objects.filter(company=company)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -88,6 +110,11 @@ class BankTransactionCreateView(LoginRequiredMixin, CreateView):
     template_name = "banking/transaction_form.html"
     success_url = reverse_lazy("banking:transaction_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         messages.success(self.request, "Transaction recorded.")
         return super().form_valid(form)
@@ -97,3 +124,10 @@ class BankTransactionDetailView(LoginRequiredMixin, DetailView):
     model = BankTransaction
     template_name = "banking/transaction_detail.html"
     context_object_name = "txn"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return BankTransaction.objects.none()
+        return BankTransaction.objects.filter(bank_account__company=company)
+

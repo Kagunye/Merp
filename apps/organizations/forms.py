@@ -2,13 +2,41 @@ from django import forms
 from .models import Branch, Company, Department, Warehouse
 
 
+# Codes the ledger can book in. One currency per company — there is no
+# exchange-rate layer, so documents and accounts are pinned to this code.
+CURRENCY_CHOICES = [
+    ("KES", "KES — Kenyan shilling"),
+    ("UGX", "UGX — Ugandan shilling"),
+    ("TZS", "TZS — Tanzanian shilling"),
+    ("RWF", "RWF — Rwandan franc"),
+    ("ETB", "ETB — Ethiopian birr"),
+    ("USD", "USD — US dollar"),
+    ("EUR", "EUR — euro"),
+    ("GBP", "GBP — pound sterling"),
+]
+
+
 class CompanyForm(forms.ModelForm):
+    # A ChoiceField, not a CharField with a Select widget: only the field owns
+    # the option list, so a legacy code can be appended and still validates.
+    currency = forms.ChoiceField(choices=CURRENCY_CHOICES, label="Currency")
+
     class Meta:
         model = Company
         fields = ["name", "legal_name", "registration_number", "tax_id", "vat_number",
                   "currency", "timezone", "fiscal_year_start_month", "logo", "industry",
                   "is_default", "phone", "email", "website", "address_line1", "address_line2",
                   "city", "state_province", "postal_code", "country"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        code = self.instance.currency or "KES"
+        if code not in dict(CURRENCY_CHOICES):
+            self.fields["currency"].choices = CURRENCY_CHOICES + [(code, code)]
+        self.fields["currency"].help_text = (
+            "Base currency for the whole ledger. Invoices, bills and payments are "
+            "pinned to it and amounts are never converted."
+        )
 
 
 class BranchForm(forms.ModelForm):
@@ -17,11 +45,31 @@ class BranchForm(forms.ModelForm):
         fields = ["company", "name", "code", "is_headquarters", "manager_name",
                   "phone", "email", "address_line1", "city", "country"]
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if company:
+            # A branch can only ever hang off the company you are working in.
+            self.fields["company"].queryset = Company.objects.filter(pk=company.pk)
+            self.fields["company"].initial = company.pk
+
 
 class DepartmentForm(forms.ModelForm):
     class Meta:
         model = Department
         fields = ["company", "branch", "name", "code", "parent"]
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if company:
+            self.fields["company"].queryset = Company.objects.filter(pk=company.pk)
+            self.fields["company"].initial = company.pk
+            self.fields["branch"].queryset = Branch.objects.filter(
+                company=company, is_active=True).order_by("name")
+            self.fields["parent"].queryset = Department.objects.filter(
+                company=company, is_active=True).order_by("name")
+            if self.instance.pk:
+                self.fields["parent"].queryset = self.fields["parent"].queryset.exclude(
+                    pk=self.instance.pk)
 
 
 class WarehouseForm(forms.ModelForm):
@@ -29,3 +77,11 @@ class WarehouseForm(forms.ModelForm):
         model = Warehouse
         fields = ["company", "branch", "name", "code", "is_default",
                   "address_line1", "city", "country"]
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if company:
+            self.fields["company"].queryset = Company.objects.filter(pk=company.pk)
+            self.fields["company"].initial = company.pk
+            self.fields["branch"].queryset = Branch.objects.filter(
+                company=company, is_active=True).order_by("name")

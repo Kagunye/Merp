@@ -1,5 +1,5 @@
 {% extends "base/base.html" %}
-{% block title %}Payslip — {{ payslip.employee.full_name }} — MERP ERP{% endblock %}
+{% block title %}Payslip — {{ payslip.employee.full_name }} — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
@@ -10,6 +10,7 @@
     </nav>
     <h1 class="text-2xl font-bold text-gray-900">Payslip</h1>
   </div>
+  {% include "_includes/print_button.html" %}
 </div>
 
 <div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">

@@ -13,6 +13,7 @@ urlpatterns = [
     path("claims/<uuid:pk>/submit/", views.claim_submit, name="claim_submit"),
     path("claims/<uuid:pk>/approve/", views.claim_approve, name="claim_approve"),
     path("claims/<uuid:pk>/reject/", views.claim_reject, name="claim_reject"),
+    path("claims/<uuid:pk>/pay/", views.claim_pay, name="claim_pay"),
     path("categories/", views.ExpenseCategoryListView.as_view(), name="category_list"),
     path("categories/new/", views.ExpenseCategoryCreateView.as_view(), name="category_create"),
 ]

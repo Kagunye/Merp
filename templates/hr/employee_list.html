@@ -1,12 +1,12 @@
 {% extends "base/base.html" %}
-{% block title %}Employees — MERP ERP{% endblock %}
+{% block title %}Employees — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Employees</h1>
     <p class="text-sm text-gray-500 mt-1">Manage your workforce</p>
   </div>
-  <div class="flex gap-2">
+  <div class="flex flex-wrap gap-2">
     <a href="{% url 'hr:leave_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Leave Requests</a>
     <a href="{% url 'hr:employee_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Employee</a>
   </div>

@@ -1,0 +1,33 @@
+{% load ui_extras %}
+{% comment %}
+Pager for ListView pages. Keeps every other query parameter, so filtering a
+list and then paging it does not silently drop the filter.
+{% endcomment %}
+{% if is_paginated %}
+<nav class="flex flex-wrap items-center justify-between gap-3 mt-5 text-sm no-print" aria-label="Pagination">
+  <p class="text-gray-500">
+    {{ page_obj.paginator.count }} result{{ page_obj.paginator.count|pluralize }} —
+    page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+  </p>
+  <div class="flex items-center gap-1 flex-wrap">
+    {% if page_obj.has_previous %}
+    <a href="{% page_url request 1 %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">First</a>
+    <a href="{% page_url request page_obj.previous_page_number %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Prev</a>
+    {% endif %}
+
+    {% page_window page_obj.paginator page_obj.number as pages %}
+    {% for n in pages %}
+      {% if n == page_obj.number %}
+      <span class="px-3 py-1.5 rounded-lg font-semibold text-white" style="background: var(--primary);">{{ n }}</span>
+      {% else %}
+      <a href="{% page_url request n %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">{{ n }}</a>
+      {% endif %}
+    {% endfor %}
+
+    {% if page_obj.has_next %}
+    <a href="{% page_url request page_obj.next_page_number %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Next</a>
+    <a href="{% page_url request page_obj.paginator.num_pages %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Last</a>
+    {% endif %}
+  </div>
+</nav>
+{% endif %}

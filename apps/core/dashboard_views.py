@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Sum
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.generic import TemplateView
@@ -406,3 +406,116 @@ def cashflow_chart_widget(request):
         cash_data.append(balance)
 
     return JsonResponse({"labels": labels, "data": cash_data})
+
+
+@login_required
+def global_search(request):
+    """Topbar search: one box, every record in the active company."""
+    from django.db.models import Q
+    from django.urls import reverse
+
+    q = request.GET.get("q", "").strip()
+    company = request.active_company
+    groups = []
+
+    if q and company:
+        from apps.accounting.models import JournalEntry
+        from apps.banking.models import BankTransaction
+        from apps.crm.models import Customer, Supplier
+        from apps.expenses.models import ExpenseClaim
+        from apps.hr.models import Employee
+        from apps.inventory.models import Product
+        from apps.projects.models import Project, Task
+        from apps.procurement.models import Bill, PurchaseOrder
+        from apps.sales.models import Invoice, SalesOrder
+
+        def money(value):
+            return f"{value:,.2f}" if value is not None else ""
+
+        def group(label, qs, contains, url_name, title, subtitle):
+            """`contains` names the icontains-able fields for this model."""
+            lookup = Q()
+            for field in contains:
+                lookup |= Q(**{f"{field}__icontains": q})
+            items = [
+                {"title": title(o), "subtitle": subtitle(o),
+                 "url": reverse(url_name, args=[o.pk])}
+                for o in qs.filter(lookup)[:8]
+            ]
+            if items:
+                groups.append({"label": label, "items": items})
+
+        group("Invoices",
+              Invoice.objects.filter(company=company).select_related("customer").order_by("-invoice_date"),
+              ["reference", "customer__name"], "sales:invoice_detail",
+              lambda o: o.reference,
+              lambda o: f"{o.customer.name} · {o.invoice_date} · {money(o.total_amount)}")
+        group("Sales orders",
+              SalesOrder.objects.filter(company=company).select_related("customer").order_by("-order_date"),
+              ["reference", "customer__name"], "sales:order_detail",
+              lambda o: o.reference,
+              lambda o: f"{o.customer.name} · {money(o.total_amount)}")
+        group("Bills",
+              Bill.objects.filter(company=company).select_related("supplier").order_by("-bill_date"),
+              ["reference", "supplier__name"], "procurement:bill_detail",
+              lambda o: o.reference,
+              lambda o: f"{o.supplier.name} · {money(o.total_amount)}")
+        group("Purchase orders",
+              PurchaseOrder.objects.filter(company=company).select_related("supplier").order_by("-order_date"),
+              ["reference", "supplier__name"], "procurement:po_detail",
+              lambda o: o.reference,
+              lambda o: f"{o.supplier.name} · {money(o.total_amount)}")
+        group("Journal entries",
+              JournalEntry.objects.filter(company=company).order_by("-posting_date"),
+              ["reference"], "accounting:journal_entry_detail",
+              lambda o: o.reference,
+              lambda o: f"{o.get_entry_type_display()} · {o.posting_date} · {o.get_status_display()}")
+        group("Customers",
+              Customer.objects.filter(company=company).order_by("name"),
+              ["name", "email", "phone", "tax_id"], "crm:customer_detail",
+              lambda o: o.name,
+              lambda o: o.email or o.phone or "")
+        group("Suppliers",
+              Supplier.objects.filter(company=company).order_by("name"),
+              ["name", "email", "phone", "tax_id"], "crm:supplier_detail",
+              lambda o: o.name,
+              lambda o: o.email or o.phone or "")
+        group("Products",
+              Product.objects.filter(company=company).order_by("name"),
+              ["name", "sku", "barcode"], "inventory:product_detail",
+              lambda o: o.name,
+              lambda o: f"SKU {o.sku}")
+        group("Projects",
+              Project.objects.filter(company=company).order_by("name"),
+              ["name", "reference"], "projects:project_detail",
+              lambda o: o.name,
+              lambda o: f"{o.reference} · {o.get_status_display()}")
+        group("Tasks",
+              Task.objects.filter(project__company=company).select_related("project"),
+              ["title"], "projects:task_detail",
+              lambda o: o.title,
+              lambda o: o.project.name)
+        group("Expense claims",
+              ExpenseClaim.objects.filter(company=company).select_related("employee"),
+              ["reference", "employee__first_name", "employee__last_name"], "expenses:claim_detail",
+              lambda o: o.reference,
+              lambda o: f"{o.employee.full_name} · {money(o.total_amount)}")
+        group("Employees",
+              Employee.objects.filter(company=company).order_by("last_name", "first_name"),
+              ["first_name", "last_name", "employee_number", "job_title"], "hr:employee_detail",
+              lambda o: o.full_name,
+              lambda o: f"{o.employee_number} · {o.job_title}")
+        group("Bank transactions",
+              BankTransaction.objects.filter(bank_account__company=company).select_related("bank_account").order_by("-transaction_date"),
+              ["description", "reference"], "banking:transaction_detail",
+              lambda o: o.description or o.reference or f"{o.transaction_type} {money(o.amount)}",
+              lambda o: f"{o.bank_account.name} · {o.transaction_date} · {money(o.amount)}")
+
+    ctx = {
+        "query": q,
+        "groups": groups,
+        "page_title": "Search",
+        "result_count": sum(len(g["items"]) for g in groups),
+        "company_name": company.name if company else "",
+    }
+    return render(request, "dashboard/search.html", ctx)
