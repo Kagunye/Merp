@@ -18,12 +18,20 @@ class AccountForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self._company = company
         narrow(self, company, parent="company")
         qs = self.fields["parent"].queryset.filter(is_active=True)
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
         self.fields["parent"].queryset = qs
         self.fields["parent"].empty_label = "— No parent (top-level)"
+
+    def clean_code(self):
+        code = (self.cleaned_data.get("code") or "").strip()
+        clash = Account.objects.filter(company=self._company, code=code).exclude(pk=self.instance.pk).first()
+        if clash:
+            raise forms.ValidationError(f"Code {code} is already used by {clash.name}.")
+        return code
 
 
 class JournalEntryForm(forms.ModelForm):
@@ -57,3 +65,30 @@ JournalEntryLineFormSet = inlineformset_factory(
     validate_min=True,
     can_delete=True,
 )
+
+
+class TaxRateForm(forms.ModelForm):
+    class Meta:
+        from .models import TaxRate
+        model = TaxRate
+        fields = ["name", "code", "rate", "is_inclusive", "account", "effective_from", "effective_to"]
+        widgets = {
+            "effective_from": forms.DateInput(attrs={"type": "date"}),
+            "effective_to": forms.DateInput(attrs={"type": "date"}),
+        }
+        labels = {"rate": "Rate (%)", "account": "Post tax to", "is_inclusive": "Prices include this tax"}
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        self._company = company
+        narrow(self, company, account="company")
+        self.fields["account"].queryset = self.fields["account"].queryset.filter(
+            is_active=True, account_type__in=["TAX", "LIABILITY"]).order_by("code")
+
+    def clean_code(self):
+        from .models import TaxRate
+        code = (self.cleaned_data.get("code") or "").strip().upper()
+        if TaxRate.objects.filter(company=self._company, code=code).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError(f"Tax code {code} already exists.")
+        return code

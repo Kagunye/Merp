@@ -1,0 +1,47 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold text-gray-900">Tax rates</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Rates you can apply to invoice lines, and the account each one posts to.</p>
+    </div>
+    <a href="{% url 'accounting:tax_rate_create' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      New tax rate
+    </a>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 border-b border-gray-200 text-left text-xs uppercase tracking-wider text-gray-500">
+          <th class="px-4 py-3 font-semibold">Name</th>
+          <th class="px-4 py-3 font-semibold">Code</th>
+          <th class="px-4 py-3 font-semibold text-right">Rate</th>
+          <th class="px-4 py-3 font-semibold">Posts to</th>
+          <th class="px-4 py-3 font-semibold">Effective</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for t in tax_rates %}
+        <tr>
+          <td class="px-4 py-3 font-medium text-gray-900">{{ t.name }}{% if t.is_inclusive %} <span class="text-xs text-gray-500">(inclusive)</span>{% endif %}</td>
+          <td class="px-4 py-3 font-mono text-xs text-gray-600">{{ t.code }}</td>
+          <td class="px-4 py-3 text-right tabular-nums">{{ t.rate|floatformat:2 }}%</td>
+          <td class="px-4 py-3 text-gray-600">{{ t.account.code }} — {{ t.account.name }}</td>
+          <td class="px-4 py-3 text-gray-500">{{ t.effective_from|date:"d M Y" }}{% if t.effective_to %} – {{ t.effective_to|date:"d M Y" }}{% endif %}</td>
+          <td class="px-4 py-3 text-right"><a href="{% url 'accounting:tax_rate_edit' t.pk %}" class="text-xs font-semibold" style="color:var(--primary)">Edit</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">
+          No tax rates yet. Add <strong>VAT 16%</strong> posting to your VAT Payable account, or load the standard chart from
+          <a href="{% url 'accounting:account_list' %}" style="color:var(--primary)">Chart of Accounts</a>, which sets it up for you.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

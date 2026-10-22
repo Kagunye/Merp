@@ -13,7 +13,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404, scope
 
 from .forms import AccountForm, JournalEntryForm, JournalEntryLineFormSet
-from .models import Account, JournalEntry, JournalEntryLine
+from .models import Account, JournalEntry, JournalEntryLine, TaxRate
 
 
 class AccountListView(LoginRequiredMixin, ListView):
@@ -39,6 +39,8 @@ class AccountListView(LoginRequiredMixin, ListView):
         ctx["account_types"] = Account._meta.get_field("account_type").choices
         ctx["selected_type"] = self.request.GET.get("type", "")
         ctx["q"] = self.request.GET.get("q", "")
+        company = self.request.active_company
+        ctx["chart_is_empty"] = bool(company) and not Account.objects.filter(company=company).exists()
         return ctx
 
 
@@ -182,7 +184,7 @@ def journal_entry_post(request, pk):
             entry.post(user=request.user)
             messages.success(request, f"Entry {entry.reference} posted successfully.")
         except Exception as e:
-            messages.error(request, str(e))
+            messages.error(request, " ".join(getattr(e, "messages", [str(e)])))
     return redirect("accounting:journal_entry_detail", pk=pk)
 
 
@@ -195,7 +197,7 @@ def journal_entry_reverse(request, pk):
             messages.success(request, f"Reversal entry {reversal.reference} created and posted.")
             return redirect("accounting:journal_entry_detail", pk=reversal.pk)
         except Exception as e:
-            messages.error(request, str(e))
+            messages.error(request, " ".join(getattr(e, "messages", [str(e)])))
     return redirect("accounting:journal_entry_detail", pk=pk)
 
 
@@ -208,22 +210,8 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
-        accounts = Account.objects.filter(company=company, is_active=True).order_by("code")
-        rows = []
-        total_dr = Decimal("0")
-        total_cr = Decimal("0")
-        for acc in accounts:
-            lines = acc.journal_lines.filter(journal_entry__status="POSTED")
-            dr = lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
-            cr = lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
-            if dr > 0 or cr > 0:
-                rows.append({"account": acc, "debit": dr, "credit": cr})
-                total_dr += dr
-                total_cr += cr
-        ctx["rows"] = rows
-        ctx["total_debit"] = total_dr
-        ctx["total_credit"] = total_cr
-        ctx["is_balanced"] = abs(total_dr - total_cr) < Decimal("0.01")
+        from .reports import trial_balance
+        ctx.update(trial_balance(company))
         return ctx
 
 
@@ -438,6 +426,12 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
                 cr_dec = Decimal(cr or "0")
             except Exception:
                 continue
+            if dr_dec < 0 or cr_dec < 0:
+                messages.error(request, f"{acc.code} {acc.name}: amounts can't be negative — use the other column.")
+                return redirect("accounting:opening_balances")
+            if dr_dec > 0 and cr_dec > 0:
+                messages.error(request, f"{acc.code} {acc.name}: enter a debit or a credit, not both.")
+                return redirect("accounting:opening_balances")
             if dr_dec > 0 or cr_dec > 0:
                 line_data.append((acc, dr_dec, cr_dec))
                 total_dr += dr_dec
@@ -448,6 +442,17 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
             return redirect("accounting:opening_balances")
         if not line_data:
             messages.error(request, "No balances were entered.")
+            return redirect("accounting:opening_balances")
+
+        from django.core.exceptions import ValidationError
+        from .models import assert_period_open
+        try:
+            assert_period_open(company, posting_date)
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
+            return redirect("accounting:opening_balances")
+        except ValueError:
+            messages.error(request, "Enter the posting date as YYYY-MM-DD.")
             return redirect("accounting:opening_balances")
 
         with transaction.atomic():
@@ -487,3 +492,68 @@ class AccountingIndexView(LoginRequiredMixin, TemplateView):
         ctx["recent_entries"] = JournalEntry.objects.filter(company=company).order_by("-posting_date", "-created_at")[:8]
         ctx["draft_count"] = JournalEntry.objects.filter(company=company, status="DRAFT").count()
         return ctx
+
+
+# ---------------------------------------------------------------------------
+# Standard chart + tax rates
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_POST
+def account_load_standard(request):
+    from .standard_chart import load_standard_chart
+    company = request.active_company
+    if company is None:
+        messages.error(request, "Select a company first.")
+        return redirect("accounting:account_list")
+    created = load_standard_chart(company)
+    if created:
+        messages.success(request, f"Loaded the standard Kenyan chart: {created} accounts and the 16% VAT rate.")
+    else:
+        messages.info(request, "Your chart already has every standard account.")
+    return redirect("accounting:account_list")
+
+
+class TaxRateListView(CompanyScopedMixin, LoginRequiredMixin, ListView):
+    model = TaxRate
+    template_name = "accounting/tax_rate_list.html"
+    context_object_name = "tax_rates"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("account").order_by("code")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = "Tax rates"
+        return ctx
+
+
+class _TaxRateFormMixin:
+    template_name = "accounting/tax_rate_form.html"
+    success_url = reverse_lazy("accounting:tax_rate_list")
+
+    def get_form_class(self):
+        from .forms import TaxRateForm
+        return TaxRateForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def form_valid(self, form):
+        form.instance.company = self.request.active_company
+        messages.success(self.request, f"Tax rate {form.instance.name} saved.")
+        return super().form_valid(form)
+
+
+class TaxRateCreateView(_TaxRateFormMixin, LoginRequiredMixin, CreateView):
+    model = TaxRate
+
+    def get_initial(self):
+        import datetime
+        return {"effective_from": datetime.date.today()}
+
+
+class TaxRateUpdateView(_TaxRateFormMixin, CompanyScopedMixin, LoginRequiredMixin, UpdateView):
+    model = TaxRate

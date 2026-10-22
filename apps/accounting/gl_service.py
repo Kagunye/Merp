@@ -349,14 +349,15 @@ def post_bill(bill, user=None) -> JournalEntry:
                 # Non-recoverable or no VAT account: absorb tax into cost
                 _dr(je, inv_acct, line.line_total + tax_amount, line_desc)
     else:
-        # Header-level fallback
+        # Header-level: charge the account the accountant chose, else Inventory.
+        charge_acct = getattr(bill, "expense_account", None) or inventory_acct
         if vat_input_acct and bill.tax_amount and bill.tax_amount > 0:
             # Recoverable VAT: separate input VAT debit
-            _dr(je, inventory_acct, bill.subtotal, f"Purchases: {bill.reference}")
+            _dr(je, charge_acct, bill.subtotal, f"Purchases: {bill.reference}")
             _dr(je, vat_input_acct, bill.tax_amount, f"VAT Input: {bill.reference}")
         else:
             # Non-recoverable VAT or no VAT Input account: include tax in cost
-            _dr(je, inventory_acct, bill.total_amount, f"Purchases: {bill.reference}")
+            _dr(je, charge_acct, bill.total_amount, f"Purchases: {bill.reference}")
 
     _cr(je, ap_account, bill.total_amount, f"AP: {bill.reference}")
     je.post(user=user)
@@ -468,65 +469,69 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
 
 # ──────────────────────── Expense Claim GL ───────────────────────────────────
 
+def payment_accounts(company):
+    """Accounts money can be paid from: bank accounts first, then cash."""
+    from django.db.models import Case, IntegerField, Value, When
+    if company is None:
+        return Account.objects.none()
+    return Account.objects.filter(
+        company=company, is_active=True, account_type__in=["BANK", "CASH"],
+    ).annotate(
+        _rank=Case(When(account_type="BANK", then=Value(0)), default=Value(1), output_field=IntegerField())
+    ).order_by("_rank", "code")
+
+
+def _claims_payable(company):
+    return (
+        _get_account_safe(company, "2610", "2600")
+        or _get_account_by_type(company, "LIABILITY")
+    )
+
+
 @transaction.atomic
-def post_expense_claim(claim, bank_account=None, user=None) -> JournalEntry:
-    """
-    Post an approved expense claim payment to the GL.
+def accrue_expense_claim(claim, user=None) -> JournalEntry:
+    """On approval: recognise the expense and what is owed to the employee.
 
     DR  Expense account per line   (ExpenseCategory.gl_account or 6000)
-    CR  Bank / Cash                claim.total_amount  (bank_account.gl_account or 1100)
+    CR  Employee claims payable    (2610, else 2600, else first liability)
+    """
+    if claim.journal_entry_id:
+        return claim.journal_entry
+    company = claim.company
+    default_expense = _get_account_safe(company, "6000") or _get_account_by_type(company, "EXPENSE")
+    payable = _claims_payable(company)
+    if not default_expense:
+        raise ValueError("GL posting failed: no expense account in the chart of accounts.")
+    if not payable:
+        raise ValueError("GL posting failed: add an 'Employee claims payable' liability account (2610).")
 
-    Parameters
-    ----------
-    claim        : expenses.ExpenseClaim
-    bank_account : banking.BankAccount  (the petty cash / bank account used to pay)
-    user         : accounts.User
+    je = _new_je(company, "JE-EXP-", "MANUAL", claim.claim_date,
+                 f"Expense claim {claim.reference} — {claim.employee}")
+    for line in claim.lines.select_related("category", "category__gl_account"):
+        _dr(je, (line.category and line.category.gl_account) or default_expense, line.amount, line.description)
+    _cr(je, payable, claim.total_amount, f"Owed to {claim.employee}: {claim.reference}")
+    je.post(user=user)
+    type(claim).objects.filter(pk=claim.pk).update(journal_entry=je)
+    claim.journal_entry = je
+    return je
 
-    Returns the JournalEntry.
+
+@transaction.atomic
+def pay_expense_claim(claim, pay_from, paid_on, user=None) -> JournalEntry:
+    """Reimburse an approved claim.
+
+    DR  Employee claims payable    claim.total_amount
+    CR  Bank / cash paid from      claim.total_amount
     """
     company = claim.company
-
-    if bank_account and getattr(bank_account, "gl_account_id", None):
-        cash_acct = bank_account.gl_account
-    else:
-        cash_acct = (
-            _get_account_safe(company, "1100", "1200")
-            or _get_account_by_type(company, "CASH", "BANK")
-        )
-
-    default_expense = (
-        _get_account_safe(company, "6000")
-        or _get_account_by_type(company, "EXPENSE")
-    )
-
-    if not cash_acct:
-        raise ValueError(
-            "GL posting failed: Cash/Bank account not found for expense payment."
-        )
-    if not default_expense:
-        raise ValueError(
-            "GL posting failed: Expense account (code 6000) not found."
-        )
-
-    je = _new_je(
-        company, "JE-EXP-", "MANUAL", claim.claim_date,
-        f"Expense Claim {claim.reference}",
-    )
-
-    for line in claim.lines.select_related("category", "category__gl_account"):
-        exp_acct = (
-            (line.category and line.category.gl_account) or default_expense
-        )
-        _dr(je, exp_acct, line.amount, line.description)
-
-    _cr(je, cash_acct, claim.total_amount, f"Paid: {claim.reference}")
+    payable = _claims_payable(company)
+    if not payable:
+        raise ValueError("GL posting failed: no 'Employee claims payable' account.")
+    je = _new_je(company, "JE-EXPPAY-", "PAYMENT", paid_on,
+                 f"Reimburse {claim.employee}: {claim.reference}")
+    _dr(je, payable, claim.total_amount, f"Clear claim {claim.reference}")
+    _cr(je, pay_from, claim.total_amount, f"Paid: {claim.reference}")
     je.post(user=user)
-
-    # Link back to claim
-    claim.journal_entry = je
-    type(claim).objects.filter(pk=claim.pk).update(
-        journal_entry=je,
-        status="PAID",
-        paid_at=timezone.now().date(),
-    )
+    type(claim).objects.filter(pk=claim.pk).update(status="PAID", paid_at=paid_on)
+    claim.status, claim.paid_at = "PAID", paid_on
     return je

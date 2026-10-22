@@ -86,6 +86,13 @@ class ExpenseClaimDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView)
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["line_form"] = ExpenseClaimLineForm(company=company_of(self.request))
+        from apps.accounting.gl_service import payment_accounts
+        from apps.core.access import can
+        role = getattr(self.request, "company_role", None)
+        ctx["can_approve"] = can(self.request.user, role, "expenses", "claim_approve", "POST")
+        ctx["can_pay"] = can(self.request.user, role, "expenses", "claim_pay", "POST")
+        ctx["pay_accounts"] = payment_accounts(company_of(self.request))
+        ctx["today"] = timezone.now().date()
         return ctx
 
 
@@ -122,11 +129,44 @@ def claim_submit(request, pk):
 def claim_approve(request, pk):
     claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
     if claim.status == "SUBMITTED":
-        claim.status = "APPROVED"
-        claim.approved_by = request.user
-        claim.approved_at = timezone.now()
-        claim.save(update_fields=["status", "approved_by", "approved_at"])
-        messages.success(request, "Claim approved.")
+        from django.core.exceptions import ValidationError
+        from django.db import transaction
+        from apps.accounting.gl_service import accrue_expense_claim
+        try:
+            with transaction.atomic():
+                accrue_expense_claim(claim, user=request.user)
+                claim.status = "APPROVED"
+                claim.approved_by = request.user
+                claim.approved_at = timezone.now()
+                claim.save(update_fields=["status", "approved_by", "approved_at"])
+            messages.success(request, f"Claim approved and {claim.total_amount:,.2f} recorded as owed to "
+                                      f"{claim.employee}.")
+        except (ValidationError, ValueError) as e:
+            messages.error(request, " ".join(getattr(e, "messages", [str(e)])))
+    return redirect("expenses:claim_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def claim_pay(request, pk):
+    """Reimburse an approved claim from the bank or cash account chosen."""
+    import datetime
+    from django.core.exceptions import ValidationError
+    from apps.accounting.gl_service import pay_expense_claim, payment_accounts
+    claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
+    if claim.status != "APPROVED":
+        messages.error(request, "Only approved claims can be paid.")
+        return redirect("expenses:claim_detail", pk=pk)
+    accounts = payment_accounts(company_of(request))
+    pay_from = accounts.filter(pk=request.POST.get("pay_from")).first() or accounts.first()
+    try:
+        paid_on = datetime.date.fromisoformat(request.POST.get("payment_date") or timezone.now().date().isoformat())
+        if pay_from is None:
+            raise ValueError("Add a bank or cash account to pay from.")
+        pay_expense_claim(claim, pay_from, paid_on, user=request.user)
+        messages.success(request, f"Paid {claim.total_amount:,.2f} to {claim.employee} from {pay_from.name}.")
+    except (ValidationError, ValueError) as e:
+        messages.error(request, " ".join(getattr(e, "messages", [str(e)])))
     return redirect("expenses:claim_detail", pk=pk)
 
 

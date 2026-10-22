@@ -17,10 +17,27 @@
     {% if claim.status == 'DRAFT' %}
       <form method="post" action="{% url 'expenses:claim_submit' claim.pk %}">{% csrf_token %}<button class="w-full">Submit for approval</button></form>
     {% elif claim.status == 'SUBMITTED' %}
+      {% if can_approve %}
       <form method="post" action="{% url 'expenses:claim_approve' claim.pk %}">{% csrf_token %}<button class="w-full">Approve</button></form>
       <form method="post" action="{% url 'expenses:claim_reject' claim.pk %}">{% csrf_token %}<button class="w-full btn-outline">Reject</button></form>
+      {% else %}
+      <span class="text-sm text-gray-500">Waiting for the finance manager to approve.</span>
+      {% endif %}
     {% elif claim.status == 'APPROVED' %}
-      <span class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }}</span>
+      <span class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }} — owed to {{ claim.employee }}</span>
+      {% if can_pay %}
+      <form method="post" action="{% url 'expenses:claim_pay' claim.pk %}" class="no-card flex flex-col gap-2 mt-1">{% csrf_token %}
+        <label class="text-xs text-gray-500">Pay from
+          <select name="pay_from" class="w-full mt-1">{% for acc in pay_accounts %}<option value="{{ acc.pk }}">{{ acc.code }} — {{ acc.name }}</option>{% endfor %}</select>
+        </label>
+        <label class="text-xs text-gray-500">Payment date
+          <input type="date" name="payment_date" value="{{ today|date:'Y-m-d' }}" class="w-full mt-1">
+        </label>
+        <button class="w-full">Pay {{ claim.total_amount|floatformat:2 }}</button>
+      </form>
+      {% endif %}
+    {% elif claim.status == 'PAID' %}
+      <span class="text-sm text-green-700">Paid on {{ claim.paid_at|date:"d M Y" }}</span>
     {% endif %}
   </div>
 </div>

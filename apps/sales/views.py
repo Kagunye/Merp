@@ -391,6 +391,18 @@ class InvoiceUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    LOCKED_ONCE_POSTED = ("reference", "customer", "invoice_date", "currency")
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if self.object.journal_entry_id:
+            # The ledger entry and any receipts point at these details.
+            for name in self.LOCKED_ONCE_POSTED:
+                if name in form.fields:
+                    form.fields[name].disabled = True
+                    form.fields[name].help_text = "Locked: this invoice is posted. Cancel or credit it to change this."
+        return form
+
     def dispatch(self, request, *args, **kwargs):
         obj = self.get_object()
         if obj.status in ("PAID", "CANCELLED", "CREDIT_NOTE"):
@@ -417,9 +429,8 @@ class InvoiceUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
 @require_POST
 def invoice_mark_credit_note(request, pk):
     inv = get_scoped_or_404(Invoice, request, pk=pk)
-    inv.status = "CREDIT_NOTE"
-    inv.save(update_fields=["status"])
-    messages.success(request, f"Invoice {inv.reference} marked as credit note.")
+    if _void_invoice(request, inv, "CREDIT_NOTE", "credit"):
+        messages.success(request, f"Invoice {inv.reference} credited in full; its ledger entry has been reversed.")
     return redirect("sales:invoice_detail", pk=pk)
 
 
@@ -427,13 +438,32 @@ def invoice_mark_credit_note(request, pk):
 @require_POST
 def invoice_cancel(request, pk):
     inv = get_scoped_or_404(Invoice, request, pk=pk)
-    if inv.status == "PAID":
-        messages.error(request, f"Cannot cancel {inv.reference}: already paid.")
-    else:
-        inv.status = "CANCELLED"
-        inv.save(update_fields=["status"])
-        messages.success(request, f"Invoice {inv.reference} cancelled.")
+    if _void_invoice(request, inv, "CANCELLED", "cancel"):
+        messages.success(request, f"Invoice {inv.reference} cancelled; its ledger entry has been reversed.")
     return redirect("sales:invoice_detail", pk=pk)
+
+
+def _void_invoice(request, inv, new_status, verb):
+    """Cancel or fully credit an invoice, reversing its ledger entry so the
+    books and the receivables list stay in agreement."""
+    from django.core.exceptions import ValidationError
+    if inv.status in ("CANCELLED", "CREDIT_NOTE"):
+        messages.info(request, f"Invoice {inv.reference} is already {inv.get_status_display().lower()}.")
+        return False
+    if inv.paid_amount and inv.paid_amount > 0:
+        messages.error(request, f"{inv.reference} has {inv.paid_amount:,.2f} received against it. Refund or "
+                                f"reallocate that payment before you {verb} the invoice.")
+        return False
+    try:
+        with transaction.atomic():
+            je = inv.journal_entry
+            if je and je.status == "POSTED" and not je.reversed_by_id:
+                je.reverse(user=request.user)
+            Invoice.objects.filter(pk=inv.pk).update(status=new_status, outstanding_amount=0)
+    except ValidationError as e:
+        messages.error(request, " ".join(e.messages))
+        return False
+    return True
 
 
 # ============================================================

@@ -44,18 +44,17 @@ class BillListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class BillCreateView(LoginRequiredMixin, CreateView):
-    model = Bill
-    template_name = "procurement/bill_form.html"
-    fields = ["reference", "supplier", "supplier_reference", "bill_date", "due_date", "subtotal", "tax_amount", "total_amount", "notes"]
+BILL_FIELDS = ["reference", "supplier", "supplier_reference", "bill_date", "due_date",
+               "expense_account", "subtotal", "tax_amount", "total_amount", "notes"]
+LOCKED_ONCE_POSTED = ("reference", "supplier", "bill_date", "expense_account",
+                      "subtotal", "tax_amount", "total_amount")
 
-    def get_success_url(self):
-        from django.urls import reverse
-        return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
+
+class _BillFormMixin:
+    """Shared by bill create/edit: styling, company-scoped dropdowns, totals check."""
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        company = self.request.active_company
         from django import forms as dforms
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
@@ -68,8 +67,34 @@ class BillCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        narrow(form, company, supplier="company")
+        narrow(form, self.request.active_company, supplier="company", expense_account="company")
         form.fields["supplier"].queryset = form.fields["supplier"].queryset.filter(is_active=True)
+        form.fields["expense_account"].queryset = form.fields["expense_account"].queryset.filter(
+            is_active=True, account_type__in=["ASSET", "EXPENSE", "COST_OF_GOODS"]).order_by("code")
+        form.fields["expense_account"].empty_label = "Inventory (stock purchase)"
+        return form
+
+    def _totals_ok(self, form):
+        cd = form.cleaned_data
+        sub, tax, total = cd.get("subtotal") or Decimal("0"), cd.get("tax_amount") or Decimal("0"), cd.get("total_amount") or Decimal("0")
+        if abs(sub + tax - total) > Decimal("0.01"):
+            form.add_error("total_amount", f"Subtotal {sub:,.2f} + VAT {tax:,.2f} = {sub + tax:,.2f}, not {total:,.2f}.")
+            return False
+        return True
+
+
+class BillCreateView(_BillFormMixin, LoginRequiredMixin, CreateView):
+    model = Bill
+    template_name = "procurement/bill_form.html"
+    fields = BILL_FIELDS
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        company = self.request.active_company
         if company:
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "BILL-")
@@ -78,13 +103,22 @@ class BillCreateView(LoginRequiredMixin, CreateView):
         return form
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
-        # Set outstanding_amount
-        bill = form.save(commit=False)
-        bill.outstanding_amount = bill.total_amount - bill.paid_amount
-        bill.company = self.request.active_company
-        bill.save()
-        messages.success(self.request, f"Bill '{bill.reference}' created.")
+        if not self._totals_ok(form):
+            return self.form_invalid(form)
+        company = self.request.active_company
+        with transaction.atomic():
+            bill = form.save(commit=False)
+            bill.company = company
+            bill.outstanding_amount = bill.total_amount - bill.paid_amount
+            bill.save()
+            self.object = bill
+            try:
+                from apps.accounting.gl_service import post_bill
+                post_bill(bill, user=self.request.user)
+                messages.success(self.request, f"Bill '{bill.reference}' saved and posted to the ledger.")
+            except Exception as exc:
+                messages.warning(self.request, f"Bill '{bill.reference}' saved, but ledger posting was skipped: "
+                                               f"{' '.join(getattr(exc, 'messages', [str(exc)]))}")
         from django.urls import reverse
         return redirect(reverse("procurement:bill_detail", kwargs={"pk": bill.pk}))
 
@@ -105,6 +139,8 @@ class BillDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"Bill: {self.object.reference}"
+        ctx["pay_accounts"] = _payment_accounts(self.request.active_company)
+        ctx["today"] = datetime.date.today()
         return ctx
 
 
@@ -344,12 +380,12 @@ class GRNView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
 # ------------------------- AP actions -------------------------
 
 
-class BillUpdateView(LoginRequiredMixin, UpdateView):
-    """Edit a bill. Blocks edits once fully paid or cancelled."""
+class BillUpdateView(_BillFormMixin, LoginRequiredMixin, UpdateView):
+    """Edit a bill. Blocks edits once fully paid or cancelled; once posted,
+    the amounts, supplier, date and account are locked to match the ledger."""
     model = Bill
     template_name = "procurement/bill_form.html"
-    fields = ["reference", "supplier", "supplier_reference", "bill_date", "due_date",
-              "subtotal", "tax_amount", "total_amount", "notes"]
+    fields = BILL_FIELDS
 
     def get_queryset(self):
         return Bill.objects.filter(company=self.request.active_company)
@@ -363,20 +399,11 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        from django import forms as dforms
-        for fname, field in form.fields.items():
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        narrow(form, self.request.active_company, supplier="company")
-        form.fields["supplier"].queryset = form.fields["supplier"].queryset.filter(is_active=True)
+        if self.object.journal_entry_id:
+            for name in LOCKED_ONCE_POSTED:
+                if name in form.fields:
+                    form.fields[name].disabled = True
+                    form.fields[name].help_text = "Locked: this bill is posted. Cancel it to change this."
         return form
 
     def get_success_url(self):
@@ -384,6 +411,9 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
 
     def form_valid(self, form):
+        if not self._totals_ok(form):
+            return self.form_invalid(form)
+        form.instance.outstanding_amount = form.instance.total_amount - form.instance.paid_amount
         messages.success(self.request, f"Bill {form.instance.reference} updated.")
         return super().form_valid(form)
 
@@ -400,32 +430,38 @@ def bill_cancel(request, pk):
     bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
     if bill.paid_amount > 0:
         messages.error(request, f"Cannot cancel {bill.reference}: already has payments.")
+    elif bill.status == "CANCELLED":
+        messages.info(request, f"Bill {bill.reference} is already cancelled.")
     else:
-        bill.status = "CANCELLED"
-        bill.save(update_fields=["status"])
-        messages.success(request, f"Bill {bill.reference} cancelled.")
+        from django.core.exceptions import ValidationError
+        try:
+            with transaction.atomic():
+                je = bill.journal_entry
+                if je and je.status == "POSTED" and not je.reversed_by_id:
+                    je.reverse(user=request.user)
+                Bill.objects.filter(pk=bill.pk).update(status="CANCELLED", outstanding_amount=0)
+            messages.success(request, f"Bill {bill.reference} cancelled; its ledger entry has been reversed.")
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
     return redirect("procurement:bill_detail", pk=pk)
 
 
 @login_required
 @require_POST
 def bill_pay(request, pk):
-    """Record a supplier payment against a bill.
-
-    Creates a posted JournalEntry (Dr AP, Cr Bank/Cash) and updates
-    bill.paid_amount + status. Payment account is picked from the
-    chart of accounts (first PAYABLE and first BANK/CASH).
-    """
-    from decimal import Decimal
-    from django.utils import timezone
+    """Pay a supplier bill: Dr Payables / Cr the bank or cash account chosen,
+    dated the day it was paid, posted through the normal ledger checks."""
+    from django.core.exceptions import ValidationError
     from apps.accounting.models import Account, JournalEntry, JournalEntryLine
     from apps.core.models import SequenceCounter
 
     bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
+    company = request.active_company
     try:
         amount = Decimal(request.POST.get("amount") or "0")
+        paid_on = datetime.date.fromisoformat(request.POST.get("payment_date") or datetime.date.today().isoformat())
     except Exception:
-        messages.error(request, "Invalid amount.")
+        messages.error(request, "Enter a valid amount and payment date.")
         return redirect("procurement:bill_detail", pk=pk)
     if amount <= 0:
         messages.error(request, "Payment amount must be positive.")
@@ -434,43 +470,42 @@ def bill_pay(request, pk):
         messages.error(request, f"Payment ({amount}) exceeds outstanding ({bill.outstanding_amount}).")
         return redirect("procurement:bill_detail", pk=pk)
 
-    company = request.active_company
-    ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).first()
-    bank = Account.objects.filter(company=company, account_type__in=["BANK", "CASH"], is_active=True).first()
-    if not (ap and bank):
+    pay_accounts = _payment_accounts(company)
+    pay_from = pay_accounts.filter(pk=request.POST.get("pay_from")).first() if request.POST.get("pay_from") else None
+    pay_from = pay_from or pay_accounts.first()
+    ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).order_by("code").first()
+    if not (ap and pay_from):
         messages.error(request, "Chart of accounts missing a Payable or Bank/Cash account.")
         return redirect("procurement:bill_detail", pk=pk)
 
-    with transaction.atomic():
-        ref = SequenceCounter.next_number(company, "SPY-")
-        je = JournalEntry.objects.create(
-            company=company,
-            reference=f"JE-{ref}",
-            entry_type="PAYMENT",
-            posting_date=bill.bill_date,
-            notes=f"Supplier payment for bill {bill.reference}",
-            status="POSTED",
-            posted_at=timezone.now(),
-        )
-        JournalEntryLine.objects.create(
-            journal_entry=je, account=ap,
-            description=f"Pay {bill.supplier.name} — {bill.reference}",
-            debit_amount=amount, credit_amount=Decimal("0"),
-        )
-        JournalEntryLine.objects.create(
-            journal_entry=je, account=bank,
-            description=f"Pay {bill.supplier.name} — {bill.reference}",
-            debit_amount=Decimal("0"), credit_amount=amount,
-        )
-        bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
-        bill.outstanding_amount = bill.total_amount - bill.paid_amount
-        if bill.outstanding_amount <= 0:
-            bill.status = "PAID"
-        else:
-            bill.status = "PARTIAL"
-        bill.save(update_fields=["paid_amount", "outstanding_amount", "status"])
-    messages.success(request, f"Payment {amount} recorded for {bill.reference}. GL entry {je.reference} posted.")
+    try:
+        with transaction.atomic():
+            je = JournalEntry.objects.create(
+                company=company, reference=f"JE-{SequenceCounter.next_number(company, 'SPY-')}",
+                entry_type="PAYMENT", posting_date=paid_on, status="DRAFT",
+                notes=f"Supplier payment for bill {bill.reference}",
+            )
+            desc = f"Pay {bill.supplier.name} — {bill.reference}"
+            JournalEntryLine.objects.create(journal_entry=je, account=ap, description=desc,
+                                            debit_amount=amount, credit_amount=Decimal("0"))
+            JournalEntryLine.objects.create(journal_entry=je, account=pay_from, description=desc,
+                                            debit_amount=Decimal("0"), credit_amount=amount)
+            je.post(user=request.user)
+            bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
+            bill.outstanding_amount = bill.total_amount - bill.paid_amount
+            bill.status = "PAID" if bill.outstanding_amount <= 0 else "PARTIAL"
+            bill.save(update_fields=["paid_amount", "outstanding_amount", "status"])
+    except ValidationError as e:
+        messages.error(request, " ".join(e.messages))
+        return redirect("procurement:bill_detail", pk=pk)
+    messages.success(request, f"Paid {amount:,.2f} from {pay_from.name} on {paid_on:%d %b %Y}. "
+                              f"Ledger entry {je.reference} posted.")
     return redirect("procurement:bill_detail", pk=pk)
+
+
+def _payment_accounts(company):
+    from apps.accounting.gl_service import payment_accounts
+    return payment_accounts(company)
 
 
 @login_required

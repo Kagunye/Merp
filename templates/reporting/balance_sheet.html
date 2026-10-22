@@ -48,7 +48,7 @@
     <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mt-6 mb-3">Equity</h3>
     {% for row in equity_rows %}
     <div class="flex justify-between text-sm py-1.5">
-      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
+      <span class="text-gray-600">{% if row.account %}{{ row.account.code }} — {{ row.account.name }}{% else %}<em>{{ row.label }}</em>{% endif %}</span>
       <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
     </div>
     {% empty %}<p class="text-sm text-gray-400 mb-2">No equity accounts.</p>{% endfor %}

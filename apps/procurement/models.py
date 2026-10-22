@@ -113,6 +113,11 @@ class Bill(BaseModel, NotesMixin):
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     outstanding_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True)
+    expense_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, null=True, blank=True, related_name="+",
+        verbose_name="Charge to",
+        help_text="Account the bill is charged to (stock, an expense, or an asset). Blank means Inventory.",
+    )
 
     class Meta:
         ordering = ["-bill_date", "-created_at"]

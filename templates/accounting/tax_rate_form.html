@@ -1,0 +1,9 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounting:tax_rate_list' as back %}
+{% if object %}
+{% include "_includes/model_form.html" with title="Edit tax rate" subtitle="Changes apply to new invoice lines" back_url=back cancel_url=back submit_label="Save tax rate" %}
+{% else %}
+{% include "_includes/model_form.html" with title="New tax rate" subtitle="For Kenyan VAT use 16% and post it to VAT Payable" back_url=back cancel_url=back submit_label="Add tax rate" %}
+{% endif %}
+{% endblock %}

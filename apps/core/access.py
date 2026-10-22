@@ -47,6 +47,7 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("hr", "leave_*", EVERYONE, EVERYONE),
     ("expenses", "claim_approve", NOBODY, frozenset({"FINANCE_MANAGER"})),
     ("expenses", "claim_reject", NOBODY, frozenset({"FINANCE_MANAGER"})),
+    ("expenses", "claim_pay", NOBODY, FINANCE),
     ("expenses", "category_*", FINANCE | OVERSIGHT, FINANCE),
     ("timesheets", "entry_approve", NOBODY, frozenset({"PROJECT_MANAGER", "HR_MANAGER"})),
     ("fixed_assets", "asset_dispose", NOBODY, frozenset({"FINANCE_MANAGER"})),

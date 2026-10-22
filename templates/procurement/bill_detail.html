@@ -30,15 +30,26 @@
 
 {% if bill.status != 'PAID' and bill.status != 'CANCELLED' and bill.outstanding_amount > 0 %}
 <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-  <form method="post" action="{% url 'procurement:bill_pay' bill.pk %}" class="flex items-end gap-3">
+  <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Record Supplier Payment</p>
+  <form method="post" action="{% url 'procurement:bill_pay' bill.pk %}" class="no-card grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
     {% csrf_token %}
-    <div class="flex-1">
-      <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Record Supplier Payment</label>
-      <input type="number" step="0.01" name="amount" value="{{ bill.outstanding_amount }}" max="{{ bill.outstanding_amount }}" min="0.01" required class="form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="pay-amount">Amount</label>
+      <input id="pay-amount" type="number" step="0.01" name="amount" value="{{ bill.outstanding_amount }}" max="{{ bill.outstanding_amount }}" min="0.01" required class="form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="pay-from">Paid from</label>
+      <select id="pay-from" name="pay_from" class="form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        {% for acc in pay_accounts %}<option value="{{ acc.pk }}">{{ acc.code }} — {{ acc.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="pay-date">Payment date</label>
+      <input id="pay-date" type="date" name="payment_date" value="{{ today|date:'Y-m-d' }}" required class="form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
     </div>
     <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Payment</button>
   </form>
-  <p class="text-xs text-gray-500 mt-2">Posts a journal entry Dr Payables, Cr Bank and updates this bill's paid balance.</p>
+  <p class="text-xs text-gray-500 mt-2">Posts Dr Payables, Cr the account it was paid from, on the payment date, and updates this bill's balance.</p>
 </div>
 {% endif %}
 

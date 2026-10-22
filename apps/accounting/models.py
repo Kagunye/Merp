@@ -142,6 +142,10 @@ class JournalEntry(BaseModel, NotesMixin):
     def is_balanced(self):
         return abs(self.total_debit - self.total_credit) < Decimal("0.01")
 
+    @property
+    def is_reversed(self):
+        return bool(self.reversed_by_id)
+
     def post(self, user=None):
         if self.status != "DRAFT":
             raise ValidationError(f"Cannot post a journal entry with status '{self.status}'.")
@@ -151,6 +155,7 @@ class JournalEntry(BaseModel, NotesMixin):
             )
         if not self.lines.exists():
             raise ValidationError("Journal entry must have at least one line.")
+        assert_period_open(self.company, self.posting_date)
         with transaction.atomic():
             self.status = "POSTED"
             self.posted_by = user
@@ -158,8 +163,12 @@ class JournalEntry(BaseModel, NotesMixin):
             self.save(update_fields=["status", "posted_by", "posted_at", "updated_at"])
 
     def reverse(self, user=None, posting_date=None):
+        """Post a mirror entry. The original stays posted and links to it, so the
+        two net to zero in every balance — the standard audit-trail treatment."""
         if self.status != "POSTED":
             raise ValidationError("Only posted entries can be reversed.")
+        if self.reversed_by_id:
+            raise ValidationError(f"{self.reference} has already been reversed by {self.reversed_by.reference}.")
         with transaction.atomic():
             from apps.core.models import SequenceCounter
             ref = SequenceCounter.next_number(self.company, "JE-REV-")
@@ -180,10 +189,27 @@ class JournalEntry(BaseModel, NotesMixin):
                     credit_amount=line.debit_amount,
                 )
             reversal.post(user=user)
-            self.status = "REVERSED"
             self.reversed_by = reversal
-            self.save(update_fields=["status", "reversed_by", "updated_at"])
+            self.save(update_fields=["reversed_by", "updated_at"])
         return reversal
+
+
+def assert_period_open(company, posting_date):
+    """Refuse postings dated inside a closed or locked accounting period."""
+    import datetime
+    from apps.organizations.models import AccountingPeriod
+    if isinstance(posting_date, str):
+        posting_date = datetime.date.fromisoformat(posting_date)
+    closed = AccountingPeriod.objects.filter(
+        fiscal_year__company=company,
+        start_date__lte=posting_date, end_date__gte=posting_date,
+        status__in=["CLOSED", "LOCKED"],
+    ).first()
+    if closed:
+        raise ValidationError(
+            f"{closed.name} is {closed.get_status_display().lower()}, so nothing can be posted on "
+            f"{posting_date:%d %b %Y}. Ask the finance manager to reopen it, or date the entry in an open period."
+        )
 
 
 class JournalEntryLine(models.Model):

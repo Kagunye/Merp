@@ -4,7 +4,7 @@
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Trial Balance</h1>
-    <p class="text-sm text-gray-500 mt-1">{{ date_from }} — {{ date_to }}</p>
+    <p class="text-sm text-gray-500 mt-1">{% if date_from %}Movements {{ date_from }} — {{ date_to }}{% else %}Balances as at {{ date_to }}{% endif %}</p>
   </div>
   <a href="{% url 'reporting:index' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
 </div>

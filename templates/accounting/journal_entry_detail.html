@@ -10,8 +10,8 @@
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-xl font-bold text-gray-900 font-mono">{{ entry.reference }}</h1>
-          <span class="badge {% if entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% elif entry.status == 'REVERSED' %}bg-gray-100 text-gray-500{% else %}bg-red-50 text-red-700{% endif %}">
-            {{ entry.get_status_display }}
+          <span class="badge {% if entry.reversed_by_id %}bg-gray-100 text-gray-500{% elif entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% else %}bg-red-50 text-red-700{% endif %}">
+            {% if entry.reversed_by_id %}Reversed{% else %}{{ entry.get_status_display }}{% endif %}
           </span>
         </div>
         <p class="text-sm text-gray-500 mt-0.5">{{ entry.get_entry_type_display }} · {{ entry.posting_date|date:"d F Y" }}</p>
@@ -26,7 +26,7 @@
           Post Entry
         </button>
       </form>
-      {% elif entry.status == 'POSTED' %}
+      {% elif entry.status == 'POSTED' and not entry.reversed_by_id %}
       <form method="post" action="{% url 'accounting:journal_entry_reverse' entry.pk %}" onsubmit="return confirm('Create a reversal entry?')">
         {% csrf_token %}
         <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50">

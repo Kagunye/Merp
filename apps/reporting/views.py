@@ -45,34 +45,18 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
-        from apps.accounting.models import Account
-        from django.db.models import Sum
+        from apps.accounting.reports import trial_balance
 
-        date_from, date_to = _parse_dates(self.request)
-        accounts = Account.objects.filter(company=company, is_active=True).order_by("code")
-        rows = []
-        total_dr = Decimal("0")
-        total_cr = Decimal("0")
-        for acc in accounts:
-            lines = acc.journal_lines.filter(
-                journal_entry__status="POSTED",
-                journal_entry__posting_date__gte=date_from,
-                journal_entry__posting_date__lte=date_to,
-            )
-            dr = lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
-            cr = lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
-            if dr > 0 or cr > 0:
-                rows.append({"account": acc, "debit": dr, "credit": cr})
-                total_dr += dr
-                total_cr += cr
-        ctx.update({
-            "rows": rows,
-            "total_debit": total_dr,
-            "total_credit": total_cr,
-            "is_balanced": abs(total_dr - total_cr) < Decimal("0.01"),
-            "date_from": date_from,
-            "date_to": date_to,
-        })
+        # As-at balances by default; a From date turns it into period movements.
+        _, date_to = _parse_dates(self.request)
+        date_from = None
+        if self.request.GET.get("date_from"):
+            try:
+                date_from = datetime.date.fromisoformat(self.request.GET["date_from"])
+            except ValueError:
+                date_from = None
+        ctx.update(trial_balance(company, date_to=date_to, date_from=date_from))
+        ctx.update({"date_from": date_from or "", "date_to": date_to})
         return ctx
 
 
@@ -166,6 +150,13 @@ class BalanceSheetView(LoginRequiredMixin, TemplateView):
         asset_rows, total_assets = _get_section(["ASSET", "CASH", "BANK", "RECEIVABLE"])
         liab_rows, total_liab = _get_section(["LIABILITY", "PAYABLE", "TAX"], flip=True)
         equity_rows, total_equity = _get_section(["EQUITY"], flip=True)
+
+        from apps.accounting.reports import unclosed_profit
+        profit = unclosed_profit(company, date_to)
+        if profit:
+            equity_rows.append({"account": None, "label": "Profit / (loss) not yet closed to retained earnings",
+                                "balance": profit})
+            total_equity += profit
 
         ctx.update({
             "date_to": date_to,

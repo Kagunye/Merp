@@ -319,30 +319,19 @@ class Command(BaseCommand):
         # mirror entry.  Net effect across both: cash 0, equity 0.)
         rev = je3.reverse()
         je3.refresh_from_db()
-        if je3.status != "REVERSED":
-            raise TestError(f"Original JE should be REVERSED; got {je3.status}")
+        if je3.status != "POSTED" or je3.reversed_by_id != rev.pk:
+            raise TestError(f"Original JE should stay POSTED and link to its reversal; got {je3.status}")
         if rev.status != "POSTED":
             raise TestError(f"Reversal JE should be POSTED; got {rev.status}")
-        # Net balance across the two is zero even though .current_balance
-        # looks at the surviving POSTED entry alone — explicitly aggregate
-        # both the reversed original and the reversal mirror.
-        from apps.accounting.models import JournalEntryLine
-        from django.db.models import Sum, Q
-        cash_lines = JournalEntryLine.objects.filter(
-            account=acc["1000"],
-            journal_entry__in=[je3, rev],
-        )
-        dr = cash_lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
-        cr = cash_lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
-        if dr - cr != Decimal("0"):
-            raise TestError(f"Reversed pair net on cash should be 0; got {dr - cr}")
-        self.stdout.write(ok(
-            f"Rule-check JE reversed; original→REVERSED, mirror→POSTED, net cash 0"
-        ))
-        # Now cancel the surviving mirror so the GL starts clean for openings.
-        rev.status = "CANCELLED"
-        rev.save(update_fields=["status", "updated_at"])
-        self.stdout.write(ok("Reversal mirror cancelled; GL back to zero"))
+        if acc["1000"].current_balance != Decimal("0"):
+            raise TestError(f"Reversed pair should net cash to 0; got {acc['1000'].current_balance}")
+        self.stdout.write(ok("Rule-check JE reversed: original kept and linked, cash back to 0"))
+        try:
+            je3.reverse()
+            raise TestError("A journal was allowed to be reversed twice")
+        except ValidationError:
+            pass
+        self.stdout.write(ok("Reversing the same journal twice is refused"))
 
     def step_opening_balances(self):
         """Post opening balances via a single balanced JE against OBE."""

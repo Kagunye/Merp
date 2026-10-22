@@ -7,11 +7,27 @@
       <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
       <p class="text-sm text-gray-500 mt-0.5">Manage your company chart of accounts</p>
     </div>
-    <a href="{% url 'accounting:account_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-      New Account
-    </a>
+    <div class="flex gap-2">
+      <a href="{% url 'accounting:tax_rate_list' %}" class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50">Tax rates</a>
+      <a href="{% url 'accounting:account_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Account
+      </a>
+    </div>
   </div>
+
+  {% if chart_is_empty %}
+  <div class="bg-white border border-gray-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4" style="border-left:4px solid var(--primary)">
+    <div>
+      <p class="font-semibold text-gray-900">Start with the standard Kenyan chart of accounts</p>
+      <p class="text-sm text-gray-500 mt-0.5">52 accounts (cash, bank, receivables, VAT, PAYE, NSSF, SHIF, sales, expenses) plus the 16% VAT rate. You can rename or add accounts afterwards.</p>
+    </div>
+    <form method="post" action="{% url 'accounting:account_load_standard' %}" class="no-card">
+      {% csrf_token %}
+      <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Load standard chart</button>
+    </form>
+  </div>
+  {% endif %}
 
   <!-- Filters -->
   <form method="get" class="flex gap-3 flex-wrap">
