@@ -5,9 +5,13 @@ a no-op on Vercel. Migrations and the default-admin seed therefore need to
 happen on the Lambda itself. Two separate phases:
 
 1. **Lazy bootstrap at import time** (this file). Fast fail-safe checks:
-   * If the DB is Postgres AND the auth table is missing, run `migrate`.
-     We fast-path when the table already exists so repeat cold starts
-     don't re-walk the migration graph.
+   * If the DB is Postgres AND any migration is unapplied, run `migrate`.
+     Each migration is atomic on Postgres, so if two cold starts race, the
+     loser's step rolls back and is logged; the next start sees it applied.
+     Checking the plan is one query against django_migrations; when the
+     schema is current nothing else happens. (Checking only for the auth
+     table missed every migration added after the first deploy, which
+     left pages failing with "no such column".)
    * If an admin would be creatable (ADMIN_EMAIL/ADMIN_PASSWORD set and no
      admin exists yet), seed one.
    The whole phase is wrapped in try/except, has a hard time cap, and
@@ -39,20 +43,12 @@ log = logging.getLogger("api.index")
 _BOOTSTRAPPED = False
 
 
-def _auth_table_exists():
-    """Fast check: does the accounts_user table already exist?"""
-    try:
-        from django.db import connection
-        with connection.cursor() as c:
-            # information_schema is portable across Postgres backends.
-            c.execute(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_name = %s LIMIT 1",
-                ["accounts_user"],
-            )
-            return c.fetchone() is not None
-    except Exception:
-        return False
+def _pending_migrations():
+    """Migrations on disk that the database hasn't applied yet."""
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+    executor = MigrationExecutor(connection)
+    return executor.migration_plan(executor.loader.graph.leaf_nodes())
 
 
 def _admin_exists():
@@ -83,15 +79,17 @@ def _bootstrap_db_once():
         log.info("Cold-start bootstrap: DB engine %r — skipping migrate", engine)
         return
 
-    # Fast-path: schema already in place. Skip migrate so repeat cold
-    # starts don't pay the walk-through cost (which can push a Lambda past
-    # its 10s Hobby timeout and never actually complete).
-    if _auth_table_exists():
-        log.info("Cold-start bootstrap: auth table exists — skipping migrate")
-    else:
+    try:
+        pending = _pending_migrations()
+    except Exception as exc:
+        log.exception("Cold-start bootstrap: could not read migration state: %s", exc)
+        pending = None
+    if pending == []:
+        log.info("Cold-start bootstrap: schema is current — skipping migrate")
+    elif pending:
         try:
             from django.core.management import call_command
-            log.info("Cold-start bootstrap: auth table missing — running migrate --noinput")
+            log.info("Cold-start bootstrap: %d unapplied migration(s) — running migrate --noinput", len(pending))
             call_command("migrate", "--noinput", verbosity=1)
             log.info("Cold-start bootstrap: migrate complete")
         except Exception as exc:
