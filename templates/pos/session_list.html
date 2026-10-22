@@ -1,25 +1,50 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'pos:session_open' as pa_url %}
-{% include "_includes/page_header.html" with title="POS Sessions" subtitle="Every cashier shift" action_label="Open Session" action_url=pa_url %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+{% include "_includes/page_header.html" with title="Till Sessions" subtitle="Every shift, and how each drawer was proved" action_label="Open a till" action_url=pa_url %}
+
+<div class="flex gap-2 flex-wrap mb-4">
+  <a href="{% url 'pos:session_list' %}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border {% if not active_status %}text-white{% else %}bg-white text-gray-600{% endif %}" {% if not active_status %}style="background: var(--primary); border-color: var(--primary);"{% endif %}>All</a>
+  {% for value, label in statuses %}
+  <a href="{% url 'pos:session_list' %}?status={{ value }}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border {% if active_status == value %}text-white{% else %}bg-white text-gray-600{% endif %}" {% if active_status == value %}style="background: var(--primary); border-color: var(--primary);"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-left">Closed</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3">Status</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-left">Closed</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3 text-right">Refunds</th><th class="px-4 py-3 text-right">Expected</th><th class="px-4 py-3 text-right">Counted</th><th class="px-4 py-3 text-right">Variance</th><th class="px-4 py-3 text-left">Status</th></tr>
+    </thead>
     <tbody class="divide-y divide-gray-100">
       {% for s in sessions %}
       <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier }}</a></td>
-        <td class="px-4 py-3">{{ s.branch }}</td>
-        <td class="px-4 py-3">{{ s.opened_at|date:"d M Y H:i" }}</td>
-        <td class="px-4 py-3">{{ s.closed_at|date:"d M Y H:i"|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-semibold">{{ s.total_sales|floatformat:2 }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ s.get_status_display }}</span></td>
+        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier.get_full_name|default:s.cashier.username }}</a></td>
+        <td class="px-4 py-3 text-gray-600">{{ s.branch.name }}</td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ s.opened_at|date:"d M Y H:i" }}</td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ s.closed_at|date:"d M Y H:i"|default:"—" }}</td>
+        <td class="px-4 py-3 text-right font-mono text-green-700">{{ s.total_sales|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono {% if s.total_refunds %}text-red-700{% else %}text-gray-400{% endif %}">{{ s.total_refunds|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono">{{ s.expected_cash|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono {% if s.closing_cash is None %}text-gray-400{% endif %}">
+          {% if s.closing_cash is None %}—{% else %}{{ s.closing_cash|floatformat:2 }}{% endif %}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold
+          {% if s.variance is None %}text-gray-400{% elif s.variance < 0 %}text-red-700{% elif s.variance > 0 %}text-amber-700{% else %}text-green-700{% endif %}">
+          {% if s.variance is None %}—{% else %}{{ s.variance|floatformat:2 }}{% endif %}</td>
+        <td class="px-4 py-3">
+          {% if s.status == 'OPEN' %}<span class="badge bg-green-50 text-green-700">Open</span>
+          {% elif s.status == 'CLOSING' %}<span class="badge bg-amber-50 text-amber-700">Closing</span>
+          {% else %}<span class="badge bg-gray-100 text-gray-700">Closed</span>{% endif %}
+          {% if s.status != 'OPEN' and s.closing_cash is None %}<span class="badge bg-white text-gray-500 border border-gray-200 ml-1" title="Closed without a cash count">unproved</span>{% endif %}
+        </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No sessions.</td></tr>
+      <tr><td colspan="10" class="px-4 py-10 text-center text-gray-500">
+        {% if active_status %}No {{ active_status|lower }} sessions for this company.{% else %}No till sessions yet — open one from the terminal to start trading.{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<p class="text-xs text-gray-500 mt-4">Expected cash is the float plus notes taken on cash tickets minus notes paid back on cash refunds — card and mobile slips settle into the bank, so they never enter a drawer. A session closed without a count is marked <em>unproved</em>: the tickets are still in the book, but nobody has attested to the notes.</p>
 {% include "_includes/pagination.html" %}
 {% endblock %}

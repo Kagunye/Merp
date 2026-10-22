@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 <div class="space-y-5">
   <div class="flex items-center justify-between">
@@ -37,9 +38,9 @@
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for row in rows %}
-        <tr class="hover:bg-gray-50/50">
-          <td class="px-4 py-2.5 font-mono text-xs text-gray-500">{{ row.account.code }}</td>
-          <td class="px-4 py-2.5 text-gray-900">{{ row.account.name }}</td>
+        <tr style="{% account_row row.account %}">
+          <td class="px-4 py-2.5 font-mono text-xs"><span class="px-1.5 py-0.5 rounded" style="{% account_chip row.account %}">{{ row.account.code }}</span></td>
+          <td class="px-4 py-2.5 text-gray-900">{{ row.account.name }}{% if row.retired %} <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 align-middle">retired</span>{% endif %}</td>
           <td class="px-4 py-2.5 text-xs text-gray-500">{{ row.account.get_account_type_display }}</td>
           <td class="px-4 py-2.5 text-right font-mono {% if row.debit > 0 %}text-gray-900{% else %}text-gray-300{% endif %}">
             {% if row.debit > 0 %}{{ row.debit|floatformat:2 }}{% else %}—{% endif %}

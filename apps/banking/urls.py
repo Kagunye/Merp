@@ -12,4 +12,13 @@ urlpatterns = [
     path("transactions/", views.BankTransactionListView.as_view(), name="transaction_list"),
     path("transactions/new/", views.BankTransactionCreateView.as_view(), name="transaction_create"),
     path("transactions/<uuid:pk>/", views.BankTransactionDetailView.as_view(), name="transaction_detail"),
+    path("transactions/<uuid:pk>/edit/", views.BankTransactionUpdateView.as_view(), name="transaction_edit"),
+    path("transactions/<uuid:pk>/delete/", views.BankTransactionDeleteView.as_view(), name="transaction_delete"),
+
+    path("reconciliations/", views.ReconciliationListView.as_view(), name="reconciliation_list"),
+    path("reconciliations/new/", views.ReconciliationCreateView.as_view(), name="reconciliation_create"),
+    path("reconciliations/<uuid:pk>/", views.ReconciliationDetailView.as_view(), name="reconciliation_detail"),
+    path("reconciliations/<uuid:pk>/clear/", views.reconciliation_clear, name="reconciliation_clear"),
+    path("reconciliations/<uuid:pk>/post/", views.reconciliation_post, name="reconciliation_post"),
+    path("reconciliations/<uuid:pk>/reverse/", views.reconciliation_reverse, name="reconciliation_reverse"),
 ]

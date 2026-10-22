@@ -1,25 +1,151 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'pos:sale_list' as back %}
-{% include "_includes/page_header.html" with title=sale.reference subtitle=sale.get_payment_method_display back_url=back %}
+{% include "_includes/page_header.html" with title="Ticket "|add:sale.reference subtitle=sale.session.branch.name back_url=back %}
 
-<div class="max-w-xl bg-white rounded-xl border border-gray-200 p-6">
-  <table class="w-full text-sm">
-    <thead class="text-xs text-gray-500 uppercase"><tr><th class="text-left pb-2">Item</th><th class="text-right pb-2">Qty</th><th class="text-right pb-2">Unit</th><th class="text-right pb-2">Total</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for l in sale.lines.all %}
-      <tr><td class="py-2">{{ l.product.name }}</td><td class="py-2 text-right">{{ l.quantity }}</td><td class="py-2 text-right">{{ l.unit_price|floatformat:2 }}</td><td class="py-2 text-right font-semibold">{{ l.line_total|floatformat:2 }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div>
+    <div class="font-semibold text-sm {% if sale.status == 'COMPLETED' %}text-green-700{% elif sale.status == 'REFUNDED' %}text-red-700{% else %}text-amber-700{% endif %}">{{ sale.get_status_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Rung up</div><div class="font-semibold text-sm">{{ sale.created_at|date:"d M Y, H:i" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Cashier</div><div class="font-semibold text-sm">{{ sale.session.cashier.get_full_name|default:sale.session.cashier.username }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Customer</div><div class="font-semibold text-sm">{{ sale.customer.name|default:"Counter sale" }}</div></div>
+</div>
 
-  <div class="mt-4 pt-4 border-t text-sm space-y-1">
-    <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span>{{ sale.subtotal|floatformat:2 }}</span></div>
-    <div class="flex justify-between"><span class="text-gray-500">Discount</span><span>- {{ sale.discount_amount|floatformat:2 }}</span></div>
-    <div class="flex justify-between"><span class="text-gray-500">Tax</span><span>{{ sale.tax_amount|floatformat:2 }}</span></div>
-    <div class="flex justify-between pt-2 border-t text-base font-bold"><span>Total</span><span style="color: var(--primary);">{{ sale.total_amount|floatformat:2 }}</span></div>
-    <div class="flex justify-between text-xs text-gray-500 mt-2"><span>Tendered</span><span>{{ sale.amount_tendered|floatformat:2 }}</span></div>
-    <div class="flex justify-between text-xs text-gray-500"><span>Change</span><span>{{ sale.change_given|floatformat:2 }}</span></div>
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 space-y-6">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-700">
+          {% if sale.refund_of %}Refund against {{ sale.refund_of.reference }}{% else %}What left the counter{% endif %}
+        </h2>
+        {% if sale.warehouse %}<span class="text-xs text-gray-500">off <strong>{{ sale.warehouse.name }}</strong></span>{% endif %}
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+          <tr><th class="px-4 py-3 text-left">Item</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3 text-right">Unit price</th><th class="px-4 py-3 text-right">of which tax</th><th class="px-4 py-3 text-right">Total</th></tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for l in lines %}
+          <tr>
+            <td class="px-4 py-2"><p class="font-medium">{{ l.product.name }}</p><p class="text-xs text-gray-400 font-mono">{{ l.product.sku }}{% if l.tax_rate %} · VAT {{ l.tax_rate.rate }}%{% endif %}</p></td>
+            <td class="px-4 py-2 text-right font-mono">{{ l.quantity|with_unit:l.product.unit_of_measure }}</td>
+            <td class="px-4 py-2 text-right font-mono">{{ l.unit_price|floatformat:2 }}</td>
+            <td class="px-4 py-2 text-right font-mono text-gray-500">{{ l.tax_amount|floatformat:2 }}</td>
+            <td class="px-4 py-2 text-right font-mono font-semibold">{{ l.line_total|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">This ticket has no lines.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="px-4 py-3 border-t border-gray-100 space-y-1 text-sm max-w-xs ml-auto">
+        <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span class="font-mono">{{ sale.subtotal|floatformat:2 }}</span></div>
+        {% if sale.discount_amount %}<div class="flex justify-between"><span class="text-gray-500">Discount</span><span class="font-mono text-green-700">- {{ sale.discount_amount|floatformat:2 }}</span></div>{% endif %}
+        <div class="flex justify-between"><span class="text-gray-500">VAT</span><span class="font-mono">{{ sale.tax_amount|floatformat:2 }}</span></div>
+        <div class="flex justify-between pt-2 border-t font-bold"><span>Total</span><span class="font-mono" style="color: var(--primary);">{{ sale.total_amount|floatformat:2 }}</span></div>
+      </div>
+      {% if sale.notes %}<p class="px-4 py-3 text-xs text-gray-500 border-t border-gray-100 bg-gray-50">Note on this ticket: <strong class="text-gray-700">{{ sale.notes }}</strong></p>{% endif %}
+    </div>
+
+    {% if refunds.exists %}
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Given back on this ticket</h2></div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Refund</th><th class="px-4 py-3 text-left">When</th><th class="px-4 py-3 text-left">Paid by</th><th class="px-4 py-3 text-right">Amount</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for r in refunds %}
+          <tr>
+            <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'pos:sale_detail' r.pk %}" style="color: var(--primary);">{{ r.reference }}</a>
+              {% if r.notes %}<p class="text-xs text-gray-400 font-sans mt-0.5">{{ r.notes }}</p>{% endif %}</td>
+            <td class="px-4 py-2 text-xs text-gray-500">{{ r.created_at|date:"d M Y, H:i" }}</td>
+            <td class="px-4 py-2">{{ r.get_payment_method_display }}</td>
+            <td class="px-4 py-2 text-right font-mono text-red-700">{{ r.total_amount|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr class="bg-gray-50"><td colspan="3" class="px-4 py-2 text-xs font-semibold text-gray-600 uppercase">Refunded so far</td><td class="px-4 py-2 text-right font-mono font-bold">{{ sale.refunded_amount|floatformat:2 }}</td></tr></tfoot>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if can_refund %}
+    <form method="post" action="{% url 'pos:sale_refund' sale.pk %}" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {% csrf_token %}
+      <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Return goods and pay the money back</h2></div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Item</th><th class="px-4 py-3 text-right">Sold</th><th class="px-4 py-3 text-right">Still returnable</th><th class="px-4 py-3 text-right">Returning</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for row in refundable %}
+          <tr>
+            <td class="px-4 py-2"><p class="font-medium">{{ row.line.product.name }}</p><p class="text-xs text-gray-400 font-mono">{{ row.line.unit_price|floatformat:2 }} each</p></td>
+            <td class="px-4 py-2 text-right font-mono">{{ row.line.quantity|with_unit:row.line.product.unit_of_measure }}</td>
+            <td class="px-4 py-2 text-right font-mono {% if row.left <= 0 %}text-gray-400{% endif %}">{{ row.left|with_unit:row.line.product.unit_of_measure }}</td>
+            <td class="px-4 py-2 text-right">
+              <input type="number" step="0.0001" min="0" max="{{ row.left }}" name="refund_qty_{{ row.line.pk }}"
+                {% if row.left <= 0 %}disabled{% endif %}
+                class="w-28 px-2 py-1 text-right text-sm border border-gray-300 rounded-lg font-mono" />
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="px-4 py-3 border-t border-gray-100 grid sm:grid-cols-2 gap-4 items-end">
+        <label class="block text-sm">
+          <span class="text-xs font-medium text-gray-600">Why it came back</span>
+          <input type="text" name="reason" maxlength="255" placeholder="Faulty, wrong item, customer changed their mind…"
+                 class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" />
+        </label>
+        <div class="flex justify-end">
+          <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary)">Refund this ticket</button>
+        </div>
+      </div>
+      <p class="px-4 py-3 text-xs text-gray-500 bg-gray-50 border-t border-gray-100">
+        A refund is its own ticket rather than an edit of the sale: the money that went over the counter and the money that comes back are two events, and the till has to be able to prove both.
+        The goods go back on <strong>{{ sale.warehouse.name|default:"the till's shelf" }}</strong> at the same cost they left at, and the revenue and VAT are taken back by a second entry — never by deleting this one.
+        {% if sale.payment_method == 'CASH' %}Cash refunds are paid out of this drawer, so the session has to still be open and hold enough notes.{% endif %}
+      </p>
+    </form>
+    {% elif sale.refund_of %}
+    <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-sm text-gray-600">
+      This is itself a refund ticket — goods come back on the sale it was issued against, not here.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="space-y-6">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">How it was paid</h2></div>
+      <table class="w-full text-sm">
+        <tbody class="divide-y divide-gray-100">
+          <tr><td class="px-4 py-2 text-gray-500">Method</td><td class="px-4 py-2 text-right font-semibold">{{ sale.get_payment_method_display }}</td></tr>
+          <tr><td class="px-4 py-2 text-gray-500">Tendered</td><td class="px-4 py-2 text-right font-mono">{{ sale.amount_tendered|floatformat:2 }}</td></tr>
+          <tr><td class="px-4 py-2 text-gray-500">Change given</td><td class="px-4 py-2 text-right font-mono">{{ sale.change_given|floatformat:2 }}</td></tr>
+          <tr><td class="px-4 py-2 text-gray-500">Still returnable</td><td class="px-4 py-2 text-right font-mono font-semibold">{{ sale.outstanding_refund|floatformat:2 }}</td></tr>
+        </tbody>
+      </table>
+      <p class="px-4 py-3 text-xs text-gray-500 border-t border-gray-100">
+        Change is what the drawer gives back, not what the book is told: the takings are recorded at the price of the goods, and only the notes actually handed over settle into the cash-up.
+      </p>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <h2 class="text-sm font-semibold text-gray-700 mb-2">In the book</h2>
+      <div class="space-y-2 text-sm">
+        {% if sale.journal_entry %}
+        <a href="{% url 'accounting:journal_entry_detail' sale.journal_entry.pk %}" class="block font-mono text-xs" style="color: var(--primary);">{{ sale.journal_entry.reference }} — {{ sale.journal_entry.get_entry_type_display }}</a>
+        {% else %}
+        <p class="text-xs text-gray-500">No ledger entry is linked to this ticket.</p>
+        {% endif %}
+        {% if sale.refund_of %}<a href="{% url 'pos:sale_detail' sale.refund_of.pk %}" class="block text-gray-600 hover:text-gray-900">Refund of {{ sale.refund_of.reference }}</a>{% endif %}
+        {% if sale.session %}<a href="{% url 'pos:session_detail' sale.session.pk %}" class="block text-gray-600 hover:text-gray-900">{{ sale.session.cashier.get_full_name|default:sale.session.cashier.username }}'s till</a>{% endif %}
+        <a href="{% url 'pos:terminal' %}" class="block text-gray-600 hover:text-gray-900">Back to the terminal</a>
+      </div>
+    </div>
+
+    <div class="no-print">
+      {% include "_includes/print_button.html" with print_label="Print receipt" %}
+    </div>
   </div>
 </div>
 {% endblock %}

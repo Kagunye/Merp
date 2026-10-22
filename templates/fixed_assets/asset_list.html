@@ -8,6 +8,7 @@
   </div>
   <div class="flex flex-wrap gap-2">
     <a href="{% url 'fixed_assets:category_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Categories</a>
+    <a href="{% url 'fixed_assets:depreciation_run' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Run Depreciation</a>
     <a href="{% url 'fixed_assets:asset_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Asset</a>
   </div>
 </div>
@@ -39,6 +40,7 @@
         <th class="px-4 py-3 text-right font-semibold text-gray-700">Accum. Depr.</th>
         <th class="px-4 py-3 text-right font-semibold text-gray-700">Book Value</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+        <th class="px-4 py-3 text-left font-semibold text-gray-700">Ledger</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-700">Purchase Date</th>
       </tr>
     </thead>
@@ -58,11 +60,17 @@
             {{ asset.get_status_display }}
           </span>
         </td>
+        <td class="px-4 py-3 text-gray-600">
+          {% if asset.journal_entry %}
+          <a href="{% url 'accounting:journal_entry_detail' asset.journal_entry.pk %}" class="text-sm hover:underline" style="color:var(--primary)">{{ asset.journal_entry.reference }}</a>
+          {% if asset.journal_entry.reversed_by_id %}<span class="badge bg-gray-100 text-gray-600 ml-1">Stood down</span>{% endif %}
+          {% else %}<span class="badge bg-amber-50 text-amber-700">Not posted</span>{% endif %}
+        </td>
         <td class="px-4 py-3 text-gray-600">{{ asset.purchase_date }}</td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="8" class="px-4 py-12 text-center text-gray-400">
+        <td colspan="9" class="px-4 py-12 text-center text-gray-400">
           No assets found. <a href="{% url 'fixed_assets:asset_create' %}" style="color:var(--primary)" class="font-medium">Add first asset</a>
         </td>
       </tr>

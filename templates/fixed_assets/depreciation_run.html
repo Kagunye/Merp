@@ -1,0 +1,6 @@
+{% extends "base/base.html" %}
+{% block title %}{{ page_title }} — Fixed Assets — Mofisi{% endblock %}
+{% block content %}
+{% url 'fixed_assets:asset_list' as back_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="Every active asset in the register is charged for this month. One that cannot be is named afterwards rather than holding up the rest." back_url=back_url cancel_url=back_url submit_label="Charge the Month" extra_template="fixed_assets/_run_context.html" %}
+{% endblock %}

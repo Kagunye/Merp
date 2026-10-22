@@ -1,49 +1,67 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'pos:session_detail' session.pk as back %}
-{% include "_includes/page_header.html" with title="POS Cash-Up" subtitle="Reconcile the till at session close" back_url=back %}
+{% include "_includes/page_header.html" with title="Cash Up" subtitle="Count the drawer against the tickets" back_url=back %}
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Cashier</div><div class="font-semibold">{{ session.cashier }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opened</div><div class="font-semibold">{{ session.opened_at|date:"d M, H:i" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Closed</div><div class="font-semibold">{{ session.closed_at|date:"d M, H:i"|default:"—" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ session.get_status_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Cashier</div><div class="font-semibold text-sm">{{ session.cashier.get_full_name|default:session.cashier.username }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Branch</div><div class="font-semibold text-sm">{{ session.branch.name }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opened</div><div class="font-semibold text-sm">{{ session.opened_at|date:"d M, H:i" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold text-sm">{{ session.get_status_display }}</div></div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
   <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-semibold mb-3">Sales by method</h3>
+    <h3 class="text-sm font-semibold mb-3">Taken, by how the money came in</h3>
     <table class="w-full text-sm">
+      <thead class="text-xs text-gray-500 uppercase"><tr><th class="text-left pb-2">Method</th><th class="text-right pb-2">Taken</th><th class="text-right pb-2">Refunded</th><th class="text-right pb-2">Net</th></tr></thead>
       <tbody class="divide-y divide-gray-100">
-        <tr><td class="py-2 text-gray-500">Cash</td><td class="py-2 text-right font-semibold">{{ cash_sales|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">Card</td><td class="py-2 text-right font-semibold">{{ card_sales|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">M-Pesa</td><td class="py-2 text-right font-semibold">{{ mpesa_sales|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">Bank</td><td class="py-2 text-right font-semibold">{{ bank_sales|floatformat:2 }}</td></tr>
-        <tr class="font-bold border-t"><td class="py-2">Total sales</td><td class="py-2 text-right" style="color: var(--primary);">{{ session.total_sales|floatformat:2 }}</td></tr>
+        {% for m in report.methods %}
+        <tr>
+          <td class="py-2 text-gray-600">{{ m.label }}</td>
+          <td class="py-2 text-right font-mono">{{ m.taken|floatformat:2 }}</td>
+          <td class="py-2 text-right font-mono text-red-600">{{ m.given|floatformat:2 }}</td>
+          <td class="py-2 text-right font-mono font-semibold">{{ m.net|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="py-6 text-center text-gray-500">Nothing has been sold on this till.</td></tr>
+        {% endfor %}
       </tbody>
+      <tfoot>
+        <tr class="border-t font-bold"><td class="py-2">Tickets</td><td class="py-2 text-right font-mono">{{ report.ticket_count }}</td><td class="py-2 text-right font-mono">{{ report.refund_count }}</td><td class="py-2 text-right font-mono" style="color: var(--primary);">{{ report.total_sales|floatformat:2 }}</td></tr>
+      </tfoot>
     </table>
+    <p class="text-xs text-gray-500 mt-3">A card or M-Pesa slip is the bank's business, not the drawer's — it is listed here so the takings can be checked against the statement, but only cash changes what should be counted in hand.</p>
   </div>
+
   <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-semibold mb-3">Cash reconciliation</h3>
+    <h3 class="text-sm font-semibold mb-3">The drawer</h3>
     <table class="w-full text-sm">
       <tbody class="divide-y divide-gray-100">
-        <tr><td class="py-2 text-gray-500">Opening cash</td><td class="py-2 text-right">{{ session.opening_cash|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">+ Cash sales</td><td class="py-2 text-right">{{ cash_sales|floatformat:2 }}</td></tr>
-        <tr class="font-semibold border-t"><td class="py-2">Expected in drawer</td><td class="py-2 text-right">{{ expected_cash|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">Counted</td><td class="py-2 text-right">{{ counted_cash|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Opening float</td><td class="py-2 text-right font-mono">{{ report.opening_cash|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Cash taken over the counter</td><td class="py-2 text-right font-mono text-green-700">{{ report.total_sales|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Cash paid back out</td><td class="py-2 text-right font-mono text-red-600">{{ report.total_refunds|floatformat:2 }}</td></tr>
+        <tr class="font-semibold border-t"><td class="py-2">Expected in the drawer</td><td class="py-2 text-right font-mono">{{ report.expected_cash|floatformat:2 }}</td></tr>
+        <tr><td class="py-2 text-gray-500">Counted</td><td class="py-2 text-right font-mono">{% if report.counted_cash is None %}— not counted —{% else %}{{ report.counted_cash|floatformat:2 }}{% endif %}</td></tr>
         <tr class="font-bold border-t">
           <td class="py-2">Variance</td>
-          <td class="py-2 text-right {% if variance == 0 %}text-green-700{% elif variance > 0 %}text-amber-600{% else %}text-red-600{% endif %}">{{ variance|floatformat:2 }}</td>
+          <td class="py-2 text-right font-mono {% if report.variance is None %}text-gray-400{% elif report.variance == 0 %}text-green-700{% elif report.variance > 0 %}text-amber-600{% else %}text-red-600{% endif %}">{% if report.variance is None %}—{% else %}{{ report.variance|floatformat:2 }}{% endif %}</td>
         </tr>
       </tbody>
     </table>
-    {% if variance == 0 %}
-      <p class="text-sm text-green-700 mt-3">✓ Drawer balances.</p>
-    {% elif variance > 0 %}
-      <p class="text-sm text-amber-600 mt-3">Overage detected. Please investigate.</p>
+    {% if report.counted_cash is None %}
+      <p class="text-sm text-amber-700 mt-3">Nothing has been counted yet, so the drawer is unproven. Record the count on the session page when the shift ends.</p>
+    {% elif report.variance == 0 %}
+      <p class="text-sm text-green-700 mt-3">The drawer balances to the ticket.</p>
+    {% elif report.variance > 0 %}
+      <p class="text-sm text-amber-700 mt-3">Over by {{ report.variance|floatformat:2 }} — more in the drawer than the tickets account for.</p>
     {% else %}
-      <p class="text-sm text-red-600 mt-3">Shortage detected. Please investigate.</p>
+      <p class="text-sm text-red-600 mt-3">Short by {{ report.variance|floatformat:2 }} — the tickets cannot explain this much missing cash.</p>
     {% endif %}
   </div>
+</div>
+
+<div class="mt-6 no-print">
+  {% include "_includes/print_button.html" with print_label="Print cash-up" %}
 </div>
 {% endblock %}

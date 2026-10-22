@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 <div class="space-y-5">
   <div class="flex items-center justify-between">
@@ -24,7 +25,7 @@
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
     <div class="bg-white border border-gray-200 rounded-xl p-4">
       <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Stock</p>
-      <p class="text-2xl font-bold text-gray-900 mt-1 font-mono">{{ product.total_stock|floatformat:2 }}</p>
+      <p class="text-2xl font-bold text-gray-900 mt-1 font-mono">{{ product.total_stock|with_unit:product.unit_of_measure }}</p>
       <p class="text-xs text-gray-400 mt-0.5">{{ product.unit_of_measure }}</p>
     </div>
     <div class="bg-white border border-gray-200 rounded-xl p-4">
@@ -37,7 +38,7 @@
     </div>
     <div class="bg-white border border-gray-200 rounded-xl p-4">
       <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Reorder Level</p>
-      <p class="text-2xl font-bold mt-1 font-mono {% if product.total_stock <= product.reorder_level %}text-orange-600{% else %}text-gray-900{% endif %}">{{ product.reorder_level|floatformat:2 }}</p>
+      <p class="text-2xl font-bold mt-1 font-mono {% if product.total_stock <= product.reorder_level %}text-orange-600{% else %}text-gray-900{% endif %}">{{ product.reorder_level|with_unit:product.unit_of_measure }}</p>
     </div>
   </div>
 
@@ -51,7 +52,7 @@
         <div class="px-4 py-3 flex items-center justify-between">
           <span class="text-sm text-gray-700">{{ sl.warehouse.name }}</span>
           <div class="text-right">
-            <span class="font-mono font-semibold text-gray-900">{{ sl.quantity|floatformat:2 }}</span>
+            <span class="font-mono font-semibold text-gray-900">{{ sl.quantity|with_unit:product.unit_of_measure }}</span>
             <span class="text-xs text-gray-400 ml-1">Avg: {{ sl.avg_cost|floatformat:2 }}</span>
           </div>
         </div>
@@ -86,7 +87,7 @@
                 {{ mv.get_movement_type_display }}
               </span>
             </td>
-            <td class="px-4 py-2 text-right font-mono">{{ mv.quantity|floatformat:2 }}</td>
+            <td class="px-4 py-2 text-right font-mono">{{ mv.quantity|with_unit:product.unit_of_measure }}</td>
             <td class="px-4 py-2 text-right font-mono text-gray-600">{{ mv.unit_cost|floatformat:2 }}</td>
           </tr>
           {% empty %}

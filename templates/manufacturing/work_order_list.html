@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Work Orders — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -43,8 +44,8 @@
         <td class="px-4 py-3"><a href="{% url 'manufacturing:work_order_detail' wo.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ wo.reference }}</a></td>
         <td class="px-4 py-3 text-gray-900">{{ wo.bom.product.name }}</td>
         <td class="px-4 py-3 text-gray-600">{{ wo.bom.name }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ wo.planned_quantity }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ wo.actual_quantity }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ wo.planned_quantity|trim_qty }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ wo.actual_quantity|trim_qty }}</td>
         <td class="px-4 py-3">
           <span class="badge {% if wo.status == 'COMPLETED' %}bg-green-50 text-green-700{% elif wo.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif wo.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% elif wo.status == 'CANCELLED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
             {{ wo.get_status_display }}

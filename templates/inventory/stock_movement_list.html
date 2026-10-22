@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 <div class="space-y-5">
   <div class="flex items-center justify-between">
@@ -56,7 +57,7 @@
             </span>
           </td>
           <td class="px-4 py-3 text-gray-600 text-xs">{{ mv.warehouse.name }}</td>
-          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ mv.quantity|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ mv.quantity|with_unit:mv.product.unit_of_measure }}</td>
           <td class="px-4 py-3 text-right font-mono text-gray-600">{{ mv.unit_cost|floatformat:2 }}</td>
           <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ mv.total_cost|floatformat:2 }}</td>
           <td class="px-4 py-3 text-xs text-gray-400">{{ mv.reference|default:"" }}</td>

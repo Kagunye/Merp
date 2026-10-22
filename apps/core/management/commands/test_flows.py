@@ -1,7 +1,7 @@
-"""End-to-end integration tests for the four scenarios the user named.
+"""End-to-end integration tests for the scenarios the user named.
 
 Run with:
-    python manage.py test_flows            # all four
+    python manage.py test_flows            # all five
     python manage.py test_flows -t A B     # subset
 
 Each flow runs in its own transaction and rolls back at the end so the
@@ -15,6 +15,8 @@ Scenarios:
   C. Permissions and approvals — non-admin denied, admin approves, audit.
   D. Accounting integrity — post a JE, verify Dr = Cr, trial balance
      balances, AR / AP tie back.
+  E. Bank reconciliation — clear transactions against a statement, post it,
+     reverse it, and prove the ledger moved the same amount.
 """
 from decimal import Decimal
 from datetime import date, timedelta
@@ -51,8 +53,8 @@ class Command(BaseCommand):
     help = "Run end-to-end integration test flows."
 
     def add_arguments(self, parser):
-        parser.add_argument("-t", "--tests", nargs="+", default=["A", "B", "C", "D"],
-                            choices=["A", "B", "C", "D"],
+        parser.add_argument("-t", "--tests", nargs="+", default=["A", "B", "C", "D", "E"],
+                            choices=["A", "B", "C", "D", "E"],
                             help="Subset of tests to run.")
         parser.add_argument("--keep", action="store_true",
                             help="Keep the data instead of rolling back.")
@@ -485,6 +487,169 @@ class Command(BaseCommand):
         self.stdout.write(ok(f"AP control: GL net {ap_net}, bill subledger {ap_sub}"))
         if ap_net != ap_sub:
             self.stdout.write(f"    {YELLOW}note:{RESET} AP GL and AP subledger differ by {ap_net - ap_sub}.")
+
+    # ---------- Test E — Bank reconciliation ----------
+
+    def flow_e(self):
+        """Bank reconciliation — clear, post, reverse, and tie back to the ledger."""
+        from django.core.exceptions import ValidationError
+        from apps.banking import services
+        from apps.banking.models import BankAccount, BankTransaction
+
+        company = self._company()
+        acc = self._accounts(company)
+        statement_date = date.today()
+
+        # 1. A bank account mapped to the ledger, and the statement window.
+        bank = BankAccount.objects.create(
+            company=company, name="Flow E Current Account", bank_name="Test Bank",
+            account_number="99000123", account_type="CURRENT",
+            currency=company.currency or "KES", gl_account=acc["BANK"],
+            opening_balance=Decimal("50000"),
+        )
+        self.stdout.write(ok(f"Bank account {bank.name} → GL {bank.gl_account.code}"))
+
+        def txn(day_offset, kind, amount, ref):
+            return BankTransaction.objects.create(
+                bank_account=bank, transaction_date=statement_date - timedelta(days=day_offset),
+                transaction_type=kind, amount=Decimal(amount), reference=ref,
+                description=f"Flow E {kind.lower()} {ref}",
+            )
+
+        deposits = [txn(9, "CREDIT", "10000", "E-DEP-1"), txn(4, "CREDIT", "2000", "E-DEP-2")]
+        withdrawals = [txn(7, "DEBIT", "4000", "E-WDL-1"), txn(2, "DEBIT", "1000", "E-WDL-2")]
+        items = deposits + withdrawals
+        self.stdout.write(ok(f"Recorded {len(items)} transactions"))
+
+        # 2. Mirror them through the ledger so the books and the bank agree.
+        entries = []
+        for t in items:
+            amount = t.amount
+            if t.transaction_type == "CREDIT":
+                entries.append(self._je(company, f"JE-{t.reference}", t.description, [
+                    (acc["BANK"], amount, Decimal("0")), (acc["REV"], Decimal("0"), amount),
+                ], posting_date=t.transaction_date))
+            else:
+                entries.append(self._je(company, f"JE-{t.reference}", t.description, [
+                    (acc["EXP"], amount, Decimal("0")), (acc["BANK"], Decimal("0"), amount),
+                ], posting_date=t.transaction_date))
+        from django.db.models import Sum
+        ledger = acc["BANK"].journal_lines.filter(journal_entry__in=entries).aggregate(
+            dr=Sum("debit_amount"), cr=Sum("credit_amount"),
+        )
+        ledger_net = (ledger["dr"] or Decimal("0")) - (ledger["cr"] or Decimal("0"))
+        cleared_net = sum((t.signed_amount for t in items), Decimal("0"))
+        if ledger_net != cleared_net:
+            raise FlowError(f"Ledger moved {ledger_net} but the transactions net to {cleared_net}")
+        self.stdout.write(ok(f"Ledger and bank agree: both moved {ledger_net}"))
+
+        # 3. Opening balance is carried forward, statement balances are derived.
+        opening = services.carried_forward_balance(bank, statement_date)
+        if opening != bank.opening_balance:
+            raise FlowError(f"First statement should start from the account's opening balance, got {opening}")
+        closing = opening + cleared_net
+        recon = services.create_draft(
+            company=company, bank_account=bank, reference="STM-E-1",
+            statement_date=statement_date, closing_balance=closing,
+        )
+        self.stdout.write(ok(f"Draft statement {recon.reference}: opening {opening}, closing {closing}"))
+
+        # 4. Nothing cleared yet -- the whole statement is a difference.
+        if recon.difference != cleared_net:
+            raise FlowError(f"An untouched statement should differ by {cleared_net}, got {recon.difference}")
+        self.stdout.write(ok(f"Untouched statement is out by {recon.difference} -- that is the point"))
+
+        # 5. Clear a subset: the statement stays out of balance, and posting is refused.
+        for t in deposits + [withdrawals[0]]:
+            services.clear(t, recon)
+        if recon.is_balanced:
+            raise FlowError("A partial clearing should not balance")
+        try:
+            services.post(recon)
+        except ValidationError as e:
+            self.stdout.write(ok(f"Posting refused while out of balance: {e.messages[0][:70]}..."))
+        else:
+            raise FlowError("An unexplained out-of-balance statement was posted")
+
+        # 6. An accepted difference needs a written reason -- the escape hatch is documented.
+        recon.notes = "Withdrawal E-WDL-2 reaches the bank a day later."
+        recon.save(update_fields=["notes", "updated_at"])
+        services.post(recon)
+        recon.refresh_from_db()
+        if recon.status != "POSTED":
+            raise FlowError("Statement with a recorded reason should post")
+        self.stdout.write(ok("Posted with a recorded reason, difference carried as a note"))
+
+        # 7. A posted statement is locked.
+        try:
+            services.unclear(deposits[0])
+        except ValidationError as e:
+            self.stdout.write(ok(f"Locked: {e.messages[0][:60]}..."))
+        else:
+            raise FlowError("A posted statement let a cleared transaction be released")
+
+        # 8. Reverse it -- everything goes back to outstanding.
+        services.reverse(recon)
+        released = BankTransaction.objects.filter(reconciliation=recon).count()
+        still_flagged = sum(1 for t in items if BankTransaction.objects.get(pk=t.pk).is_reconciled)
+        if released or still_flagged:
+            raise FlowError(f"After reversing: {released} rows still linked, {still_flagged} still flagged")
+        self.stdout.write(ok("Reversed: every transaction is outstanding again, flags cleared"))
+
+        # 9. Clear all four and the statement balances exactly.
+        recon2 = services.create_draft(
+            company=company, bank_account=bank, reference="STM-E-2",
+            statement_date=statement_date, closing_balance=closing,
+        )
+        for t in items:
+            services.clear(t, recon2)
+        if not recon2.is_balanced:
+            raise FlowError(f"Full clearing should balance, difference {recon2.difference}")
+        services.post(recon2)
+        for t in items:
+            t.refresh_from_db()
+            if not t.is_reconciled or t.reconciliation_id != recon2.pk:
+                raise FlowError(f"{t.reference} did not survive posting as cleared")
+        self.stdout.write(ok(f"Full statement posted {recon2.reference}: {recon2.cleared_count} items, difference {recon2.difference}"))
+
+        # 10. The next statement starts from this one's closing balance.
+        next_opening = services.carried_forward_balance(bank, statement_date + timedelta(days=30))
+        if next_opening != closing:
+            raise FlowError(f"Next statement should open at {closing}, got {next_opening}")
+        self.stdout.write(ok(f"Next statement carries forward {next_opening}"))
+
+        # 11. Nothing is left outstanding inside the period.
+        if services.outstanding(bank, statement_date).exists():
+            raise FlowError("Outstanding items remain after a full clearing")
+        self.stdout.write(ok("Outstanding list for the account is empty"))
+
+        # 12. Two live statements cannot cover the same day.
+        try:
+            services.create_draft(
+                company=company, bank_account=bank, reference="STM-E-3",
+                statement_date=statement_date, closing_balance=closing,
+            )
+        except ValidationError as e:
+            self.stdout.write(ok(f"Duplicate statement date refused: {e.messages[0][:60]}..."))
+        else:
+            raise FlowError("A second statement for the same date was accepted")
+
+        # 13. A transaction after the statement date does not belong on it.
+        next_date = statement_date + timedelta(days=30)
+        late = txn(-45, "CREDIT", "500", "E-LATE")
+        draft = services.create_draft(
+            company=company, bank_account=bank, reference="STM-E-4",
+            statement_date=next_date, closing_balance=closing,
+        )
+        try:
+            services.clear(late, draft)
+        except ValidationError as e:
+            self.stdout.write(ok(f"Post-statement item refused: {e.messages[0][:60]}..."))
+        else:
+            raise FlowError("A transaction dated after the statement was cleared onto it")
+        if services.outstanding(bank, statement_date).filter(pk=late.pk).exists():
+            raise FlowError("A transaction beyond the statement date should not be offered as outstanding")
+        self.stdout.write(ok("Outstanding list stops at the statement date"))
 
 
 class _Rollback(Exception):

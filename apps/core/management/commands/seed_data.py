@@ -125,21 +125,12 @@ class Command(BaseCommand):
     def _create_sample_products(self, company):
         from apps.organizations.models import Warehouse
         from apps.inventory.models import UnitOfMeasure, ProductCategory, Product
+        from apps.core.services import create_default_units
 
         warehouse = Warehouse.objects.filter(company=company).first()
 
-        uom_piece, _ = UnitOfMeasure.objects.get_or_create(
-            company=company, abbreviation="PCS",
-            defaults={"name": "Pieces", "is_base": True},
-        )
-        uom_kg, _ = UnitOfMeasure.objects.get_or_create(
-            company=company, abbreviation="KG",
-            defaults={"name": "Kilograms", "is_base": True},
-        )
-        uom_ltr, _ = UnitOfMeasure.objects.get_or_create(
-            company=company, abbreviation="LTR",
-            defaults={"name": "Litres", "is_base": True},
-        )
+        units = create_default_units(company)
+        uom_piece, uom_kg, uom_ltr = units["PCS"], units["KG"], units["LTR"]
 
         cat_electronics, _ = ProductCategory.objects.get_or_create(company=company, name="Electronics")
         cat_office, _ = ProductCategory.objects.get_or_create(company=company, name="Office Supplies")

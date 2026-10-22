@@ -54,23 +54,35 @@
     <div><dt class="text-gray-500">Bank</dt><dd class="text-gray-900">{{ employee.bank_name|default:"—" }}</dd></div>
     <div><dt class="text-gray-500">Bank Account</dt><dd class="text-gray-900">{{ employee.bank_account_number|default:"—" }}</dd></div>
   </dl>
-  {% if contracts %}
-  <h3 class="text-sm font-semibold text-gray-900 mt-6 mb-3">Contract History</h3>
+  <div class="flex items-center justify-between mt-6 mb-3">
+    <h3 class="text-sm font-semibold text-gray-900">Contract History</h3>
+    <a href="{% url 'hr:contract_create' employee.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Add contract</a>
+  </div>
   <table class="w-full text-sm">
     <thead class="bg-gray-50"><tr>
       <th class="px-3 py-2 text-left font-semibold text-gray-700">Type</th>
+      <th class="px-3 py-2 text-left font-semibold text-gray-700">Title</th>
       <th class="px-3 py-2 text-right font-semibold text-gray-700">Basic Salary</th>
       <th class="px-3 py-2 text-left font-semibold text-gray-700">Start</th>
       <th class="px-3 py-2 text-left font-semibold text-gray-700">End</th>
+      <th class="px-3 py-2 text-right font-semibold text-gray-700">&nbsp;</th>
     </tr></thead>
     <tbody>{% for c in contracts %}<tr class="border-t border-gray-100">
-      <td class="px-3 py-2">{{ c.get_contract_type_display }}</td>
-      <td class="px-3 py-2 text-right font-mono">{{ c.basic_salary|floatformat:2 }}</td>
-      <td class="px-3 py-2">{{ c.start_date }}</td>
-      <td class="px-3 py-2">{{ c.end_date|default:"Ongoing" }}</td>
+      <td class="px-3 py-2 text-gray-900">
+        {{ c.get_contract_type_display }}
+        {% if c.is_current %}<span class="badge bg-green-50 text-green-700 ml-1">Current</span>{% endif %}
+      </td>
+      <td class="px-3 py-2 text-gray-600">{{ c.job_title|default:"—" }}</td>
+      <td class="px-3 py-2 text-right font-mono text-gray-900">{{ c.basic_salary|floatformat:2 }}</td>
+      <td class="px-3 py-2 text-gray-600">{{ c.start_date }}</td>
+      <td class="px-3 py-2 text-gray-600">{{ c.end_date|default:"Ongoing" }}</td>
+      <td class="px-3 py-2 text-right"><a href="{% url 'hr:contract_update' c.pk %}" class="text-xs font-medium hover:underline" style="color:var(--primary)">Edit</a></td>
+    </tr>{% empty %}<tr>
+      <td colspan="6" class="px-3 py-6 text-center text-gray-400">
+        No contract yet — payroll has no basic pay to work this person's month from.
+      </td>
     </tr>{% endfor %}</tbody>
   </table>
-  {% endif %}
 </div>
 
 <div id="tab-leave" class="tab-content hidden bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -114,17 +126,22 @@
       <th class="px-4 py-3 text-right font-semibold text-gray-700">Gross</th>
       <th class="px-4 py-3 text-right font-semibold text-gray-700">Deductions</th>
       <th class="px-4 py-3 text-right font-semibold text-gray-700">Net</th>
+      <th class="px-4 py-3 text-right font-semibold text-gray-700">Employer cost</th>
     </tr></thead>
     <tbody class="divide-y divide-gray-100">
       {% for ps in payslips %}
       <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 text-gray-900">{{ ps.payroll_run.period_start }} to {{ ps.payroll_run.period_end }}</td>
+        <td class="px-4 py-3 text-gray-900">
+          <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="hover:underline" style="color:var(--primary)">{{ ps.payroll_run.period_start }} to {{ ps.payroll_run.period_end }}</a>
+          <div class="text-xs text-gray-400">{{ ps.payroll_run.reference }} · {{ ps.payroll_run.status }}</div>
+        </td>
         <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
         <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
         <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ ps.employer_cost|floatformat:2 }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">No payslips.</td></tr>
+      <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No payslips.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django import forms
-from apps.core.forms import date_input, is_new, lock_currency
+from apps.core.forms import date_input, is_new, pick_currency
 from .models import Bill, PurchaseOrder, PurchaseRequisition
 
 
@@ -38,7 +38,7 @@ class BillForm(forms.ModelForm):
         self.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
         self.fields["purchase_order"].queryset = PurchaseOrder.objects.filter(company=company)
         self.fields["purchase_order"].empty_label = "— Not linked to an order"
-        lock_currency(self, company)
+        pick_currency(self, company)
         if is_new(self):
             import datetime
             self.fields["bill_date"].initial = datetime.date.today()

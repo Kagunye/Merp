@@ -7,8 +7,8 @@
   <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-sky">🔄</div><span class="label">Run Depreciation</span></a>
-  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-rose">🗑️</div><span class="label">Assets Disposal</span></a>
+  <a href="{% url 'fixed_assets:depreciation_run' %}" class="launcher-tile"><div class="ico ico-sky">🔄</div><span class="label">Run Depreciation</span></a>
+  <a href="{% url 'fixed_assets:asset_list' %}?status=DISPOSED" class="launcher-tile"><div class="ico ico-rose">🗑️</div><span class="label">Assets Disposal</span></a>
   <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-mint">↔️</div><span class="label">Asset Transfers</span></a>
   <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">📊</div><span class="label">Asset Revaluation</span></a>
   <a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-slate">🔧</div><span class="label">Asset Maintenance</span></a>

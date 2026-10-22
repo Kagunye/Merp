@@ -9,6 +9,8 @@ Context expected:
   cancel_url     — target for the Cancel ghost button (optional)
   submit_label   — submit button label (default: "Save")
   section_label  — small uppercase section marker above fields (optional)
+  extra_template — path of a partial rendered inside the form, below the fields
+                   (optional; for screens where the form is not the whole story)
 {% endcomment %}
 
 {% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url %}
@@ -46,6 +48,8 @@ Context expected:
         {% endwith %}
       {% endfor %}
     </div>
+
+    {% if extra_template %}{% include extra_template %}{% endif %}
 
     <div class="mf-actions">
       {% if cancel_url %}<a href="{{ cancel_url }}" class="mf-btn-ghost">Cancel</a>{% endif %}

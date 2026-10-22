@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ bom.name }} — BOM — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -39,10 +40,10 @@
       <tr class="hover:bg-gray-50">
         <td class="px-4 py-3 font-medium text-gray-900">{{ line.component.name }}</td>
         <td class="px-4 py-3 text-gray-600">{{ line.component.sku }}</td>
-        <td class="px-4 py-3 text-right text-gray-900">{{ line.quantity }}</td>
+        <td class="px-4 py-3 text-right text-gray-900">{{ line.quantity|with_unit:line.unit_of_measure }}</td>
         <td class="px-4 py-3 text-gray-600">{{ line.unit_of_measure|default:line.component.unit_of_measure }}</td>
         <td class="px-4 py-3 text-right text-gray-600">{{ line.scrap_percent }}%</td>
-        <td class="px-4 py-3 text-right font-medium text-gray-900">{{ line.effective_quantity }}</td>
+        <td class="px-4 py-3 text-right font-medium text-gray-900">{{ line.effective_quantity|with_unit:line.unit_of_measure }}</td>
       </tr>
       {% empty %}
       <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No components defined.</td></tr>

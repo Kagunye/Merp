@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Trial Balance — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -39,9 +40,9 @@
     </thead>
     <tbody class="divide-y divide-gray-100">
       {% for row in rows %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-mono text-gray-600">{{ row.account.code }}</td>
-        <td class="px-4 py-3 text-gray-900">{{ row.account.name }}</td>
+      <tr style="{% account_row row.account %}">
+        <td class="px-4 py-3 font-mono"><span class="px-1.5 py-0.5 rounded text-xs" style="{% account_chip row.account %}">{{ row.account.code }}</span></td>
+        <td class="px-4 py-3 text-gray-900">{{ row.account.name }}{% if row.retired %} <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 align-middle">retired</span>{% endif %}</td>
         <td class="px-4 py-3 text-gray-500">{{ row.account.get_account_type_display }}</td>
         <td class="px-4 py-3 text-right font-mono text-gray-900">{% if row.debit > 0 %}{{ row.debit|floatformat:2 }}{% endif %}</td>
         <td class="px-4 py-3 text-right font-mono text-gray-900">{% if row.credit > 0 %}{{ row.credit|floatformat:2 }}{% endif %}</td>

@@ -1,7 +1,14 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'accounting:fiscal_year_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Fiscal Years & Periods" subtitle="Open, close and lock accounting periods" action_label="New Fiscal Year" action_url=pa_url %}
+{% include "_includes/page_header.html" with title="Fiscal Years & Periods" subtitle="Closing posts a journal entry; reopening reverses it" action_label="New Fiscal Year" action_url=pa_url %}
+
+<div class="rounded-xl border px-4 py-3 text-sm" style="background:#F8FAFC;border-color:#E2E8F0;color:#475569">
+  Closing a period empties its revenue, cost and expense balances into
+  <strong>Current Year Profit (3300)</strong> with a posted closing entry, and year end sweeps that into
+  <strong>Retained Earnings (3200)</strong>. Reopening reverses the entry instead of editing history, so the
+  audit trail keeps both sides. Bookings dated inside a closed period are still allowed but flagged on the entry.
+</div>
 
 <div class="space-y-4">
   {% for fy in fiscal_years %}
@@ -22,7 +29,7 @@
           <button type="submit" class="px-3 py-1.5 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Reopen</button>
         </form>
         {% else %}
-        <form method="post" action="{% url 'accounting:fiscal_year_close' fy.pk %}" onsubmit="return confirm('Close this fiscal year? All periods will be locked.');">
+        <form method="post" action="{% url 'accounting:fiscal_year_close' fy.pk %}" onsubmit="return confirm('Close {{ fy.name }}? Every open period is closed and the year\'s result carried to retained earnings.');">
           {% csrf_token %}
           <button type="submit" class="px-3 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Close Year</button>
         </form>
@@ -42,7 +49,7 @@
           <td class="px-5 py-2"><span class="badge {% if p.status == 'OPEN' %}bg-blue-50 text-blue-700{% elif p.status == 'CLOSED' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ p.get_status_display }}</span></td>
           <td class="px-5 py-2 text-right">
             {% if p.status == 'OPEN' %}
-            <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline" onsubmit="return confirm('Close {{ p.name }}? Bookings dated inside it are then treated as locked.');">
+            <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline" onsubmit="return confirm('Close {{ p.name }}? Its revenue and expenses move to current year profit in a closing entry.');">
               {% csrf_token %}<button type="submit" class="text-xs text-amber-700 hover:underline">Close</button>
             </form>
             {% else %}

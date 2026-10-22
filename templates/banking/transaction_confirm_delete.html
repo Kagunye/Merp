@@ -1,0 +1,23 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'banking:transaction_detail' txn.pk as back %}
+{% include "_includes/page_header.html" with title="Delete transaction" subtitle="This cannot be undone" back_url=back %}
+
+<div class="bg-white rounded-xl border border-gray-200 p-6 max-w-2xl" style="{% account_row txn.bank_account %}">
+  <div class="grid grid-cols-2 gap-5 mb-6">
+    <div><div class="text-xs text-gray-500">Date</div><div class="font-semibold">{{ txn.transaction_date|date:"d M Y" }}</div></div>
+    <div><div class="text-xs text-gray-500">Account</div><div class="font-semibold">{{ txn.bank_account.name }}</div></div>
+    <div><div class="text-xs text-gray-500">Description</div><div>{{ txn.description|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Amount</div><div class="font-bold {% if txn.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ txn.bank_account.currency }} {{ txn.amount|floatformat:2 }}</div></div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="flex flex-wrap gap-2">
+      <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-red-600 hover:bg-red-700">Delete permanently</button>
+      <a href="{% url 'banking:transaction_detail' txn.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Keep it</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

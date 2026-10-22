@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
@@ -149,16 +150,34 @@ class WorkOrderCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
-        wo = form.save()
-        # Pre-populate consumptions from BOM lines
-        for line in wo.bom.lines.all():
-            ratio = wo.planned_quantity / wo.bom.production_quantity
-            WorkOrderConsumption.objects.create(
-                work_order=wo,
-                product=line.component,
-                planned_quantity=line.quantity * ratio,
-                actual_quantity=Decimal("0"),
-            )
+        wo = form.save(commit=False)
+        bom = wo.bom
+        if not bom.production_quantity:
+            form.add_error("bom", f"{bom.name} does not say how much one run produces, "
+                                  "so its requirements cannot be scaled.")
+            return self.form_invalid(form)
+        ratio = wo.planned_quantity / bom.production_quantity
+        lines = list(bom.lines.select_related("component__unit_of_measure", "unit_of_measure"))
+        # Check the whole recipe converts before anything is written: a line
+        # counted in tonnes against a component kept in pieces has no plan.
+        planned_quantities = []
+        for line in lines:
+            try:
+                planned_quantities.append(line.stock_quantity(ratio))
+            except ValidationError as e:
+                form.add_error(
+                    None, f"{bom.name} — {line.component.name}: {e.messages[0]}")
+                return self.form_invalid(form)
+        with transaction.atomic():
+            wo.save()
+            self.object = wo
+            for line, planned in zip(lines, planned_quantities):
+                WorkOrderConsumption.objects.create(
+                    work_order=wo,
+                    product=line.component,
+                    planned_quantity=planned,
+                    actual_quantity=Decimal("0"),
+                )
         messages.success(self.request, f"Work Order '{wo.reference}' created.")
         return redirect(self.get_success_url())
 

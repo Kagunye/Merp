@@ -1,78 +1,161 @@
 {% extends "base/base.html" %}
 {% block title %}{{ run.reference }} — Payroll — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'payroll:run_list' %}" class="hover:underline">Payroll</a> / <span class="text-gray-900 font-medium">{{ run.reference }}</span></nav>
-    <h1 class="text-2xl font-bold text-gray-900">{{ run.reference }}</h1>
-    <p class="text-sm text-gray-500 mt-0.5">{{ run.period_start }} — {{ run.period_end }}</p>
+<div class="space-y-5">
+  <div class="flex items-start justify-between flex-wrap gap-3">
+    <div>
+      <nav class="text-sm text-gray-500 mb-1">
+        <a href="{% url 'payroll:index' %}" class="hover:underline">Payroll</a> /
+        <a href="{% url 'payroll:run_list' %}" class="hover:underline">Runs</a> /
+        <span class="text-gray-900 font-medium">{{ run.reference }}</span>
+      </nav>
+      <h1 class="text-2xl font-bold text-gray-900">{{ run.reference }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        {{ run.period_start|date:"d M Y" }} – {{ run.period_end|date:"d M Y" }} · paid {{ run.payment_date|date:"d M Y" }}
+      </p>
+    </div>
+    <div class="flex items-center gap-2 no-print">
+      {% if can_edit %}
+        <form method="post" action="{% url 'payroll:run_calculate' run.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Recalculate</button>
+        </form>
+        <a href="{% url 'payroll:run_update' run.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Amend</a>
+      {% endif %}
+      {% if run.status == 'DRAFT' or run.status == 'REVIEW' %}
+        <form method="post" action="{% url 'payroll:run_approve' run.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">Approve</button>
+        </form>
+      {% elif run.status == 'APPROVED' %}
+        <form method="post" action="{% url 'payroll:run_post' run.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">Post to ledger</button>
+        </form>
+      {% endif %}
+      {% if run.status != 'CANCELLED' %}
+        <form method="post" action="{% url 'payroll:run_cancel' run.pk %}"
+              onsubmit="return confirm('Cancel this run?{% if run.journal_entry %} Its journal entry will be reversed with an offsetting entry.{% endif %}');">
+          {% csrf_token %}
+          <button type="submit" class="px-3 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100">Cancel run</button>
+        </form>
+      {% endif %}
+    </div>
   </div>
-  <span class="badge {% if run.status == 'POSTED' %}bg-green-50 text-green-700{% elif run.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif run.status == 'APPROVED' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm px-3 py-1.5">
-    {{ run.get_status_display }}
-  </span>
-</div>
 
-<!-- Totals summary -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-    <p class="text-sm text-gray-500">Total Gross</p>
-    <p class="text-xl font-bold text-gray-900 mt-1">{{ run.total_gross|floatformat:2 }}</p>
+  <!-- Workflow: calculated → approved → posted, and never a step skipped -->
+  <div class="bg-white rounded-xl border border-gray-200 px-5 py-4">
+    <ol class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+      <li class="flex items-center gap-2">
+        <span class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center {% if run.payslips.count %}text-white{% else %}bg-gray-100 text-gray-400{% endif %}" {% if run.payslips.count %}style="background:var(--primary)"{% endif %}>1</span>
+        Calculated — {{ run.payslips.count }} payslip{{ run.payslips.count|pluralize:"s" }}
+      </li>
+      <li class="text-gray-300">→</li>
+      <li class="flex items-center gap-2">
+        <span class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center {% if run.status == 'APPROVED' or run.status == 'POSTED' %}text-white{% else %}bg-gray-100 text-gray-400{% endif %}" {% if run.status == 'APPROVED' or run.status == 'POSTED' %}style="background:var(--primary)"{% endif %}>2</span>
+        {% if run.approved_at %}Approved by {{ run.approved_by.get_full_name|default:run.approved_by.username }} on {{ run.approved_at|date:"d M Y" }}{% else %}Not approved{% endif %}
+      </li>
+      <li class="text-gray-300">→</li>
+      <li class="flex items-center gap-2">
+        <span class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center {% if run.status == 'POSTED' %}text-white{% else %}bg-gray-100 text-gray-400{% endif %}" {% if run.status == 'POSTED' %}style="background:var(--primary)"{% endif %}>3</span>
+        {% if entry %}
+          <a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="underline font-mono">{{ entry.reference }}</a>
+          posted {{ entry.posted_at|date:"d M Y" }}
+          {% if entry.reversed_by %}
+            · <a href="{% url 'accounting:journal_entry_detail' entry.reversed_by.pk %}" class="text-rose-600 underline font-mono">{{ entry.reversed_by.reference }}</a> reversed it
+          {% endif %}
+        {% elif run.status == 'CANCELLED' %}Cancelled before posting{% else %}Not in the ledger{% endif %}
+      </li>
+      {% if run.status == 'CANCELLED' %}<li class="badge bg-gray-100 text-gray-500">Cancelled</li>{% endif %}
+    </ol>
   </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-    <p class="text-sm text-gray-500">Total Deductions</p>
-    <p class="text-xl font-bold text-red-600 mt-1">{{ run.total_deductions|floatformat:2 }}</p>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-    <p class="text-sm text-gray-500">Total Net Pay</p>
-    <p class="text-xl font-bold text-green-700 mt-1">{{ run.total_net|floatformat:2 }}</p>
-  </div>
-</div>
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-    <h2 class="text-base font-semibold text-gray-900">Payslips ({{ payslips.count }})</h2>
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-500">Gross pay</p>
+      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ run.total_gross|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-500">Withheld from pay</p>
+      <p class="text-xl font-bold font-mono text-red-600 mt-1">{{ run.total_deductions|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-500">Net paid out</p>
+      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ run.total_net|floatformat:2 }} <span class="text-xs font-sans font-normal text-gray-400">{{ book }}</span></p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-500">Employer's own shares</p>
+      <p class="text-xl font-bold font-mono text-gray-600 mt-1">{{ run.total_employer|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-500">Cost of the month</p>
+      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ run.total_cost|floatformat:2 }}</p>
+    </div>
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-200">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Employee</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Gross</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">PAYE</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">NSSF</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">NHIF/SHIF</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Housing Levy</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Net</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for ps in payslips %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3">
-          <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ ps.employee.full_name }}</a>
-          <p class="text-xs text-gray-500">{{ ps.employee.employee_number }}</p>
-        </td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.paye_tax|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.nssf_employee|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.nhif_shif|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.housing_levy|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono font-bold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">No payslips generated.</td></tr>
-      {% endfor %}
-    </tbody>
-    {% if payslips %}
-    <tfoot class="bg-gray-50 border-t border-gray-200">
-      <tr>
-        <td class="px-4 py-3 font-semibold text-gray-900">Totals</td>
-        <td class="px-4 py-3 text-right font-bold font-mono text-gray-900">{{ run.total_gross|floatformat:2 }}</td>
-        <td colspan="3" class="px-4 py-3 text-right font-bold font-mono text-red-600">{{ run.total_deductions|floatformat:2 }}</td>
-        <td class="px-4 py-3"></td>
-        <td class="px-4 py-3 text-right font-bold font-mono text-gray-900">{{ run.total_net|floatformat:2 }}</td>
-      </tr>
-    </tfoot>
-    {% endif %}
-  </table>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+      <h2 class="text-base font-semibold text-gray-900">Payslips ({{ payslips.count }})</h2>
+      <span class="text-xs text-gray-500">Rates in force on {{ run.period_end|date:"d M Y" }}:
+        {% for rule in rules %}<span class="badge bg-gray-100 text-gray-600 mr-1">{{ rule.code }} {% if rule.method == 'BANDS' %}tiers{% else %}{{ rule.employee_percent|floatformat:2 }}%{% endif %}</span>{% endfor %}
+      </span>
+    </div>
+    <table class="w-full text-sm" style="min-width: 900px">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employee</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Basic</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Allowances</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Gross</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Taxable</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Deductions</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Net</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employer</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for ps in payslips %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3 align-top">
+            <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ ps.employee.full_name }}</a>
+            <div class="text-xs text-gray-400">{{ ps.employee.employee_number }}</div>
+          </td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-700">{{ ps.basic_pay|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-500">{{ ps.total_allowances|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-500">{{ ps.taxable_pay|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-600">{{ ps.employer_cost|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="px-4 py-10 text-center text-gray-400">
+          Nothing has been calculated yet.
+          {% if can_edit %}<a href="{% url 'payroll:run_calculate' run.pk %}" class="underline" style="color:var(--primary)">Run the tables</a> — or check that the staff list has current contracts.{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+      {% if payslips %}
+      <tfoot class="bg-gray-50 border-t border-gray-200">
+        <tr>
+          <td class="px-4 py-3 font-semibold text-gray-900">Totals</td>
+          <td colspan="4" class="px-4 py-3 text-right font-mono font-bold text-gray-900">{{ run.total_gross|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-bold text-red-600">{{ run.total_deductions|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-bold text-gray-900">{{ run.total_net|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-bold text-gray-600">{{ run.total_employer|floatformat:2 }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+
+  {% if run.notes %}
+  <div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-1">Notes</h2>
+    <p class="text-sm text-gray-600 whitespace-pre-line">{{ run.notes }}</p>
+  </div>
+  {% endif %}
+
+  <p class="text-xs text-gray-500">Withholding is a debt: until it is remitted it sits on the statutory payable accounts, and the net figure is the only part that leaves the bank. A posted run is corrected by cancelling it — the ledger keeps both entries.</p>
 </div>
 {% endblock %}

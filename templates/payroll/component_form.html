@@ -1,0 +1,11 @@
+{% extends "base/base.html" %}
+{% block title %}{{ page_title }} — Payroll — Mofisi{% endblock %}
+{% block content %}
+{% url 'payroll:component_list' as back_url %}
+{% url 'payroll:component_list' as cancel_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="An earning or a deduction the payslip should carry, for one person or for the whole company." section_label="Pay element" back_url=back_url cancel_url=cancel_url submit_label=action|default:"Save" %}
+
+<div class="max-w-[720px] mx-auto mt-4 text-xs text-gray-500">
+  <p>Basic pay is never a pay element — it comes from the employee's current contract, and allowing it here would pay the same salary twice. A deduction must name the account its money is owed to, because withheld pay belongs to somebody else from the day it leaves the slip.</p>
+</div>
+{% endblock %}

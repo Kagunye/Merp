@@ -1,6 +1,6 @@
 """CRM forms."""
 from django import forms
-from apps.core.forms import date_input, lock_currency
+from apps.core.forms import date_input, pick_currency
 from .models import Customer, Supplier, Lead
 
 
@@ -24,7 +24,7 @@ class CustomerForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.company = company
         if company:
-            lock_currency(self, company)
+            pick_currency(self, company, rated_only=False)
 
 
 class SupplierForm(forms.ModelForm):
@@ -44,7 +44,7 @@ class SupplierForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.company = company
         if company:
-            lock_currency(self, company)
+            pick_currency(self, company, rated_only=False)
 
 
 class LeadForm(forms.ModelForm):

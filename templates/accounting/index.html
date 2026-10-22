@@ -11,7 +11,7 @@
   <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-rose">💰</div><span class="label">Receipt &amp; Payment Journal</span></a>
   <a href="{% url 'banking:transaction_create' %}" class="launcher-tile"><div class="ico ico-amber">🔁</div><span class="label">Bank Transfer</span></a>
   <a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-sky">🧾</div><span class="label">Deposit Slips</span></a>
-  <a href="{% url 'banking:home' %}" class="launcher-tile"><div class="ico ico-slate">⚖️</div><span class="label">Reconciliation</span></a>
+  <a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-slate">⚖️</div><span class="label">Reconciliation</span></a>
   <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-teal">🔗</div><span class="label">Account Open Item Allocations</span></a>
   <a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-peach">📚</div><span class="label">Subsidiary Ledger</span></a>
   <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">🗂️</div><span class="label">Merge Accounts</span></a>
@@ -32,10 +32,12 @@
 
 <div class="launcher-section-label">
   Maintenance
-  <span class="launcher-section-count">5 modules</span>
+  <span class="launcher-section-count">7 modules</span>
 </div>
 <div class="launcher-grid">
   <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Accounts</span></a>
+  <a href="{% url 'accounting:currency_list' %}" class="launcher-tile"><div class="ico ico-mint">💱</div><span class="label">Currencies &amp; Rates</span></a>
+  <a href="{% url 'accounting:revaluation' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Exchange Revaluation</span></a>
   <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
   <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Account Sets</span></a>
   <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Journal Codes</span></a>

@@ -2,16 +2,24 @@
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Banking" launcher_subtitle="Bank accounts, transactions, transfers and reconciliation" %}
 
+{% if accounts %}
+<div class="flex flex-wrap gap-3 mb-2 text-sm">
+  <span class="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600">{{ accounts|length }} bank account(s)</span>
+  <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="px-3 py-1.5 rounded-lg border {% if unreconciled_count %}border-amber-200 bg-amber-50 text-amber-800{% else %}border-green-200 bg-green-50 text-green-800{% endif %}">
+    {{ unreconciled_count }} transaction(s) awaiting clearing
+  </a>
+</div>
+{% endif %}
+
 <div class="launcher-section-label">
   Processing
-  <span class="launcher-section-count">7 modules</span>
+  <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
   <a href="{% url 'banking:transaction_create' %}" class="launcher-tile"><div class="ico ico-mint">💳</div><span class="label">New Transaction</span></a>
-  <a href="{% url 'banking:transaction_create' %}?type=TRANSFER" class="launcher-tile"><div class="ico ico-sky">🔁</div><span class="label">Bank Transfer</span></a>
   <a href="{% url 'banking:transaction_create' %}?type=DEPOSIT" class="launcher-tile"><div class="ico ico-mint">📥</div><span class="label">Deposit</span></a>
   <a href="{% url 'banking:transaction_create' %}?type=WITHDRAWAL" class="launcher-tile"><div class="ico ico-rose">📤</div><span class="label">Withdrawal</span></a>
-  <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="launcher-tile"><div class="ico ico-amber">⚖️</div><span class="label">Reconcile</span></a>
+  <a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-amber">⚖️</div><span class="label">Reconcile</span></a>
   <a href="{% url 'banking:account_create' %}" class="launcher-tile"><div class="ico ico-peach">🏦</div><span class="label">New Bank Account</span></a>
   <a href="{% url 'sales:payment_create' %}" class="launcher-tile"><div class="ico ico-violet">💵</div><span class="label">Customer Receipt</span></a>
 </div>
@@ -33,7 +41,7 @@
 <div class="launcher-grid">
   <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">💧</div><span class="label">Cash Flow</span></a>
   <a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Balance Sheet</span></a>
-  <a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-sky">📑</div><span class="label">Statement</span></a>
+  <a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-sky">📑</div><span class="label">Statements</span></a>
   <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="launcher-tile"><div class="ico ico-amber">⚠️</div><span class="label">Unreconciled</span></a>
 </div>
 

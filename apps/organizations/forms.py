@@ -2,8 +2,8 @@ from django import forms
 from .models import Branch, Company, Department, Warehouse
 
 
-# Codes the ledger can book in. One currency per company — there is no
-# exchange-rate layer, so documents and accounts are pinned to this code.
+# Codes the ledger can book in. This is the book's own currency: every foreign
+# document is translated into it at a filed rate before it reaches the journal.
 CURRENCY_CHOICES = [
     ("KES", "KES — Kenyan shilling"),
     ("UGX", "UGX — Ugandan shilling"),
@@ -34,8 +34,8 @@ class CompanyForm(forms.ModelForm):
         if code not in dict(CURRENCY_CHOICES):
             self.fields["currency"].choices = CURRENCY_CHOICES + [(code, code)]
         self.fields["currency"].help_text = (
-            "Base currency for the whole ledger. Invoices, bills and payments are "
-            "pinned to it and amounts are never converted."
+            "Base currency for the whole ledger. Foreign invoices, bills and "
+            "payments are converted into it at the rate filed for their date."
         )
 
 

@@ -1,0 +1,6 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounting:currency_list' as back_url %}
+{% url 'accounting:currency_list' as cancel_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="Rates are dated, never overwritten — an invoice keeps the rate it was raised at" section_label="Rate Details" back_url=back_url cancel_url=cancel_url submit_label=action|default:"File Rate" %}
+{% endblock %}

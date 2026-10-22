@@ -1,18 +1,55 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'banking:transaction_list' as back %}
-{% include "_includes/page_header.html" with title="Transaction" subtitle=txn.description back_url=back %}
+{% url 'banking:transaction_edit' txn.pk as edit_url %}
+{% include "_includes/page_header.html" with title=txn.description|default:txn.reference subtitle="Bank transaction" back_url=back action_label="Edit" action_url=edit_url %}
 
-<div class="bg-white rounded-xl border border-gray-200 p-6 max-w-2xl">
+<div class="bg-white rounded-xl border border-gray-200 p-6 max-w-2xl mb-4" style="{% account_row txn.bank_account %}">
   <div class="grid grid-cols-2 gap-5">
     <div><div class="text-xs text-gray-500">Date</div><div class="text-base font-semibold text-gray-900">{{ txn.transaction_date|date:"d M Y" }}</div></div>
-    <div><div class="text-xs text-gray-500">Value Date</div><div class="text-base font-semibold text-gray-900">{{ txn.value_date|default:"—"|date:"d M Y" }}</div></div>
-    <div><div class="text-xs text-gray-500">Account</div><div class="text-base font-semibold text-gray-900">{{ txn.bank_account.name }}</div></div>
+    <div><div class="text-xs text-gray-500">Value date</div><div class="text-base font-semibold text-gray-900">{{ txn.value_date|date:"d M Y"|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Bank account</div><div class="text-base font-semibold text-gray-900"><a href="{% url 'banking:account_detail' txn.bank_account.pk %}" class="hover:underline">{{ txn.bank_account.name }}</a></div></div>
     <div><div class="text-xs text-gray-500">Type</div><div><span class="badge {% if txn.transaction_type == 'CREDIT' %}text-green-700 bg-green-50{% else %}text-red-700 bg-red-50{% endif %}">{{ txn.get_transaction_type_display }}</span></div></div>
-    <div><div class="text-xs text-gray-500">Amount</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ txn.amount|floatformat:2 }}</div></div>
+    <div><div class="text-xs text-gray-500">Amount</div><div class="text-2xl font-bold {% if txn.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ txn.bank_account.currency }} {{ txn.amount|floatformat:2 }}</div></div>
     <div><div class="text-xs text-gray-500">Reference</div><div class="text-base font-semibold text-gray-900 font-mono">{{ txn.reference|default:"—" }}</div></div>
     <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-base text-gray-900">{{ txn.description|default:"—" }}</div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Reconciliation</div><div>{% if txn.is_reconciled %}<span class="badge text-green-700 bg-green-50">Reconciled</span>{% else %}<span class="badge text-gray-700 bg-gray-100">Pending</span>{% endif %}</div></div>
+    <div class="col-span-2">
+      <div class="text-xs text-gray-500">Ledger account</div>
+      <div class="text-base font-semibold text-gray-900">
+        <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="{% account_chip txn.bank_account %}">{{ txn.bank_account.gl_account.code }}</span>
+        <a href="{% url 'accounting:account_ledger' txn.bank_account.gl_account.pk %}" class="hover:underline">{{ txn.bank_account.gl_account.name }}</a>
+      </div>
+    </div>
+    <div class="col-span-2">
+      <div class="text-xs text-gray-500">Reconciliation</div>
+      <div>
+        {% if txn.reconciliation %}
+          <span class="badge text-green-700 bg-green-50">Cleared</span>
+          <a href="{% url 'banking:reconciliation_detail' txn.reconciliation.pk %}" class="text-sm hover:underline ml-1" style="color:var(--primary)">{{ txn.reconciliation.reference }} ({{ txn.reconciliation.statement_date|date:"d M Y" }})</a>
+        {% else %}
+          <span class="badge text-amber-700 bg-amber-50">Outstanding</span>
+          <a href="{% url 'banking:reconciliation_create' %}?account={{ txn.bank_account.pk }}" class="text-sm hover:underline ml-1" style="color:var(--primary)">Reconcile it</a>
+        {% endif %}
+      </div>
+    </div>
+    {% if txn.journal_entry %}
+    <div class="col-span-2">
+      <div class="text-xs text-gray-500">Journal entry</div>
+      <a href="{% url 'accounting:journal_entry_detail' txn.journal_entry.pk %}" class="font-mono text-sm hover:underline" style="color:var(--primary)">{{ txn.journal_entry.reference }}</a>
+      <span class="badge ml-1 {% if txn.journal_entry.status == 'POSTED' %}bg-green-50 text-green-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ txn.journal_entry.get_status_display }}</span>
+    </div>
+    {% endif %}
+    {% if txn.notes %}
+    <div class="col-span-2"><div class="text-xs text-gray-500">Notes</div><div class="text-sm text-gray-700 whitespace-pre-line">{{ txn.notes }}</div></div>
+    {% endif %}
   </div>
+</div>
+
+<div class="no-print flex flex-wrap gap-2 max-w-2xl">
+  <a href="{% url 'banking:transaction_edit' txn.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Edit transaction</a>
+  {% if not txn.is_reconciled %}
+  <a href="{% url 'banking:transaction_delete' txn.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-700 bg-white hover:bg-red-50">Delete</a>
+  {% endif %}
 </div>
 {% endblock %}

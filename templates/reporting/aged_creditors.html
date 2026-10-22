@@ -5,7 +5,7 @@
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Aged Creditors</h1>
-    <p class="text-sm text-gray-500 mt-1">As at {{ today }}</p>
+    <p class="text-sm text-gray-500 mt-1">As at {{ today }} · aged in {{ book }}, the currency the ledger keeps</p>
   </div>
   <div class="flex items-center gap-2">
     {% include "_includes/print_button.html" %}
@@ -17,13 +17,13 @@
   {% for bucket, total in totals.items %}
   <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
     <p class="text-sm text-gray-500">{{ bucket }} days</p>
-    <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }}</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }} <span class="text-xs font-medium text-gray-500">{{ book }}</span></p>
   </div>
   {% endfor %}
 </div>
 <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex justify-between items-center">
   <span class="text-sm font-semibold text-red-900">Total Outstanding</span>
-  <span class="text-xl font-bold text-red-900">{{ grand_total|floatformat:2 }}</span>
+  <span class="text-xl font-bold text-red-900">{{ grand_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
 </div>
 
 {% for bucket, bills in buckets.items %}
@@ -40,7 +40,8 @@
         <th class="px-4 py-2 text-left font-semibold text-gray-700">Supplier</th>
         <th class="px-4 py-2 text-left font-semibold text-gray-700">Bill Date</th>
         <th class="px-4 py-2 text-left font-semibold text-gray-700">Due Date</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">Outstanding</th>
+        <th class="px-4 py-2 text-right font-semibold text-gray-700">On the paper</th>
+        <th class="px-4 py-2 text-right font-semibold text-gray-700">Outstanding ({{ book }})</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100">
@@ -50,7 +51,8 @@
         <td class="px-4 py-2 text-gray-900">{{ bill.supplier.name }}</td>
         <td class="px-4 py-2 text-gray-600">{{ bill.bill_date }}</td>
         <td class="px-4 py-2 text-gray-600">{{ bill.due_date }}</td>
-        <td class="px-4 py-2 text-right font-mono text-red-600">{{ bill.outstanding_amount|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono text-gray-500">{{ bill.outstanding_amount|floatformat:2 }} <span class="text-xs">{{ bill.currency }}</span></td>
+        <td class="px-4 py-2 text-right font-mono text-red-600">{{ bill.outstanding_base|floatformat:2 }}</td>
       </tr>
       {% endfor %}
     </tbody>

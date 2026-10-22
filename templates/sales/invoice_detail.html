@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 <div class="space-y-5">
   <div class="flex items-center justify-between">
@@ -21,11 +22,7 @@
       {% if invoice.status != 'PAID' and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
       <a href="{% url 'sales:invoice_edit' invoice.pk %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
       <a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Record Payment</a>
-      <form method="post" action="{% url 'sales:invoice_credit_note' invoice.pk %}" onsubmit="return confirm('Mark this invoice as a credit note?');">
-        {% csrf_token %}
-        <button type="submit" class="px-3 py-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100">Credit Note</button>
-      </form>
-      <form method="post" action="{% url 'sales:invoice_cancel' invoice.pk %}" onsubmit="return confirm('Cancel this invoice? This cannot be undone.');">
+      <form method="post" action="{% url 'sales:invoice_cancel' invoice.pk %}" onsubmit="return confirm('Cancel this invoice? If it is posted, an offsetting entry is created — the original is never erased.');">
         {% csrf_token %}
         <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
       </form>
@@ -84,7 +81,7 @@
               <p class="font-medium text-gray-900">{{ line.description }}</p>
               {% if line.product %}<p class="text-xs text-gray-400 font-mono">{{ line.product.sku }}</p>{% endif %}
             </td>
-            <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.quantity|floatformat:2 }}</td>
+            <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.quantity|with_unit:line.product.unit_of_measure }}</td>
             <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.unit_price|floatformat:2 }}</td>
             <td class="px-4 py-3 text-right text-gray-500 text-xs">{% if line.discount_percent > 0 %}{{ line.discount_percent }}%{% else %}—{% endif %}</td>
             <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ line.line_total|floatformat:2 }}</td>
@@ -122,6 +119,12 @@
           <div class="flex justify-between"><span class="text-gray-500">Due Date</span><span class="text-gray-700">{{ invoice.due_date|date:"d M Y" }}</span></div>
           <div class="flex justify-between"><span class="text-gray-500">Currency</span><span class="font-mono text-gray-700">{{ invoice.currency }}</span></div>
           <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono font-semibold text-green-700">{{ invoice.paid_amount|floatformat:2 }}</span></div>
+          {% if invoice.credited_amount > 0 %}
+          <div class="flex justify-between"><span class="text-gray-500">Credited</span><span class="font-mono font-semibold text-amber-700">{{ invoice.credited_amount|floatformat:2 }}</span></div>
+          {% endif %}
+          {% if invoice.original_invoice %}
+          <div class="flex justify-between"><span class="text-gray-500">Answers</span><a class="font-mono text-xs hover:underline" style="color: var(--primary);" href="{% url 'sales:invoice_detail' invoice.original_invoice.pk %}">{{ invoice.original_invoice.reference }}</a></div>
+          {% endif %}
           {% if invoice.journal_entry %}
           <div class="flex justify-between pt-1 border-t border-gray-100 mt-1">
             <span class="text-gray-500">GL Entry</span>
@@ -143,12 +146,17 @@
         </div>
         <div class="divide-y divide-gray-50">
           {% for alloc in payments %}
-          <div class="px-4 py-3 text-sm">
-            <div class="flex justify-between">
-              <span class="font-mono text-xs text-gray-500">{{ alloc.payment.reference }}</span>
-              <span class="font-mono font-semibold text-green-700">{{ alloc.allocated_amount|floatformat:2 }}</span>
+          <div class="px-4 py-3 text-sm {% if alloc.payment.status == 'REVERSED' %}bg-gray-50/70{% endif %}">
+            <div class="flex justify-between items-baseline gap-2">
+              <span class="font-mono text-xs {% if alloc.payment.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-gray-500{% endif %}">{{ alloc.payment.reference }}</span>
+              <span class="font-mono font-semibold {% if alloc.payment.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-green-700{% endif %}">{{ alloc.allocated_amount|floatformat:2 }}</span>
             </div>
-            <div class="text-xs text-gray-400">{{ alloc.payment.payment_date|date:"d M Y" }} · {{ alloc.payment.get_payment_method_display }}</div>
+            <div class="text-xs text-gray-400">
+              {% if alloc.payment.status == 'REVERSED' %}
+                <span class="badge bg-rose-50 text-rose-700 mr-1">reversed</span>
+              {% endif %}
+              {{ alloc.payment.payment_date|date:"d M Y" }} · {{ alloc.payment.get_payment_method_display }}
+            </div>
           </div>
           {% empty %}
           <div class="px-4 py-4 text-sm text-center text-gray-400">No payments yet</div>
@@ -157,5 +165,60 @@
       </div>
     </div>
   </div>
+
+  {% if invoice.credit_notes.exists %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800 text-sm">Credit notes issued against this invoice</h3></div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-50">
+        {% for cn in invoice.credit_notes.all %}
+        <tr>
+          <td class="px-4 py-2 font-mono"><a href="{% url 'sales:invoice_detail' cn.pk %}" style="color: var(--primary);">{{ cn.reference }}</a></td>
+          <td class="px-4 py-2 text-gray-500">{{ cn.invoice_date|date:"d M Y" }}</td>
+          <td class="px-4 py-2 text-gray-500">{{ cn.notes }}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold">{{ cn.currency }} {{ cn.total_amount|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr class="bg-gray-50/50 border-t border-gray-200"><td colspan="3" class="px-4 py-2 text-right text-gray-600">Credited so far</td><td class="px-4 py-2 text-right font-mono font-semibold">{{ invoice.credited_amount|floatformat:2 }}</td></tr></tfoot>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if invoice.journal_entry_id and invoice.outstanding_amount > 0 and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
+  <form method="post" action="{% url 'sales:invoice_credit_note' invoice.pk %}" class="no-print bg-white rounded-xl border border-gray-200 overflow-hidden">
+    {% csrf_token %}
+    <div class="px-4 py-3 border-b border-gray-100">
+      <h3 class="font-semibold text-gray-800 text-sm">Issue a credit note</h3>
+      <p class="text-xs text-gray-500 mt-1">Enter the quantity of each line being returned or corrected. A new document is raised with its own offsetting journal entry — this invoice and its entry stay exactly as they are.</p>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
+        <tr><th class="px-4 py-2 text-left">Line</th><th class="px-4 py-2 text-right">Billed</th><th class="px-4 py-2 text-right">Unit price</th><th class="px-4 py-2 text-right">Quantity to credit</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for line in lines %}
+        <tr>
+          <td class="px-4 py-2">{{ line.description }}</td>
+          <td class="px-4 py-2 text-right font-mono text-gray-500">{{ line.quantity }}</td>
+          <td class="px-4 py-2 text-right font-mono text-gray-500">{{ line.unit_price|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right">
+            <input type="number" step="0.0001" min="0" max="{{ line.quantity }}" name="credit_qty_{{ line.pk }}" value="0"
+              class="w-28 px-2 py-1 text-right text-sm border border-gray-300 rounded-lg font-mono" />
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between gap-4 flex-wrap">
+      <label class="text-xs text-gray-500 flex-1 min-w-[220px]">
+        Reason (goes on the credit note)
+        <input type="text" name="reason" maxlength="500" class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="Goods returned / overcharged / price agreed down">
+      </label>
+      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Credit Note</button>
+    </div>
+    <p class="px-4 pb-3 text-xs text-gray-500">At most {{ invoice.outstanding_amount }} {{ invoice.currency }} can be credited — what is still owed on this invoice. Money already paid is settled by a refund, not by a credit note.</p>
+  </form>
+  {% endif %}
 </div>
 {% endblock %}

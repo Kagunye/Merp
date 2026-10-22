@@ -30,21 +30,62 @@ def is_new(form):
     return form.instance.pk is None or form.instance._state.adding
 
 
-def lock_currency(form, company, field_name="currency"):
-    """Pin a transaction document to the currency its own company books in.
+class CurrencyChoiceField(forms.ChoiceField):
+    """A currency select that falls back to the book's own code.
 
-    There is no exchange-rate layer in this system: a document carrying a
-    different code would post its raw figure straight into the base-currency
-    ledger (a 1,000 USD invoice would settle 1,000 KES of accounts receivable).
-    The field stays visible so the user can see what is being billed, but it
-    can no longer be changed. Documents that already carry another currency
-    keep it so that editing one does not silently rewrite its history.
+    The widget always shows a choice, so a real browser submits one; a request
+    that never mentions a currency still has to land somewhere honest, and that
+    is the currency the ledger is kept in.
+    """
+
+    def __init__(self, *args, fallback="", **kwargs):
+        kwargs.setdefault("required", False)
+        self.fallback = fallback
+        super().__init__(*args, **kwargs)
+
+    def clean(self, value):
+        return super().clean(value) or self.fallback
+
+
+def pick_currency(form, company, field_name="currency", rated_only=True):
+    """Offer the currencies this book can actually value a document in.
+
+    The ledger is kept in the company's own currency, so a foreign document is
+    translated at the day's rate before it is posted. A currency with no filed
+    rate cannot be translated, so it is not offered for transaction documents --
+    it would only fail on posting. Partners (a customer may well be billed in
+    dollars as a matter of record) pass *rated_only=False* and see the full
+    register instead.
+
+    A saved document always keeps the code it was raised in, even if the rate
+    has since been withdrawn: rewriting history would misstate the ledger.
     """
     if company is None or field_name not in form.fields:
         return
-    field = form.fields[field_name]
-    base = getattr(company, "currency", "") or "KES"
-    saved = getattr(form.instance, field_name, "") if not is_new(form) else ""
-    field.initial = saved or base
-    field.disabled = True
-    field.help_text = f"Fixed to the {company.name} book currency."
+    from apps.accounting.currency import book_currency, currency_choices
+
+    old = form.fields[field_name]
+    if company and not form.instance.company_id:
+        # The document's clean() values it against its own book, so the company
+        # has to be on the instance before validation runs, not only before save.
+        form.instance.company = company
+    if rated_only:
+        choices = currency_choices(company)
+    else:
+        from apps.accounting.currency import registered_currencies
+        choices = [(c.code, f"{c.code} — {c.name}")
+                   for c in registered_currencies(company)]
+    # Only a saved document's own code counts as history. A new one arrives with
+    # the model's default, which must not outvote the book it is being raised in.
+    saved = "" if is_new(form) else (getattr(form.instance, field_name, "") or "")
+    if saved and saved not in dict(choices):
+        choices.append((saved, f"{saved} — as booked"))
+    book = book_currency(company)
+    form.fields[field_name] = CurrencyChoiceField(
+        choices=choices,
+        label=old.label,
+        fallback=saved or book,
+        initial=saved or book,
+        widget=forms.Select(attrs=dict(old.widget.attrs)),
+        help_text=f"Converted into {book} at the rate filed for the document date.",
+    )

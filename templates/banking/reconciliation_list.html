@@ -1,0 +1,97 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'banking:reconciliation_create' as pa_url %}
+{% include "_includes/page_header.html" with title="Bank Reconciliation" subtitle="Statements filed against the book, and what is still waiting to be cleared" action_label="New Statement" action_url=pa_url %}
+
+{% if drafts %}
+<div class="mb-5 rounded-xl border px-4 py-3 text-sm" style="border-color:#FDE68A;background:#FFFBEB;color:#92400E">
+  {{ drafts }} statement(s) still in draft. Open one, tick the items on the statement and post it.
+</div>
+{% endif %}
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Per account</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+  {% for row in account_rows %}
+  <div class="rounded-xl border border-gray-200 bg-white p-4" style="{% account_row row.account %}">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <a href="{% url 'banking:account_detail' row.account.pk %}" class="block font-semibold text-gray-900 truncate">{{ row.account.name }}</a>
+        <div class="text-xs text-gray-500 mt-0.5">{{ row.account.bank_name }} · {{ row.account.currency }}</div>
+        <div class="text-xs text-gray-500 mt-0.5">
+          GL {% if row.account.gl_account %}<span class="font-mono px-1.5 rounded" style="{% account_chip row.account %}">{{ row.account.gl_account.code }}</span> {{ row.account.gl_account.name }}{% else %}—{% endif %}
+        </div>
+      </div>
+      <span class="w-3 h-3 rounded-full flex-shrink-0 mt-1" style="{% account_dot row.account %}"></span>
+    </div>
+
+    <div class="mt-3 flex items-end justify-between gap-3 text-sm">
+      <div>
+        <div class="text-xs text-gray-500">Last posted statement</div>
+        {% if row.last %}
+          <a href="{% url 'banking:reconciliation_detail' row.last.pk %}" class="font-medium hover:underline" style="color:var(--primary)">
+            {{ row.last.statement_date|date:"d M Y" }} · {{ row.last.reference }}
+          </a>
+        {% else %}
+          <div class="font-medium text-gray-400">Never reconciled</div>
+        {% endif %}
+      </div>
+      <div class="text-right">
+        <div class="text-xs text-gray-500">Awaiting clearing</div>
+        <div class="font-semibold {% if row.pending_count %}text-amber-700{% else %}text-green-700{% endif %}">
+          {{ row.pending_count }} item(s){% if row.pending_count %} · {{ row.pending_value|floatformat:2 }}{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-2">
+      <a href="{% url 'banking:reconciliation_create' %}?account={{ row.account.pk }}"
+         class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style="background:var(--primary)">Reconcile</a>
+      <a href="{% url 'banking:transaction_list' %}?account={{ row.account.pk }}&reconciled=false"
+         class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 bg-white hover:bg-gray-50">Open items</a>
+    </div>
+  </div>
+  {% empty %}
+  <div class="rounded-xl border border-dashed border-gray-300 p-8 text-center text-gray-500 md:col-span-2 xl:col-span-3">
+    No bank accounts yet. <a href="{% url 'banking:account_create' %}" class="font-semibold" style="color:var(--primary)">Add one</a> before reconciling.
+  </div>
+  {% endfor %}
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Statement history</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr>
+        <th class="px-4 py-3 text-left">Statement date</th>
+        <th class="px-4 py-3 text-left">Account</th>
+        <th class="px-4 py-3 text-left">Reference</th>
+        <th class="px-4 py-3 text-right">Cleared</th>
+        <th class="px-4 py-3 text-right">Per statement</th>
+        <th class="px-4 py-3 text-right">Difference</th>
+        <th class="px-4 py-3 text-left">Status</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in reconciliations %}
+      <tr class="hover:bg-gray-50" style="{% account_row r.bank_account %}">
+        <td class="px-4 py-3 whitespace-nowrap">{{ r.statement_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 font-medium text-gray-900">{{ r.bank_account.name }}</td>
+        <td class="px-4 py-3">
+          <a href="{% url 'banking:reconciliation_detail' r.pk %}" class="font-mono text-xs hover:underline" style="color:var(--primary)">{{ r.reference }}</a>
+        </td>
+        <td class="px-4 py-3 text-right">{{ r.cleared_count }}</td>
+        <td class="px-4 py-3 text-right font-mono">{{ r.closing_balance|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono {% if r.difference %}text-red-600 font-semibold{% else %}text-green-700{% endif %}">{{ r.difference|floatformat:2 }}</td>
+        <td class="px-4 py-3">
+          <span class="badge {% if r.status == 'POSTED' %}bg-green-50 text-green-700{% elif r.status == 'DRAFT' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ r.get_status_display }}</span>
+          {% if r.reconciled_by %}<div class="text-xs text-gray-500 mt-1">{{ r.reconciled_by.get_full_name|default:r.reconciled_by.email }}</div>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-500">No statements reconciled yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

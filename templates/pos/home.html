@@ -1,38 +1,85 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/launcher.html" with launcher_title="Point of Sale" launcher_subtitle="Register sessions, sales, cash-ups and shift reports" %}
+{% include "_includes/launcher.html" with launcher_title="Point of Sale" launcher_subtitle="The counter: tickets, drawers, cash-ups" %}
+
+{% if open_session %}
+<div class="rounded-xl border p-4 mb-2 flex flex-wrap items-center justify-between gap-4" style="border-color: var(--primary); background: #F8FAFF;">
+  <div>
+    <p class="text-sm font-semibold" style="color: var(--primary);">{{ open_session.cashier.get_full_name|default:open_session.cashier.username }} is trading at {{ open_session.branch.name }}</p>
+    <p class="text-xs text-gray-600 mt-0.5">
+      Open since {{ open_session.opened_at|date:"d M, H:i" }} · float {{ open_session.opening_cash }} ·
+      sales {{ open_session.total_sales }} · refunds {{ open_session.total_refunds }} ·
+      the drawer should hold <strong>{{ open_session.expected_cash }}</strong>
+    </p>
+  </div>
+  <div class="flex gap-2 flex-wrap">
+    <a href="{% url 'pos:terminal' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary);">Go to the terminal</a>
+    <a href="{% url 'pos:cash_up' open_session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg">Cash-up sheet</a>
+    <a href="{% url 'pos:session_detail' open_session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg">Close the till</a>
+  </div>
+</div>
+{% else %}
+<div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 p-4 mb-2 flex flex-wrap items-center justify-between gap-4">
+  <p class="text-sm">The till is shut — a ticket cannot be rung until somebody opens a session and counts the float into the drawer.</p>
+  <a href="{% url 'pos:session_open' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary);">Open a till</a>
+</div>
+{% endif %}
 
 <div class="launcher-section-label">
-  Processing
-  <span class="launcher-section-count">6 modules</span>
+  At the counter
+  <span class="launcher-section-count">4 tiles</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'pos:terminal' %}" class="launcher-tile"><div class="ico ico-mint">🛒</div><span class="label">Open Terminal</span></a>
-  <a href="{% url 'pos:session_open' %}" class="launcher-tile"><div class="ico ico-amber">🔓</div><span class="label">Open Register</span></a>
-  <a href="{% url 'pos:session_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-sky">💼</div><span class="label">Active Sessions</span></a>
-  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Today's Sales</span></a>
-  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-rose">🔒</div><span class="label">Close Register</span></a>
-  <a href="{% url 'sales:payment_create' %}" class="launcher-tile"><div class="ico ico-slate">💵</div><span class="label">Record Payment</span></a>
+  <a href="{% url 'pos:terminal' %}" class="launcher-tile"><div class="ico ico-mint">🛒</div><span class="label">Terminal</span></a>
+  <a href="{% url 'pos:session_open' %}" class="launcher-tile"><div class="ico ico-amber">🔓</div><span class="label">Open a till</span></a>
+  {% if open_session %}
+  <a href="{% url 'pos:cash_up' open_session.pk %}" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Cash-up sheet</span></a>
+  {% else %}
+  <a href="{% url 'pos:session_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Open sessions</span></a>
+  {% endif %}
+  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Till tickets</span></a>
 </div>
 
 <div class="launcher-section-label">
-  Lists
-  <span class="launcher-section-count">4 modules</span>
+  Counting the drawer
+  <span class="launcher-section-count">3 tiles</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-sky">💼</div><span class="label">All Sessions</span></a>
-  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">All Sales</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛍️</div><span class="label">Products</span></a>
+  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-slate">💼</div><span class="label">All sessions</span></a>
+  <a href="{% url 'pos:session_list' %}?status=CLOSED" class="launcher-tile"><div class="ico ico-rose">🔒</div><span class="label">Closed shifts</span></a>
+  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">📈</div><span class="label">Cash movement report</span></a>
+</div>
+
+<div class="launcher-section-label">
+  What the till sells from
+  <span class="launcher-section-count">3 tiles</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛍️</div><span class="label">Products &amp; prices</span></a>
+  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Stock on hand</span></a>
   <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Customers</span></a>
 </div>
 
-<div class="launcher-section-label">
-  Reports
-  <span class="launcher-section-count">3 modules</span>
+{% if recent_sessions %}
+<div class="mt-10 bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Recent shifts</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3 text-right">Expected cash</th><th class="px-4 py-3 text-left">Status</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for s in recent_sessions %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier.get_full_name|default:s.cashier.username }}</a></td>
+        <td class="px-4 py-3 text-gray-600">{{ s.branch.name }}</td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ s.opened_at|date:"d M Y H:i" }}</td>
+        <td class="px-4 py-3 text-right font-mono">{{ s.total_sales|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono">{{ s.expected_cash|floatformat:2 }}</td>
+        <td class="px-4 py-3">{% if s.status == 'OPEN' %}<span class="badge bg-green-50 text-green-700">Open</span>{% else %}<span class="badge bg-gray-100 text-gray-700">{{ s.get_status_display }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
-<div class="launcher-grid">
-  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-rose">📊</div><span class="label">Shift Report</span></a>
-  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Cash Movement</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Stock on Hand</span></a>
-</div>
+{% endif %}
+
+<p class="text-xs text-gray-500 mt-8">Cash and mobile-money tickets post straight into the book: the till or the bank is debited and revenue and VAT credited at the moment the ticket is rung. A refund is a second ticket, not an edit — the goods go back on the shelf they came off and the revenue is taken back by an offsetting entry.</p>
 {% endblock %}

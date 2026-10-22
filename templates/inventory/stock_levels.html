@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'inventory:adjustment_create' as pa_url %}
 {% include "_includes/page_header.html" with title="Stock Levels" subtitle="Quantity on hand per warehouse" action_label="New Adjustment" action_url=pa_url %}
@@ -14,8 +15,8 @@
         <td class="px-4 py-2 font-medium"><a href="{% url 'inventory:warehouse_detail' s.warehouse.pk %}" style="color:var(--primary)">{{ s.warehouse.name }}</a></td>
         <td class="px-4 py-2"><a href="{% url 'inventory:product_detail' s.product.pk %}" style="color: var(--primary);">{{ s.product.name }}</a></td>
         <td class="px-4 py-2 text-xs font-mono">{{ s.product.sku }}</td>
-        <td class="px-4 py-2 text-right font-semibold {% if s.quantity <= s.product.reorder_level %}text-red-600{% endif %}">{{ s.quantity|floatformat:4 }}</td>
-        <td class="px-4 py-2 text-right text-xs text-gray-500">{{ s.product.reorder_level|floatformat:4 }}</td>
+        <td class="px-4 py-2 text-right font-semibold {% if s.quantity <= s.product.reorder_level %}text-red-600{% endif %}">{{ s.quantity|with_unit:s.product.unit_of_measure }}</td>
+        <td class="px-4 py-2 text-right text-xs text-gray-500">{{ s.product.reorder_level|trim_qty }}</td>
       </tr>
       {% empty %}
       <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No stock recorded yet.</td></tr>

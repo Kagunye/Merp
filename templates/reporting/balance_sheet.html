@@ -55,6 +55,12 @@
       <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
     </div>
     {% empty %}<p class="text-sm text-gray-400 mb-2">No equity accounts.</p>{% endfor %}
+    {% if shows_profit %}
+    <div class="flex justify-between text-sm py-1.5 italic">
+      <span class="text-gray-600">Current year profit{% if current_year_profit < 0 %} (loss){% endif %}</span>
+      <span class="font-mono text-gray-900">{{ current_year_profit|floatformat:2 }}</span>
+    </div>
+    {% endif %}
     <div class="flex justify-between text-sm font-semibold border-t border-gray-200 pt-2 mt-2">
       <span>Total Equity</span><span class="font-mono">{{ total_equity|floatformat:2 }}</span>
     </div>
@@ -65,4 +71,13 @@
     </div>
   </div>
 </div>
+
+{% if is_balanced %}
+<p class="mt-4 text-xs text-green-700">Assets equal liabilities plus equity — the books balance as at {{ date_to }}.</p>
+{% else %}
+<div class="mt-4 rounded-lg border px-4 py-3 text-sm" style="background:#FEF2F2;border-color:#FCA5A5;color:#B91C1C">
+  Out of balance by {{ balancing_error|floatformat:2 }}. A posted journal entry that does not agree on both sides,
+  or accounts that fall outside the asset, liability and equity groups, will do this — check the trial balance.
+</div>
+{% endif %}
 {% endblock %}

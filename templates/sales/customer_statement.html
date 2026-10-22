@@ -1,30 +1,111 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'sales:invoice_list' as back %}
 {% include "_includes/page_header.html" with title=customer.name subtitle="Account statement" back_url=back %}
 
 <form method="get" class="no-print inline-form flex flex-wrap gap-3 mb-5 items-end">
-  <div><label for="id_from" class="text-xs text-gray-500">From</label><input id="id_from" type="date" name="from" value="{{ from_date|date:'Y-m-d' }}"></div>
-  <div><label for="id_to" class="text-xs text-gray-500">To</label><input id="id_to" type="date" name="to" value="{{ to_date|date:'Y-m-d' }}"></div>
+  <div><label for="id_from" class="text-xs text-gray-500">From</label><input id="id_from" type="date" name="from" value="{{ from_date }}"></div>
+  <div><label for="id_to" class="text-xs text-gray-500">To</label><input id="id_to" type="date" name="to" value="{{ to_date }}"></div>
+  <div>
+    <label for="id_currency" class="text-xs text-gray-500">Currency</label>
+    <select id="id_currency" name="currency" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+      <option value="">Every currency</option>
+      {% for code in currencies %}
+      <option value="{{ code }}" {% if code == currency %}selected{% endif %}>{{ code }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <button type="submit">Apply</button>
 </form>
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_debit|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Received</div><div class="font-bold text-lg text-green-700">{{ total_credit|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Outstanding</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }}</div></div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Brought forward</div><div class="font-bold text-lg">{{ opening_balance|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_debit|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Received and credited</div><div class="font-bold text-lg text-green-700">{{ total_credit|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Balance at {{ end_on|date:"d M Y"|default:"today" }}</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Type</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Detail</th><th class="px-4 py-3 text-right">Debit</th><th class="px-4 py-3 text-right">Credit</th><th class="px-4 py-3 text-right">Balance</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr>
+      <th class="px-4 py-3 text-left">Date</th>
+      <th class="px-4 py-3 text-left">Type</th>
+      <th class="px-4 py-3 text-left">Reference</th>
+      <th class="px-4 py-3 text-right">Document</th>
+      <th class="px-4 py-3 text-right">Rate</th>
+      <th class="px-4 py-3 text-right">Debit</th>
+      <th class="px-4 py-3 text-right">Credit</th>
+      <th class="px-4 py-3 text-right">{{ book }} balance</th>
+    </tr></thead>
     <tbody class="divide-y divide-gray-100">
+      {% if start_on %}
+      <tr class="bg-gray-50 text-gray-600">
+        <td class="px-4 py-2">{{ start_on|date:"d M Y" }}</td>
+        <td class="px-4 py-2" colspan="4">Balance brought forward</td>
+        <td class="px-4 py-2 text-right font-mono" colspan="3">{{ opening_balance|floatformat:2 }}</td>
+      </tr>
+      {% endif %}
       {% for r in rows %}
-      <tr><td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td><td class="px-4 py-2">{{ r.type }}</td><td class="px-4 py-2 font-mono text-xs">{{ r.reference }}</td><td class="px-4 py-2 text-gray-500 text-xs">{{ r.detail }}</td><td class="px-4 py-2 text-right">{{ r.debit|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.credit|floatformat:2 }}</td><td class="px-4 py-2 text-right font-semibold">{{ r.balance|floatformat:2 }}</td></tr>
+      <tr>
+        <td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td>
+        <td class="px-4 py-2">{{ r.type }}</td>
+        <td class="px-4 py-2 font-mono text-xs">
+          {% if r.url %}<a href="{{ r.url }}" class="text-blue-600 hover:underline">{{ r.reference }}</a>{% else %}{{ r.reference }}{% endif %}
+          <span class="text-gray-400"> · {{ r.detail }}</span>
+        </td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.paper|floatformat:2 }} <span class="text-xs text-gray-500">{{ r.currency }}</span></td>
+        <td class="px-4 py-2 text-right font-mono text-xs text-gray-500">{% if r.rate %}{{ r.rate|trim_qty }}{% else %}—{% endif %}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.debit|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.credit|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono font-semibold">{{ r.balance|floatformat:2 }}</td>
+      </tr>
       {% empty %}
-      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">Nothing in this period.</td></tr>
+      <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Nothing in this period.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if reversals %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mt-5">
+  <div class="px-4 py-3 border-b border-gray-100">
+    <h3 class="font-semibold text-gray-800 text-sm">Receipts given back</h3>
+    <p class="text-xs text-gray-500 mt-1">These happened, so they are on the statement — but they settled nothing, which is why they are not in the balance above.</p>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr>
+      <th class="px-4 py-3 text-left">Date</th>
+      <th class="px-4 py-3 text-left">Receipt</th>
+      <th class="px-4 py-3 text-left">Reversal entry</th>
+      <th class="px-4 py-3 text-right">Amount</th>
+      <th class="px-4 py-3 text-left">Why</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for p in reversals %}
+      <tr>
+        <td class="px-4 py-2">{{ p.payment_date|date:"d M Y" }}</td>
+        <td class="px-4 py-2 font-mono text-xs line-through text-gray-500">{{ p.reference }}</td>
+        <td class="px-4 py-2 font-mono text-xs">
+          {% if p.journal_entry.reversed_by %}
+            <a href="{% url 'accounting:journal_entry_detail' p.journal_entry.reversed_by.pk %}" class="text-blue-600 hover:underline">{{ p.journal_entry.reversed_by.reference }}</a>
+          {% else %}<span class="text-gray-400">—</span>{% endif %}
+        </td>
+        <td class="px-4 py-2 text-right font-mono">{{ p.amount|floatformat:2 }} <span class="text-xs text-gray-500">{{ p.currency }}</span></td>
+        <td class="px-4 py-2 text-xs text-gray-500">{% if p.journal_entry.reversed_by.notes %}{{ p.journal_entry.reversed_by.notes }}{% else %}Reversed{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<p class="text-xs text-gray-500 mt-3">
+  {% if mixed %}
+  This account runs in more than one currency. The “Document” column is what the paper says; debit, credit and balance are the value each document entered the ledger at, in {{ book }} — dollars and shillings are never added together.
+  {% else %}
+  Debit, credit and balance are in {{ book }}, the currency the ledger keeps.
+  {% endif %}
+  {% if not currency %}Still owed on every open invoice today: <span class="font-semibold">{{ still_owed|floatformat:2 }} {{ book }}</span> — the unpaid part of this customer's paper, one slice of the receivables control account.{% endif %}
+</p>
 {% endblock %}

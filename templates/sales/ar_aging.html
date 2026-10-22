@@ -1,6 +1,7 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% include "_includes/page_header.html" with title="AR Aging" subtitle="Receivables bucketed by overdue days" %}
+<p class="text-xs text-gray-500 mb-4">All figures in {{ book }}, the currency this book is kept in. A foreign document is counted at the rate it was raised at, so different currencies are never added together.</p>
 
 <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Current</div><div class="font-bold text-lg">{{ buckets.current|floatformat:2 }}</div></div>

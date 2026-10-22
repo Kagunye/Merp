@@ -1,0 +1,53 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'banking:reconciliation_list' as back %}
+{% include "_includes/model_form.html" with title="New Bank Statement" subtitle="Enter the statement header; you tick off the transactions on the next screen" back_url=back cancel_url=back submit_label="Start Reconciliation" %}
+
+{% if preview_account %}
+<div class="mf-shell">
+  <div class="w-full max-w-[720px] bg-white rounded-2xl border border-gray-200 overflow-hidden mt-2">
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="font-semibold text-gray-800">
+        {% account_dot preview_account as dot %}
+        <span class="inline-block w-2.5 h-2.5 rounded-full align-middle mr-2" style="{{ dot }}"></span>
+        Open items on {{ preview_account.name }}
+      </h3>
+      <p class="text-sm text-gray-500 mt-1">Carried forward opening balance: <span class="font-mono">{{ preview_opening|floatformat:2 }}</span></p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+          <tr>
+            <th class="px-4 py-2 text-left">Date</th>
+            <th class="px-4 py-2 text-left">Description</th>
+            <th class="px-4 py-2 text-left">Reference</th>
+            <th class="px-4 py-2 text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for t in preview_items %}
+          <tr>
+            <td class="px-4 py-2 whitespace-nowrap">{{ t.transaction_date|date:"d M Y" }}</td>
+            <td class="px-4 py-2">{{ t.description|default:"—" }}</td>
+            <td class="px-4 py-2 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
+            <td class="px-4 py-2 text-right font-mono {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ t.signed_amount|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">Everything on this account is already cleared.</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="bg-gray-50 font-semibold">
+            <td colspan="3" class="px-4 py-3">Net movement still to clear</td>
+            <td class="px-4 py-3 text-right font-mono">{{ preview_value|floatformat:2 }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
+<p class="text-sm text-gray-500 mt-4">Choose a bank account above to see the items waiting on it.</p>
+{% endif %}
+{% endblock %}

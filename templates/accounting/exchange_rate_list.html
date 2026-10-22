@@ -1,0 +1,45 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Every rate this company has filed for {{ code }}. A document converts at the newest rate on or before its own date.</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'accounting:currency_list' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">All Currencies</a>
+      <a href="{% url 'accounting:exchange_rate_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">File another Rate</a>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2">Effective date</th>
+          <th class="px-4 py-2 text-right">1 {{ code }} =</th>
+          <th class="px-4 py-2">Source</th>
+          <th class="px-4 py-2">Note</th>
+          <th class="px-4 py-2 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for rate in rates %}
+        <tr>
+          <td class="px-4 py-2 text-gray-900">{{ rate.effective_date|date:"d M Y" }}</td>
+          <td class="px-4 py-2 text-right font-mono">{{ rate.rate|trim_qty }}</td>
+          <td class="px-4 py-2 text-gray-600">{{ rate.get_source_display }}</td>
+          <td class="px-4 py-2 text-gray-500">{{ rate.note|default:"—" }}</td>
+          <td class="px-4 py-2 text-right"><a href="{% url 'accounting:exchange_rate_edit' rate.pk %}" class="text-xs font-medium text-blue-600 hover:underline">Edit</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No rates filed for {{ code }} yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% include "_includes/pagination.html" %}
+</div>
+{% endblock %}

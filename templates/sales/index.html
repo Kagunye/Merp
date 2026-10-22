@@ -49,9 +49,9 @@
 
 <div class="launcher-section-label" style="margin-top:36px">At a glance</div>
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Outstanding</div><div class="text-2xl font-bold" style="color:var(--primary)">{{ total_outstanding|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Overdue</div><div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Paid this month</div><div class="text-2xl font-bold text-green-700">{{ total_paid_30d|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Outstanding ({{ book }})</div><div class="text-2xl font-bold" style="color:var(--primary)">{{ total_outstanding|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Overdue ({{ book }})</div><div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div></div>
+  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Paid this month ({{ book }})</div><div class="text-2xl font-bold text-green-700">{{ total_paid_30d|floatformat:2|default:"0.00" }}</div></div>
   <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open sales orders</div><div class="text-2xl font-bold">{{ open_orders_count|default:0 }}</div></div>
 </div>
 

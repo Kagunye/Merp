@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'inventory:stock_levels' as back_url %}
 {% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.code back_url=back_url %}
@@ -34,8 +35,8 @@
         <tr class="{% if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level %}bg-amber-50/40{% endif %}">
           <td class="px-4 py-2 font-mono text-xs text-gray-500">{{ sl.product.sku }}</td>
           <td class="px-4 py-2 font-medium">{{ sl.product.name }}</td>
-          <td class="px-4 py-2 text-right font-mono">{{ sl.quantity|floatformat:2 }}</td>
-          <td class="px-4 py-2 text-right text-xs text-gray-500">{{ sl.product.reorder_level|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right font-mono">{{ sl.quantity|with_unit:sl.product.unit_of_measure }}</td>
+          <td class="px-4 py-2 text-right text-xs text-gray-500">{{ sl.product.reorder_level|trim_qty }}</td>
         </tr>
         {% empty %}
         <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No stock in this warehouse yet.</td></tr>
@@ -51,7 +52,7 @@
       <div class="px-4 py-2 text-sm">
         <div class="flex justify-between">
           <span class="font-medium">{{ m.product.name }}</span>
-          <span class="font-mono {% if 'OUT' in m.movement_type or 'MINUS' in m.movement_type or 'DELIVERY' in m.movement_type %}text-red-600{% else %}text-green-700{% endif %}">{{ m.quantity|floatformat:2 }}</span>
+          <span class="font-mono {% if 'OUT' in m.movement_type or 'MINUS' in m.movement_type or 'DELIVERY' in m.movement_type %}text-red-600{% else %}text-green-700{% endif %}">{{ m.quantity|with_unit:m.product.unit_of_measure }}</span>
         </div>
         <div class="text-xs text-gray-400">{{ m.get_movement_type_display }} · {{ m.movement_date|date:"d M Y" }} · {{ m.reference }}</div>
       </div>

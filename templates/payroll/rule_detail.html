@@ -1,0 +1,145 @@
+{% extends "base/base.html" %}
+{% block title %}{{ rule.code }} — Statutory Tables — Mofisi{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-start justify-between flex-wrap gap-3">
+    <div>
+      <nav class="text-sm text-gray-500 mb-1">
+        <a href="{% url 'payroll:index' %}" class="hover:underline">Payroll</a> /
+        <a href="{% url 'payroll:rule_list' %}" class="hover:underline">Statutory tables</a> /
+        <span class="text-gray-900 font-medium">{{ rule.code }}</span>
+      </nav>
+      <h1 class="text-2xl font-bold text-gray-900">{{ rule.code }} — {{ rule.name }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        In force from {{ rule.effective_from|date:"d M Y" }} ·
+        {% if rule.method == 'BANDS' %}a tiered table on {{ rule.get_basis_display|lower }}{% else %}{{ rule.get_method_display|lower }} of {{ rule.get_basis_display|lower }}{% endif %}
+        {% if rule.basis_cap %} · ceiling {{ rule.basis_cap|floatformat:2 }}{% endif %}
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2 no-print">
+      {% if can_edit %}
+        <a href="{% url 'payroll:rule_update' rule.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit rates</a>
+      {% else %}
+        <a href="{% url 'payroll:rule_create' %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">New version</a>
+      {% endif %}
+      {% if rule.method == 'BANDS' %}
+        <a href="{% url 'payroll:band_create' rule.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Add band</a>
+      {% endif %}
+      <form method="post" action="{% url 'payroll:rule_toggle' rule.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="px-3 py-2 text-sm font-medium {% if rule.is_active %}text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100{% else %}text-green-700 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100{% endif %}">
+          {% if rule.is_active %}Retire this table{% else %}Bring it back{% endif %}
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <p class="text-xs uppercase tracking-wider text-gray-500 mb-2">Taken off the employee</p>
+      {% if rule.method == 'BANDS' %}
+        <p class="text-lg font-semibold text-gray-900">the table below, less {{ rule.monthly_relief|floatformat:2 }} relief</p>
+      {% else %}
+        <p class="text-2xl font-bold font-mono text-red-600">{{ rule.employee_percent|floatformat:2 }}%</p>
+        {% if rule.employee_flat %}<p class="text-sm text-gray-600 mt-1">plus {{ rule.employee_flat|floatformat:2 }} fixed</p>{% endif %}
+      {% endif %}
+      <p class="text-xs text-gray-500 mt-2">of {{ rule.get_basis_display|lower }}{% if rule.basis_cap %}, up to {{ rule.basis_cap|floatformat:2 }}{% endif %}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <p class="text-xs uppercase tracking-wider text-gray-500 mb-2">Paid by the employer</p>
+      {% if rule.employer_percent or rule.employer_flat %}
+        <p class="text-2xl font-bold font-mono text-gray-900">{{ rule.employer_percent|floatformat:2 }}%</p>
+        {% if rule.employer_flat %}<p class="text-sm text-gray-600 mt-1">plus {{ rule.employer_flat|floatformat:2 }} fixed</p>{% endif %}
+        <p class="text-xs text-gray-500 mt-2">charged to
+          <a href="{% url 'accounting:account_ledger' rule.expense_account.pk %}" class="font-mono underline" style="color:var(--primary)">{{ rule.expense_account.code }} {{ rule.expense_account.name }}</a></p>
+      {% else %}
+        <p class="text-lg font-semibold text-gray-400">Nothing</p>
+      {% endif %}
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <p class="text-xs uppercase tracking-wider text-gray-500 mb-2">Held in</p>
+      <a href="{% url 'accounting:account_ledger' rule.payable_account.pk %}" class="font-mono font-semibold hover:underline" style="color:var(--primary)">{{ rule.payable_account.code }}</a>
+      <p class="text-sm text-gray-700">{{ rule.payable_account.name }}</p>
+      <p class="text-xs text-gray-500 mt-2">Balance <span class="font-mono">{{ rule.payable_account.current_balance|floatformat:2 }}</span> — what is owed and not yet remitted.</p>
+      {% if rule.reduces_taxable_pay %}<p class="text-xs text-sky-600 mt-2">Allowed off taxable pay before income tax is worked out.</p>{% endif %}
+    </div>
+  </div>
+
+  {% if rule.method == 'BANDS' %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      <h2 class="text-base font-semibold text-gray-900">The bands</h2>
+      <span class="text-xs text-gray-500">tax is worked out step by step, so a raise never pushes the whole pay into the top rate</span>
+    </div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Pay from</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Pay to</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Rate</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for band in bands %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3 text-right font-mono text-gray-900">{{ band.lower|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono text-gray-700">{% if band.upper is None %}<span class="text-gray-400">and above</span>{% else %}{{ band.upper|floatformat:2 }}{% endif %}</td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-red-600">{{ band.percent|floatformat:2 }}%</td>
+          <td class="px-4 py-3 text-right no-print">
+            <form method="post" action="{% url 'payroll:band_delete' band.pk %}" onsubmit="return confirm('Remove this band? The table would tax a slice of pay that no longer has a rate on it.');">
+              {% csrf_token %}
+              <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="px-4 py-8 text-center text-gray-400">
+          No bands yet, so this table taxes nobody — a run refuses to calculate until it has steps.
+          <a href="{% url 'payroll:band_create' rule.pk %}" class="underline" style="color:var(--primary)">Add the first band</a>.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if history|length > 1 %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Every version of {{ rule.code }}</h2></div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">From</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employee</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employer</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">State</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for old in history %}
+        <tr class="{% if old.pk == rule.pk %}bg-gray-50/60{% endif %}">
+          <td class="px-4 py-3 text-gray-700">
+            {% if old.pk == rule.pk %}
+              <span class="font-semibold" style="color:var(--primary)">{{ old.effective_from|date:"d M Y" }}</span>
+            {% else %}
+              <a href="{% url 'payroll:rule_detail' old.pk %}" class="text-gray-600 hover:underline">{{ old.effective_from|date:"d M Y" }}</a>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right font-mono text-gray-700">{% if old.method == 'BANDS' %}tiers{% else %}{{ old.employee_percent|floatformat:2 }}%{% endif %}</td>
+          <td class="px-4 py-3 text-right font-mono text-gray-700">{{ old.employer_percent|floatformat:2 }}%</td>
+          <td class="px-4 py-3">{% if old.is_active %}<span class="badge bg-green-50 text-green-700">active</span>{% else %}<span class="badge bg-gray-100 text-gray-500">retired</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if can_edit %}
+  <p class="text-xs text-gray-500">Nothing has been paid out of this table yet, so its rates can still be changed. A rate that moves later gets its own row with a new start date rather than an edit here, so a payslip raised in January stays recomputable in June.</p>
+  {% else %}
+  <p class="text-xs text-gray-500">This table has already fed a run somebody signed off — approved, posted or cancelled — so it cannot be edited here: correcting it would silently change what people were paid. Raise a new version with a later start date instead, and reverse any run that used the wrong figures.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -35,17 +35,17 @@
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Cash on hand</p>
     <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ total_cash|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">All bank + cash</p>
+    <p class="text-[11px] text-gray-400 mt-1">All bank + cash · {{ book }}</p>
   </div>
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Receivables</p>
     <p class="text-xl font-bold mt-1 tabular-nums" style="color: var(--primary);">{{ accounts_receivable|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">Outstanding AR</p>
+    <p class="text-[11px] text-gray-400 mt-1">Outstanding AR · {{ book }}</p>
   </div>
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Payables</p>
     <p class="text-xl font-bold text-amber-600 mt-1 tabular-nums">{{ accounts_payable|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">Outstanding AP</p>
+    <p class="text-[11px] text-gray-400 mt-1">Outstanding AP · {{ book }}</p>
   </div>
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Revenue (MTD)</p>
@@ -119,7 +119,7 @@
             <td class="px-5 py-2 text-gray-700">{{ inv.customer.name|truncatechars:30 }}</td>
             <td class="px-5 py-2 font-mono text-xs"><a href="{% url 'sales:invoice_detail' inv.pk %}" style="color:var(--primary)">{{ inv.reference }}</a></td>
             <td class="px-5 py-2 text-xs text-gray-500">{{ inv.due_date|date:"d M Y" }}</td>
-            <td class="px-5 py-2 text-right font-semibold tabular-nums text-rose-600">{{ inv.outstanding_amount|floatformat:2 }}</td>
+            <td class="px-5 py-2 text-right font-semibold tabular-nums text-rose-600">{{ inv.outstanding_amount|floatformat:2 }} <span class="text-[11px] font-normal text-gray-400">{{ inv.currency }}</span></td>
           </tr>
           {% empty %}
           <tr><td colspan="4" class="px-5 py-6 text-center text-xs text-gray-400">No unpaid invoices.</td></tr>
@@ -148,7 +148,7 @@
             <td class="px-5 py-2 text-gray-700">{{ bill.supplier.name|truncatechars:30 }}</td>
             <td class="px-5 py-2 font-mono text-xs"><a href="{% url 'procurement:bill_detail' bill.pk %}" style="color:var(--primary)">{{ bill.reference }}</a></td>
             <td class="px-5 py-2 text-xs text-gray-500">{{ bill.due_date|date:"d M Y" }}</td>
-            <td class="px-5 py-2 text-right font-semibold tabular-nums text-amber-600">{{ bill.outstanding_amount|floatformat:2 }}</td>
+            <td class="px-5 py-2 text-right font-semibold tabular-nums text-amber-600">{{ bill.outstanding_amount|floatformat:2 }} <span class="text-[11px] font-normal text-gray-400">{{ bill.currency }}</span></td>
           </tr>
           {% empty %}
           <tr><td colspan="4" class="px-5 py-6 text-center text-xs text-gray-400">No open bills.</td></tr>

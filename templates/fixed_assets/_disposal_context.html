@@ -1,0 +1,46 @@
+{% comment %}
+What the disposal is being measured against, and the gain or loss it will post.
+The figure is recomputed as the proceeds are typed: an accountant decides
+whether a disposal is worth doing before it goes into the book, not after.
+{% endcomment %}
+<div class="mf-section">The book is carrying</div>
+<div class="dc-grid">
+  <div><span>Cost</span><strong>{{ asset.purchase_cost|floatformat:2 }}</strong></div>
+  <div><span>Depreciation charged</span><strong>{{ asset.accumulated_depreciation|floatformat:2 }}</strong></div>
+  <div><span>Book value being cleared</span><strong>{{ asset.book_value|floatformat:2 }}</strong></div>
+  <div><span>Gain or loss on posting</span><strong id="dc-gain">—</strong></div>
+</div>
+<p class="dc-note">Depreciation has been charged through {{ asset.last_depreciated|date:"d M Y"|default:"nothing yet" }}.</p>
+
+<script>
+  (function () {
+    var book = {{ asset.book_value|floatformat:2 }};
+    var input = document.getElementById("id_proceeds");
+    var out = document.getElementById("dc-gain");
+    if (!input || !out) return;
+    function show() {
+      var proceeds = parseFloat(input.value || "0");
+      if (isNaN(proceeds)) { out.textContent = "—"; return; }
+      var diff = proceeds - book;
+      out.textContent = (diff < 0 ? "Loss " : diff > 0 ? "Gain " : "Neither — ")
+        + Math.abs(diff).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      out.style.color = diff < 0 ? "#B91C1C" : "#047857";
+    }
+    input.addEventListener("input", show);
+    show();
+  })();
+</script>
+
+<style>
+  .dc-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 20px; margin-bottom: 10px;
+    background: #F9FAFB; border: 1px solid #EEF0F3; border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .dc-grid div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .dc-grid span { font-size: 12.5px; color: #6B7280; }
+  .dc-grid strong { font-size: 13.5px; color: #111827; font-variant-numeric: tabular-nums; }
+  .dc-note { font-size: 12px; color: #6B7280; margin: 0 0 6px; }
+  @media (max-width: 640px) { .dc-grid { grid-template-columns: 1fr; } }
+</style>

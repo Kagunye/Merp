@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ po.reference }} — Purchase Order — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -17,8 +18,14 @@
       <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Send to Supplier</button>
     </form>
     {% endif %}
-    {% if po.status != 'BILLED' and po.status != 'FULLY_RECEIVED' and po.status != 'CANCELLED' %}
-    <a href="{% url 'procurement:grn' po.pk %}" class="no-print px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Receive (GRN)</a>
+    {% if po.status != 'DRAFT' and po.status != 'CANCELLED' %}
+    <a href="{% url 'procurement:grn' po.pk %}" class="no-print px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Receive Goods</a>
+    <form method="post" action="{% url 'procurement:po_to_bill' po.pk %}" class="no-print">
+      {% csrf_token %}
+      <button type="submit" class="px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Convert to Bill</button>
+    </form>
+    {% endif %}
+    {% if po.status == 'DRAFT' or po.status == 'SENT' %}
     <form method="post" action="{% url 'procurement:po_cancel' po.pk %}" onsubmit="return confirm('Cancel this PO?');">
       {% csrf_token %}
       <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
@@ -41,22 +48,68 @@
     <h3 class="text-sm font-semibold text-gray-800 mt-6 mb-2">Lines</h3>
     <table class="w-full text-sm">
       <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-        <tr><th class="px-3 py-2 text-left">Product</th><th class="px-3 py-2 text-right">Qty</th><th class="px-3 py-2 text-right">Received</th><th class="px-3 py-2 text-right">Unit Cost</th><th class="px-3 py-2 text-right">Total</th></tr>
+        <tr><th class="px-3 py-2 text-left">Product</th><th class="px-3 py-2 text-right">Qty</th><th class="px-3 py-2 text-right">Received</th><th class="px-3 py-2 text-right">Billed</th><th class="px-3 py-2 text-right">Unit Cost</th><th class="px-3 py-2 text-right">Total</th><th class="w-8"></th></tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
         {% for line in lines %}
         <tr>
           <td class="px-3 py-2"><p class="font-medium">{{ line.product.name }}</p><p class="text-xs text-gray-400">{{ line.description }}</p></td>
-          <td class="px-3 py-2 text-right font-mono">{{ line.quantity|floatformat:2 }}</td>
-          <td class="px-3 py-2 text-right font-mono text-gray-500">{{ line.received_quantity|floatformat:2 }}</td>
+          <td class="px-3 py-2 text-right font-mono">{{ line.quantity|with_unit:line.product.unit_of_measure }}</td>
+          <td class="px-3 py-2 text-right font-mono text-gray-500">{{ line.received_quantity|with_unit:line.product.unit_of_measure }}</td>
+          <td class="px-3 py-2 text-right font-mono text-gray-500">{{ line.billed_quantity }}</td>
           <td class="px-3 py-2 text-right font-mono">{{ line.unit_cost|floatformat:2 }}</td>
           <td class="px-3 py-2 text-right font-mono font-semibold">{{ line.line_total|floatformat:2 }}</td>
+          <td class="px-3 py-2 text-center">
+            {% if line.received_quantity == 0 and line.billed_quantity == 0 %}
+            <form method="post" action="{% url 'procurement:po_line_delete' po.pk line.pk %}" onsubmit="return confirm('Remove this line from the order?');">
+              {% csrf_token %}
+              <button type="submit" class="text-gray-300 hover:text-red-500" title="Remove line">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </form>
+            {% endif %}
+          </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="px-3 py-4 text-center text-gray-400 text-sm">No lines on this PO.</td></tr>
+        <tr><td colspan="7" class="px-3 py-4 text-center text-gray-400 text-sm">No lines on this PO.</td></tr>
         {% endfor %}
       </tbody>
     </table>
+
+    {% if po.status == 'DRAFT' or po.status == 'SENT' or po.status == 'PARTIALLY_RECEIVED' %}
+    <form method="post" action="{% url 'procurement:po_line_add' po.pk %}" class="no-print mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+      {% csrf_token %}
+      <h4 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">Add a line</h4>
+      <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div class="md:col-span-2">
+          <label class="block text-xs text-gray-500 mb-1">Product</label>
+          <select name="product" required class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+            <option value="">— Choose</option>
+            {% for p in products %}<option value="{{ p.pk }}">{{ p.sku }} — {{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Quantity</label>
+          <input type="number" name="quantity" step="0.0001" min="0.0001" value="1" required class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-right font-mono" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Unit cost</label>
+          <input type="number" name="unit_cost" step="0.0001" min="0" value="0" required class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-right font-mono" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Tax</label>
+          <select name="tax_rate" class="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+            <option value="">— No tax</option>
+            {% for t in tax_rates %}<option value="{{ t.pk }}">{{ t.name }} ({{ t.rate }}%)</option>{% endfor %}
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button type="submit" class="w-full px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Add</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 mt-2">The order total is the sum of its lines — it is not typed in beside them.</p>
+    </form>
+    {% endif %}
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-6">
     <h2 class="text-base font-semibold text-gray-900 mb-4">Financials</h2>

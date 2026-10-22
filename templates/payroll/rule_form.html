@@ -1,0 +1,11 @@
+{% extends "base/base.html" %}
+{% block title %}{{ page_title }} — Payroll — Mofisi{% endblock %}
+{% block content %}
+{% url 'payroll:rule_list' as back_url %}
+{% url 'payroll:rule_list' as cancel_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="One contribution or withholding, described the way the law describes it." section_label="The table" back_url=back_url cancel_url=cancel_url submit_label=action|default:"Save" %}
+
+<div class="max-w-[720px] mx-auto mt-4 text-xs text-gray-500">
+  <p><strong>Share of the pay</strong> takes a percentage of basic pay or of gross, and may stop looking at pay above a ceiling — that is how a pension cap is written. <strong>A tiered table</strong> steps through the pay and takes a monthly relief off the tax that comes out; its bands are added on the next screen. <strong>The same figure every month</strong> ignores the pay entirely.</p>
+</div>
+{% endblock %}

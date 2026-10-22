@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 <div class="space-y-5">
   <!-- Header -->
@@ -10,16 +11,21 @@
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-xl font-bold text-gray-900 font-mono">{{ entry.reference }}</h1>
-          <span class="badge {% if entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% elif entry.status == 'REVERSED' %}bg-gray-100 text-gray-500{% else %}bg-red-50 text-red-700{% endif %}">
-            {{ entry.get_status_display }}
+          <span class="badge {% if entry.reversed_by %}bg-gray-100 text-gray-500{% elif entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% else %}bg-red-50 text-red-700{% endif %}">
+            {% if entry.reversed_by %}Reversed{% else %}{{ entry.get_status_display }}{% endif %}
           </span>
         </div>
-        <p class="text-sm text-gray-500 mt-0.5">{{ entry.get_entry_type_display }} · {{ entry.posting_date|date:"d F Y" }}</p>
+        <p class="text-sm text-gray-500 mt-0.5">{{ entry.get_entry_type_display }} · {{ entry.posting_date|date:"d F Y" }}{% if entry.period %} · {{ entry.period.name }}{% endif %}</p>
       </div>
     </div>
     <div class="flex gap-2 flex-wrap">
       {% include "_includes/print_button.html" %}
       {% if entry.status == 'DRAFT' %}
+      <a href="{% url 'accounting:journal_entry_edit' entry.pk %}" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50">Edit draft</a>
+      <form method="post" action="{% url 'accounting:journal_entry_cancel' entry.pk %}" onsubmit="return confirm('Cancel this draft? It will stay in the journal as a cancelled record.')">
+        {% csrf_token %}
+        <button type="submit" class="px-4 py-2 text-sm font-medium text-red-700 border border-red-200 bg-white rounded-lg hover:bg-red-50">Cancel draft</button>
+      </form>
       <form method="post" action="{% url 'accounting:journal_entry_post' entry.pk %}" onsubmit="return confirm('Post this journal entry? This cannot be undone.')">
         {% csrf_token %}
         <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg flex items-center gap-2" style="background:var(--primary)">
@@ -27,7 +33,7 @@
           Post Entry
         </button>
       </form>
-      {% elif entry.status == 'POSTED' %}
+      {% elif entry.status == 'POSTED' and not entry.reversed_by %}
       <form method="post" action="{% url 'accounting:journal_entry_reverse' entry.pk %}" onsubmit="return confirm('Create a reversal entry?')">
         {% csrf_token %}
         <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50">
@@ -37,6 +43,18 @@
       {% endif %}
     </div>
   </div>
+
+  {% if entry.calendar_warning %}
+  <div class="rounded-xl border px-4 py-3 text-sm flex items-start gap-2" style="background:#FFFBEB;border-color:#FCD34D;color:#92400E">
+    <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    <span>{{ entry.calendar_warning }} The entry was allowed through — closing a period is a reporting flag here, not a wall. Reopen the period, or reverse and re-date this entry.</span>
+  </div>
+  {% endif %}
+  {% if entry.reversed_by %}
+  <div class="rounded-xl border px-4 py-3 text-sm" style="background:#F9FAFB;border-color:#E5E7EB;color:#4B5563">
+    Reversed by <a class="font-mono hover:underline" style="color:var(--primary)" href="{% url 'accounting:journal_entry_detail' entry.reversed_by.pk %}">{{ entry.reversed_by.reference }}</a>.
+  </div>
+  {% endif %}
 
   <!-- Info cards -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -83,9 +101,9 @@
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for line in lines %}
-        <tr>
+        <tr style="{% account_row line.account %}">
           <td class="px-4 py-3">
-            <span class="font-mono text-xs text-gray-500">{{ line.account.code }}</span>
+            <span class="font-mono text-xs font-semibold px-1.5 py-0.5 rounded" style="{% account_chip line.account %}">{{ line.account.code }}</span>
             <span class="ml-2 text-gray-900">{{ line.account.name }}</span>
           </td>
           <td class="px-4 py-3 text-gray-500">{{ line.description|default:"—" }}</td>

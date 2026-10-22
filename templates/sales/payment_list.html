@@ -11,32 +11,83 @@
       </a>
     </div>
   </div>
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <table class="w-full text-sm">
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="w-full text-sm" style="min-width: 900px">
       <thead>
         <tr class="border-b border-gray-100 bg-gray-50/50">
           <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Reference</th>
           <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Customer</th>
           <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
           <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Method</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Amount</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Received</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Settled against</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for p in payments %}
-        <tr class="hover:bg-gray-50/50">
-          <td class="px-4 py-3 font-mono font-semibold text-gray-700">{{ p.reference }}</td>
-          <td class="px-4 py-3 font-medium text-gray-900">{{ p.customer.name }}</td>
-          <td class="px-4 py-3 text-gray-600">{{ p.payment_date|date:"d M Y" }}</td>
-          <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-600">{{ p.get_payment_method_display }}</span></td>
-          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ p.amount|floatformat:2 }}</td>
+        <tr class="hover:bg-gray-50/50 {% if p.status == 'REVERSED' %}bg-gray-50/60{% endif %}">
+          <td class="px-4 py-3 align-top">
+            <div class="font-mono font-semibold {% if p.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-gray-700{% endif %}">{{ p.reference }}</div>
+            {% if p.transaction_reference %}<div class="text-xs text-gray-400 font-mono">{{ p.transaction_reference }}</div>{% endif %}
+            {% if p.journal_entry %}
+              <a href="{% url 'accounting:journal_entry_detail' p.journal_entry.pk %}" class="text-xs text-primary hover:underline">{{ p.journal_entry.reference }}</a>
+            {% else %}
+              <span class="text-xs text-amber-600">not posted</span>
+            {% endif %}
+            {% if p.journal_entry.reversed_by %}
+              <a href="{% url 'accounting:journal_entry_detail' p.journal_entry.reversed_by.pk %}" class="block text-xs text-rose-600 hover:underline">{{ p.journal_entry.reversed_by.reference }}</a>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 align-top font-medium text-gray-900">{{ p.customer.name }}</td>
+          <td class="px-4 py-3 align-top text-gray-600">{{ p.payment_date|date:"d M Y" }}</td>
+          <td class="px-4 py-3 align-top">
+            <span class="badge bg-gray-100 text-gray-600">{{ p.get_payment_method_display }}</span>
+            {% if p.bank_account %}<div class="text-xs text-gray-400 mt-1">{{ p.bank_account.name }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-right font-mono font-semibold {% if p.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-gray-900{% endif %}">
+            {{ p.amount|floatformat:2 }} <span class="text-xs font-sans font-normal text-gray-400">{{ p.currency }}</span>
+          </td>
+          <td class="px-4 py-3 align-top text-right">
+            {% if p.settled_count %}
+              <div class="font-mono text-gray-700">{{ p.settled_amount|floatformat:2 }}</div>
+              <div class="text-xs text-gray-400">{{ p.settled_count }} paper{{ p.settled_count|pluralize }}</div>
+            {% else %}
+              <div class="text-xs text-gray-400">on account</div>
+            {% endif %}
+            {% if p.unapplied > 0 %}<div class="text-xs text-sky-600">{{ p.unapplied|floatformat:2 }} unapplied</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top">
+            {% if p.status == 'REVERSED' %}
+              <span class="badge bg-rose-50 text-rose-700">Reversed</span>
+            {% else %}
+              <span class="badge bg-green-50 text-green-700">Received</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-right whitespace-nowrap">
+            {% if p.status == 'RECEIVED' and p.journal_entry %}
+              <form method="post" action="{% url 'sales:payment_reverse' p.pk %}" class="inline-flex items-center gap-1"
+                    onsubmit="return confirm('Give this receipt back? The invoices it settled become owed again and an offsetting entry is booked in the same period.');">
+                {% csrf_token %}
+                <input type="text" name="reason" maxlength="255" placeholder="why"
+                       class="px-2 py-1 text-xs border border-gray-200 rounded-md w-24 focus:outline-none focus:border-red-400" />
+                <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Reverse</button>
+              </form>
+            {% else %}
+              <span class="text-xs text-gray-300">—</span>
+            {% endif %}
+          </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="px-4 py-12 text-center text-gray-500">No payments recorded.</td></tr>
+        <tr><td colspan="8" class="px-4 py-12 text-center text-gray-500">No payments recorded.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  <p class="text-xs text-gray-400">A receipt that settles no paper stays in receivables as money on account — it is credited against the customer's control account, not against the ledger. Reversing a receipt books an offsetting entry and puts the invoices it had settled back on account.</p>
 </div>
 {% include "_includes/pagination.html" %}
 {% endblock %}

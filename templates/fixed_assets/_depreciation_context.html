@@ -1,0 +1,53 @@
+{% comment %}
+The figures the month's charge is worked out from, and the two lines it will
+move. Shown before the run so the number can be checked against the asset's
+own life rather than discovered in the ledger afterwards.
+{% endcomment %}
+<div class="mf-section">{{ asset.code }} — {{ asset.name }}</div>
+<div class="dp-grid">
+  <div><span>Method</span><strong>{{ asset.get_depreciation_method_display }}</strong></div>
+  <div><span>Useful life</span><strong>{{ asset.useful_life_years }} years</strong></div>
+  <div><span>Cost</span><strong>{{ asset.purchase_cost|floatformat:2 }}</strong></div>
+  <div><span>Residual floor</span><strong>{{ asset.residual_value|floatformat:2 }}</strong></div>
+  <div><span>Charged so far</span><strong>{{ asset.accumulated_depreciation|floatformat:2 }}</strong></div>
+  <div><span>Left to charge</span><strong>{{ asset.remaining_depreciable|floatformat:2 }}</strong></div>
+</div>
+
+{% if preview %}
+<div class="dp-lines">
+  {% for side, account, amount in preview %}
+  <div><span>{{ side }} {{ account.code }} {{ account.name }}</span><strong>{{ amount|floatformat:2 }}</strong></div>
+  {% endfor %}
+</div>
+<p class="dp-note">The charge is capped at what is left to charge, so the asset stops at its residual value.</p>
+{% else %}
+<p class="dp-warning">{{ asset.code }} has been written down to its residual value — there is nothing left to charge.</p>
+{% endif %}
+
+<style>
+  .dp-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 20px; margin-bottom: 12px;
+    background: #F9FAFB; border: 1px solid #EEF0F3; border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .dp-grid div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .dp-grid span { font-size: 12.5px; color: #6B7280; }
+  .dp-grid strong { font-size: 13.5px; color: #111827; font-variant-numeric: tabular-nums; }
+  .dp-lines {
+    border: 1px solid #EEF0F3; border-radius: 12px; overflow: hidden; margin-bottom: 8px;
+  }
+  .dp-lines div {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 9px 14px; font-size: 13px;
+  }
+  .dp-lines div + div { border-top: 1px solid #F3F4F6; }
+  .dp-lines span { color: #374151; }
+  .dp-lines strong { color: #111827; font-variant-numeric: tabular-nums; }
+  .dp-note { font-size: 12px; color: #6B7280; margin: 0; }
+  .dp-warning {
+    font-size: 13px; color: #92400E; background: #FFFBEB;
+    border: 1px solid #FDE68A; border-radius: 10px; padding: 10px 12px; margin: 0;
+  }
+  @media (max-width: 640px) { .dp-grid { grid-template-columns: 1fr; } }
+</style>

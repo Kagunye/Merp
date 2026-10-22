@@ -45,6 +45,22 @@ class BOMLine(models.Model):
     def effective_quantity(self):
         return self.quantity * (1 + self.scrap_percent / 100)
 
+    def stock_quantity(self, batches=Decimal("1")):
+        """What this line takes out of stock, in the unit the component is
+        counted in — including scrap.
+
+        A BOM can be written in the unit the workshop thinks in (bags of mix),
+        while the store keeps that item in pieces. Consuming the raw BOM number
+        would issue 2 of whatever the store calls "one", so the line converts
+        through the units' factors and only then hits the ledger.
+        """
+        from apps.inventory.models import convert_quantity
+        quantity = self.effective_quantity * batches
+        if not self.unit_of_measure_id:
+            return quantity
+        return convert_quantity(
+            quantity, self.unit_of_measure, self.component.unit_of_measure)
+
 
 class WorkOrder(BaseModel, NotesMixin):
     STATUS_CHOICES = [

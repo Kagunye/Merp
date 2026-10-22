@@ -1,14 +1,31 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="POS Sales" subtitle="All receipts across sessions" %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+{% include "_includes/page_header.html" with title="Till Tickets" subtitle="Every receipt across sessions" %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3">Method</th><th class="px-4 py-3 text-right">Total</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">When</th><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Method</th><th class="px-4 py-3 text-left">Status</th><th class="px-4 py-3 text-right">Total</th></tr>
+    </thead>
     <tbody class="divide-y divide-gray-100">
       {% for s in sales %}
-      <tr><td class="px-4 py-3 font-mono text-xs"><a href="{% url 'pos:sale_detail' s.pk %}" style="color: var(--primary);">{{ s.reference }}</a></td><td class="px-4 py-3">{{ s.session.cashier }}</td><td class="px-4 py-3">{{ s.customer|default:"—" }}</td><td class="px-4 py-3">{{ s.get_payment_method_display }}</td><td class="px-4 py-3 text-right font-semibold">{{ s.total_amount|floatformat:2 }}</td></tr>
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 font-mono text-xs">
+          <a href="{% url 'pos:sale_detail' s.pk %}" style="color: var(--primary);">{{ s.reference }}</a>
+          {% if s.refund_of %}<a href="{% url 'pos:sale_detail' s.refund_of.pk %}" class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700">refund</a>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ s.created_at|date:"d M Y H:i" }}</td>
+        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.session.pk %}" class="text-gray-600 hover:text-gray-900">{{ s.session.cashier.get_full_name|default:s.session.cashier.username }}</a></td>
+        <td class="px-4 py-3 text-gray-600">{{ s.customer.name|default:"Counter sale" }}</td>
+        <td class="px-4 py-3">{{ s.get_payment_method_display }}</td>
+        <td class="px-4 py-3">
+          {% if s.status == 'COMPLETED' %}<span class="badge bg-green-50 text-green-700">Completed</span>
+          {% elif s.status == 'REFUNDED' %}<span class="badge bg-red-50 text-red-700">Refunded</span>
+          {% else %}<span class="badge bg-amber-50 text-amber-700">Part refund</span>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-right font-mono font-semibold {% if s.refund_of %}text-red-700{% endif %}">{{ s.total_amount|floatformat:2 }}</td>
+      </tr>
       {% empty %}
-      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No sales yet.</td></tr>
+      <tr><td colspan="7" class="px-4 py-10 text-center text-gray-500">No tickets have been rung for this company yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

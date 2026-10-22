@@ -23,7 +23,13 @@ class ProductForm(forms.ModelForm):
         if not company:
             return
         from apps.accounting.models import Account, TaxRate
+        from apps.core.services import create_default_units
         from .models import ProductCategory, UnitOfMeasure
+        # A product without a unit cannot be counted, and an empty required
+        # dropdown would leave the bookkeeper stuck. Companies provisioned
+        # before units existed get the standard set on first use.
+        if not UnitOfMeasure.objects.filter(company=company).exists():
+            create_default_units(company)
         self.fields["category"].queryset = ProductCategory.objects.filter(company=company, is_active=True)
         self.fields["category"].empty_label = "— No category"
         self.fields["unit_of_measure"].queryset = UnitOfMeasure.objects.filter(company=company, is_active=True)
@@ -48,3 +54,70 @@ class StockMovementForm(forms.ModelForm):
             "movement_date": date_input(),
             "notes": forms.Textarea(attrs={"rows": 2}),
         }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not company:
+            return
+        from apps.organizations.models import Warehouse
+        self.fields["product"].queryset = Product.objects.filter(
+            company=company, is_active=True).select_related("unit_of_measure")
+        self.fields["warehouse"].queryset = Warehouse.objects.filter(
+            company=company, is_active=True)
+
+    def clean_quantity(self):
+        quantity = self.cleaned_data.get("quantity")
+        if quantity is not None and quantity <= 0:
+            raise forms.ValidationError("A movement has to move something — use a positive quantity.")
+        return quantity
+
+
+class UnitOfMeasureForm(forms.ModelForm):
+    """One counting unit. The conversion factor is what lets a warehouse count
+    in bags while purchasing pays per kilogram."""
+
+    class Meta:
+        model = UnitOfMeasure
+        fields = ["name", "abbreviation", "kind", "base_factor", "is_base"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. 50kg Bag"}),
+            "abbreviation": forms.TextInput(attrs={"placeholder": "e.g. BAG"}),
+        }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if company is not None and self.instance._state.adding:
+            # The model's own rules are company-scoped, so the instance needs
+            # its company before validation runs, not after.
+            self.instance.company = company
+        base = ""
+        if company:
+            found = UnitOfMeasure.objects.filter(
+                company=company, is_base=True, is_active=True).first()
+            base = found.abbreviation if found else ""
+        self.fields["base_factor"].help_text = (
+            f"How much of the base unit of this kind one {self.instance.name or 'unit'} is worth "
+            f"(1 for the base unit itself)."
+            + (f" Base unit on file: {base}." if base else "")
+        )
+
+    def clean_abbreviation(self):
+        abbrev = (self.cleaned_data.get("abbreviation") or "").strip().upper()
+        if not abbrev:
+            raise forms.ValidationError("A unit needs an abbreviation to print on documents.")
+        clash = UnitOfMeasure.objects.filter(
+            company=self.instance.company, abbreviation__iexact=abbrev)
+        if not self.instance._state.adding:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise forms.ValidationError(
+                f"{abbrev} is already a unit in this company ({clash.first().name}).")
+        return abbrev
+
+    def clean_kind(self):
+        kind = self.cleaned_data.get("kind")
+        valid = dict(UnitOfMeasure.KINDS)
+        if kind not in valid:
+            raise forms.ValidationError(f"Unknown unit kind '{kind}'.")
+        return kind

@@ -1,0 +1,93 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">The ledger is kept in {{ book }}. A document in another currency is worth whatever you filed for it on its own date — rates are history, not a live feed.</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'accounting:currency_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Register a Currency</a>
+      <a href="{% url 'accounting:exchange_rate_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        File a Rate
+      </a>
+      <a href="{% url 'accounting:revaluation' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Revalue Open Balances</a>
+    </div>
+  </div>
+
+  {% if transactable == 0 %}
+  <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    Only {{ book }} can be used on documents right now, because no exchange rate has been filed. Until one is, every invoice and bill stays in the book's own currency.
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2">Currency</th>
+          <th class="px-4 py-2 text-right">Rate into {{ book }}</th>
+          <th class="px-4 py-2">Filed on</th>
+          <th class="px-4 py-2 text-right">Rates kept</th>
+          <th class="px-4 py-2">Notes</th>
+          <th class="px-4 py-2 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for row in rows %}
+        <tr class="{% if not row.usable %}bg-gray-50 text-gray-500{% endif %}">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-gray-900">{{ row.currency.code }}</span>
+              {% if row.is_book %}<span class="badge bg-rose-50 text-rose-700">Book currency</span>{% endif %}
+            </div>
+            <div class="text-xs text-gray-500">{{ row.currency.name }}{% if row.currency.symbol %} · {{ row.currency.symbol }}{% endif %} · {{ row.currency.minor_units }} decimals</div>
+          </td>
+          <td class="px-4 py-3 text-right font-mono">
+            {% if row.is_book %}1.00
+            {% elif row.rate %}{{ row.rate|trim_qty }}
+            {% else %}<span class="text-gray-400">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-600">
+            {% if row.rate %}{{ row.rate.effective_date|date:"d M Y" }} <span class="text-xs text-gray-400">({{ row.rate.get_source_display|lower }})</span>{% else %}—{% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            {% if row.count %}<a href="{% url 'accounting:exchange_rate_history' row.currency.code %}" class="text-blue-600 hover:underline">{{ row.count }}</a>{% else %}0{% endif %}
+          </td>
+          <td class="px-4 py-3 text-xs">{{ row.note }}</td>
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            {% if row.rate %}<a href="{% url 'accounting:exchange_rate_edit' row.rate.pk %}" class="text-xs font-medium text-blue-600 hover:underline">Edit rate</a>{% endif %}
+            {% if row.count %}<a href="{% url 'accounting:exchange_rate_history' row.currency.code %}" class="ml-3 text-xs font-medium text-gray-600 hover:text-gray-900">History</a>{% endif %}
+            {% if not row.is_book %}<a href="{% url 'accounting:exchange_rate_create' %}" class="ml-3 text-xs font-medium {% if row.usable %}text-gray-600{% else %}text-amber-700{% endif %} hover:underline">File a rate</a>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No currencies are registered yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if recent %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100">
+      <h2 class="text-sm font-semibold text-gray-900">Most recently filed</h2>
+    </div>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-100">
+        {% for rate in recent %}
+        <tr>
+          <td class="px-4 py-2 font-medium text-gray-900">1 {{ rate.currency.code }} = {{ rate.rate|trim_qty }} {{ book }}</td>
+          <td class="px-4 py-2 text-gray-600">{{ rate.effective_date|date:"d M Y" }}</td>
+          <td class="px-4 py-2 text-gray-500">{{ rate.get_source_display }}{% if rate.note %} · {{ rate.note }}{% endif %}</td>
+          <td class="px-4 py-2 text-right"><a href="{% url 'accounting:exchange_rate_edit' rate.pk %}" class="text-xs font-medium text-blue-600 hover:underline">Edit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

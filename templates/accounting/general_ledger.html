@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'accounting:trial_balance' as pa_url %}
 {% include "_includes/page_header.html" with title="General Ledger" subtitle="Chart of accounts organised by type with live balances" action_label="Trial Balance" action_url=pa_url %}
@@ -6,15 +7,15 @@
 {% for bucket, accounts in buckets.items %}
 <section class="mb-6">
   <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">{{ bucket }}</h2>
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-2 text-left">Code</th><th class="px-4 py-2 text-left">Name</th><th class="px-4 py-2 text-right">Balance</th><th class="px-4 py-2"></th></tr></thead>
       <tbody class="divide-y divide-gray-100">
         {% for a in accounts %}
-        <tr class="hover:bg-gray-50">
-          <td class="px-4 py-2 font-mono text-xs">{{ a.code }}</td>
-          <td class="px-4 py-2 text-gray-900">{{ a.name }}</td>
-          <td class="px-4 py-2 text-right font-semibold">{{ a.current_balance|floatformat:2 }}</td>
+        <tr style="{% account_row a %}">
+          <td class="px-4 py-2"><span class="font-mono text-xs font-semibold px-1.5 py-0.5 rounded" style="{% account_chip a %}">{{ a.code }}</span></td>
+          <td class="px-4 py-2 text-gray-900">{{ a.name }}{% if a.is_reconcilable %} <span class="text-gray-400" title="Reconcilable">⟳</span>{% endif %}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold {% if a.current_balance >= 0 %}text-gray-900{% else %}text-red-600{% endif %}">{{ a.current_balance|floatformat:2 }}</td>
           <td class="px-4 py-2 text-right"><a href="{% url 'accounting:account_ledger' a.pk %}" class="text-xs" style="color: var(--primary);">View ledger &rarr;</a></td>
         </tr>
         {% endfor %}

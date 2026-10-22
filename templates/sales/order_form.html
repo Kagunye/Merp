@@ -42,8 +42,13 @@
       </div>
       <div>
         <label for="{{ form.currency.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Currency</label>
-        <input id="{{ form.currency.id_for_label }}" type="text" name="{{ form.currency.html_name }}" value="{{ form.currency.value|default:'KES' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono">
+        <select id="{{ form.currency.id_for_label }}" name="{{ form.currency.html_name }}"
+          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
+          {% for code, label in form.currency.field.choices %}
+            <option value="{{ code }}" {% if form.currency.value == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="text-xs text-gray-500 mt-1">{{ form.currency.help_text }}</p>
       </div>
       <div>
         <label for="{{ form.warehouse.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Warehouse</label>

@@ -29,6 +29,26 @@ class BOMLineForm(forms.ModelForm):
             "scrap_percent": forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.01"}),
         }
 
+    def clean(self):
+        cleaned = super().clean()
+        component = cleaned.get("component")
+        quantity = cleaned.get("quantity")
+        unit = cleaned.get("unit_of_measure")
+        if quantity is not None and quantity <= 0:
+            self.add_error("quantity", "A BOM line has to consume something.")
+        if component and not unit:
+            # Write the recipe in the unit the store already keeps the item in.
+            cleaned["unit_of_measure"] = unit = component.unit_of_measure
+        if component and unit and component.unit_of_measure_id != unit.pk:
+            if component.unit_of_measure.kind != unit.kind:
+                self.add_error(
+                    "unit_of_measure",
+                    f"{component.name} is counted in {component.unit_of_measure} "
+                    f"({component.unit_of_measure.kind_label}), not {unit} ({unit.kind_label}). "
+                    "Pick a unit of the same kind, or the stock issue cannot be converted.",
+                )
+        return cleaned
+
 
 BOMLineFormSet = inlineformset_factory(
     BillOfMaterials, BOMLine,

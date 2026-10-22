@@ -1,50 +1,84 @@
 {% extends "base/base.html" %}
 {% block title %}Payroll Runs — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Payroll</h1>
-    <p class="text-sm text-gray-500 mt-1">Manage payroll runs and payslips</p>
+<div class="space-y-5">
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">A run is worked out from the statutory tables, approved, and then booked as one journal entry.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="{% url 'payroll:rule_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Statutory tables</a>
+      <a href="{% url 'payroll:run_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Run
+      </a>
+    </div>
   </div>
-  <a href="{% url 'payroll:run_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Payroll Run</a>
+
+  <div class="flex flex-wrap gap-2">
+    <a href="{% url 'payroll:run_list' %}" class="px-3 py-1.5 text-sm rounded-lg border {% if not selected_status %}text-white{% else %}text-gray-600 bg-white border-gray-200 hover:bg-gray-50{% endif %}" {% if not selected_status %}style="background:var(--primary);border-color:var(--primary)"{% endif %}>All</a>
+    {% for value, label in statuses %}
+      <a href="{% url 'payroll:run_list' %}?status={{ value }}" class="px-3 py-1.5 text-sm rounded-lg border {% if selected_status == value %}text-white{% else %}text-gray-600 bg-white border-gray-200 hover:bg-gray-50{% endif %}" {% if selected_status == value %}style="background:var(--primary);border-color:var(--primary)"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="w-full text-sm" style="min-width: 880px">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Run</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Period</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Gross</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Withheld</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Net pay</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employer cost</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for run in runs %}
+        <tr class="hover:bg-gray-50/50 {% if run.status == 'CANCELLED' %}bg-gray-50/60{% endif %}">
+          <td class="px-4 py-3 align-top">
+            <a href="{% url 'payroll:run_detail' run.pk %}" class="font-mono font-semibold hover:underline {% if run.status == 'CANCELLED' %}text-gray-400 line-through{% else %}text-gray-800{% endif %}" {% if run.status != 'CANCELLED' %}style="color:var(--primary)"{% endif %}>{{ run.reference }}</a>
+            <div class="text-xs text-gray-400">{{ run.payslips.count }} payslip{{ run.payslips.count|pluralize }}</div>
+            {% if run.journal_entry %}
+              <a href="{% url 'accounting:journal_entry_detail' run.journal_entry.pk %}" class="text-xs text-gray-500 hover:underline">{{ run.journal_entry.reference }}</a>
+            {% elif run.status != 'CANCELLED' %}
+              <div class="text-xs text-amber-600">not in the ledger</div>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-gray-600">
+            {{ run.period_start|date:"d M Y" }} – {{ run.period_end|date:"d M Y" }}
+            <div class="text-xs text-gray-400">pay {{ run.payment_date|date:"d M Y" }}</div>
+          </td>
+          <td class="px-4 py-3 align-top text-right font-mono {% if run.status == 'CANCELLED' %}text-gray-400{% else %}text-gray-900{% endif %}">{{ run.total_gross|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono text-red-600">{{ run.total_deductions|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top text-right font-mono font-semibold {% if run.status == 'CANCELLED' %}text-gray-400{% else %}text-gray-900{% endif %}">
+            {{ run.total_net|floatformat:2 }} <span class="text-xs font-sans font-normal text-gray-400">{{ book }}</span>
+          </td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-600">{{ run.total_employer|floatformat:2 }}</td>
+          <td class="px-4 py-3 align-top">
+            {% if run.status == 'POSTED' %}<span class="badge bg-green-50 text-green-700">Posted</span>
+            {% elif run.status == 'APPROVED' %}<span class="badge bg-blue-50 text-blue-700">Approved</span>
+            {% elif run.status == 'CANCELLED' %}<span class="badge bg-gray-100 text-gray-500">Cancelled</span>
+            {% elif run.status == 'REVIEW' %}<span class="badge bg-amber-50 text-amber-700">Under review</span>
+            {% else %}<span class="badge bg-gray-100 text-gray-600">Draft</span>{% endif %}
+            {% if run.approved_by %}<div class="text-xs text-gray-400 mt-1">by {{ run.approved_by.get_full_name|default:run.approved_by.username }}</div>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">
+          No payroll runs {% if selected_status %}with that status{% else %}yet{% endif %}.
+          <a href="{% url 'payroll:run_create' %}" class="underline" style="color:var(--primary)">Raise one</a> and the tables will work the month out.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% include "_includes/pagination.html" %}
+
+  <p class="text-xs text-gray-500">Every figure on a run is calculated — nothing here is typed. Withheld money sits on the statutory payable accounts until it is remitted, and the employer's own shares are the extra cost of the month.</p>
 </div>
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-200">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Period</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Payment Date</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total Gross</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total Deductions</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Total Net</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Payslips</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for run in runs %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3">
-          <a href="{% url 'payroll:run_detail' run.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ run.reference }}</a>
-        </td>
-        <td class="px-4 py-3 text-gray-900">{{ run.period_start }} – {{ run.period_end }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ run.payment_date }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ run.total_gross|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-red-600">{{ run.total_deductions|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ run.total_net|floatformat:2 }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if run.status == 'POSTED' %}bg-green-50 text-green-700{% elif run.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif run.status == 'APPROVED' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %}">
-            {{ run.get_status_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3 text-gray-600">{{ run.payslips.count }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="8" class="px-4 py-12 text-center text-gray-400">No payroll runs. <a href="{% url 'payroll:run_create' %}" style="color:var(--primary)" class="font-medium">Create first run</a></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% include "_includes/pagination.html" %}
 {% endblock %}

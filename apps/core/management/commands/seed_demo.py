@@ -26,6 +26,7 @@ class Command(BaseCommand):
         from apps.expenses.models import ExpenseCategory
         from apps.hr.models import Employee, LeaveType
         from apps.inventory.models import Product, UnitOfMeasure
+        from apps.core.services import create_default_units
         from apps.organizations.models import Branch, Company, Department, Warehouse
         from apps.procurement.models import Bill
         from apps.sales.models import CustomerPayment, Invoice, InvoiceLine
@@ -111,10 +112,7 @@ class Command(BaseCommand):
             )
 
             # ---- Inventory product ----
-            uom, _ = UnitOfMeasure.objects.get_or_create(
-                company=company, name="Each",
-                defaults={"abbreviation": "ea"},
-            )
+            uom = create_default_units(company)["PCS"]
             product, _ = Product.objects.get_or_create(
                 company=company, sku="WDG-001",
                 defaults={

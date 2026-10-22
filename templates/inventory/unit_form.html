@@ -1,0 +1,6 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'inventory:unit_list' as back_url %}
+{% url 'inventory:unit_list' as cancel_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="How this company counts a thing — and how it converts" section_label="Unit Details" back_url=back_url cancel_url=cancel_url submit_label=action|default:"Save" %}
+{% endblock %}

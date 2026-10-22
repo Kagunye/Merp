@@ -6,16 +6,95 @@ from apps.core.models import BaseModel, NotesMixin
 
 
 class UnitOfMeasure(BaseModel):
+    """A counting unit the company buys, holds and sells in.
+
+    Quantities are meaningless without one: 5 of cement and 5 bags of cement
+    are different stocks. Units are grouped into kinds, and each kind has a
+    base unit every other unit in that kind converts through, so a purchase in
+    bags can be costed per piece and stock can be counted in whatever the
+    warehouse actually handles.
+    """
+    KINDS = [
+        ("COUNT", "Count / pieces"),
+        ("WEIGHT", "Weight"),
+        ("VOLUME", "Volume"),
+        ("LENGTH", "Length"),
+        ("AREA", "Area"),
+        ("TIME", "Time"),
+        ("OTHER", "Other"),
+    ]
+
     company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE)
     name = models.CharField(max_length=50)
     abbreviation = models.CharField(max_length=10)
+    kind = models.CharField(max_length=10, choices=KINDS, default="COUNT")
+    # How much of the kind's base unit one of this unit is worth.
+    base_factor = models.DecimalField(
+        max_digits=15, decimal_places=6, default=Decimal("1"),
+        help_text="1 of this unit equals this many of the base unit.",
+    )
     is_base = models.BooleanField(default=False)
 
     class Meta:
         unique_together = [("company", "abbreviation")]
+        ordering = ["kind", "base_factor", "name"]
+        verbose_name = "unit of measure"
+        verbose_name_plural = "units of measure"
 
     def __str__(self):
         return self.abbreviation
+
+    @property
+    def kind_label(self):
+        return dict(self.KINDS).get(self.kind, self.kind)
+
+    def to_base(self, quantity):
+        if quantity is None:
+            return Decimal("0")
+        return Decimal(str(quantity)) * self.base_factor
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.base_factor is None or self.base_factor <= 0:
+            errors["base_factor"] = "A unit must be worth more than nothing of its base unit."
+        if self.is_base and self.base_factor != Decimal("1"):
+            errors["base_factor"] = "A base unit is worth exactly 1 of itself."
+        if not errors:
+            errors.update(self._unique_base())
+        if errors:
+            raise ValidationError(errors)
+
+    def _unique_base(self):
+        """One base per kind per company, or conversions have no anchor."""
+        peers = UnitOfMeasure.objects.filter(
+            company=self.company, kind=self.kind, is_base=True, is_active=True,
+        )
+        if not self._state.adding:
+            peers = peers.exclude(pk=self.pk)
+        if self.is_base and peers.exists():
+            return {"is_base": f"{self.get_kind_display()} already has a base unit "
+                               f"({peers.first()})."}
+        if not self.is_base and not peers.exists():
+            return {"is_base": f"{self.get_kind_display()} needs a base unit before "
+                               "other units can convert to it."}
+        return {}
+
+
+def convert_quantity(quantity, from_uom, to_uom):
+    """Re-express a quantity in another unit of the same kind."""
+    quantity = Decimal(str(quantity or 0))
+    if not from_uom or not to_uom:
+        return quantity
+    if from_uom.pk == to_uom.pk:
+        return quantity
+    if from_uom.kind != to_uom.kind:
+        raise ValidationError(
+            f"Cannot convert {from_uom.abbreviation} ({from_uom.kind_label}) "
+            f"to {to_uom.abbreviation} ({to_uom.kind_label}) — different kinds.")
+    if not to_uom.base_factor:
+        raise ValidationError(f"{to_uom.abbreviation} has no conversion factor.")
+    return (from_uom.to_base(quantity) / to_uom.base_factor)
 
 
 class ProductCategory(BaseModel):
@@ -120,6 +199,15 @@ class StockMovement(BaseModel, NotesMixin):
 
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="movements")
     warehouse = models.ForeignKey("organizations.Warehouse", on_delete=models.PROTECT)
+    # A movement that answers an order is worth more than a note on paper: the
+    # receipt is what accrues the supplier's cost into stock, and the bill later
+    # releases that accrual. Without the link the two cannot be squared.
+    purchase_order = models.ForeignKey(
+        "procurement.PurchaseOrder", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="stock_movements")
+    sales_order = models.ForeignKey(
+        "sales.SalesOrder", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="stock_movements")
     movement_type = models.CharField(max_length=20, choices=MOVEMENT_TYPES)
     quantity = models.DecimalField(max_digits=12, decimal_places=4)
     unit_cost = models.DecimalField(max_digits=15, decimal_places=4, default=Decimal("0"))
@@ -151,6 +239,18 @@ class StockMovement(BaseModel, NotesMixin):
             if is_new:
                 self._post_gl()
 
+    def _cost_it_at(self, unit_cost):
+        """Write the value this movement carries onto its own row.
+
+        save() recomputes totals and moves the stock level, so calling it from
+        inside that would take the quantity on or off a second time — the two
+        money columns are updated directly instead.
+        """
+        self.unit_cost = Decimal(str(unit_cost)).quantize(Decimal("0.0001"))
+        self.total_cost = (self.quantity * self.unit_cost).quantize(Decimal("0.01"))
+        StockMovement.objects.filter(pk=self.pk).update(
+            unit_cost=self.unit_cost, total_cost=self.total_cost)
+
     def _update_stock_level(self):
         with transaction.atomic():
             level, _ = StockLevel.objects.select_for_update().get_or_create(
@@ -161,6 +261,13 @@ class StockMovement(BaseModel, NotesMixin):
                 "RECEIPT", "TRANSFER_IN", "ADJUSTMENT_PLUS",
                 "RETURN_IN", "OPENING", "PRODUCTION_IN",
             )
+            # A movement nobody priced is worth what the shelf already holds the
+            # goods at: a sale, a write-off or a surplus found on a count all
+            # cost or gain the book the average the same items were bought in at.
+            # Without this the ledger would credit nothing while stock went out,
+            # and stock on the shelf would stop agreeing with stock in the book.
+            if not self.unit_cost and level.avg_cost:
+                self._cost_it_at(level.avg_cost)
             if incoming:
                 if level.quantity + self.quantity > 0 and self.unit_cost > 0:
                     total_value = (level.quantity * level.avg_cost) + (self.quantity * self.unit_cost)
@@ -177,27 +284,23 @@ class StockMovement(BaseModel, NotesMixin):
             level.save(update_fields=["quantity", "avg_cost", "updated_at"])
 
     def _post_gl(self):
-        """
-        Post a GL entry for stock movements that affect COGS or Inventory.
+        """Book the movements that change what the company owns.
 
-        DELIVERY / sales outbound  →  DR COGS  / CR Inventory
-        RECEIPT / purchase inbound →  DR Inventory / CR Accounts Payable
-        ADJUSTMENT_MINUS           →  DR COGS  / CR Inventory (inventory write-down)
-        ADJUSTMENT_PLUS            →  DR Inventory / CR AP (use as contra)
-        Other types (TRANSFER, RETURN, etc.) are skipped — they don't change
-        net asset value at the company level.
+        Goods in put stock up, against wherever their value came from; goods out
+        take stock down, charged to wherever the goods went. A transfer only
+        moves stock between this company's own shelves, so it books nothing.
+
+        A movement the ledger refuses is raised, not swallowed. A shelf that
+        moved while its entry failed leaves the trial balance wrong and the
+        stock report lying, and neither is discoverable by the person who stood
+        in the warehouse. The views that take these movements catch it and say
+        so on the screen.
         """
         if not self.product.track_inventory:
             return
-        try:
-            from apps.accounting.gl_service import (
-                post_stock_delivery,
-                post_stock_receipt,
-            )
-            if self.movement_type in ("DELIVERY", "ADJUSTMENT_MINUS", "PRODUCTION_OUT"):
-                post_stock_delivery(self)
-            elif self.movement_type in ("RECEIPT", "OPENING", "ADJUSTMENT_PLUS", "PRODUCTION_IN"):
-                post_stock_receipt(self)
-        except Exception:
-            # GL posting failure must never block stock operations
-            pass
+        from apps.accounting import gl_service
+
+        if self.movement_type in gl_service.STOCK_IN:
+            gl_service.post_stock_receipt(self)
+        elif self.movement_type in gl_service.STOCK_OUT:
+            gl_service.post_stock_delivery(self)

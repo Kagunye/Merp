@@ -1,0 +1,91 @@
+{% extends "base/base.html" %}
+{% block title %}Statutory Tables — Payroll — Mofisi{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5 max-w-2xl">The rates every payslip is worked out from. A new rate is a new row with a later start date, so an old slip can still be recomputed from the table that was in force when it was paid.</p>
+    </div>
+    <div class="flex flex-wrap gap-2 no-print">
+      <form method="post" action="{% url 'payroll:rules_seed' %}">
+        {% csrf_token %}
+        <button type="submit" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Load standard table</button>
+      </form>
+      <a href="{% url 'payroll:rule_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New table
+      </a>
+    </div>
+  </div>
+
+  {% if not tiered %}
+  <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+    No tiered income-tax table is in force, so a run would calculate pay with no PAYE on it.
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="w-full text-sm" style="min-width: 980px">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Code</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Method</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Taken from</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employee</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employer</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Held in</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">In force from</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for rule in rules %}
+        <tr class="hover:bg-gray-50/50 {% if not rule.is_active %}bg-gray-50/60{% endif %}">
+          <td class="px-4 py-3 align-top">
+            <a href="{% url 'payroll:rule_detail' rule.pk %}" class="font-mono font-semibold hover:underline {% if rule.is_active %}text-gray-800{% else %}text-gray-400 line-through{% endif %}" {% if rule.is_active %}style="color:var(--primary)"{% endif %}>{{ rule.code }}</a>
+            <div class="text-xs text-gray-500">{{ rule.name }}</div>
+            {% if rule.is_in_force %}<span class="badge bg-green-50 text-green-700 mt-1">in force today</span>{% endif %}
+            {% if rule.total_versions > 1 %}<div class="text-xs text-gray-400 mt-1">{{ rule.total_versions }} versions</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-gray-600">
+            {{ rule.get_method_display }}
+            {% if rule.method == 'BANDS' %}<div class="text-xs text-gray-400">{{ rule.tax_bands.count }} band{{ rule.tax_bands.count|pluralize }} · relief {{ rule.monthly_relief|floatformat:2 }}</div>{% endif %}
+            {% if rule.basis_cap %}<div class="text-xs text-gray-400">ceiling {{ rule.basis_cap|floatformat:2 }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-gray-600">
+            {{ rule.get_basis_display }}
+            {% if rule.reduces_taxable_pay %}<div class="text-xs text-sky-600">allowed off taxable pay</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-right font-mono text-red-600">
+            {% if rule.method == 'BANDS' %}<span class="text-xs text-gray-400">tiers</span>{% else %}{{ rule.employee_percent|floatformat:2 }}%{% endif %}
+            {% if rule.employee_flat %}<div class="text-xs text-gray-400 font-mono">+{{ rule.employee_flat|floatformat:2 }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top text-right font-mono text-gray-700">
+            {% if rule.employer_percent or rule.employer_flat %}
+              {{ rule.employer_percent|floatformat:2 }}%
+              {% if rule.employer_flat %}<div class="text-xs text-gray-400 font-mono">+{{ rule.employer_flat|floatformat:2 }}</div>{% endif %}
+              <div class="text-xs text-gray-400">{{ rule.expense_account.code|default:"—" }}</div>
+            {% else %}<span class="text-gray-300">—</span>{% endif %}
+          </td>
+          <td class="px-4 py-3 align-top">
+            <a href="{% url 'accounting:account_ledger' rule.payable_account.pk %}" class="font-mono text-xs hover:underline" style="color:var(--primary)">{{ rule.payable_account.code }}</a>
+            <div class="text-xs text-gray-500">{{ rule.payable_account.name }}</div>
+          </td>
+          <td class="px-4 py-3 align-top text-gray-600">
+            {{ rule.effective_from|date:"d M Y" }}
+            {% if not rule.is_active %}<span class="badge bg-gray-100 text-gray-500">retired</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">
+          No rates are set up, so a run would pay everybody gross and withhold nothing.
+          <a href="{% url 'payroll:rule_create' %}" class="underline" style="color:var(--primary)">Set the first table up</a>.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-xs text-gray-500">"Held in" is the liability the withheld money rests on until it is remitted; the employer's own share is charged to the expense account named beside it. A run refuses to calculate while two tiered tables are in force at once, or while a tiered table has no steps.</p>
+</div>
+{% endblock %}

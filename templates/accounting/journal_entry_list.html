@@ -54,8 +54,8 @@
           <td class="px-4 py-3 text-gray-500 truncate max-w-xs">{{ entry.notes|default:"—" }}</td>
           <td class="px-4 py-3 text-right font-mono text-gray-900">{{ entry.total_debit|floatformat:2 }}</td>
           <td class="px-4 py-3 text-center">
-            <span class="badge {% if entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% elif entry.status == 'REVERSED' %}bg-gray-100 text-gray-500{% else %}bg-red-50 text-red-700{% endif %}">
-              {{ entry.get_status_display }}
+            <span class="badge {% if entry.reversed_by %}bg-gray-100 text-gray-500{% elif entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% else %}bg-red-50 text-red-700{% endif %}">
+              {% if entry.reversed_by %}Reversed{% else %}{{ entry.get_status_display }}{% endif %}
             </span>
           </td>
           <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100">

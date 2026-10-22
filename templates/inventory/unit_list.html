@@ -1,0 +1,86 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+      <p class="text-sm text-gray-500 mt-0.5">A quantity is only meaningful with the unit it is counted in. Each kind keeps one base unit; every other unit converts through it.</p>
+    </div>
+    <a href="{% url 'inventory:unit_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      New Unit
+    </a>
+  </div>
+
+  <div class="flex flex-wrap gap-3">
+    <a href="{% url 'inventory:unit_list' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {% if state != 'all' %}text-white{% else %}text-gray-600 bg-white border border-gray-200{% endif %} rounded-lg" {% if state != 'all' %}style="background:var(--primary)"{% endif %}>Active ({{ active_count }})</a>
+    <a href="{% url 'inventory:unit_list' %}?state=all" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {% if state == 'all' %}text-white{% else %}text-gray-600 bg-white border border-gray-200{% endif %} rounded-lg" {% if state == 'all' %}style="background:var(--primary)"{% endif %}>Everything ({{ active_count|add:retired_count }})</a>
+    <a href="{% url 'inventory:product_list' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Products ({{ used_count }})</a>
+    <a href="{% url 'inventory:index' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Inventory Home</a>
+  </div>
+
+  {% for group in groups %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+      <h2 class="text-sm font-semibold text-gray-900">{{ group.label }}</h2>
+      {% if group.missing_base %}
+      <span class="badge bg-amber-50 text-amber-700">No base unit — conversions have nothing to anchor on</span>
+      {% endif %}
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2">Unit</th>
+          <th class="px-4 py-2">Code</th>
+          <th class="px-4 py-2">Converts to</th>
+          <th class="px-4 py-2 text-right">Products</th>
+          <th class="px-4 py-2 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for unit in group.rows %}
+        <tr class="border-t border-gray-100 hover:bg-gray-50 group {% if not unit.is_active %}opacity-60{% endif %}">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-gray-900">{{ unit.name }}</span>
+              {% if unit.is_base %}<span class="badge bg-green-50 text-green-700">base</span>{% endif %}
+              {% if not unit.is_active %}<span class="badge bg-gray-100 text-gray-500">retired</span>{% endif %}
+            </div>
+          </td>
+          <td class="px-4 py-3 font-mono text-gray-700">{{ unit.abbreviation }}</td>
+          <td class="px-4 py-3 text-gray-600">{% if unit.converted_from %}{{ unit.converted_from }}{% else %}1 {{ unit.abbreviation }} = 1 {{ unit.abbreviation }}{% endif %}</td>
+          <td class="px-4 py-3 text-right text-gray-600">{{ unit.product_count }}</td>
+          <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100">
+            <a href="{% url 'inventory:unit_edit' unit.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">Edit</a>
+            {% if unit.is_active %}
+              {% if not unit.is_base %}
+              <form method="post" action="{% url 'inventory:unit_set_base' unit.pk %}" class="inline">{% csrf_token %}
+                <button type="submit" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">Make base</button>
+              </form>
+              {% endif %}
+              <form method="post" action="{% url 'inventory:unit_deactivate' unit.pk %}" class="inline" onsubmit="return confirm('Retire {{ unit.abbreviation }}?')">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50">Retire</button>
+              </form>
+            {% else %}
+              <form method="post" action="{% url 'inventory:unit_activate' unit.pk %}" class="inline">{% csrf_token %}
+                <button type="submit" class="text-xs text-green-600 hover:text-green-800 px-2 py-1 rounded hover:bg-green-50">Restore</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% empty %}
+  <div class="bg-white rounded-xl border p-12 text-center">
+    <p class="text-gray-500">No units of measure yet.</p>
+    <a href="{% url 'inventory:unit_create' %}" class="text-sm text-primary hover:underline mt-1 block">Add the first unit</a>
+  </div>
+  {% endfor %}
+
+  <p class="text-xs text-gray-500">Retiring a unit keeps every past movement and document line readable; it only stops the unit being chosen on new records. A base unit other units convert through cannot be retired until one of them takes its place.</p>
+</div>
+{% endblock %}

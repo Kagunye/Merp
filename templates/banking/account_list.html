@@ -1,32 +1,46 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'banking:account_create' as pa_url %}
+{% url 'banking:reconciliation_list' as rec_url %}
 {% include "_includes/page_header.html" with title="Bank Accounts" subtitle="All bank accounts across the business" action_label="New Account" action_url=pa_url %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+<div class="flex flex-wrap gap-2 mb-4 no-print">
+  <a href="{{ rec_url }}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 bg-white hover:bg-gray-50">Reconciliations</a>
+  <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="px-3 py-1.5 rounded-lg text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 hover:bg-amber-100">Outstanding transactions</a>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
       <tr>
         <th class="px-4 py-3 text-left">Account name</th>
         <th class="px-4 py-3 text-left">Bank</th>
         <th class="px-4 py-3 text-left">Number</th>
-        <th class="px-4 py-3 text-left">Type</th>
+        <th class="px-4 py-3 text-left">Ledger</th>
         <th class="px-4 py-3 text-right">Balance</th>
         <th class="px-4 py-3"></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100">
       {% for a in accounts %}
-      <tr class="hover:bg-gray-50">
+      <tr style="{% account_row a %}">
         <td class="px-4 py-3 text-gray-900 font-medium">
           <a href="{% url 'banking:account_detail' a.pk %}" class="hover:underline">{{ a.name }}</a>
+          <div class="text-xs text-gray-500 font-normal">{{ a.get_account_type_display }}</div>
         </td>
         <td class="px-4 py-3 text-gray-700">{{ a.bank_name }}</td>
         <td class="px-4 py-3 text-gray-700 font-mono text-xs">{{ a.account_number }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ a.get_account_type_display }}</span></td>
-        <td class="px-4 py-3 text-right font-semibold text-gray-900">{{ a.currency }} {{ a.current_balance|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right">
-          <a href="{% url 'banking:account_edit' a.pk %}" class="text-sm" style="color: var(--primary);">Edit</a>
+        <td class="px-4 py-3">
+          {% if a.gl_account %}
+            <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="{% account_chip a %}">{{ a.gl_account.code }}</span>
+            <span class="text-xs text-gray-500">{{ a.gl_account.name }}</span>
+          {% else %}<span class="text-xs text-red-600">unmapped</span>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ a.currency }} {{ a.current_balance|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap">
+          <a href="{% url 'banking:reconciliation_create' %}?account={{ a.pk }}" class="text-sm font-medium" style="color: var(--primary);">Reconcile</a>
+          <a href="{% url 'banking:account_edit' a.pk %}" class="text-xs text-gray-500 hover:text-gray-800 ml-3">Edit</a>
         </td>
       </tr>
       {% empty %}

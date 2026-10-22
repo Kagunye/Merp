@@ -1,5 +1,7 @@
 """HR models: Employee, Leave, Attendance, Contract."""
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from apps.core.models import BaseModel, AddressMixin, ContactMixin, NotesMixin
 
 
@@ -69,6 +71,29 @@ class Contract(BaseModel):
 
     def __str__(self):
         return f"{self.employee.full_name} — {self.contract_type} from {self.start_date}"
+
+    def clean(self):
+        super().clean()
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValidationError(
+                "A contract cannot end before the day it started.")
+        if self.basic_salary is None or self.basic_salary <= 0:
+            raise ValidationError(
+                f"{self.employee.full_name} has no basic pay on this contract. "
+                "Payroll works the month out of this figure, so a contract that "
+                "pays nothing is a contract that has not been priced yet.")
+        if self.end_date and self.is_current and self.end_date < timezone.localdate():
+            raise ValidationError(
+                "This contract ended in the past, so it cannot be the current one. "
+                "Uncheck it, or write a new contract from the day this one left off.")
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Exactly one current contract per employee: payroll takes the current one
+        # to work the month out, and two of them would pay the person twice.
+        if self.is_current:
+            self.employee.contracts.exclude(pk=self.pk).filter(
+                is_current=True).update(is_current=False)
 
 
 class LeaveType(BaseModel):

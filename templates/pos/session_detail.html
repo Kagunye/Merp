@@ -1,34 +1,97 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'pos:session_list' as back %}
-{% include "_includes/page_header.html" with title="Session" subtitle=session.cashier back_url=back %}
+{% include "_includes/page_header.html" with title="Till Session" subtitle=session.cashier.get_full_name|default:session.cashier.username back_url=back %}
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opened</div><div class="font-semibold">{{ session.opened_at|date:"d M, H:i" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opening cash</div><div class="font-semibold">{{ session.opening_cash|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Sales</div><div class="font-semibold text-green-700">{{ session.total_sales|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ session.get_status_display }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Trades from</div><div class="font-semibold text-sm">{{ session.branch.name }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opened</div><div class="font-semibold text-sm">{{ session.opened_at|date:"d M, H:i" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Closed</div><div class="font-semibold text-sm">{{ session.closed_at|date:"d M, H:i"|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div>
+    <div class="font-semibold text-sm {% if session.status == 'OPEN' %}text-green-700{% else %}text-gray-500{% endif %}">{{ session.get_status_display }}</div></div>
 </div>
 
-<div class="mb-6 flex gap-3 flex-wrap">
-  {% if session.status == 'OPEN' %}
-    <a href="{% url 'pos:terminal' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Resume terminal</a>
-    <a href="{% url 'pos:session_close' session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-900 bg-white border border-gray-200 rounded-xl">Close session</a>
-  {% endif %}
-  <a href="{% url 'pos:cash_up' session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-900 bg-white border border-gray-200 rounded-xl">Cash-Up report</a>
-</div>
+<div class="grid lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 space-y-6">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">The drawer</h2></div>
+      <table class="w-full text-sm">
+        <tbody class="divide-y divide-gray-100">
+          <tr><td class="px-4 py-2 text-gray-500">Float at open</td><td class="px-4 py-2 text-right font-mono">{{ report.opening_cash }}</td></tr>
+          <tr><td class="px-4 py-2 text-gray-500">Sales taken ({{ report.ticket_count }} ticket{{ report.ticket_count|pluralize }})</td><td class="px-4 py-2 text-right font-mono text-green-700">{{ report.total_sales }}</td></tr>
+          <tr><td class="px-4 py-2 text-gray-500">Refunds paid ({{ report.refund_count }} ticket{{ report.refund_count|pluralize }})</td><td class="px-4 py-2 text-right font-mono text-red-700">{{ report.total_refunds }}</td></tr>
+          <tr><td class="px-4 py-2 font-medium">Expected in the drawer</td><td class="px-4 py-2 text-right font-mono font-bold">{{ report.expected_cash }}</td></tr>
+          <tr><td class="px-4 py-2 font-medium">Counted at close</td>
+            <td class="px-4 py-2 text-right font-mono">
+              {% if report.counted_cash is None %}<span class="text-gray-400">not counted</span>{% else %}{{ report.counted_cash }}{% endif %}</td></tr>
+          <tr><td class="px-4 py-2 font-medium">Variance</td>
+            <td class="px-4 py-2 text-right font-mono font-semibold
+              {% if report.variance is None %}text-gray-400{% elif report.variance < 0 %}text-red-700{% elif report.variance > 0 %}text-amber-700{% else %}text-green-700{% endif %}">
+              {% if report.variance is None %}—{% else %}{{ report.variance }}{% endif %}</td></tr>
+        </tbody>
+      </table>
+      <p class="px-4 py-3 text-xs text-gray-500 border-t border-gray-100">Only notes belong in this figure: card, M-Pesa and transfer tickets are counted here too, but they settle into the bank rather than the drawer, so the cash-up below keeps them apart.</p>
+    </div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Sales</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Method</th><th class="px-4 py-3 text-right">Total</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for s in sales %}
-      <tr><td class="px-4 py-3 font-mono text-xs"><a href="{% url 'pos:sale_detail' s.pk %}" style="color: var(--primary);">{{ s.reference }}</a></td><td class="px-4 py-3">{{ s.customer|default:"—" }}</td><td class="px-4 py-3">{{ s.get_payment_method_display }}</td><td class="px-4 py-3 text-right font-semibold">{{ s.total_amount|floatformat:2 }}</td></tr>
-      {% empty %}
-      <tr><td colspan="4" class="px-4 py-6 text-center text-gray-500">No sales in this session.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-700">Tickets on this till</h2>
+        <a href="{% url 'pos:terminal' %}" class="text-xs font-semibold" style="color: var(--primary);">Open terminal</a>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+          <tr><th class="px-4 py-3 text-left">Ref</th><th class="px-4 py-3 text-left">Taken</th><th class="px-4 py-3 text-left">Method</th><th class="px-4 py-3 text-left">Shelf</th><th class="px-4 py-3 text-right">Total</th></tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for s in sales %}
+          <tr>
+            <td class="px-4 py-2 font-mono text-xs">
+              <a href="{% url 'pos:sale_detail' s.pk %}" style="color: var(--primary);">{{ s.reference }}</a>
+              {% if s.refund_of %}<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700">refund</span>{% endif %}
+            </td>
+            <td class="px-4 py-2 text-xs text-gray-500">{{ s.created_at|date:"d M, H:i" }}</td>
+            <td class="px-4 py-2">{{ s.get_payment_method_display }}</td>
+            <td class="px-4 py-2 text-xs text-gray-500">{{ s.warehouse.name|default:"—" }}</td>
+            <td class="px-4 py-2 text-right font-mono {% if s.refund_of %}text-red-700{% endif %}">{{ s.total_amount|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No tickets have been rung on this till.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="space-y-6">
+    {% if session.status == 'OPEN' %}
+    <form method="post" action="{% url 'pos:session_close' session.pk %}" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {% csrf_token %}
+      <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Close the till</h2></div>
+      <div class="p-4 space-y-3">
+        <p class="text-xs text-gray-500">Count the drawer and type what is actually in it. The session cannot be reopened, and the tickets stay posted either way — this is the count that proves them.</p>
+        <label class="block text-sm">
+          <span class="text-xs font-medium text-gray-600">Cash counted</span>
+          <input type="number" step="0.01" min="0" name="closing_cash" placeholder="{{ report.expected_cash }}"
+                 class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono" />
+        </label>
+        <p class="text-xs text-gray-400">Leave it blank if nobody has counted yet — the session still closes, and the cash-up records that the drawer was never proved.</p>
+        <button type="submit" class="w-full px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary)">Close session</button>
+      </div>
+    </form>
+    {% else %}
+    <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-sm text-gray-600">
+      This till is closed{% if session.closed_at %} since {{ session.closed_at|date:"d M Y, H:i" }}{% endif %}. Open a new session from the terminal to trade again.
+    </div>
+    {% endif %}
+
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <h2 class="text-sm font-semibold text-gray-700 mb-2">Links</h2>
+      <div class="space-y-2 text-sm">
+        <a href="{% url 'pos:cash_up' session.pk %}" class="block text-gray-600 hover:text-gray-900">Cash-up sheet — take this to the safe</a>
+        <a href="{% url 'pos:sale_list' %}" class="block text-gray-600 hover:text-gray-900">All tickets</a>
+        <a href="{% url 'pos:session_list' %}" class="block text-gray-600 hover:text-gray-900">All sessions</a>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

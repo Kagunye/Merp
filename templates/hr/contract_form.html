@@ -1,0 +1,11 @@
+{% extends "base/base.html" %}
+{% block title %}{{ page_title }} — HR — Mofisi{% endblock %}
+{% block content %}
+{% url 'hr:employee_detail' employee.pk as back_url %}
+{% url 'hr:employee_detail' employee.pk as cancel_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="What this person is paid, from which day, under which terms." section_label="Contract" back_url=back_url cancel_url=cancel_url submit_label="Save contract" %}
+
+<div class="max-w-[720px] mx-auto mt-4 text-xs text-gray-500">
+  <p>Basic pay here is the figure the statutory tables are applied to; allowances, deductions and overtime are added on the payroll side. Marking a contract current retires the previous one, because two current contracts would pay the same person twice. A contract whose end date falls inside a pay period still pays for that month, and drops off the run after it.</p>
+</div>
+{% endblock %}

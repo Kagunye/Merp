@@ -1,0 +1,93 @@
+{% comment %}
+  Which of this customer's papers the receipt settles.
+
+  Context: allocation_rows ([{invoice, value}]), chosen (Customer or None), payers
+{% endcomment %}
+<div class="pa-block">
+  <div class="pa-head">
+    <span class="pa-title">Settle against</span>
+    {% if chosen %}
+      <span class="pa-sub">{{ chosen.name }} &middot; {{ allocation_rows|length }} open paper{{ allocation_rows|length|pluralize }}</span>
+    {% else %}
+      <span class="pa-sub">Choose a customer to see the papers they owe</span>
+    {% endif %}
+  </div>
+
+  {% if payers %}
+    <div class="pa-payers">
+      {% for payer in payers %}
+        <a class="pa-chip {% if chosen.pk == payer.pk %}pa-chip-on{% endif %}"
+           href="?customer={{ payer.pk }}">{{ payer.name }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if chosen %}
+    {% if allocation_rows %}
+      <table class="pa-table">
+        <thead>
+          <tr>
+            <th class="pa-th">Paper</th>
+            <th class="pa-th">Date</th>
+            <th class="pa-th">Money</th>
+            <th class="pa-th pa-th-num">Still owed</th>
+            <th class="pa-th pa-th-num pa-col">Settle now</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in allocation_rows %}
+            <tr>
+              <td class="pa-td"><a href="{% url 'sales:invoice_detail' row.invoice.pk %}" class="pa-ref">{{ row.invoice.reference }}</a></td>
+              <td class="pa-td">{{ row.invoice.invoice_date|date:"d M Y" }}</td>
+              <td class="pa-td"><span class="badge bg-gray-100 text-gray-600">{{ row.invoice.currency }}</span></td>
+              <td class="pa-td pa-num">{{ row.invoice.outstanding_amount|floatformat:2 }}</td>
+              <td class="pa-td pa-num">
+                <input type="number" step="0.01" min="0"
+                       max="{{ row.invoice.outstanding_amount }}"
+                       name="allocate_{{ row.invoice.pk }}"
+                       value="{{ row.value }}"
+                       class="pa-input" placeholder="0.00" />
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="pa-help">Leave every box blank to settle the oldest paper first &mdash; that is what a running account usually means. Fill a box only when the customer said which paper the money was for. The boxes together cannot exceed the receipt, and a paper cannot take more than it is owed.</p>
+    {% else %}
+      <p class="pa-help">{{ chosen.name }} has nothing on account right now. The receipt will be recorded and left on the account until a paper is raised.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<style>
+  .pa-block {
+    margin-top: 24px; padding-top: 20px;
+    border-top: 1px solid #F3F4F6;
+  }
+  .pa-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .pa-title { font-size: 13px; font-weight: 600; color: #374151; }
+  .pa-sub { font-size: 12px; color: #6B7280; }
+  .pa-payers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .pa-chip {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    background: #F9FAFB; color: #4B5563; border: 1px solid #E5E7EB;
+    text-decoration: none;
+  }
+  .pa-chip:hover { background: #F3F4F6; color: #111827; }
+  .pa-chip-on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+  .pa-chip-on:hover { background: var(--primary); color: #fff; }
+  .pa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .pa-th {
+    text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: #9CA3AF;
+    padding: 0 8px 8px; border-bottom: 1px solid #EEF0F3;
+  }
+  .pa-th-num { text-align: right; }
+  .pa-td { padding: 9px 8px; border-bottom: 1px solid #F6F7F9; color: #374151; }
+  .pa-num { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .pa-ref { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; color: #111827; text-decoration: none; }
+  .pa-ref:hover { text-decoration: underline; }
+  .pa-input { width: 100%; text-align: right; }
+  .pa-col { width: 132px; }
+  .pa-help { font-size: 12px; color: #6B7280; margin: 12px 0 0; line-height: 1.5; }
+</style>

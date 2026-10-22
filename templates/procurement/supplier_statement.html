@@ -1,30 +1,82 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'procurement:bill_list' as back %}
 {% include "_includes/page_header.html" with title=supplier.name subtitle="Supplier statement" back_url=back %}
 
 <form method="get" class="no-print inline-form flex flex-wrap gap-3 mb-5 items-end">
-  <div><label for="id_from" class="text-xs text-gray-500">From</label><input id="id_from" type="date" name="from" value="{{ from_date|date:'Y-m-d' }}"></div>
-  <div><label for="id_to" class="text-xs text-gray-500">To</label><input id="id_to" type="date" name="to" value="{{ to_date|date:'Y-m-d' }}"></div>
+  <div><label for="id_from" class="text-xs text-gray-500">From</label><input id="id_from" type="date" name="from" value="{{ from_date }}"></div>
+  <div><label for="id_to" class="text-xs text-gray-500">To</label><input id="id_to" type="date" name="to" value="{{ to_date }}"></div>
+  <div>
+    <label for="id_currency" class="text-xs text-gray-500">Currency</label>
+    <select id="id_currency" name="currency" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+      <option value="">Every currency</option>
+      {% for code in currencies %}
+      <option value="{{ code }}" {% if code == currency %}selected{% endif %}>{{ code }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <button type="submit">Apply</button>
 </form>
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_billed|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Paid</div><div class="font-bold text-lg text-green-700">{{ total_paid|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Owed</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }}</div></div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Brought forward</div><div class="font-bold text-lg">{{ opening_balance|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_billed|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Paid</div><div class="font-bold text-lg text-green-700">{{ total_paid|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Owed at {{ end_on|date:"d M Y"|default:"today" }}</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Bill date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Due</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Paid</th><th class="px-4 py-3 text-right">Outstanding</th><th class="px-4 py-3">Status</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr>
+      <th class="px-4 py-3 text-left">Bill date</th>
+      <th class="px-4 py-3 text-left">Document</th>
+      <th class="px-4 py-3 text-left">Due</th>
+      <th class="px-4 py-3 text-right">Paper</th>
+      <th class="px-4 py-3 text-right">Rate</th>
+      <th class="px-4 py-3 text-right">Billed</th>
+      <th class="px-4 py-3 text-right">Debited</th>
+      <th class="px-4 py-3 text-right">Paid</th>
+      <th class="px-4 py-3 text-right">Outstanding</th>
+      <th class="px-4 py-3 text-right">{{ book }} balance</th>
+    </tr></thead>
     <tbody class="divide-y divide-gray-100">
+      {% if start_on %}
+      <tr class="bg-gray-50 text-gray-600">
+        <td class="px-4 py-2">{{ start_on|date:"d M Y" }}</td>
+        <td class="px-4 py-2" colspan="5">Balance brought forward</td>
+        <td class="px-4 py-2 text-right font-mono" colspan="4">{{ opening_balance|floatformat:2 }}</td>
+      </tr>
+      {% endif %}
       {% for r in rows %}
-      <tr><td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td><td class="px-4 py-2 font-mono text-xs">{{ r.reference }}</td><td class="px-4 py-2">{{ r.due_date|date:"d M Y" }}</td><td class="px-4 py-2 text-right">{{ r.total|floatformat:2 }}</td><td class="px-4 py-2 text-right text-green-700">{{ r.paid|floatformat:2 }}</td><td class="px-4 py-2 text-right font-semibold">{{ r.outstanding|floatformat:2 }}</td><td class="px-4 py-2"><span class="badge bg-gray-100 text-gray-700">{{ r.status }}</span></td></tr>
+      <tr>
+        <td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td>
+        <td class="px-4 py-2 font-mono text-xs">
+          <a href="{{ r.url }}" class="text-blue-600 hover:underline">{{ r.reference }}</a>
+          <span class="text-gray-400"> · {{ r.type }} · {{ r.detail }}</span>
+        </td>
+        <td class="px-4 py-2 text-xs text-gray-600">{{ r.due_date|date:"d M Y" }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.paper|floatformat:2 }} <span class="text-xs text-gray-500">{{ r.currency }}</span></td>
+        <td class="px-4 py-2 text-right font-mono text-xs text-gray-500">{% if r.rate %}{{ r.rate|trim_qty }}{% else %}—{% endif %}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.owed|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono text-green-700">{{ r.debited|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono text-green-700">{{ r.paid|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono font-semibold">{{ r.outstanding|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono font-semibold">{{ r.balance|floatformat:2 }}</td>
+      </tr>
       {% empty %}
-      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No bills in this period.</td></tr>
+      <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">Nothing on this account in the period.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<p class="text-xs text-gray-500 mt-3">
+  {% if mixed %}
+  This account runs in more than one currency. “Paper” is what the supplier's document says; every other column is the value that entered the ledger, in {{ book }} — a dollar bill and a shilling bill are not added together.
+  {% else %}
+  Every column but “Paper” is in {{ book }}, the currency the ledger keeps.
+  {% endif %}
+  {% if not currency %}Still owed on open bills today: <span class="font-semibold">{{ still_owed|floatformat:2 }} {{ book }}</span> — the unpaid part of this supplier's paper, one slice of the payables control account.{% endif %}
+</p>
 {% endblock %}

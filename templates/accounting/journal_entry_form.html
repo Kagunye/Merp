@@ -14,8 +14,9 @@
       <div class="je-section-title">Entry Details</div>
       <div class="je-head-grid">
         <div class="je-field">
-          <label class="je-label" for="{{ form.reference.id_for_label }}">Reference <span class="je-req">*</span></label>
-          <input type="text" id="{{ form.reference.id_for_label }}" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}" class="je-input je-mono" required>
+          <label class="je-label" for="{{ form.reference.id_for_label }}">Reference</label>
+          <input type="text" id="{{ form.reference.id_for_label }}" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:form.reference.field.initial }}" class="je-input je-mono" readonly>
+          <p class="je-hint">{% if form.reference.field.disabled %}Locked — a reference never changes once the entry exists.{% else %}Mofisi numbers this for you when the draft is saved.{% endif %}</p>
           {% if form.reference.errors %}<p class="je-err">{{ form.reference.errors.0 }}</p>{% endif %}
         </div>
         <div class="je-field">
@@ -111,8 +112,12 @@
 
     <!-- Actions -->
     <div class="je-actions">
+      {% if editing %}
+      <a href="{% url 'accounting:journal_entry_detail' form.instance.pk %}" class="je-btn je-btn-ghost">Back to entry</a>
+      {% else %}
       <a href="{% url 'accounting:journal_entry_list' %}" class="je-btn je-btn-ghost">Cancel</a>
-      <button type="submit" class="je-btn je-btn-primary">Save Draft</button>
+      {% endif %}
+      <button type="submit" class="je-btn je-btn-primary">{% if editing %}Save changes{% else %}Save Draft{% endif %}</button>
     </div>
   </div>
 </form>
@@ -185,6 +190,8 @@
     padding-right: 36px;
   }
   .je-err { font-size: 12.5px; color: #B91C1C; margin: 6px 0 0; }
+  .je-hint { font-size: 11.5px; color: #9CA3AF; margin: 6px 0 0; }
+  .je-input[readonly] { background: #F9FAFB; color: #6B7280; }
 
   /* Lines totals / balanced badge */
   .je-totals {

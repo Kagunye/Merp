@@ -1,0 +1,63 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'sales:order_detail' order.pk as back %}
+{% include "_includes/page_header.html" with title="Goods Issue — "|add:order.reference subtitle=order.customer.name back_url=back %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Order</div><div class="font-semibold font-mono text-sm">{{ order.reference }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Order date</div><div class="font-semibold">{{ order.order_date|date:"d M Y" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Expected delivery</div><div class="font-semibold">{{ order.delivery_date|date:"d M Y"|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ order.get_status_display }}</div></div>
+</div>
+
+{% if order.status == 'DRAFT' or order.status == 'CANCELLED' %}
+<div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg p-4 mb-6">
+  This order is {{ order.get_status_display }}. Confirm it before issuing goods to the customer.
+</div>
+{% endif %}
+
+<form method="post" action="{% url 'sales:order_deliver_record' order.pk %}">
+  {% csrf_token %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+      <h2 class="text-sm font-semibold text-gray-700">What leaves the shelf today</h2>
+      <label class="text-xs text-gray-500 flex items-center gap-2">
+        From warehouse
+        <select name="warehouse" class="border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white">
+          {% for w in warehouses %}
+          <option value="{{ w.pk }}" {% if order.warehouse_id == w.pk or not order.warehouse_id and w.is_default %}selected{% endif %}>{{ w.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Ordered</th><th class="px-4 py-3 text-right">Delivered so far</th><th class="px-4 py-3 text-right">Outstanding</th><th class="px-4 py-3 text-right">Deliver now</th></tr></thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for l in order.lines.all %}
+        <tr>
+          <td class="px-4 py-2"><p class="font-medium">{{ l.product.name }}</p><p class="text-xs text-gray-400 font-mono">{{ l.product.sku }}{% if not l.product.track_inventory %} · not stocked{% endif %}</p></td>
+          <td class="px-4 py-2 text-right font-mono">{{ l.quantity|with_unit:l.product.unit_of_measure }}</td>
+          <td class="px-4 py-2 text-right font-mono text-green-700">{{ l.delivered_quantity|with_unit:l.product.unit_of_measure }}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold">{{ l.to_deliver }}</td>
+          <td class="px-4 py-2 text-right">
+            <input type="number" step="0.0001" min="0" max="{{ l.to_deliver }}"
+              name="deliver_qty_{{ l.pk }}" value="{{ l.to_deliver }}"
+              class="w-28 px-2 py-1 text-right text-sm border border-gray-300 rounded-lg font-mono" />
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">This order has no lines to deliver. Add them on the <a href="{% url 'sales:order_detail' order.pk %}" style="color: var(--primary);" class="font-semibold">order page</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if order.lines.exists and order.status != 'DRAFT' and order.status != 'CANCELLED' %}
+    <div class="px-4 py-3 border-t border-gray-100 flex justify-end">
+      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Record Delivery</button>
+    </div>
+    {% endif %}
+  </div>
+</form>
+
+<p class="text-xs text-gray-500 mt-4">A delivery is what sells stock, so it is booked the moment the goods leave: Inventory comes down and <strong>Cost of Goods Sold</strong> takes the average cost held on that shelf — in {{ book }}, whatever currency the customer is billed in. The invoice for the same line carries the price charged, and the difference between the two is this order's margin. Goods cannot leave a shelf that does not hold them, so a short stock is refused here and the order is left unchanged.</p>
+{% endblock %}

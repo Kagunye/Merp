@@ -5,7 +5,9 @@ from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Count, Sum
+from django.db.models import (
+    Count, DecimalField, ExpressionWrapper, F, Sum,
+)
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -23,6 +25,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if not company:
             ctx["page_title"] = "Dashboard"
             return ctx
+
+        from apps.accounting.currency import book_currency
+        ctx["book"] = book_currency(company)
 
         ctx["shortcuts"] = [
             ("/accounting/", "Accounting", "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"),
@@ -174,15 +179,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             # AR/AP
             from apps.sales.models import Invoice
             from apps.procurement.models import Bill
-            accounts_receivable = Invoice.objects.filter(
-                company=company,
-                status__in=["SENT", "PARTIAL"],
-            ).aggregate(total=Sum("outstanding_amount"))["total"] or Decimal("0")
-
-            accounts_payable = Bill.objects.filter(
-                company=company,
-                status__in=["RECEIVED", "PARTIAL"],
-            ).aggregate(total=Sum("outstanding_amount"))["total"] or Decimal("0")
+            # Added in the book's money: the papers may be in several currencies,
+            # and the receivable is what the ledger carries, not the sum of the
+            # figures printed on them.
+            accounts_receivable = sum(
+                (i.outstanding_base for i in Invoice.objects.filter(
+                    company=company, status__in=["SENT", "PARTIAL", "OVERDUE"],
+                    outstanding_amount__gt=Decimal("0"))), Decimal("0"))
+            accounts_payable = sum(
+                (b.outstanding_base for b in Bill.objects.filter(
+                    company=company, status__in=["RECEIVED", "PARTIAL", "OVERDUE"],
+                    outstanding_amount__gt=Decimal("0"))), Decimal("0"))
 
         except Exception:
             total_cash = Decimal("0")
@@ -206,14 +213,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             total_products = Product.objects.filter(company=company, is_active=True).count()
             low_stock = StockLevel.objects.filter(
                 warehouse__company=company,
-                quantity__lte=models.F("product__reorder_level"),
+                quantity__lte=F("product__reorder_level"),
             ).count()
             inventory_value = StockLevel.objects.filter(
                 warehouse__company=company,
             ).aggregate(
-                total=Sum(models.ExpressionWrapper(
-                    models.F("quantity") * models.F("product__cost_price"),
-                    output_field=models.DecimalField(),
+                total=Sum(ExpressionWrapper(
+                    F("quantity") * F("product__cost_price"),
+                    output_field=DecimalField(),
                 ))
             )["total"] or Decimal("0")
         except Exception:

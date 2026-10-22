@@ -1,43 +1,86 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'banking:account_list' as back %}
 {% url 'banking:account_edit' account.pk as pa_url %}
 {% include "_includes/page_header.html" with title=account.name subtitle=account.bank_name back_url=back action_label="Edit" action_url=pa_url %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Current Balance</div>
-    <div class="text-2xl font-bold" style="color: var(--primary);">{{ account.currency }} {{ account.current_balance|floatformat:2 }}</div>
+  <div class="rounded-xl border border-gray-200 p-5" style="{% account_row account %}">
+    <div class="text-xs text-gray-500 mb-1">Balance per ledger</div>
+    <div class="text-2xl font-bold">{{ account.currency }} {{ account.current_balance|floatformat:2 }}</div>
+    <div class="text-xs text-gray-500 mt-2">{{ unreconciled }} transaction(s) still outstanding</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Account Number</div>
+    <div class="text-xs text-gray-500 mb-1">Account number</div>
     <div class="text-lg font-semibold text-gray-900 font-mono">{{ account.account_number }}</div>
-    <div class="text-xs text-gray-500 mt-1">{{ account.get_account_type_display }}</div>
+    <div class="text-xs text-gray-500 mt-1">{{ account.get_account_type_display }}{% if account.branch %} · {{ account.branch }}{% endif %}</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Branch</div>
-    <div class="text-lg font-semibold text-gray-900">{{ account.branch|default:"—" }}</div>
-    <div class="text-xs text-gray-500 mt-1">GL: {{ account.gl_account.code }} · {{ account.gl_account.name }}</div>
+    <div class="text-xs text-gray-500 mb-1">Ledger account</div>
+    <div class="text-lg font-semibold text-gray-900">
+      <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="{% account_chip account %}">{{ account.gl_account.code }}</span>
+      {{ account.gl_account.name }}
+    </div>
+    <div class="text-xs text-gray-500 mt-1">Reconcilable: {{ account.gl_account.is_reconcilable|yesno:"Yes,No" }}</div>
   </div>
 </div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent transactions</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+<div class="no-print flex flex-wrap gap-2 mb-6">
+  <a href="{% url 'banking:reconciliation_create' %}?account={{ account.pk }}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Reconcile statement</a>
+  <a href="{% url 'banking:transaction_create' %}?account={{ account.pk }}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">New transaction</a>
+  <a href="{% url 'banking:transaction_list' %}?account={{ account.pk }}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">All transactions</a>
+  <a href="{% url 'accounting:account_ledger' account.gl_account.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Ledger account</a>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Statements</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-8">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3">Status</th></tr>
+      <tr>
+        <th class="px-4 py-3 text-left">Statement date</th>
+        <th class="px-4 py-3 text-left">Reference</th>
+        <th class="px-4 py-3 text-right">Brought forward</th>
+        <th class="px-4 py-3 text-right">Cleared</th>
+        <th class="px-4 py-3 text-right">Per statement</th>
+        <th class="px-4 py-3 text-left">Status</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in reconciliations %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 whitespace-nowrap">{{ r.statement_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3"><a href="{% url 'banking:reconciliation_detail' r.pk %}" class="font-mono text-xs hover:underline" style="color:var(--primary)">{{ r.reference }}</a></td>
+        <td class="px-4 py-3 text-right font-mono">{{ r.opening_balance|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right">{{ r.cleared_count }} item(s)</td>
+        <td class="px-4 py-3 text-right font-mono">{{ r.closing_balance|floatformat:2 }}</td>
+        <td class="px-4 py-3"><span class="badge {% if r.status == 'POSTED' %}bg-green-50 text-green-700{% elif r.status == 'DRAFT' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ r.get_status_display }}</span></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No statements filed for this account yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent transactions</h2>
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3 text-left">Clearing</th></tr>
     </thead>
     <tbody class="divide-y divide-gray-100">
       {% for t in transactions %}
-      <tr>
-        <td class="px-4 py-3">{{ t.transaction_date|date:"d M Y" }}</td>
+      <tr style="{% account_row account %}">
+        <td class="px-4 py-3 whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="hover:underline">{{ t.transaction_date|date:"d M Y" }}</a></td>
         <td class="px-4 py-3">{{ t.description|default:"—" }}</td>
-        <td class="px-4 py-3 text-gray-500 text-xs">{{ t.reference }}</td>
-        <td class="px-4 py-3 text-right font-semibold {% if t.transaction_type == 'CREDIT' %}text-green-700{% else %}text-red-700{% endif %}">
-          {% if t.transaction_type == 'CREDIT' %}+{% else %}-{% endif %}{{ t.amount|floatformat:2 }}
+        <td class="px-4 py-3 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
+          {% if t.signed_amount >= 0 %}+{% else %}−{% endif %}{{ t.amount|floatformat:2 }}
         </td>
         <td class="px-4 py-3">
-          {% if t.is_reconciled %}<span class="badge text-green-700 bg-green-50">Reconciled</span>{% else %}<span class="badge text-gray-700 bg-gray-100">Pending</span>{% endif %}
+          {% if t.reconciliation %}<span class="badge bg-green-50 text-green-700">Cleared · {{ t.reconciliation.reference }}</span>
+          {% else %}<span class="badge bg-amber-50 text-amber-700">Outstanding</span>{% endif %}
         </td>
       </tr>
       {% empty %}

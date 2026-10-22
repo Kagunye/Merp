@@ -1,7 +1,7 @@
 """Sales forms."""
 import datetime
 from django import forms
-from apps.core.forms import date_input, is_new, lock_currency
+from apps.core.forms import date_input, is_new, pick_currency
 from django.forms import inlineformset_factory
 from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine
 
@@ -22,7 +22,7 @@ class InvoiceForm(forms.ModelForm):
         if company:
             from apps.crm.models import Customer
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
-            lock_currency(self, company)
+            pick_currency(self, company)
         if is_new(self):
             self.fields["invoice_date"].initial = datetime.date.today()
             self.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
@@ -59,10 +59,15 @@ InvoiceLineFormSet = inlineformset_factory(
 class CustomerPaymentForm(forms.ModelForm):
     class Meta:
         model = CustomerPayment
-        fields = ["reference", "customer", "payment_date", "amount", "payment_method", "transaction_reference", "notes"]
+        fields = ["reference", "customer", "payment_date", "amount", "currency",
+                  "payment_method", "bank_account", "transaction_reference", "notes"]
         widgets = {
             "payment_date": date_input(),
             "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+        help_texts = {
+            "bank_account": "Where the money went in. Cash receipts can be left "
+                            "blank and are paid into the till account.",
         }
 
     def __init__(self, *args, **kwargs):
@@ -71,9 +76,22 @@ class CustomerPaymentForm(forms.ModelForm):
         if company:
             from apps.crm.models import Customer
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
-            lock_currency(self, company)
+            from apps.banking.models import BankAccount
+            self.fields["bank_account"].queryset = BankAccount.objects.filter(
+                company=company, is_active=True)
+            pick_currency(self, company)
         if is_new(self):
             self.fields["payment_date"].initial = datetime.date.today()
+
+    def clean_amount(self):
+        """A receipt is money coming in. A negative or nil figure books an entry
+        the ledger cannot balance, and is far more likely a mistyped decimal."""
+        amount = self.cleaned_data["amount"]
+        if amount <= 0:
+            raise forms.ValidationError(
+                "A receipt has to be for more than nothing — a payment going out "
+                "is booked as a supplier payment, not a customer receipt.")
+        return amount
 
 
 class SalesOrderForm(forms.ModelForm):
@@ -103,7 +121,7 @@ class SalesOrderForm(forms.ModelForm):
             default_wh = self.fields["warehouse"].queryset.filter(is_default=True).first()
             if default_wh:
                 self.fields["warehouse"].initial = default_wh.pk
-            lock_currency(self, company)
+            pick_currency(self, company)
         if is_new(self):
             self.fields["order_date"].initial = datetime.date.today()
 

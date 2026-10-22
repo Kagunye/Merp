@@ -2,5 +2,5 @@
 {% block content %}
 {% url 'sales:payment_list' as back_url %}
 {% url 'sales:payment_list' as cancel_url %}
-{% include "_includes/model_form.html" with title=page_title subtitle="Record a customer receipt and allocate against outstanding invoices" section_label="Customer Payment" back_url=back_url cancel_url=cancel_url submit_label="Record Payment" %}
+{% include "_includes/model_form.html" with title=page_title subtitle="Record a customer receipt and allocate it against the papers that customer owes" section_label="Customer Payment" back_url=back_url cancel_url=cancel_url submit_label="Record Payment" extra_template="sales/_payment_allocations.html" %}
 {% endblock %}
