@@ -21,6 +21,8 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.mail import EmailMultiAlternatives
 from django.shortcuts import redirect, render
+
+from .scoping import get_scoped_or_404
 from django.template.loader import render_to_string
 from django.views.generic import View
 
@@ -36,7 +38,7 @@ class DocumentPrintMixin(LoginRequiredMixin):
     template_name = "_includes/document_print.html"
 
     def get(self, request, pk):
-        obj = self.model.objects.get(pk=pk)
+        obj = get_scoped_or_404(self.model, request, pk=pk)
         ctx = self._build_doc(obj)
         ctx["doc_object"] = obj
         return render(request, self.template_name, ctx)
@@ -56,7 +58,7 @@ class DocumentEmailView(LoginRequiredMixin, View):
     doc_label = "Document"
 
     def get(self, request, pk):
-        obj = self.model.objects.get(pk=pk)
+        obj = get_scoped_or_404(self.model, request, pk=pk)
         default_to = (
             getattr(getattr(obj, "customer", None), "email", "") or
             getattr(getattr(obj, "supplier", None), "email", "") or ""
@@ -71,7 +73,7 @@ class DocumentEmailView(LoginRequiredMixin, View):
         })
 
     def post(self, request, pk):
-        obj = self.model.objects.get(pk=pk)
+        obj = get_scoped_or_404(self.model, request, pk=pk)
         to_raw = request.POST.get("to", "").strip()
         subject = request.POST.get("subject", "").strip() or f"{self.doc_label} {getattr(obj, 'reference', '')}"
         message = request.POST.get("message", "").strip()

@@ -1,12 +1,15 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from django.views.generic import (
     CreateView, DetailView, ListView, TemplateView, UpdateView,
 )
+
+from apps.core.scoping import CompanyScopedMixin, company_of, get_scoped_or_404
 
 from .forms import ExpenseCategoryForm, ExpenseClaimForm, ExpenseClaimLineForm
 from .models import ExpenseCategory, ExpenseClaim, ExpenseClaimLine
@@ -46,6 +49,11 @@ class ExpenseClaimCreateView(LoginRequiredMixin, CreateView):
     form_class = ExpenseClaimForm
     template_name = "expenses/claim_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         response = super().form_valid(form)
@@ -56,30 +64,36 @@ class ExpenseClaimCreateView(LoginRequiredMixin, CreateView):
         return reverse("expenses:claim_detail", args=[self.object.pk])
 
 
-class ExpenseClaimUpdateView(LoginRequiredMixin, UpdateView):
+class ExpenseClaimUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
     model = ExpenseClaim
     form_class = ExpenseClaimForm
     template_name = "expenses/claim_form.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
 
     def get_success_url(self):
         return reverse("expenses:claim_detail", args=[self.object.pk])
 
 
-class ExpenseClaimDetailView(LoginRequiredMixin, DetailView):
+class ExpenseClaimDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = ExpenseClaim
     template_name = "expenses/claim_detail.html"
     context_object_name = "claim"
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["line_form"] = ExpenseClaimLineForm()
+        ctx["line_form"] = ExpenseClaimLineForm(company=company_of(self.request))
         return ctx
 
 
 @login_required
+@require_POST
 def claim_add_line(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk)
-    form = ExpenseClaimLineForm(request.POST, request.FILES)
+    claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
+    form = ExpenseClaimLineForm(request.POST, request.FILES, company=company_of(request))
     if form.is_valid():
         line = form.save(commit=False)
         line.claim = claim
@@ -93,8 +107,9 @@ def claim_add_line(request, pk):
 
 
 @login_required
+@require_POST
 def claim_submit(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk)
+    claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
     if claim.status == "DRAFT":
         claim.status = "SUBMITTED"
         claim.save(update_fields=["status"])
@@ -103,8 +118,9 @@ def claim_submit(request, pk):
 
 
 @login_required
+@require_POST
 def claim_approve(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk)
+    claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
     if claim.status == "SUBMITTED":
         claim.status = "APPROVED"
         claim.approved_by = request.user
@@ -115,8 +131,9 @@ def claim_approve(request, pk):
 
 
 @login_required
+@require_POST
 def claim_reject(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk)
+    claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
     if claim.status == "SUBMITTED":
         claim.status = "REJECTED"
         claim.save(update_fields=["status"])
@@ -141,6 +158,11 @@ class ExpenseCategoryCreateView(LoginRequiredMixin, CreateView):
     form_class = ExpenseCategoryForm
     template_name = "expenses/category_form.html"
     success_url = reverse_lazy("expenses:category_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company

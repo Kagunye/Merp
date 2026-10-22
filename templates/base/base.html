@@ -447,6 +447,7 @@
     {% with ns=request.resolver_match.namespace %}
 
     <!-- Dashboard -->
+    {% if nav.dashboard %}
     <a href="{% url 'dashboard:index' %}" class="nav-item{% if ns == 'dashboard' %} active{% endif %}" data-tooltip="Dashboard">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -455,10 +456,12 @@
       </div>
       <span class="sidebar-label">Dashboard</span>
     </a>
+    {% endif %}
 
     <!-- Finance section -->
-    <div class="nav-divider">Finance</div>
+    {% if nav_sections.finance %}<div class="nav-divider">Finance</div>{% endif %}
 
+    {% if nav.accounting %}
     <a href="/accounting/" class="nav-item{% if ns == 'accounting' %} active{% endif %}" data-tooltip="Accounting">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -467,7 +470,9 @@
       </div>
       <span class="sidebar-label">Accounting</span>
     </a>
+    {% endif %}
 
+    {% if nav.business_mgmt %}
     <a href="/business-management/" class="nav-item{% if ns == 'business_mgmt' %} active{% endif %}" data-tooltip="Business Mgmt">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -476,7 +481,9 @@
       </div>
       <span class="sidebar-label">Business Mgmt</span>
     </a>
+    {% endif %}
 
+    {% if nav.banking %}
     <a href="/banking/" class="nav-item{% if ns == 'banking' %} active{% endif %}" data-tooltip="Banking">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -485,10 +492,12 @@
       </div>
       <span class="sidebar-label">Banking</span>
     </a>
+    {% endif %}
 
     <!-- Sales section -->
-    <div class="nav-divider">Sales</div>
+    {% if nav_sections.sales %}<div class="nav-divider">Sales</div>{% endif %}
 
+    {% if nav.crm %}
     <a href="/crm/" class="nav-item{% if ns == 'crm' %} active{% endif %}" data-tooltip="Customers">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -497,7 +506,9 @@
       </div>
       <span class="sidebar-label">Customers</span>
     </a>
+    {% endif %}
 
+    {% if nav.sales %}
     <a href="/sales/" class="nav-item{% if ns == 'sales' %} active{% endif %}" data-tooltip="Sales">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -506,7 +517,9 @@
       </div>
       <span class="sidebar-label">Sales</span>
     </a>
+    {% endif %}
 
+    {% if nav.pos %}
     <a href="/pos/" class="nav-item{% if ns == 'pos' %} active{% endif %}" data-tooltip="Point of Sale">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -515,10 +528,12 @@
       </div>
       <span class="sidebar-label">Point of Sale</span>
     </a>
+    {% endif %}
 
     <!-- Supply Chain section -->
-    <div class="nav-divider">Supply Chain</div>
+    {% if nav_sections.supply_chain %}<div class="nav-divider">Supply Chain</div>{% endif %}
 
+    {% if nav.inventory %}
     <a href="/inventory/" class="nav-item{% if ns == 'inventory' %} active{% endif %}" data-tooltip="Inventory">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -527,7 +542,9 @@
       </div>
       <span class="sidebar-label">Inventory</span>
     </a>
+    {% endif %}
 
+    {% if nav.procurement %}
     <a href="/procurement/" class="nav-item{% if ns == 'procurement' %} active{% endif %}" data-tooltip="Procurement">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -536,7 +553,9 @@
       </div>
       <span class="sidebar-label">Procurement</span>
     </a>
+    {% endif %}
 
+    {% if nav.warehousing %}
     <a href="/warehousing/" class="nav-item{% if ns == 'warehousing' %} active{% endif %}" data-tooltip="Warehouse Mgmt">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -546,7 +565,9 @@
       </div>
       <span class="sidebar-label">Warehouse Mgmt</span>
     </a>
+    {% endif %}
 
+    {% if nav.manufacturing %}
     <a href="/manufacturing/" class="nav-item{% if ns == 'manufacturing' %} active{% endif %}" data-tooltip="Manufacturing">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -556,7 +577,9 @@
       </div>
       <span class="sidebar-label">Manufacturing</span>
     </a>
+    {% endif %}
 
+    {% if nav.workshop %}
     <a href="/workshop/" class="nav-item{% if ns == 'workshop' %} active{% endif %}" data-tooltip="Workshop">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -565,10 +588,12 @@
       </div>
       <span class="sidebar-label">Workshop</span>
     </a>
+    {% endif %}
 
     <!-- People section -->
-    <div class="nav-divider">People</div>
+    {% if nav_sections.people %}<div class="nav-divider">People</div>{% endif %}
 
+    {% if nav.hr %}
     <a href="/hr/" class="nav-item{% if ns == 'hr' %} active{% endif %}" data-tooltip="HR">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -577,7 +602,9 @@
       </div>
       <span class="sidebar-label">HR</span>
     </a>
+    {% endif %}
 
+    {% if nav.payroll %}
     <a href="/payroll/" class="nav-item{% if ns == 'payroll' %} active{% endif %}" data-tooltip="Payroll">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -586,7 +613,9 @@
       </div>
       <span class="sidebar-label">Payroll</span>
     </a>
+    {% endif %}
 
+    {% if nav.timesheets %}
     <a href="/timesheets/" class="nav-item{% if ns == 'timesheets' %} active{% endif %}" data-tooltip="Timesheets">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -595,7 +624,9 @@
       </div>
       <span class="sidebar-label">Timesheets</span>
     </a>
+    {% endif %}
 
+    {% if nav.recruitment %}
     <a href="/recruitment/" class="nav-item{% if ns == 'recruitment' %} active{% endif %}" data-tooltip="Recruitment">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -605,10 +636,12 @@
       </div>
       <span class="sidebar-label">Recruitment</span>
     </a>
+    {% endif %}
 
     <!-- Operations section -->
-    <div class="nav-divider">Operations</div>
+    {% if nav_sections.operations %}<div class="nav-divider">Operations</div>{% endif %}
 
+    {% if nav.projects %}
     <a href="/projects/" class="nav-item{% if ns == 'projects' %} active{% endif %}" data-tooltip="Projects">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -617,7 +650,9 @@
       </div>
       <span class="sidebar-label">Projects</span>
     </a>
+    {% endif %}
 
+    {% if nav.expenses %}
     <a href="/expenses/" class="nav-item{% if ns == 'expenses' %} active{% endif %}" data-tooltip="Expenses">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -626,7 +661,9 @@
       </div>
       <span class="sidebar-label">Expenses</span>
     </a>
+    {% endif %}
 
+    {% if nav.fixed_assets %}
     <a href="/fixed-assets/" class="nav-item{% if ns == 'fixed_assets' %} active{% endif %}" data-tooltip="Fixed Assets">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -635,7 +672,9 @@
       </div>
       <span class="sidebar-label">Fixed Assets</span>
     </a>
+    {% endif %}
 
+    {% if nav.reporting %}
     <a href="/reports/" class="nav-item{% if ns == 'reporting' %} active{% endif %}" data-tooltip="Reports">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -644,7 +683,9 @@
       </div>
       <span class="sidebar-label">Reports</span>
     </a>
+    {% endif %}
 
+    {% if nav.documents %}
     <a href="/documents/" class="nav-item{% if ns == 'documents' %} active{% endif %}" data-tooltip="Documents">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -653,10 +694,12 @@
       </div>
       <span class="sidebar-label">Documents</span>
     </a>
+    {% endif %}
 
     <!-- Support section -->
-    <div class="nav-divider">Support</div>
+    {% if nav_sections.support %}<div class="nav-divider">Support</div>{% endif %}
 
+    {% if nav.helpdesk %}
     <a href="/helpdesk/" class="nav-item{% if ns == 'helpdesk' %} active{% endif %}" data-tooltip="Help Desk">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -665,7 +708,9 @@
       </div>
       <span class="sidebar-label">Help Desk</span>
     </a>
+    {% endif %}
 
+    {% if nav.notifications %}
     <a href="/notifications/" class="nav-item{% if ns == 'notifications' %} active{% endif %}" data-tooltip="Notifications">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -674,7 +719,9 @@
       </div>
       <span class="sidebar-label">Notifications</span>
     </a>
+    {% endif %}
 
+    {% if nav.sms %}
     <a href="/sms/" class="nav-item{% if ns == 'sms' %} active{% endif %}" data-tooltip="SMS">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -683,12 +730,14 @@
       </div>
       <span class="sidebar-label">SMS</span>
     </a>
+    {% endif %}
 
     {% endwith %}
   </nav>
 
   <!-- Settings / Control Panel at bottom -->
   <div class="px-2 py-2 shrink-0" style="border-top:1px solid #1E2130;">
+    {% if nav.control_panel %}
     <a href="/control-panel/" class="nav-item" data-tooltip="Control Panel">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -698,6 +747,7 @@
       </div>
       <span class="sidebar-label">Control Panel</span>
     </a>
+    {% endif %}
   </div>
 
 </aside>
@@ -829,7 +879,7 @@
           <div class="hidden md:block text-left">
             <p class="text-sm font-medium text-gray-900 leading-tight">{{ request.user.full_name }}</p>
             <p class="text-xs leading-tight {% if active_company %}text-gray-500{% else %}text-amber-600{% endif %}">
-              {% if active_company %}{{ request.user.get_company_role|default:'User' }}{% else %}Set up company →{% endif %}
+              {% if active_company %}{{ company_role_label|default:'Member' }}{% else %}Set up company →{% endif %}
             </p>
           </div>
           <svg class="w-3.5 h-3.5 text-gray-400 ml-1" fill="currentColor" viewBox="0 0 20 20">
@@ -849,8 +899,14 @@
             </svg>
             Change Password
           </a>
-          {% if active_company %}
+          {% if can_manage_users %}
           <div class="border-t border-gray-100 my-1"></div>
+          <a href="{% url 'accounts:user_list' %}" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
+            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            People &amp; access
+          </a>
           <a href="{% url 'organizations:branding' %}" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>

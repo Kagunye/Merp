@@ -26,18 +26,36 @@ class Command(BaseCommand):
         parser.add_argument("--max", type=int, default=0, help="Stop after N routes")
 
     def handle(self, *args, **opts):
-        from apps.accounts.models import User
+        from django.db import transaction
 
-        # Make sure we have an admin to log in as.
-        admin, _ = User.objects.get_or_create(
-            email="smoke@local",
-            defaults={
-                "username": "smoke", "first_name": "Smoke", "last_name": "Test",
-                "is_staff": True, "is_superuser": True, "is_active": True,
-            },
+        class _Rollback(Exception):
+            pass
+
+        try:
+            with transaction.atomic():
+                self._run(opts)
+                raise _Rollback()
+        except _Rollback:
+            pass
+        if self.bad:
+            raise SystemExit(1)
+
+    def _run(self, opts):
+        from apps.accounts.models import User
+        from apps.organizations.models import Company, CompanyMembership
+
+        # Browse as a real company administrator, the way staff use the app.
+        # Everything here is rolled back afterwards, and the login has no password.
+        admin = User.objects.create(
+            email="smoke-run@local.invalid", username="smoke-run",
+            first_name="Smoke", last_name="Test", is_active=True,
         )
-        admin.set_password("smoke-test-pw")
+        admin.set_unusable_password()
         admin.save()
+        company = Company.objects.filter(is_active=True).order_by("created_at").first()
+        if company is None:
+            company = Company.objects.create(name="Smoke Test Co")
+        CompanyMembership.objects.create(company=company, user=admin, role="ADMIN", is_default=True)
 
         client = Client()
         client.force_login(admin)
@@ -47,6 +65,10 @@ class Command(BaseCommand):
         for i, (pattern_str, p) in enumerate(_walk(get_resolver())):
             if opts["max"] and i >= opts["max"]:
                 break
+            # Routes that change state (or end the session) must never be hit by a GET crawl.
+            if any(w in (p.name or "") for w in ("logout", "toggle", "delete", "mark_read", "mark_all_read", "switch")):
+                skipped += 1
+                continue
             # Build a URL by substituting placeholders with recorded demo data
             # or safe defaults where possible.
             path = self._build_path(pattern_str)
@@ -72,6 +94,7 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"\n{bad} route(s) returned 5xx."))
         else:
             self.stdout.write(self.style.SUCCESS("All routes healthy."))
+        self.bad = bad
 
     def _build_path(self, pattern_str):
         """Convert a Django URL pattern string into a request path we can hit.

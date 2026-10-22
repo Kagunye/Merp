@@ -1,6 +1,8 @@
 """Global template context processors."""
 from apps.organizations.models import Company
 
+from . import access
+
 
 def global_context(request):
     active = getattr(request, "active_company", None)
@@ -27,13 +29,35 @@ def global_context(request):
     if request.user.is_authenticated:
         try:
             ctx["user_companies"] = Company.objects.filter(
-                companymembership__user=request.user,
+                memberships__user=request.user,
+                memberships__is_active=True,
                 is_active=True,
             ).distinct()
         except Exception:
             ctx["user_companies"] = []
 
+        role = getattr(request, "company_role", None)
+        nav = {ns: access.can_view_module(request.user, role, ns) for ns in NAV_MODULES}
+        ctx["nav"] = nav
+        ctx["nav_sections"] = {
+            section: any(nav[ns] for ns in members) for section, members in NAV_SECTIONS.items()
+        }
+        ctx["company_role"] = role
+        ctx["can_manage_users"] = access.can(request.user, role, "accounts", "user_list")
+        ctx["company_role_label"] = (role or "").replace("_", " ").title()
+
     return ctx
+
+
+NAV_SECTIONS = {
+    "finance": ["accounting", "business_mgmt", "banking"],
+    "sales": ["crm", "sales", "pos"],
+    "supply_chain": ["inventory", "procurement", "warehousing", "manufacturing", "workshop"],
+    "people": ["hr", "payroll", "timesheets", "recruitment"],
+    "operations": ["projects", "expenses", "fixed_assets", "reporting", "documents"],
+    "support": ["helpdesk", "notifications", "sms", "control_panel"],
+}
+NAV_MODULES = ["dashboard"] + [ns for members in NAV_SECTIONS.values() for ns in members]
 
 
 def _shade(hex_color, pct):

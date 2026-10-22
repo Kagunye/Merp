@@ -32,31 +32,42 @@
 
 <!-- KPI tiles -->
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+  {% if can.finance %}
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Cash on hand</p>
     <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ total_cash|floatformat:2|default:"0.00" }}</p>
     <p class="text-[11px] text-gray-400 mt-1">All bank + cash</p>
   </div>
+  {% endif %}
+  {% if can.receivables %}
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Receivables</p>
     <p class="text-xl font-bold mt-1 tabular-nums" style="color: var(--primary);">{{ accounts_receivable|floatformat:2|default:"0.00" }}</p>
     <p class="text-[11px] text-gray-400 mt-1">Outstanding AR</p>
   </div>
+  {% endif %}
+  {% if can.payables %}
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Payables</p>
     <p class="text-xl font-bold text-amber-600 mt-1 tabular-nums">{{ accounts_payable|floatformat:2|default:"0.00" }}</p>
     <p class="text-[11px] text-gray-400 mt-1">Outstanding AP</p>
   </div>
+  {% endif %}
+  {% if can.finance %}
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Revenue (MTD)</p>
     <p class="text-xl font-bold text-emerald-600 mt-1 tabular-nums">{{ monthly_revenue|floatformat:2|default:"0.00" }}</p>
     <p class="text-[11px] text-gray-400 mt-1">Month to date</p>
   </div>
+  {% endif %}
+  {% if can.finance %}
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Expenses (MTD)</p>
     <p class="text-xl font-bold text-rose-600 mt-1 tabular-nums">{{ monthly_expenses|floatformat:2|default:"0.00" }}</p>
     <p class="text-[11px] text-gray-400 mt-1">Month to date</p>
   </div>
+  {% endif %}
+  {% if can.finance %}
   <div class="bg-white rounded-xl border border-gray-100 p-4">
     <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Net profit (MTD)</p>
     <p class="text-xl font-bold mt-1 tabular-nums {% if net_profit_mtd >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
@@ -64,41 +75,57 @@
     </p>
     <p class="text-[11px] text-gray-400 mt-1">Revenue − Expenses</p>
   </div>
+  {% endif %}
 </div>
 
 <!-- Quick actions -->
+{% if can.any_action %}
 <div class="flex flex-wrap gap-2 mb-6">
+  {% if can.new_invoice %}
   <a href="{% url 'sales:invoice_create' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     New Invoice
   </a>
+  {% endif %}
+  {% if can.record_receipt %}
   <a href="{% url 'sales:payment_create' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Record Receipt
   </a>
+  {% endif %}
+  {% if can.new_bill %}
   <a href="{% url 'procurement:bill_create' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     New Bill
   </a>
+  {% endif %}
+  {% if can.new_journal %}
   <a href="{% url 'accounting:journal_entry_create' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     Journal Entry
   </a>
+  {% endif %}
+  {% if can.new_customer %}
   <a href="{% url 'crm:customer_create' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     New Customer
   </a>
+  {% endif %}
+  {% if can.new_product %}
   <a href="{% url 'inventory:product_create' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
     New Product
   </a>
+  {% endif %}
 </div>
+{% endif %}
 
 <!-- Main 2-column grid -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
 
   <!-- Open items (2 col wide) -->
   <div class="lg:col-span-2 space-y-5">
+    {% if can.receivables %}
     <div class="bg-white rounded-xl border border-gray-100">
       <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-gray-800">Unpaid invoices</h3>
@@ -127,7 +154,9 @@
         </tbody>
       </table>
     </div>
+    {% endif %}
 
+    {% if can.payables %}
     <div class="bg-white rounded-xl border border-gray-100">
       <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-gray-800">Open bills</h3>
@@ -156,11 +185,13 @@
         </tbody>
       </table>
     </div>
+    {% endif %}
   </div>
 
   <!-- Side column -->
   <div class="space-y-5">
     <!-- Inventory snapshot -->
+    {% if can.stock %}
     <div class="bg-white rounded-xl border border-gray-100 p-5">
       <h3 class="text-sm font-semibold text-gray-800 mb-3">Inventory snapshot</h3>
       <div class="space-y-3 text-sm">
@@ -182,31 +213,43 @@
         </div>
       </div>
     </div>
+    {% endif %}
 
     <!-- Pending approvals -->
+    {% if can.any_approval %}
     <div class="bg-white rounded-xl border border-gray-100 p-5">
       <h3 class="text-sm font-semibold text-gray-800 mb-3">Pending approvals</h3>
       <div class="space-y-2 text-sm">
+        {% if can.approve_requisitions %}
         <a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
           <span class="text-gray-700">Purchase requisitions</span>
           <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_requisitions|default:0 }}</span>
         </a>
+        {% endif %}
+        {% if can.approve_expenses %}
         <a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
           <span class="text-gray-700">Expense claims</span>
           <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_expense_claims|default:0 }}</span>
         </a>
+        {% endif %}
+        {% if can.approve_leave %}
         <a href="{% url 'hr:leave_list' %}?status=PENDING" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
           <span class="text-gray-700">Leave requests</span>
           <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_leave_requests|default:0 }}</span>
         </a>
+        {% endif %}
+        {% if can.approve_timesheets %}
         <a href="{% url 'timesheets:entry_list' %}?status=SUBMITTED" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
           <span class="text-gray-700">Timesheets</span>
           <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_timesheets|default:0 }}</span>
         </a>
+        {% endif %}
       </div>
     </div>
+    {% endif %}
 
     <!-- Recent activity -->
+    {% if can.finance %}
     <div class="bg-white rounded-xl border border-gray-100 p-5">
       <h3 class="text-sm font-semibold text-gray-800 mb-3">Recent activity</h3>
       <div class="space-y-3 text-sm">
@@ -228,6 +271,7 @@
         {% endfor %}
       </div>
     </div>
+    {% endif %}
   </div>
 </div>
 

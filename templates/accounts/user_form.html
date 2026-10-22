@@ -1,0 +1,9 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'accounts:user_list' as back %}
+{% if profile_user %}
+{% include "_includes/model_form.html" with title=page_title subtitle="Update details and their role in this company" back_url=back cancel_url=back submit_label="Save changes" %}
+{% else %}
+{% include "_includes/model_form.html" with title=page_title subtitle="Create a login and choose what they can do in this company" section_label="New colleague" back_url=back cancel_url=back submit_label="Add colleague" %}
+{% endif %}
+{% endblock %}

@@ -6,6 +6,8 @@ from django.views.generic import (
     CreateView, DetailView, ListView, TemplateView, UpdateView,
 )
 
+from apps.core.scoping import CompanyScopedMixin, company_of
+
 from .forms import BankAccountForm, BankTransactionForm
 from .models import BankAccount, BankTransaction
 
@@ -43,20 +45,30 @@ class BankAccountCreateView(LoginRequiredMixin, CreateView):
     template_name = "banking/account_form.html"
     success_url = reverse_lazy("banking:account_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         messages.success(self.request, "Bank account created.")
         return super().form_valid(form)
 
 
-class BankAccountUpdateView(LoginRequiredMixin, UpdateView):
+class BankAccountUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
     model = BankAccount
     form_class = BankAccountForm
     template_name = "banking/account_form.html"
     success_url = reverse_lazy("banking:account_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
 
-class BankAccountDetailView(LoginRequiredMixin, DetailView):
+
+class BankAccountDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = BankAccount
     template_name = "banking/account_detail.html"
     context_object_name = "account"
@@ -88,12 +100,18 @@ class BankTransactionCreateView(LoginRequiredMixin, CreateView):
     template_name = "banking/transaction_form.html"
     success_url = reverse_lazy("banking:transaction_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
+
     def form_valid(self, form):
         messages.success(self.request, "Transaction recorded.")
         return super().form_valid(form)
 
 
-class BankTransactionDetailView(LoginRequiredMixin, DetailView):
+class BankTransactionDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = BankTransaction
+    company_lookup = "bank_account__company"
     template_name = "banking/transaction_detail.html"
     context_object_name = "txn"

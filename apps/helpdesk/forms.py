@@ -1,4 +1,5 @@
 from django import forms
+from apps.core.scoping import narrow
 from .models import Ticket, TicketComment
 
 
@@ -9,6 +10,10 @@ class TicketForm(forms.ModelForm):
                   "requester_name", "requester_email", "channel",
                   "priority", "assigned_to"]
         widgets = {"description": forms.Textarea(attrs={"rows": 4})}
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        narrow(self, company, customer="company", assigned_to="users")
 
 
 class TicketCommentForm(forms.ModelForm):

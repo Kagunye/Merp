@@ -1,5 +1,6 @@
 """CRM forms."""
 from django import forms
+from apps.core.scoping import narrow
 from .models import Customer, Supplier, Lead
 
 
@@ -46,3 +47,7 @@ class LeadForm(forms.ModelForm):
             "expected_close_date": forms.DateInput(attrs={"type": "date"}),
             "notes": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        narrow(self, company, assigned_to="users")

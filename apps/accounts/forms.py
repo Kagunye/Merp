@@ -46,7 +46,27 @@ class PasswordResetConfirmForm(forms.Form):
         return cd
 
 
-class UserCreateForm(forms.ModelForm):
+def _role_choices():
+    from apps.organizations.models import CompanyMembership
+    return CompanyMembership.ROLE_CHOICES
+
+
+class _CompanyRoleMixin(forms.Form):
+    """Adds the colleague's role in the active company. `is_system_admin`
+    (access to every company) is only offered to platform administrators."""
+
+    company_role = forms.ChoiceField(label="Role in this company", choices=())
+
+    def __init__(self, *args, allow_system_admin=False, initial_role=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["company_role"].choices = _role_choices()
+        if initial_role:
+            self.fields["company_role"].initial = initial_role
+        if not allow_system_admin:
+            self.fields.pop("is_system_admin", None)
+
+
+class UserCreateForm(_CompanyRoleMixin, forms.ModelForm):
     password = forms.CharField(
         min_length=8,
         widget=forms.PasswordInput(attrs={"placeholder": "Set a password"}),
@@ -65,9 +85,17 @@ class UserCreateForm(forms.ModelForm):
 
 
 class UserEditForm(forms.ModelForm):
+    """Self-service profile edit — no role or platform fields."""
     class Meta:
         model = User
         fields = ["first_name", "last_name", "email", "username", "phone", "job_title", "bio", "avatar", "timezone", "theme_preference"]
+
+
+class UserAdminEditForm(_CompanyRoleMixin, forms.ModelForm):
+    """A company admin editing a colleague: details plus their role here."""
+    class Meta:
+        model = User
+        fields = ["first_name", "last_name", "email", "username", "phone", "job_title", "is_system_admin"]
 
 
 class ChangePasswordForm(PasswordChangeForm):

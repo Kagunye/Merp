@@ -1,0 +1,48 @@
+{# HTMX fragment: dashboard KPI tiles. Context from dashboard_views.kpi_widgets. #}
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Cash on hand</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ total_cash|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">All bank + cash</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Receivables</p>
+    <p class="text-xl font-bold mt-1 tabular-nums" style="color: var(--primary);">{{ accounts_receivable|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">Outstanding AR</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Payables</p>
+    <p class="text-xl font-bold text-amber-600 mt-1 tabular-nums">{{ accounts_payable|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">Outstanding AP</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Revenue (MTD)</p>
+    <p class="text-xl font-bold text-emerald-600 mt-1 tabular-nums">{{ monthly_revenue|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">Month to date</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Expenses (MTD)</p>
+    <p class="text-xl font-bold text-rose-600 mt-1 tabular-nums">{{ monthly_expenses|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">Month to date</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Gross profit (MTD)</p>
+    <p class="text-xl font-bold mt-1 tabular-nums {% if gross_profit|default:0 >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">{{ gross_profit|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">Revenue − Expenses</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Products</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ total_products|default:0 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1"><span class="text-amber-600 font-semibold">{{ low_stock_count|default:0 }}</span> low on stock</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Inventory value</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ inventory_value|default:0|floatformat:2 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">At cost</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 p-4">
+    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Headcount</p>
+    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ headcount|default:0 }}</p>
+    <p class="text-[11px] text-gray-400 mt-1">Active employees</p>
+  </div>
+</div>

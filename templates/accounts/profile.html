@@ -1,0 +1,45 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-5">
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <span class="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold text-white" style="background:var(--primary)">{{ request.user.initials }}</span>
+        <div>
+          <h1 class="text-xl font-bold text-gray-900">{{ request.user.full_name }}</h1>
+          <p class="text-sm text-gray-500">{{ request.user.email }}</p>
+          {% if active_company %}
+          <p class="text-sm text-gray-600 mt-1">{{ company_role_label|default:"No role" }} at <strong>{{ active_company.name }}</strong></p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <a href="{% url 'accounts:profile_edit' %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit profile</a>
+        <a href="{% url 'accounts:change_password' %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Change password</a>
+      </div>
+    </div>
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mt-6 pt-6 border-t border-gray-100 text-sm">
+      <div><dt class="text-gray-500">Job title</dt><dd class="text-gray-900 mt-0.5">{{ request.user.job_title|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Phone</dt><dd class="text-gray-900 mt-0.5">{{ request.user.phone|default:"—" }}</dd></div>
+    </dl>
+  </div>
+
+  {% if user_companies %}
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-sm font-semibold text-gray-900 mb-3">Your companies</h2>
+    <ul class="divide-y divide-gray-100 text-sm">
+      {% for co in user_companies %}
+      <li class="flex items-center justify-between py-2.5">
+        <span class="text-gray-800">{{ co.name }}</span>
+        {% if active_company and co.pk == active_company.pk %}
+        <span class="text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-md">Working in now</span>
+        {% else %}
+        <a href="{% url 'dashboard:switch_company' co.pk %}" class="text-xs font-semibold" style="color:var(--primary)">Switch</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

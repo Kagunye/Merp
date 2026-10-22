@@ -8,6 +8,8 @@ from django.views.generic import (
     CreateView, DeleteView, DetailView, ListView, TemplateView,
 )
 
+from apps.core.scoping import CompanyScopedMixin, company_of, scope
+
 from .forms import DocumentCategoryForm, DocumentForm
 from .models import Document, DocumentCategory
 
@@ -48,7 +50,7 @@ class DocumentListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["categories"] = DocumentCategory.objects.filter(company=self.request.active_company)
+        ctx["categories"] = scope(DocumentCategory.objects.all(), company_of(self.request))
         ctx["selected_category"] = self.request.GET.get("category") or ""
         ctx["search"] = self.request.GET.get("q", "")
         return ctx
@@ -59,6 +61,11 @@ class DocumentUploadView(LoginRequiredMixin, CreateView):
     form_class = DocumentForm
     template_name = "documents/document_form.html"
     success_url = reverse_lazy("documents:document_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -71,13 +78,13 @@ class DocumentUploadView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
 
-class DocumentDetailView(LoginRequiredMixin, DetailView):
+class DocumentDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Document
     template_name = "documents/document_detail.html"
     context_object_name = "doc"
 
 
-class DocumentDeleteView(LoginRequiredMixin, DeleteView):
+class DocumentDeleteView(CompanyScopedMixin, LoginRequiredMixin, DeleteView):
     model = Document
     template_name = "documents/document_delete.html"
     success_url = reverse_lazy("documents:document_list")

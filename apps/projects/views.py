@@ -6,6 +6,8 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
+from apps.core.scoping import CompanyScopedMixin, narrow
+
 from .models import Project, Task
 
 
@@ -60,11 +62,10 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        narrow(form, company, customer="company", branch="company", manager="users")
+        form.fields["customer"].queryset = form.fields["customer"].queryset.filter(is_active=True)
+        form.fields["branch"].queryset = form.fields["branch"].queryset.filter(is_active=True)
         if company:
-            from apps.crm.models import Customer
-            from apps.organizations.models import Branch
-            form.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
-            form.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "PRJ-")
         form.fields["start_date"].initial = datetime.date.today()
@@ -82,13 +83,10 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class ProjectDetailView(LoginRequiredMixin, DetailView):
+class ProjectDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Project
     template_name = "projects/project_detail.html"
     context_object_name = "project"
-
-    def get_queryset(self):
-        return Project.objects.filter(company=self.request.active_company)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -126,6 +124,7 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        narrow(form, self.request.active_company, assigned_to="users")
         return form
 
     def form_valid(self, form):
@@ -141,8 +140,9 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class TaskDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.projects.models', fromlist=['Task']).Task
+class TaskDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
+    model = Task
+    company_lookup = "project__company"
     template_name = "projects/task_detail.html"
     context_object_name = "task"
 
@@ -156,7 +156,7 @@ class TaskListView(LoginRequiredMixin, ListView):
         from apps.projects.models import Task
         company = self.request.active_company
         qs = Task.objects.filter(project__company=company) if company else Task.objects.none()
-        return qs.select_related("project", "assignee")
+        return qs.select_related("project", "assigned_to")
 
 
 class ProjectsIndexView(LoginRequiredMixin, TemplateView):

@@ -22,6 +22,11 @@ def _parse_dates(request):
     return date_from, date_to
 
 
+def _aged_sections(buckets, totals):
+    """[{label, rows, total}] per ageing bucket, so templates need no dict lookups."""
+    return [{"label": k, "rows": buckets[k], "total": totals[k]} for k in buckets]
+
+
 class ReportingIndexView(LoginRequiredMixin, TemplateView):
     template_name = "reporting/index.html"
 
@@ -215,6 +220,7 @@ class AgedDebtorsView(LoginRequiredMixin, TemplateView):
         ctx.update({
             "buckets": buckets,
             "totals": totals,
+            "sections": _aged_sections(buckets, totals),
             "grand_total": sum(totals.values()),
             "today": today,
         })
@@ -261,6 +267,7 @@ class AgedCreditorsView(LoginRequiredMixin, TemplateView):
         ctx.update({
             "buckets": buckets,
             "totals": totals,
+            "sections": _aged_sections(buckets, totals),
             "grand_total": sum(totals.values()),
             "today": today,
         })

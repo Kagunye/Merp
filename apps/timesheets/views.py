@@ -3,10 +3,12 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
+
+from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404
 
 from .forms import TimesheetEntryForm
 from .models import TimesheetEntry
@@ -55,6 +57,11 @@ class EntryCreateView(LoginRequiredMixin, CreateView):
     template_name = "timesheets/entry_form.html"
     success_url = reverse_lazy("timesheets:entry_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = getattr(self.request, "active_company", None)
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         form.instance.user = self.request.user
@@ -62,7 +69,7 @@ class EntryCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
 
-class EntryDetailView(LoginRequiredMixin, DetailView):
+class EntryDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = TimesheetEntry
     template_name = "timesheets/entry_detail.html"
     context_object_name = "entry"
@@ -70,7 +77,7 @@ class EntryDetailView(LoginRequiredMixin, DetailView):
 
 @login_required
 def entry_submit(request, pk):
-    e = get_object_or_404(TimesheetEntry, pk=pk)
+    e = get_scoped_or_404(TimesheetEntry, request, pk=pk)
     if e.status == "DRAFT":
         e.status = "SUBMITTED"
         e.save(update_fields=["status"])
@@ -80,7 +87,7 @@ def entry_submit(request, pk):
 
 @login_required
 def entry_approve(request, pk):
-    e = get_object_or_404(TimesheetEntry, pk=pk)
+    e = get_scoped_or_404(TimesheetEntry, request, pk=pk)
     if e.status == "SUBMITTED":
         e.status = "APPROVED"
         e.approved_by = request.user

@@ -13,6 +13,7 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from .models import Bill, PurchaseOrder, PurchaseRequisition
+from apps.core.scoping import CompanyScopedMixin, narrow
 from apps.core.doc_views import DocumentPrintMixin, DocumentEmailView, lines_from_queryset
 
 
@@ -67,9 +68,9 @@ class BillCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        narrow(form, company, supplier="company")
+        form.fields["supplier"].queryset = form.fields["supplier"].queryset.filter(is_active=True)
         if company:
-            from apps.crm.models import Supplier
-            form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "BILL-")
         form.fields["bill_date"].initial = datetime.date.today()
@@ -158,11 +159,10 @@ class PurchaseOrderCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        narrow(form, company, supplier="company", warehouse="company")
+        form.fields["supplier"].queryset = form.fields["supplier"].queryset.filter(is_active=True)
+        form.fields["warehouse"].queryset = form.fields["warehouse"].queryset.filter(is_active=True)
         if company:
-            from apps.crm.models import Supplier
-            from apps.organizations.models import Warehouse
-            form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
-            form.fields["warehouse"].queryset = Warehouse.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "PO-")
         form.fields["order_date"].initial = datetime.date.today()
@@ -308,6 +308,11 @@ class PurchaseRequisitionCreateView(LoginRequiredMixin, CreateView):
     model = PurchaseRequisition
     template_name = "procurement/requisition_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = getattr(self.request, "active_company", None)
+        return kwargs
+
     def get_form_class(self):
         from .forms import PurchaseRequisitionForm
         return PurchaseRequisitionForm
@@ -323,13 +328,13 @@ class PurchaseRequisitionCreateView(LoginRequiredMixin, CreateView):
         return reverse("procurement:requisition_detail", args=[self.object.pk])
 
 
-class PurchaseRequisitionDetailView(LoginRequiredMixin, DetailView):
+class PurchaseRequisitionDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = PurchaseRequisition
     template_name = "procurement/requisition_detail.html"
     context_object_name = "requisition"
 
 
-class GRNView(LoginRequiredMixin, DetailView):
+class GRNView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     """Goods Receipt Note — view & record what came in against a PO."""
     model = PurchaseOrder
     template_name = "procurement/grn.html"
@@ -370,10 +375,8 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        company = self.request.active_company
-        if company:
-            from apps.crm.models import Supplier
-            form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
+        narrow(form, self.request.active_company, supplier="company")
+        form.fields["supplier"].queryset = form.fields["supplier"].queryset.filter(is_active=True)
         return form
 
     def get_success_url(self):

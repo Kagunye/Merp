@@ -9,11 +9,12 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView, TemplateView, UpdateView, View
 
 from .forms import (
     ChangePasswordForm, LoginForm, PasswordResetConfirmForm,
-    PasswordResetRequestForm, RegisterForm, UserCreateForm, UserEditForm,
+    PasswordResetRequestForm, RegisterForm, UserAdminEditForm, UserCreateForm, UserEditForm,
 )
 from .models import LoginAttempt, PasswordResetToken, User
 
@@ -159,10 +160,10 @@ class RegisterView(View):
         form = RegisterForm(request.POST)
         if form.is_valid():
             user = form.save()
-            login(request, user)
+            login(request, user, backend="apps.accounts.backends.EmailBackend")
             messages.success(
                 request,
-                f"Welcome to MERP, {user.first_name or user.email}! "
+                f"Welcome to mofisi, {user.first_name or user.email}! "
                 "Finish setting up your company to get started.",
             )
             return redirect("dashboard:index")
@@ -286,6 +287,25 @@ class PasswordResetConfirmView(View):
         return render(request, self.template_name, {"form": form, "token": token})
 
 
+def _company_staff(request):
+    """Users who belong to the active company (platform admins see everyone)."""
+    from apps.core.access import is_platform_admin
+    from apps.core.scoping import company_users
+    if is_platform_admin(request.user):
+        return User.objects.all()
+    return company_users(request.active_company)
+
+
+def _membership(user, company):
+    from apps.organizations.models import CompanyMembership
+    return CompanyMembership.objects.filter(user=user, company=company).first()
+
+
+def _form_flags(request):
+    from apps.core.access import is_platform_admin
+    return {"allow_system_admin": is_platform_admin(request.user)}
+
+
 class UserListView(LoginRequiredMixin, ListView):
     model = User
     template_name = "accounts/user_list.html"
@@ -293,7 +313,7 @@ class UserListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = User.objects.all().order_by("first_name", "last_name")
+        qs = _company_staff(self.request).order_by("first_name", "last_name")
         q = self.request.GET.get("q", "").strip()
         if q:
             from django.db.models import Q
@@ -306,6 +326,13 @@ class UserListView(LoginRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Users"
         ctx["search_query"] = self.request.GET.get("q", "")
+        company = self.request.active_company
+        roles = {}
+        if company:
+            roles = {m.user_id: m.get_role_display()
+                     for m in company.memberships.filter(user__in=ctx["users"])}
+        for u in ctx["users"]:
+            u.company_role_label = roles.get(u.pk, "")
         return ctx
 
 
@@ -314,17 +341,25 @@ class UserCreateView(LoginRequiredMixin, View):
 
     def get(self, request):
         return render(request, self.template_name, {
-            "form": UserCreateForm(),
-            "page_title": "Create User",
+            "form": UserCreateForm(initial_role="EMPLOYEE", **_form_flags(request)),
+            "page_title": "Add a colleague",
         })
 
     def post(self, request):
-        form = UserCreateForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            messages.success(request, f"User {user.full_name} created successfully.")
+        from django.db import transaction
+        from apps.organizations.models import CompanyMembership
+        form = UserCreateForm(request.POST, **_form_flags(request))
+        if form.is_valid() and request.active_company:
+            with transaction.atomic():
+                user = form.save()
+                CompanyMembership.objects.create(
+                    user=user, company=request.active_company,
+                    role=form.cleaned_data["company_role"], is_default=True,
+                )
+            messages.success(request, f"{user.full_name} can now sign in as "
+                                      f"{form.cleaned_data['company_role'].replace('_', ' ').title()}.")
             return redirect("accounts:user_detail", pk=user.pk)
-        return render(request, self.template_name, {"form": form})
+        return render(request, self.template_name, {"form": form, "page_title": "Add a colleague"})
 
 
 class UserDetailView(LoginRequiredMixin, DetailView):
@@ -332,37 +367,50 @@ class UserDetailView(LoginRequiredMixin, DetailView):
     template_name = "accounts/user_detail.html"
     context_object_name = "profile_user"
 
+    def get_queryset(self):
+        return _company_staff(self.request)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"User — {self.object.full_name}"
-        ctx["memberships"] = self.object.memberships.select_related("company", "branch").all()
+        ctx["membership"] = _membership(self.object, self.request.active_company)
         return ctx
 
 
 class UserEditView(LoginRequiredMixin, View):
     template_name = "accounts/user_form.html"
 
+    def _context(self, request, user, form):
+        return {"form": form, "profile_user": user, "page_title": f"Edit — {user.full_name}"}
+
     def get(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
-        return render(request, self.template_name, {
-            "form": UserEditForm(instance=user),
-            "profile_user": user,
-            "page_title": f"Edit User — {user.full_name}",
-        })
+        user = get_object_or_404(_company_staff(request), pk=pk)
+        m = _membership(user, request.active_company)
+        form = UserAdminEditForm(instance=user, initial_role=m.role if m else None, **_form_flags(request))
+        return render(request, self.template_name, self._context(request, user, form))
 
     def post(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
-        form = UserEditForm(request.POST, request.FILES, instance=user)
+        user = get_object_or_404(_company_staff(request), pk=pk)
+        form = UserAdminEditForm(request.POST, instance=user, **_form_flags(request))
         if form.is_valid():
             form.save()
-            messages.success(request, "User updated successfully.")
+            m = _membership(user, request.active_company)
+            new_role = form.cleaned_data["company_role"]
+            if m and m.role != new_role:
+                if user == request.user and m.role == "ADMIN":
+                    messages.error(request, "You can't remove your own admin role.")
+                    return redirect("accounts:user_detail", pk=pk)
+                m.role = new_role
+                m.save(update_fields=["role"])
+            messages.success(request, "User updated.")
             return redirect("accounts:user_detail", pk=pk)
-        return render(request, self.template_name, {"form": form, "profile_user": user})
+        return render(request, self.template_name, self._context(request, user, form))
 
 
 @login_required
+@require_POST
 def toggle_user_active(request, pk):
-    user = get_object_or_404(User, pk=pk)
+    user = get_object_or_404(_company_staff(request), pk=pk)
     if user == request.user:
         messages.error(request, "You cannot deactivate your own account.")
         return redirect("accounts:user_detail", pk=pk)

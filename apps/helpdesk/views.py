@@ -1,10 +1,13 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
+
+from apps.core.scoping import CompanyScopedMixin, company_of, get_scoped_or_404
 
 from .forms import TicketCommentForm, TicketForm
 from .models import Ticket
@@ -48,6 +51,11 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
     form_class = TicketForm
     template_name = "helpdesk/ticket_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         messages.success(self.request, "Ticket opened.")
@@ -57,7 +65,7 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
         return reverse("helpdesk:ticket_detail", args=[self.object.pk])
 
 
-class TicketDetailView(LoginRequiredMixin, DetailView):
+class TicketDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Ticket
     template_name = "helpdesk/ticket_detail.html"
     context_object_name = "ticket"
@@ -69,8 +77,9 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
 
 
 @login_required
+@require_POST
 def ticket_comment(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = get_scoped_or_404(Ticket, request, pk=pk)
     form = TicketCommentForm(request.POST)
     if form.is_valid():
         c = form.save(commit=False)
@@ -82,8 +91,9 @@ def ticket_comment(request, pk):
 
 
 @login_required
+@require_POST
 def ticket_resolve(request, pk):
-    t = get_object_or_404(Ticket, pk=pk)
+    t = get_scoped_or_404(Ticket, request, pk=pk)
     t.status = "RESOLVED"
     t.resolved_at = timezone.now()
     t.save()
@@ -92,8 +102,9 @@ def ticket_resolve(request, pk):
 
 
 @login_required
+@require_POST
 def ticket_close(request, pk):
-    t = get_object_or_404(Ticket, pk=pk)
+    t = get_scoped_or_404(Ticket, request, pk=pk)
     t.status = "CLOSED"
     t.closed_at = timezone.now()
     t.save()

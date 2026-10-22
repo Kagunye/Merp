@@ -8,7 +8,7 @@
 </div>
 <div class="launcher-grid">
   <a href="{% url 'projects:project_create' %}" class="launcher-tile"><div class="ico ico-mint">📁</div><span class="label">New Project</span></a>
-  <a href="{% url 'projects:task_create' %}" class="launcher-tile"><div class="ico ico-sky">✅</div><span class="label">New Task</span></a>
+  <a href="{% url 'projects:project_list' %}" class="launcher-tile" title="Open a project to add a task"><div class="ico ico-sky">✅</div><span class="label">New Task</span></a>
   <a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-amber">⏰</div><span class="label">Log Time</span></a>
   <a href="{% url 'expenses:claim_create' %}" class="launcher-tile"><div class="ico ico-rose">💳</div><span class="label">Project Expense</span></a>
   <a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Invoice Project</span></a>

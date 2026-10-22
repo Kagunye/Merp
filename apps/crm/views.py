@@ -5,6 +5,8 @@ from django.db.models import Q
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.scoping import CompanyScopedMixin, company_of
+
 from .forms import CustomerForm, LeadForm, SupplierForm
 from .models import Customer, Lead, Supplier
 
@@ -54,14 +56,11 @@ class CustomerCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class CustomerUpdateView(LoginRequiredMixin, UpdateView):
+class CustomerUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
     model = Customer
     form_class = CustomerForm
     template_name = "crm/customer_form.html"
     success_url = reverse_lazy("crm:customer_list")
-
-    def get_queryset(self):
-        return Customer.objects.filter(company=self.request.active_company)
 
     def form_valid(self, form):
         messages.success(self.request, f"Customer '{form.instance.name}' updated.")
@@ -74,13 +73,10 @@ class CustomerUpdateView(LoginRequiredMixin, UpdateView):
         return ctx
 
 
-class CustomerDetailView(LoginRequiredMixin, DetailView):
+class CustomerDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Customer
     template_name = "crm/customer_detail.html"
     context_object_name = "customer"
-
-    def get_queryset(self):
-        return Customer.objects.filter(company=self.request.active_company)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -130,14 +126,11 @@ class SupplierCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class SupplierUpdateView(LoginRequiredMixin, UpdateView):
+class SupplierUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
     model = Supplier
     form_class = SupplierForm
     template_name = "crm/supplier_form.html"
     success_url = reverse_lazy("crm:supplier_list")
-
-    def get_queryset(self):
-        return Supplier.objects.filter(company=self.request.active_company)
 
     def form_valid(self, form):
         messages.success(self.request, f"Supplier '{form.instance.name}' updated.")
@@ -183,15 +176,10 @@ class LeadCreateView(LoginRequiredMixin, CreateView):
     template_name = "crm/lead_form.html"
     success_url = reverse_lazy("crm:lead_list")
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        from apps.accounts.models import User
-        company = self.request.active_company
-        if company:
-            from apps.organizations.models import CompanyMembership
-            user_ids = CompanyMembership.objects.filter(company=company).values_list("user_id", flat=True)
-            form.fields["assigned_to"].queryset = User.objects.filter(id__in=user_ids)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = company_of(self.request)
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -205,14 +193,14 @@ class LeadCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class SupplierDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.crm.models', fromlist=['Supplier']).Supplier
+class SupplierDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
+    model = Supplier
     template_name = "crm/supplier_detail.html"
     context_object_name = "supplier"
 
 
-class LeadDetailView(LoginRequiredMixin, DetailView):
-    model = __import__('apps.crm.models', fromlist=['Lead']).Lead
+class LeadDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
+    model = Lead
     template_name = "crm/lead_detail.html"
     context_object_name = "lead"
 

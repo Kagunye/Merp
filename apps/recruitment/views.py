@@ -3,6 +3,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.scoping import CompanyScopedMixin
+
 from .forms import CandidateForm, InterviewForm, JobOpeningForm
 from .models import Candidate, Interview, JobOpening
 
@@ -31,6 +33,15 @@ class ModuleHomeView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class CompanyFormKwargsMixin:
+    """Pass the active company to forms that narrow their dropdowns."""
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = getattr(self.request, "active_company", None)
+        return kwargs
+
+
 # ---- Job openings ----
 class OpeningListView(LoginRequiredMixin, ListView):
     model = JobOpening
@@ -44,7 +55,7 @@ class OpeningListView(LoginRequiredMixin, ListView):
         return JobOpening.objects.filter(company=company)
 
 
-class OpeningCreateView(LoginRequiredMixin, CreateView):
+class OpeningCreateView(CompanyFormKwargsMixin, LoginRequiredMixin, CreateView):
     model = JobOpening
     form_class = JobOpeningForm
     template_name = "recruitment/opening_form.html"
@@ -57,7 +68,7 @@ class OpeningCreateView(LoginRequiredMixin, CreateView):
         return reverse("recruitment:opening_detail", args=[self.object.pk])
 
 
-class OpeningUpdateView(LoginRequiredMixin, UpdateView):
+class OpeningUpdateView(CompanyScopedMixin, CompanyFormKwargsMixin, LoginRequiredMixin, UpdateView):
     model = JobOpening
     form_class = JobOpeningForm
     template_name = "recruitment/opening_form.html"
@@ -66,7 +77,7 @@ class OpeningUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("recruitment:opening_detail", args=[self.object.pk])
 
 
-class OpeningDetailView(LoginRequiredMixin, DetailView):
+class OpeningDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = JobOpening
     template_name = "recruitment/opening_detail.html"
     context_object_name = "opening"
@@ -86,7 +97,7 @@ class CandidateListView(LoginRequiredMixin, ListView):
         return Candidate.objects.filter(opening__company=company).select_related("opening")
 
 
-class CandidateCreateView(LoginRequiredMixin, CreateView):
+class CandidateCreateView(CompanyFormKwargsMixin, LoginRequiredMixin, CreateView):
     model = Candidate
     form_class = CandidateForm
     template_name = "recruitment/candidate_form.html"
@@ -97,8 +108,9 @@ class CandidateCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
 
-class CandidateDetailView(LoginRequiredMixin, DetailView):
+class CandidateDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Candidate
+    company_lookup = "opening__company"
     template_name = "recruitment/candidate_detail.html"
     context_object_name = "candidate"
 
@@ -114,7 +126,7 @@ class InterviewListView(LoginRequiredMixin, ListView):
         return Interview.objects.filter(candidate__opening__company=company).select_related("candidate", "interviewer") if company else Interview.objects.none()
 
 
-class InterviewCreateView(LoginRequiredMixin, CreateView):
+class InterviewCreateView(CompanyFormKwargsMixin, LoginRequiredMixin, CreateView):
     model = Interview
     form_class = InterviewForm
     template_name = "recruitment/interview_form.html"

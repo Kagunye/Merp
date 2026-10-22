@@ -1,0 +1,68 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div class="space-y-5">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold text-gray-900">People &amp; access</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Everyone who can sign in to {{ active_company.name }}, and what their role lets them do.</p>
+    </div>
+    <a href="{% url 'accounts:user_create' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Add colleague
+    </a>
+  </div>
+
+  <form method="get" class="max-w-sm">
+    <input type="search" name="q" value="{{ search_query }}" placeholder="Search by name or email"
+           class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
+  </form>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 border-b border-gray-200 text-left text-xs uppercase tracking-wider text-gray-500">
+          <th class="px-4 py-3 font-semibold">Name</th>
+          <th class="px-4 py-3 font-semibold">Role</th>
+          <th class="px-4 py-3 font-semibold">Job title</th>
+          <th class="px-4 py-3 font-semibold">Last sign-in</th>
+          <th class="px-4 py-3 font-semibold">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for u in users %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3">
+            <a href="{% url 'accounts:user_detail' u.pk %}" class="flex items-center gap-3">
+              <span class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style="background:var(--primary)">{{ u.initials }}</span>
+              <span>
+                <span class="block font-medium text-gray-900">{{ u.full_name }}</span>
+                <span class="block text-xs text-gray-500">{{ u.email }}</span>
+              </span>
+            </a>
+          </td>
+          <td class="px-4 py-3"><span class="inline-block px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 text-xs font-medium">{{ u.company_role_label|default:"—" }}</span></td>
+          <td class="px-4 py-3 text-gray-600">{{ u.job_title|default:"—" }}</td>
+          <td class="px-4 py-3 text-gray-500">{{ u.last_login|date:"d M Y, H:i"|default:"Never" }}</td>
+          <td class="px-4 py-3">
+            {% if u.is_active %}<span class="text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-md">Active</span>
+            {% else %}<span class="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md">Deactivated</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No one matches that search.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <div class="flex items-center justify-between text-sm text-gray-600">
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    <div class="flex gap-2">
+      {% if page_obj.has_previous %}<a class="px-3 py-1.5 border border-gray-200 rounded-lg bg-white" href="?page={{ page_obj.previous_page_number }}&q={{ search_query|urlencode }}">Previous</a>{% endif %}
+      {% if page_obj.has_next %}<a class="px-3 py-1.5 border border-gray-200 rounded-lg bg-white" href="?page={{ page_obj.next_page_number }}&q={{ search_query|urlencode }}">Next</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

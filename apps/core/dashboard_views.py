@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import models
 from django.db.models import Count, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -42,7 +43,35 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ctx.update(self._get_recent_activity(company))
         ctx.update(self._get_dashboard_widgets(company))
         ctx["net_profit_mtd"] = ctx.get("monthly_revenue", 0) - ctx.get("monthly_expenses", 0)
+        ctx["can"] = self._permissions()
         return ctx
+
+    def _permissions(self):
+        """What this person's role lets them see and start from the dashboard."""
+        from .access import can
+        user, role = self.request.user, getattr(self.request, "company_role", None)
+        checks = {
+            "finance": ("accounting", "index", "GET"),
+            "receivables": ("sales", "invoice_list", "GET"),
+            "payables": ("procurement", "bill_list", "GET"),
+            "stock": ("inventory", "index", "GET"),
+            "new_invoice": ("sales", "invoice_create", "POST"),
+            "record_receipt": ("sales", "payment_create", "POST"),
+            "new_bill": ("procurement", "bill_create", "POST"),
+            "new_journal": ("accounting", "journal_entry_create", "POST"),
+            "new_customer": ("crm", "customer_create", "POST"),
+            "new_product": ("inventory", "product_create", "POST"),
+            "approve_requisitions": ("procurement", "requisition_approve", "POST"),
+            "approve_expenses": ("expenses", "claim_approve", "POST"),
+            "approve_leave": ("hr", "leave_approve", "POST"),
+            "approve_timesheets": ("timesheets", "entry_approve", "POST"),
+        }
+        out = {key: can(user, role, *spec) for key, spec in checks.items()}
+        out["any_action"] = any(out[k] for k in ("new_invoice", "record_receipt", "new_bill",
+                                                  "new_journal", "new_customer", "new_product"))
+        out["any_approval"] = any(out[k] for k in ("approve_requisitions", "approve_expenses",
+                                                    "approve_leave", "approve_timesheets"))
+        return out
 
     def _get_dashboard_widgets(self, company):
         """Extra lists / counts the dashboard surface needs."""
@@ -104,7 +133,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         try:
             from apps.hr.models import LeaveRequest
             out["pending_leave_requests"] = LeaveRequest.objects.filter(
-                company=company, status="PENDING",
+                employee__company=company, status="PENDING",
             ).count()
         except Exception:
             pass
@@ -282,6 +311,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return {"recent_activities": activities[:8]}
 
 
+def _safe_next(request, default="/dashboard/"):
+    """`?next=` only when it points back at this site; never an off-site redirect."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    next_url = request.GET.get("next") or ""
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure(),
+    ):
+        return next_url
+    return default
+
+
 @login_required
 def switch_company(request, company_id):
     from apps.organizations.models import Company
@@ -289,8 +329,7 @@ def switch_company(request, company_id):
     if request.user.has_company_access(company):
         request.session["active_company_id"] = str(company.id)
         request.session.pop("active_branch_id", None)
-    next_url = request.GET.get("next", "/dashboard/")
-    return redirect(next_url)
+    return redirect(_safe_next(request))
 
 
 @login_required
@@ -302,8 +341,7 @@ def switch_branch(request, branch_id):
         is_active=True,
     )
     request.session["active_branch_id"] = str(branch.id)
-    next_url = request.GET.get("next", "/dashboard/")
-    return redirect(next_url)
+    return redirect(_safe_next(request))
 
 
 @login_required
@@ -343,8 +381,8 @@ def sales_chart_widget(request):
     today = date.today()
     months = []
     for i in range(11, -1, -1):
-        d = (today.replace(day=1) - timedelta(days=i * 28)).replace(day=1)
-        months.append(d)
+        y, m = divmod(today.year * 12 + today.month - 1 - i, 12)
+        months.append(date(y, m + 1, 1))
 
     labels = [m.strftime("%b %Y") for m in months]
     revenue_data = []
@@ -387,22 +425,22 @@ def sales_chart_widget(request):
 def cashflow_chart_widget(request):
     company = request.active_company
     today = date.today()
-    labels = []
-    cash_data = []
+    days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    labels = [d.strftime("%d %b") for d in days]
+    if company is None:
+        return JsonResponse({"labels": labels, "data": [0.0] * len(days)})
 
-    for i in range(6, -1, -1):
-        d = today - timedelta(days=i)
-        labels.append(d.strftime("%d %b"))
-        try:
-            from apps.accounting.models import Account
-            cash_accounts = Account.objects.filter(
-                company=company,
-                account_type__in=["CASH", "BANK"],
-                is_active=True,
-            )
-            balance = sum(float(a.current_balance) for a in cash_accounts)
-        except Exception:
-            balance = 0
-        cash_data.append(balance)
+    from apps.accounting.models import JournalEntryLine
+    cash_data = []
+    for d in days:
+        # Closing cash + bank balance (debit-normal) as of each day.
+        totals = JournalEntryLine.objects.filter(
+            account__company=company,
+            account__account_type__in=["CASH", "BANK"],
+            account__is_active=True,
+            journal_entry__status="POSTED",
+            journal_entry__posting_date__lte=d,
+        ).aggregate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        cash_data.append(float((totals["dr"] or 0) - (totals["cr"] or 0)))
 
     return JsonResponse({"labels": labels, "data": cash_data})

@@ -3,10 +3,12 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
+
+from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404
 
 from .forms import CloseSessionForm, OpenSessionForm
 from .models import POSSale, POSSession
@@ -46,6 +48,11 @@ class SessionOpenView(LoginRequiredMixin, CreateView):
     template_name = "pos/session_open.html"
     success_url = reverse_lazy("pos:home")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = getattr(self.request, "active_company", None)
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         form.instance.cashier = self.request.user
@@ -57,7 +64,7 @@ class SessionOpenView(LoginRequiredMixin, CreateView):
 
 @login_required
 def session_close(request, pk):
-    session = get_object_or_404(POSSession, pk=pk)
+    session = get_scoped_or_404(POSSession, request, pk=pk)
     if request.method == "POST":
         form = CloseSessionForm(request.POST, instance=session)
         if form.is_valid():
@@ -72,7 +79,7 @@ def session_close(request, pk):
     return render(request, "pos/session_close.html", {"form": form, "session": session})
 
 
-class SessionDetailView(LoginRequiredMixin, DetailView):
+class SessionDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = POSSession
     template_name = "pos/session_detail.html"
     context_object_name = "session"
@@ -96,8 +103,9 @@ class SaleListView(LoginRequiredMixin, ListView):
         return POSSale.objects.filter(session__company=company).select_related("session", "customer")
 
 
-class SaleDetailView(LoginRequiredMixin, DetailView):
+class SaleDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = POSSale
+    company_lookup = "session__company"
     template_name = "pos/sale_detail.html"
     context_object_name = "sale"
 
@@ -116,7 +124,7 @@ class TerminalView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class CashUpView(LoginRequiredMixin, DetailView):
+class CashUpView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     """Classic Palladium 'POS Cash-Up' screen — reconciles counted cash
     against expected sales for a session."""
     model = POSSession

@@ -10,6 +10,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404, scope
+
 from .forms import AccountForm, JournalEntryForm, JournalEntryLineFormSet
 from .models import Account, JournalEntry, JournalEntryLine
 
@@ -46,13 +48,10 @@ class AccountCreateView(LoginRequiredMixin, CreateView):
     template_name = "accounting/account_form.html"
     success_url = reverse_lazy("accounting:account_list")
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        if company:
-            form.fields["parent"].queryset = Account.objects.filter(company=company, is_active=True)
-            form.fields["parent"].empty_label = "— No parent (top-level)"
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -66,23 +65,16 @@ class AccountCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class AccountUpdateView(LoginRequiredMixin, UpdateView):
+class AccountUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
     model = Account
     form_class = AccountForm
     template_name = "accounting/account_form.html"
     success_url = reverse_lazy("accounting:account_list")
 
-    def get_queryset(self):
-        return Account.objects.filter(company=self.request.active_company)
-
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        company = self.request.active_company
-        if company:
-            form.fields["parent"].queryset = Account.objects.filter(
-                company=company, is_active=True
-            ).exclude(pk=self.object.pk)
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         messages.success(self.request, f"Account '{form.instance.name}' updated.")
@@ -129,13 +121,14 @@ class JournalEntryCreateView(LoginRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        if self.request.POST:
-            ctx["line_formset"] = JournalEntryLineFormSet(self.request.POST, prefix="lines")
-        else:
-            ctx["line_formset"] = JournalEntryLineFormSet(prefix="lines")
         company = self.request.active_company
-        if company:
-            ctx["accounts"] = Account.objects.filter(company=company, is_active=True).values("id", "code", "name")
+        if "line_formset" not in ctx:
+            formset_kwargs = {"prefix": "lines", "form_kwargs": {"company": company}}
+            if self.request.method == "POST":
+                ctx["line_formset"] = JournalEntryLineFormSet(self.request.POST, **formset_kwargs)
+            else:
+                ctx["line_formset"] = JournalEntryLineFormSet(**formset_kwargs)
+        ctx["accounts"] = scope(Account.objects.filter(is_active=True), company).values("id", "code", "name")
         ctx["page_title"] = "New Journal Entry"
         return ctx
 
@@ -151,25 +144,28 @@ class JournalEntryCreateView(LoginRequiredMixin, CreateView):
         return form
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
+        from django.db import transaction
+        company = self.request.active_company
+        if company is None:
+            messages.error(self.request, "Select a company before creating journal entries.")
+            return self.form_invalid(form)
+        form.instance.company = company
         ctx = self.get_context_data(form=form)
         formset = ctx["line_formset"]
         if formset.is_valid():
-            self.object = form.save()
-            formset.instance = self.object
-            formset.save()
+            with transaction.atomic():
+                self.object = form.save()
+                formset.instance = self.object
+                formset.save()
             messages.success(self.request, f"Journal entry '{self.object.reference}' created.")
             return redirect("accounting:journal_entry_detail", pk=self.object.pk)
         return self.render_to_response(ctx)
 
 
-class JournalEntryDetailView(LoginRequiredMixin, DetailView):
+class JournalEntryDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = JournalEntry
     template_name = "accounting/journal_entry_detail.html"
     context_object_name = "entry"
-
-    def get_queryset(self):
-        return JournalEntry.objects.filter(company=self.request.active_company)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -180,7 +176,7 @@ class JournalEntryDetailView(LoginRequiredMixin, DetailView):
 
 @login_required
 def journal_entry_post(request, pk):
-    entry = get_object_or_404(JournalEntry, pk=pk, company=request.active_company)
+    entry = get_scoped_or_404(JournalEntry, request, pk=pk)
     if request.method == "POST":
         try:
             entry.post(user=request.user)
@@ -192,7 +188,7 @@ def journal_entry_post(request, pk):
 
 @login_required
 def journal_entry_reverse(request, pk):
-    entry = get_object_or_404(JournalEntry, pk=pk, company=request.active_company)
+    entry = get_scoped_or_404(JournalEntry, request, pk=pk)
     if request.method == "POST":
         try:
             reversal = entry.reverse(user=request.user)
@@ -239,9 +235,7 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         from datetime import date
         ctx = super().get_context_data(**kwargs)
-        account = get_object_or_404(
-            Account, pk=kwargs["pk"], company=self.request.active_company,
-        )
+        account = get_scoped_or_404(Account, self.request, pk=kwargs["pk"])
         start = self.request.GET.get("from") or ""
         end = self.request.GET.get("to") or ""
 
@@ -367,7 +361,7 @@ class FiscalYearCreateView(LoginRequiredMixin, CreateView):
 @login_required
 @require_POST
 def fiscal_year_close(request, pk):
-    fy = get_object_or_404(FiscalYear, pk=pk, company=request.active_company)
+    fy = get_scoped_or_404(FiscalYear, request, pk=pk)
     fy.is_closed = True
     fy.save(update_fields=["is_closed"])
     fy.periods.update(status="LOCKED")
@@ -378,7 +372,7 @@ def fiscal_year_close(request, pk):
 @login_required
 @require_POST
 def fiscal_year_reopen(request, pk):
-    fy = get_object_or_404(FiscalYear, pk=pk, company=request.active_company)
+    fy = get_scoped_or_404(FiscalYear, request, pk=pk)
     fy.is_closed = False
     fy.save(update_fields=["is_closed"])
     fy.periods.filter(status="LOCKED").update(status="OPEN")
@@ -389,7 +383,7 @@ def fiscal_year_reopen(request, pk):
 @login_required
 @require_POST
 def period_close(request, pk):
-    period = get_object_or_404(AccountingPeriod, pk=pk, fiscal_year__company=request.active_company)
+    period = get_scoped_or_404(AccountingPeriod, request, lookup="fiscal_year__company", pk=pk)
     period.status = "CLOSED"
     period.save(update_fields=["status"])
     messages.success(request, f"Period {period.name} closed.")
@@ -399,7 +393,7 @@ def period_close(request, pk):
 @login_required
 @require_POST
 def period_reopen(request, pk):
-    period = get_object_or_404(AccountingPeriod, pk=pk, fiscal_year__company=request.active_company)
+    period = get_scoped_or_404(AccountingPeriod, request, lookup="fiscal_year__company", pk=pk)
     period.status = "OPEN"
     period.save(update_fields=["status"])
     messages.success(request, f"Period {period.name} reopened.")

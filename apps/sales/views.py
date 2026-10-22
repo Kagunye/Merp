@@ -14,6 +14,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 
 from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm
 from .models import Invoice, CustomerPayment, SalesOrder
+from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404, scope
 from apps.core.doc_views import DocumentPrintMixin, DocumentEmailView, lines_from_queryset
 
 
@@ -63,21 +64,25 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         company = self.request.active_company
-        if self.request.POST:
-            ctx["line_formset"] = InvoiceLineFormSet(self.request.POST, prefix="lines")
-        else:
-            ctx["line_formset"] = InvoiceLineFormSet(prefix="lines")
-        if company:
-            from apps.inventory.models import Product
-            ctx["products"] = list(Product.objects.filter(company=company, is_active=True).values(
-                "id", "name", "selling_price", "sku"
-            ))
+        if "line_formset" not in ctx:
+            formset_kwargs = {"prefix": "lines", "form_kwargs": {"company": company}}
+            if self.request.method == "POST":
+                ctx["line_formset"] = InvoiceLineFormSet(self.request.POST, **formset_kwargs)
+            else:
+                ctx["line_formset"] = InvoiceLineFormSet(**formset_kwargs)
+        from apps.inventory.models import Product
+        ctx["products"] = list(scope(Product.objects.filter(is_active=True), company).values(
+            "id", "name", "selling_price", "sku"
+        ))
         ctx["page_title"] = "New Invoice"
         return ctx
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
         company = self.request.active_company
+        if company is None:
+            messages.error(self.request, "Select a company before creating invoices.")
+            return self.form_invalid(form)
+        form.instance.company = company
         from apps.core.models import SequenceCounter
         if not form.instance.reference:
             form.instance.reference = SequenceCounter.next_number(company, "INV-")
@@ -123,13 +128,10 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
             )
 
 
-class InvoiceDetailView(LoginRequiredMixin, DetailView):
+class InvoiceDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Invoice
     template_name = "sales/invoice_detail.html"
     context_object_name = "invoice"
-
-    def get_queryset(self):
-        return Invoice.objects.filter(company=self.request.active_company)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -146,8 +148,7 @@ class InvoicePostView(LoginRequiredMixin, View):
     """
 
     def post(self, request, pk):
-        company = request.active_company
-        invoice = get_object_or_404(Invoice, pk=pk, company=company)
+        invoice = get_scoped_or_404(Invoice, request, pk=pk)
 
         # Clear existing journal entry link so post_invoice re-creates it
         if invoice.journal_entry_id:
@@ -194,8 +195,11 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CreateView):
         return kwargs
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
         company = self.request.active_company
+        if company is None:
+            messages.error(self.request, "Select a company before recording payments.")
+            return self.form_invalid(form)
+        form.instance.company = company
         from apps.core.models import SequenceCounter
         if not form.instance.reference:
             form.instance.reference = SequenceCounter.next_number(company, "PAY-")
@@ -234,8 +238,7 @@ class CustomerStatementView(LoginRequiredMixin, TemplateView):
         from apps.crm.models import Customer
         from .models import CustomerPayment, Invoice
         ctx = super().get_context_data(**kwargs)
-        company = self.request.active_company
-        customer = get_object_or_404(Customer, pk=kwargs["pk"], company=company)
+        customer = get_scoped_or_404(Customer, self.request, pk=kwargs["pk"])
         start = self.request.GET.get("from") or ""
         end = self.request.GET.get("to") or ""
 
@@ -328,7 +331,15 @@ class SalesOrderCreateView(LoginRequiredMixin, CreateView):
         from .forms import SalesOrderForm
         return SalesOrderForm
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
+        if self.request.active_company is None:
+            messages.error(self.request, "Select a company before creating sales orders.")
+            return self.form_invalid(form)
         form.instance.company = self.request.active_company
         messages.success(self.request, "Sales order created.")
         return super().form_valid(form)
@@ -338,7 +349,7 @@ class SalesOrderCreateView(LoginRequiredMixin, CreateView):
         return reverse("sales:order_detail", args=[self.object.pk])
 
 
-class SalesOrderDetailView(LoginRequiredMixin, DetailView):
+class SalesOrderDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
     template_name = "sales/order_detail.html"
     context_object_name = "order"
@@ -369,14 +380,11 @@ class SalesIndexView(LoginRequiredMixin, TemplateView):
 # ------------------------- AR actions -------------------------
 
 
-class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
+class InvoiceUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView):
     """Invoice edit — reuses InvoiceForm. Blocks edits once posted/paid."""
     model = Invoice
     form_class = InvoiceForm
     template_name = "sales/invoice_form.html"
-
-    def get_queryset(self):
-        return Invoice.objects.filter(company=self.request.active_company)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -408,7 +416,7 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
 @login_required
 @require_POST
 def invoice_mark_credit_note(request, pk):
-    inv = get_object_or_404(Invoice, pk=pk, company=request.active_company)
+    inv = get_scoped_or_404(Invoice, request, pk=pk)
     inv.status = "CREDIT_NOTE"
     inv.save(update_fields=["status"])
     messages.success(request, f"Invoice {inv.reference} marked as credit note.")
@@ -418,7 +426,7 @@ def invoice_mark_credit_note(request, pk):
 @login_required
 @require_POST
 def invoice_cancel(request, pk):
-    inv = get_object_or_404(Invoice, pk=pk, company=request.active_company)
+    inv = get_scoped_or_404(Invoice, request, pk=pk)
     if inv.status == "PAID":
         messages.error(request, f"Cannot cancel {inv.reference}: already paid.")
     else:

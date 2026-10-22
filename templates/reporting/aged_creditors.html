@@ -22,12 +22,12 @@
   <span class="text-xl font-bold text-red-900">{{ grand_total|floatformat:2 }}</span>
 </div>
 
-{% for bucket, bills in buckets.items %}
-{% if bills %}
+{% for section in sections %}
+{% if section.rows %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
   <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-    <h3 class="text-sm font-semibold text-gray-700">{{ bucket }} Days Overdue</h3>
-    <span class="font-mono font-semibold text-gray-900">{{ totals|get_item:bucket|floatformat:2 }}</span>
+    <h3 class="text-sm font-semibold text-gray-700">{{ section.label }} Days Overdue</h3>
+    <span class="font-mono font-semibold text-gray-900">{{ section.total|floatformat:2 }}</span>
   </div>
   <table class="w-full text-sm">
     <thead class="bg-gray-50">
@@ -40,7 +40,7 @@
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100">
-      {% for bill in bills %}
+      {% for bill in section.rows %}
       <tr>
         <td class="px-4 py-2 text-gray-900">{{ bill.reference }}</td>
         <td class="px-4 py-2 text-gray-900">{{ bill.supplier.name }}</td>

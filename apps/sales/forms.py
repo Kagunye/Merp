@@ -2,6 +2,8 @@
 import datetime
 from django import forms
 from django.forms import inlineformset_factory
+
+from apps.core.scoping import narrow
 from .models import Invoice, InvoiceLine, CustomerPayment
 
 
@@ -18,9 +20,8 @@ class InvoiceForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
-        if company:
-            from apps.crm.models import Customer
-            self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
+        narrow(self, company, customer="company")
+        self.fields["customer"].queryset = self.fields["customer"].queryset.filter(is_active=True)
         if not self.instance.pk:
             self.fields["invoice_date"].initial = datetime.date.today()
             self.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
@@ -34,13 +35,16 @@ class InvoiceLineForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
-        if company:
-            from apps.inventory.models import Product
-            from apps.accounting.models import TaxRate
-            self.fields["product"].queryset = Product.objects.filter(company=company, is_active=True)
-            self.fields["product"].empty_label = "— Custom line item"
-            self.fields["tax_rate"].queryset = TaxRate.objects.filter(company=company, is_active=True)
-            self.fields["tax_rate"].empty_label = "— No tax"
+        _narrow_line(self, company)
+        self.fields["product"].empty_label = "— Custom line item"
+        self.fields["tax_rate"].empty_label = "— No tax"
+
+
+def _narrow_line(form, company):
+    """Product / tax-rate dropdowns: active rows of `company` only (empty without one)."""
+    narrow(form, company, product="company", tax_rate="company")
+    for name in ("product", "tax_rate"):
+        form.fields[name].queryset = form.fields[name].queryset.filter(is_active=True)
 
 
 InvoiceLineFormSet = inlineformset_factory(
@@ -66,9 +70,8 @@ class CustomerPaymentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
-        if company:
-            from apps.crm.models import Customer
-            self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
+        narrow(self, company, customer="company")
+        self.fields["customer"].queryset = self.fields["customer"].queryset.filter(is_active=True)
         if not self.instance.pk:
             self.fields["payment_date"].initial = datetime.date.today()
 
@@ -84,8 +87,20 @@ class SalesOrderForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 2}),
         }
 
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        narrow(self, company, customer="company", warehouse="company", branch="company",
+               sales_rep="users")
+        self.fields["customer"].queryset = self.fields["customer"].queryset.filter(is_active=True)
+
 
 class SalesOrderLineForm(forms.ModelForm):
     class Meta:
         model = __import__('apps.sales.models', fromlist=['SalesOrderLine']).SalesOrderLine
         fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        _narrow_line(self, company)

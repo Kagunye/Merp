@@ -1,11 +1,14 @@
 """HR views."""
 import datetime
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
+
+from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404, narrow
 
 from .models import Employee, LeaveRequest, LeaveType
 
@@ -71,11 +74,10 @@ class EmployeeCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        narrow(form, company, department="company", branch="company", reports_to="company")
+        for fname in ("department", "branch", "reports_to"):
+            form.fields[fname].queryset = form.fields[fname].queryset.filter(is_active=True)
         if company:
-            from apps.organizations.models import Department, Branch
-            form.fields["department"].queryset = Department.objects.filter(company=company, is_active=True)
-            form.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
-            form.fields["reports_to"].queryset = Employee.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
             form.fields["employee_number"].initial = SequenceCounter.next_number(company, "EMP-")
         form.fields["date_hired"].initial = datetime.date.today()
@@ -92,13 +94,10 @@ class EmployeeCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
-class EmployeeDetailView(LoginRequiredMixin, DetailView):
+class EmployeeDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = Employee
     template_name = "hr/employee_detail.html"
     context_object_name = "employee"
-
-    def get_queryset(self):
-        return Employee.objects.filter(company=self.request.active_company)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -166,9 +165,9 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
                 field.widget.attrs["type"] = "date"
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        if company:
-            form.fields["employee"].queryset = Employee.objects.filter(company=company, is_active=True, status="ACTIVE")
-            form.fields["leave_type"].queryset = LeaveType.objects.filter(company=company, is_active=True)
+        narrow(form, company, employee="company", leave_type="company")
+        form.fields["employee"].queryset = form.fields["employee"].queryset.filter(is_active=True, status="ACTIVE")
+        form.fields["leave_type"].queryset = form.fields["leave_type"].queryset.filter(is_active=True)
         form.fields["start_date"].initial = datetime.date.today()
         form.fields["end_date"].initial = datetime.date.today()
         return form
@@ -183,10 +182,10 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
+@login_required
 def leave_approve(request, pk):
     """POST — approve or reject a leave request."""
-    from django.contrib.auth.decorators import login_required
-    leave = get_object_or_404(LeaveRequest, pk=pk, employee__company=request.active_company)
+    leave = get_scoped_or_404(LeaveRequest, request, lookup="employee__company", pk=pk)
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "approve":
@@ -223,7 +222,8 @@ class HRIndexView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
+class LeaveRequestDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     model = LeaveRequest
+    company_lookup = "employee__company"
     template_name = "hr/leave_detail.html"
     context_object_name = "leave"
