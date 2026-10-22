@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import DetailView, ListView, TemplateView, UpdateView, View
 
 from .forms import (
@@ -117,7 +118,12 @@ class LoginView(View):
                     messages.success(request, f"Welcome back, {user.first_name or user.email}!")
                 except Exception:
                     pass
-                next_url = request.GET.get("next", "/dashboard/")
+                next_url = request.GET.get("next", "")
+                if not url_has_allowed_host_and_scheme(
+                    next_url, allowed_hosts={request.get_host()},
+                    require_https=request.is_secure(),
+                ):
+                    next_url = "/dashboard/"
                 return redirect(next_url)
             else:
                 try:
