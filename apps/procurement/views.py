@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_POST
@@ -44,14 +45,21 @@ class BillListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-BILL_FIELDS = ["reference", "supplier", "supplier_reference", "bill_date", "due_date",
-               "expense_account", "subtotal", "tax_amount", "total_amount", "notes"]
-LOCKED_ONCE_POSTED = ("reference", "supplier", "bill_date", "expense_account",
+LOCKED_ONCE_POSTED = ("reference", "supplier", "purchase_order", "bill_date", "expense_account",
                       "subtotal", "tax_amount", "total_amount")
 
 
 class _BillFormMixin:
     """Shared by bill create/edit: styling, company-scoped dropdowns, totals check."""
+
+    def get_form_class(self):
+        from .forms import BillForm
+        return BillForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
@@ -86,7 +94,6 @@ class _BillFormMixin:
 class BillCreateView(_BillFormMixin, LoginRequiredMixin, CreateView):
     model = Bill
     template_name = "procurement/bill_form.html"
-    fields = BILL_FIELDS
 
     def get_success_url(self):
         from django.urls import reverse
@@ -172,9 +179,18 @@ class PurchaseOrderListView(LoginRequiredMixin, ListView):
 
 
 class PurchaseOrderCreateView(LoginRequiredMixin, CreateView):
+    """A PO is the items being ordered; its totals are worked out from the lines."""
     model = PurchaseOrder
     template_name = "procurement/po_form.html"
-    fields = ["reference", "supplier", "order_date", "expected_delivery_date", "warehouse", "subtotal", "tax_amount", "total_amount", "notes"]
+
+    def get_form_class(self):
+        from .forms import PurchaseOrderForm
+        return PurchaseOrderForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_success_url(self):
         from django.urls import reverse
@@ -183,36 +199,63 @@ class PurchaseOrderCreateView(LoginRequiredMixin, CreateView):
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         company = self.request.active_company
-        from django import forms as dforms
-        for fname, field in form.fields.items():
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        narrow(form, company, supplier="company", warehouse="company")
-        form.fields["supplier"].queryset = form.fields["supplier"].queryset.filter(is_active=True)
-        form.fields["warehouse"].queryset = form.fields["warehouse"].queryset.filter(is_active=True)
-        if company:
+        _style(form)
+        if company and not form.is_bound:
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "PO-")
         form.fields["order_date"].initial = datetime.date.today()
         return form
 
+    def _lines(self):
+        from .forms import PurchaseOrderLineFormSet
+        kw = {"prefix": "lines", "form_kwargs": {"company": self.request.active_company}}
+        return PurchaseOrderLineFormSet(self.request.POST, **kw) if self.request.method == "POST" \
+            else PurchaseOrderLineFormSet(**kw)
+
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
-        messages.success(self.request, f"Purchase Order '{form.instance.reference}' created.")
-        return super().form_valid(form)
+        lines = self._lines()
+        if not lines.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=lines))
+        with transaction.atomic():
+            form.instance.company = self.request.active_company
+            self.object = form.save()
+            lines.instance = self.object
+            lines.save()
+            _po_totals(self.object)
+        messages.success(self.request, f"Purchase order {self.object.reference} created for "
+                                       f"{self.object.currency} {self.object.total_amount:,.2f}.")
+        return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        ctx.setdefault("line_formset", self._lines())
         ctx["page_title"] = "New Purchase Order"
         return ctx
+
+
+def _style(form):
+    from django import forms as dforms
+    for field in form.fields.values():
+        w = field.widget
+        if isinstance(w, dforms.Select):
+            w.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        elif isinstance(w, dforms.Textarea):
+            w.attrs.update({"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 2})
+        else:
+            w.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            if isinstance(w, dforms.DateInput):
+                w.input_type = "date"
+
+
+def _po_totals(po):
+    sub = tax = Decimal("0")
+    for line in po.lines.select_related("tax_rate"):
+        sub += line.line_total
+        if line.tax_rate:
+            tax += line.line_total * line.tax_rate.rate / 100
+    po.subtotal, po.tax_amount = sub.quantize(Decimal("0.01")), tax.quantize(Decimal("0.01"))
+    po.total_amount = po.subtotal + po.tax_amount
+    po.save(update_fields=["subtotal", "tax_amount", "total_amount", "updated_at"])
 
 
 class PurchaseOrderDetailView(LoginRequiredMixin, DetailView):
@@ -371,10 +414,82 @@ class PurchaseRequisitionDetailView(CompanyScopedMixin, LoginRequiredMixin, Deta
 
 
 class GRNView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
-    """Goods Receipt Note — view & record what came in against a PO."""
+    """Goods Receipt Note: record what arrived against each PO line.
+
+    Each quantity received becomes a stock receipt into the PO's warehouse at
+    the PO's unit cost (Dr Inventory / Cr Goods received not invoiced); the
+    supplier's bill later clears that liability against Payables.
+    """
     model = PurchaseOrder
     template_name = "procurement/grn.html"
     context_object_name = "po"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["lines"] = [(l, max(l.quantity - l.received_quantity, Decimal("0")))
+                        for l in self.object.lines.select_related("product")]
+        ctx["today"] = datetime.date.today()
+        ctx["can_receive"] = self.object.status in ("DRAFT", "SENT", "PARTIALLY_RECEIVED")
+        return ctx
+
+    def post(self, request, pk):
+        from django.core.exceptions import ValidationError
+        from apps.core import guards
+        from apps.inventory.models import StockMovement
+        po = self.get_object()
+        back = redirect("procurement:grn", pk=po.pk)
+        if po.status not in ("DRAFT", "SENT", "PARTIALLY_RECEIVED"):
+            messages.error(request, f"{po.reference} is {po.get_status_display().lower()}; nothing can be received.")
+            return back
+        if not po.warehouse_id:
+            messages.error(request, f"Set the receiving warehouse on {po.reference} first.")
+            return back
+        try:
+            received_on = guards.not_in_future(datetime.date.fromisoformat(
+                request.POST.get("received_date") or datetime.date.today().isoformat()), "Received date")
+        except (ValueError, ValidationError) as e:
+            messages.error(request, " ".join(getattr(e, "messages", ["Enter a valid received date."])))
+            return back
+        plan = []
+        for line in po.lines.select_related("product"):
+            raw = (request.POST.get(f"qty_{line.pk}") or "").strip()
+            if not raw:
+                continue
+            try:
+                qty = guards.parse_amount(raw, f"{line.product.name} quantity", allow_zero=True)
+            except ValidationError as e:
+                messages.error(request, " ".join(e.messages))
+                return back
+            outstanding = line.quantity - line.received_quantity
+            if qty > outstanding:
+                messages.error(request, f"{line.product.name}: {qty:g} received but only {outstanding:g} is still "
+                                        f"on order. Raise a new PO for the extra.")
+                return back
+            if qty:
+                plan.append((line, qty))
+        if not plan:
+            messages.error(request, "Enter the quantity received on at least one line.")
+            return back
+        try:
+            with transaction.atomic():
+                for line, qty in plan:
+                    StockMovement.objects.create(
+                        product=line.product, warehouse=po.warehouse, movement_type="RECEIPT",
+                        quantity=qty, unit_cost=line.unit_cost, reference=f"GRN {po.reference}",
+                        movement_date=received_on, performed_by=request.user,
+                        notes=f"Received against {po.reference} from {po.supplier.name}",
+                    )
+                    line.received_quantity += qty
+                    line.save(update_fields=["received_quantity"])
+                done = all(l.received_quantity >= l.quantity for l in po.lines.all())
+                po.status = "FULLY_RECEIVED" if done else "PARTIALLY_RECEIVED"
+                po.save(update_fields=["status", "updated_at"])
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
+            return back
+        messages.success(request, f"Received {len(plan)} line(s) into {po.warehouse.name}. "
+                                  f"{po.reference} is now {po.get_status_display().lower()}.")
+        return redirect("procurement:po_detail", pk=po.pk)
 
 
 # ------------------------- AP actions -------------------------
@@ -385,7 +500,6 @@ class BillUpdateView(_BillFormMixin, LoginRequiredMixin, UpdateView):
     the amounts, supplier, date and account are locked to match the ledger."""
     model = Bill
     template_name = "procurement/bill_form.html"
-    fields = BILL_FIELDS
 
     def get_queryset(self):
         return Bill.objects.filter(company=self.request.active_company)
@@ -457,14 +571,19 @@ def bill_pay(request, pk):
 
     bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
     company = request.active_company
+    from apps.core import guards
     try:
-        amount = Decimal(request.POST.get("amount") or "0")
-        paid_on = datetime.date.fromisoformat(request.POST.get("payment_date") or datetime.date.today().isoformat())
-    except Exception:
-        messages.error(request, "Enter a valid amount and payment date.")
+        amount = guards.parse_amount(request.POST.get("amount"), "Payment amount")
+        paid_on = guards.not_in_future(datetime.date.fromisoformat(
+            request.POST.get("payment_date") or datetime.date.today().isoformat()), "Payment date")
+    except ValidationError as e:
+        messages.error(request, " ".join(e.messages))
         return redirect("procurement:bill_detail", pk=pk)
-    if amount <= 0:
-        messages.error(request, "Payment amount must be positive.")
+    except ValueError:
+        messages.error(request, "Enter a valid payment date.")
+        return redirect("procurement:bill_detail", pk=pk)
+    if bill.status in ("CANCELLED", "PAID"):
+        messages.error(request, f"Bill {bill.reference} is {bill.get_status_display().lower()}.")
         return redirect("procurement:bill_detail", pk=pk)
     if amount > bill.outstanding_amount:
         messages.error(request, f"Payment ({amount}) exceeds outstanding ({bill.outstanding_amount}).")
@@ -536,28 +655,45 @@ def po_cancel(request, pk):
 
 @login_required
 @require_POST
-def requisition_approve(request, pk):
+def requisition_submit(request, pk):
+    """The requester sends a draft requisition for approval."""
+    req = get_object_or_404(PurchaseRequisition, pk=pk, company=request.active_company)
+    if req.status != "DRAFT":
+        messages.error(request, f"Requisition {req.reference} is already {req.get_status_display().lower()}.")
+    else:
+        req.status = "PENDING_APPROVAL"
+        req.save(update_fields=["status", "updated_at"])
+        messages.success(request, f"Requisition {req.reference} sent for approval.")
+    return redirect("procurement:requisition_detail", pk=pk)
+
+
+def _decide_requisition(request, pk, new_status, verb):
     req = get_object_or_404(PurchaseRequisition, pk=pk, company=request.active_company)
     if req.status != "PENDING_APPROVAL":
-        messages.error(request, f"Requisition {req.reference} is {req.get_status_display()}.")
+        messages.error(request, f"Requisition {req.reference} is {req.get_status_display().lower()}; only "
+                                f"requisitions waiting for approval can be {verb}.")
+    elif req.requested_by_id == request.user.pk:
+        messages.error(request, f"You raised {req.reference}, so someone else has to approve or reject it.")
     else:
         from django.utils import timezone
-        req.status = "APPROVED"
+        req.status = new_status
         req.approved_by = request.user
         req.approved_at = timezone.now()
-        req.save(update_fields=["status", "approved_by", "approved_at"])
-        messages.success(request, f"Requisition {req.reference} approved.")
+        req.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        messages.success(request, f"Requisition {req.reference} {verb}.")
     return redirect("procurement:requisition_detail", pk=pk)
 
 
 @login_required
 @require_POST
+def requisition_approve(request, pk):
+    return _decide_requisition(request, pk, "APPROVED", "approved")
+
+
+@login_required
+@require_POST
 def requisition_reject(request, pk):
-    req = get_object_or_404(PurchaseRequisition, pk=pk, company=request.active_company)
-    req.status = "REJECTED"
-    req.save(update_fields=["status"])
-    messages.success(request, f"Requisition {req.reference} rejected.")
-    return redirect("procurement:requisition_detail", pk=pk)
+    return _decide_requisition(request, pk, "REJECTED", "rejected")
 
 
 # ============================================================

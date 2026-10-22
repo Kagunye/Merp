@@ -1,32 +1,67 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% include "_includes/page_header.html" with title="POS Terminal" subtitle="Scan or search a product, add to cart, take payment" %}
+{% include "_includes/page_header.html" with title="POS Terminal" subtitle="Pick products, enter quantities, take payment" %}
 
 {% if not session %}
 <div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl">
-  No session open. <a href="{% url 'pos:session_open' %}" class="font-semibold underline">Open one</a> to start selling.
+  No till open. <a href="{% url 'pos:session_open' %}" class="font-semibold underline">Open one</a> to start selling.
 </div>
 {% else %}
-
-<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
-  <div class="lg:col-span-3 bg-white rounded-xl border border-gray-200 p-5">
-    <input type="search" placeholder="Scan / search product…" class="w-full px-4 py-3 border rounded-xl mb-4" style="background: #F6F7F9;">
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-      <div class="p-4 bg-gray-50 rounded-lg text-center text-sm text-gray-500 border border-dashed border-gray-300">Product grid<br><span class="text-xs">(Wire up to inventory.Product)</span></div>
+<form method="post" class="no-card grid grid-cols-1 lg:grid-cols-5 gap-6" id="till">
+  {% csrf_token %}
+  <div class="lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100 flex justify-between text-sm">
+      <span class="font-semibold text-gray-800">Cart</span>
+      <span class="text-gray-500">Till opened {{ session.opened_at|date:"d M H:i" }} · {{ session.branch.name }}</span>
     </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs uppercase tracking-wider text-gray-500"><tr>
+        <th class="px-3 py-2 text-left">Product</th><th class="px-3 py-2 text-right w-24">Qty</th><th class="px-3 py-2 text-right w-28">Amount</th>
+      </tr></thead>
+      <tbody>
+        {% for i in rows %}
+        <tr class="cart-row border-b border-gray-50">
+          <td class="px-3 py-2">
+            <select name="product_{{ i }}" class="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white" onchange="tillTotal()">
+              <option value="" data-price="0" data-rate="0">—</option>
+              {% for p in products %}<option value="{{ p.pk }}" data-price="{{ p.selling_price }}" data-rate="{% if p.tax_rate and not p.tax_rate.is_inclusive %}{{ p.tax_rate.rate }}{% else %}0{% endif %}">{{ p.name }} — {{ p.selling_price|floatformat:2 }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="px-3 py-2"><input type="number" name="qty_{{ i }}" min="0.0001" step="0.0001" class="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg text-right font-mono" oninput="tillTotal()"></td>
+          <td class="px-3 py-2 text-right font-mono row-amt">0.00</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
-  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5 flex flex-col" style="min-height: 480px;">
-    <h3 class="text-sm font-semibold text-gray-700 mb-3">Cart</h3>
-    <div class="flex-1 text-sm text-gray-500">No items.</div>
-    <div class="pt-4 border-t space-y-1 text-sm">
-      <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span>0.00</span></div>
-      <div class="flex justify-between"><span class="text-gray-500">Tax</span><span>0.00</span></div>
-      <div class="flex justify-between text-base font-bold pt-2 border-t"><span>Total</span><span style="color: var(--primary);">0.00</span></div>
+  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3">
+    <div class="flex justify-between text-base font-bold"><span>Total</span><span id="till-total" style="color: var(--primary);">0.00</span></div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="pay-method">Paid by</label>
+      <select id="pay-method" name="payment_method" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
+        {% for code, label in payment_methods %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+      </select>
     </div>
-    <button class="mt-4 w-full py-3 rounded-xl text-white font-semibold" style="background: var(--primary);">Take payment</button>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="tendered">Cash tendered</label>
+      <input id="tendered" type="number" step="0.01" min="0" name="amount_tendered" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg text-right font-mono" placeholder="Exact amount if blank">
+    </div>
+    <button type="submit" class="mt-2 w-full py-3 rounded-xl text-white font-semibold" style="background: var(--primary);">Take payment</button>
+    <a href="{% url 'pos:session_close' session.pk %}" class="text-center text-sm text-gray-500 hover:underline">Close till</a>
   </div>
-</div>
-
+</form>
+<script>
+function tillTotal() {
+  let t = 0;
+  document.querySelectorAll('.cart-row').forEach(r => {
+    const s = r.querySelector('select'), o = s.options[s.selectedIndex];
+    const q = parseFloat(r.querySelector('input').value) || (s.value ? 1 : 0);
+    const amt = q * (parseFloat(o.dataset.price) || 0) * (1 + (parseFloat(o.dataset.rate) || 0) / 100);
+    r.querySelector('.row-amt').textContent = amt.toFixed(2); t += amt;
+  });
+  document.getElementById('till-total').textContent = t.toFixed(2);
+}
+</script>
 {% endif %}
 {% endblock %}

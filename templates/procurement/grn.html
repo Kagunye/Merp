@@ -5,27 +5,44 @@
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">PO</div><div class="font-semibold font-mono text-sm">{{ po.reference }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Order date</div><div class="font-semibold">{{ po.order_date|date:"d M Y" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Receiving into</div><div class="font-semibold">{{ po.warehouse.name|default:"— not set" }}</div></div>
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Expected</div><div class="font-semibold">{{ po.expected_delivery_date|date:"d M Y"|default:"—" }}</div></div>
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ po.get_status_display }}</div></div>
 </div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Receipt against PO lines</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Ordered</th><th class="px-4 py-3 text-right">Received so far</th><th class="px-4 py-3 text-right">Outstanding</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for l in po.lines.all %}
-      <tr>
-        <td class="px-4 py-2">{{ l.product.name }}</td>
-        <td class="px-4 py-2 text-right">{{ l.quantity }}</td>
-        <td class="px-4 py-2 text-right text-green-700">{{ l.received_quantity }}</td>
-        <td class="px-4 py-2 text-right font-semibold">{{ l.quantity|floatformat:4 }} - {{ l.received_quantity|floatformat:4 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<p class="text-xs text-gray-500 mt-4">To record received quantities per line, open the <a href="{% url 'procurement:po_detail' po.pk %}" style="color: var(--primary);" class="font-semibold">PO detail page</a> and edit lines there.</p>
+<form method="post" class="no-card">
+  {% csrf_token %}
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr>
+        <th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Ordered</th>
+        <th class="px-4 py-3 text-right">Received so far</th><th class="px-4 py-3 text-right">Still due</th>
+        {% if can_receive %}<th class="px-4 py-3 text-right w-40">Received now</th>{% endif %}
+      </tr></thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for l, due in lines %}
+        <tr>
+          <td class="px-4 py-2">{{ l.product.name }}</td>
+          <td class="px-4 py-2 text-right font-mono">{{ l.quantity|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right font-mono text-green-700">{{ l.received_quantity|floatformat:2 }}</td>
+          <td class="px-4 py-2 text-right font-mono font-semibold">{{ due|floatformat:2 }}</td>
+          {% if can_receive %}<td class="px-4 py-2"><input type="number" name="qty_{{ l.pk }}" min="0" max="{{ due }}" step="0.0001" value="{% if due %}{{ due|floatformat:4 }}{% endif %}" {% if not due %}disabled{% endif %} class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-right font-mono"></td>{% endif %}
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">This PO has no lines.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if can_receive and lines %}
+  <div class="flex flex-wrap items-end gap-3 mt-4">
+    <div>
+      <label class="block text-xs text-gray-500 mb-1" for="received-date">Received on</label>
+      <input id="received-date" type="date" name="received_date" value="{{ today|date:'Y-m-d' }}" class="px-3 py-2 text-sm border border-gray-300 rounded-lg">
+    </div>
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post goods received</button>
+  </div>
+  <p class="text-xs text-gray-500 mt-2">Adds the quantities to stock in {{ po.warehouse.name|default:"the PO's warehouse" }} at the PO cost. The supplier's bill, when it arrives, clears the "goods received not invoiced" balance.</p>
+  {% endif %}
+</form>
 {% endblock %}

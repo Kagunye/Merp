@@ -3,17 +3,28 @@
 {% url 'procurement:requisition_list' as back %}
 {% include "_includes/page_header.html" with title=requisition.reference subtitle="Purchase requisition" back_url=back %}
 
-{% if requisition.status == 'PENDING_APPROVAL' or requisition.status == 'DRAFT' %}
+{% if requisition.status == 'DRAFT' %}
 <div class="flex items-center gap-2 mb-5">
-  <form method="post" action="{% url 'procurement:requisition_approve' requisition.pk %}">
+  <form method="post" action="{% url 'procurement:requisition_submit' requisition.pk %}" class="no-card">
+    {% csrf_token %}
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Send for approval</button>
+  </form>
+</div>
+{% elif requisition.status == 'PENDING_APPROVAL' %}
+{% if requisition.requested_by_id == request.user.pk %}
+<p class="text-sm text-gray-500 mb-5">Waiting for approval. You raised this requisition, so someone else must approve it.</p>
+{% else %}
+<div class="flex items-center gap-2 mb-5">
+  <form method="post" action="{% url 'procurement:requisition_approve' requisition.pk %}" class="no-card">
     {% csrf_token %}
     <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Approve</button>
   </form>
-  <form method="post" action="{% url 'procurement:requisition_reject' requisition.pk %}" onsubmit="return confirm('Reject this requisition?');">
+  <form method="post" action="{% url 'procurement:requisition_reject' requisition.pk %}" class="no-card" onsubmit="return confirm('Reject this requisition?');">
     {% csrf_token %}
     <button type="submit" class="px-4 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Reject</button>
   </form>
 </div>
+{% endif %}
 {% endif %}
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

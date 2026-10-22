@@ -134,10 +134,15 @@ class JournalEntryCreateView(LoginRequiredMixin, CreateView):
         ctx["page_title"] = "New Journal Entry"
         return ctx
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         company = self.request.active_company
-        if company:
+        if company and not form.is_bound:
             from apps.core.models import SequenceCounter
             next_ref = SequenceCounter.next_number(company, "JE-")
             form.fields["reference"].initial = next_ref
@@ -425,7 +430,10 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
                 dr_dec = Decimal(dr or "0")
                 cr_dec = Decimal(cr or "0")
             except Exception:
-                continue
+                dr_dec = cr_dec = Decimal("NaN")
+            if not (dr_dec.is_finite() and cr_dec.is_finite()):
+                messages.error(request, f"{acc.code} {acc.name}: enter the balance as a number.")
+                return redirect("accounting:opening_balances")
             if dr_dec < 0 or cr_dec < 0:
                 messages.error(request, f"{acc.code} {acc.name}: amounts can't be negative — use the other column.")
                 return redirect("accounting:opening_balances")

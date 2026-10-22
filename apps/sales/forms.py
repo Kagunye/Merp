@@ -1,13 +1,17 @@
 """Sales forms."""
 import datetime
+from decimal import Decimal
+
 from django import forms
+from django.db.models import Sum
 from django.forms import inlineformset_factory
 
+from apps.core import guards
 from apps.core.scoping import narrow
 from .models import Invoice, InvoiceLine, CustomerPayment
 
 
-class InvoiceForm(forms.ModelForm):
+class InvoiceForm(guards.GuardedFormMixin, forms.ModelForm):
     class Meta:
         model = Invoice
         fields = ["reference", "customer", "invoice_date", "due_date", "currency", "notes"]
@@ -20,14 +24,37 @@ class InvoiceForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.company = company
         narrow(self, company, customer="company")
         self.fields["customer"].queryset = self.fields["customer"].queryset.filter(is_active=True)
-        if not self.instance.pk:
+        if self.instance._state.adding:
             self.fields["invoice_date"].initial = datetime.date.today()
             self.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
 
+    def clean_invoice_date(self):
+        return guards.plausible_date(self.cleaned_data.get("invoice_date"), "Invoice date")
 
-class InvoiceLineForm(forms.ModelForm):
+    def clean(self):
+        data = super().clean()
+        guards.order(self, "invoice_date", "due_date", "Due date can't be before the invoice date.")
+        guards.unique(self, Invoice, self.company, "reference", "Invoice number")
+        return data
+
+
+class _LineRulesMixin(guards.GuardedFormMixin):
+    """Quantities above zero, prices not negative, discounts 0–100%."""
+
+    def clean_quantity(self):
+        return guards.positive(self.cleaned_data.get("quantity"), "Quantity")
+
+    def clean_unit_price(self):
+        return guards.not_negative(self.cleaned_data.get("unit_price"), "Unit price")
+
+    def clean_discount_percent(self):
+        return guards.percent(self.cleaned_data.get("discount_percent"), "Discount")
+
+
+class InvoiceLineForm(_LineRulesMixin, forms.ModelForm):
     class Meta:
         model = InvoiceLine
         fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]
@@ -58,7 +85,7 @@ InvoiceLineFormSet = inlineformset_factory(
 )
 
 
-class CustomerPaymentForm(forms.ModelForm):
+class CustomerPaymentForm(guards.GuardedFormMixin, forms.ModelForm):
     class Meta:
         model = CustomerPayment
         fields = ["reference", "customer", "payment_date", "amount", "payment_method", "transaction_reference", "notes"]
@@ -70,13 +97,33 @@ class CustomerPaymentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.company = company
         narrow(self, company, customer="company")
         self.fields["customer"].queryset = self.fields["customer"].queryset.filter(is_active=True)
-        if not self.instance.pk:
+        if self.instance._state.adding:
             self.fields["payment_date"].initial = datetime.date.today()
 
+    def clean_amount(self):
+        return guards.positive(self.cleaned_data.get("amount"), "Amount received")
 
-class SalesOrderForm(forms.ModelForm):
+    def clean_payment_date(self):
+        return guards.not_in_future(guards.plausible_date(self.cleaned_data.get("payment_date"), "Payment date"),
+                                    "Payment date")
+
+    def clean(self):
+        data = super().clean()
+        guards.unique(self, CustomerPayment, self.company, "reference", "Receipt number")
+        customer, amount = data.get("customer"), data.get("amount")
+        if customer and amount and amount.is_finite() and self.instance._state.adding:
+            owed = customer.invoices.filter(status__in=["SENT", "PARTIAL", "OVERDUE"]).aggregate(
+                t=Sum("outstanding_amount"))["t"] or Decimal("0")
+            if amount > owed:
+                self.add_error("amount", f"{customer.name} owes {owed:,.2f}. Record the receipt against what is "
+                                         f"owed; an advance or overpayment needs a credit note or refund instead.")
+        return data
+
+
+class SalesOrderForm(guards.GuardedFormMixin, forms.ModelForm):
     class Meta:
         model = __import__('apps.sales.models', fromlist=['SalesOrder']).SalesOrder
         fields = ["reference", "customer", "order_date", "delivery_date", "warehouse",
@@ -94,8 +141,16 @@ class SalesOrderForm(forms.ModelForm):
                sales_rep="users")
         self.fields["customer"].queryset = self.fields["customer"].queryset.filter(is_active=True)
 
+    def clean_discount_percent(self):
+        return guards.percent(self.cleaned_data.get("discount_percent"), "Discount")
 
-class SalesOrderLineForm(forms.ModelForm):
+    def clean(self):
+        data = super().clean()
+        guards.order(self, "order_date", "delivery_date", "Delivery date can't be before the order date.")
+        return data
+
+
+class SalesOrderLineForm(_LineRulesMixin, forms.ModelForm):
     class Meta:
         model = __import__('apps.sales.models', fromlist=['SalesOrderLine']).SalesOrderLine
         fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]

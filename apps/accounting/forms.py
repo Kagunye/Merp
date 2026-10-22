@@ -2,6 +2,7 @@
 from django import forms
 from django.forms import inlineformset_factory
 
+from apps.core import guards
 from apps.core.scoping import narrow
 from .models import Account, JournalEntry, JournalEntryLine
 
@@ -34,7 +35,7 @@ class AccountForm(forms.ModelForm):
         return code
 
 
-class JournalEntryForm(forms.ModelForm):
+class JournalEntryForm(guards.GuardedFormMixin, forms.ModelForm):
     class Meta:
         model = JournalEntry
         fields = ["reference", "entry_type", "posting_date", "notes"]
@@ -43,8 +44,20 @@ class JournalEntryForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 2}),
         }
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
 
-class JournalEntryLineForm(forms.ModelForm):
+    def clean_posting_date(self):
+        return guards.plausible_date(self.cleaned_data.get("posting_date"), "Posting date")
+
+    def clean(self):
+        data = super().clean()
+        guards.unique(self, JournalEntry, self.company, "reference", "Journal reference")
+        return data
+
+
+class JournalEntryLineForm(guards.GuardedFormMixin, forms.ModelForm):
     class Meta:
         model = JournalEntryLine
         fields = ["account", "description", "debit_amount", "credit_amount"]
@@ -54,6 +67,22 @@ class JournalEntryLineForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         narrow(self, company, account="company")
         self.fields["account"].queryset = self.fields["account"].queryset.filter(is_active=True)
+
+    def clean_account(self):
+        account = self.cleaned_data.get("account")
+        if account is not None:
+            subs = account.children.filter(is_active=True).order_by("code")[:3]
+            if subs:
+                names = ", ".join(f"{a.code} {a.name}" for a in subs)
+                raise forms.ValidationError(f"{account.code} {account.name} is a heading. Post to one of its "
+                                            f"sub-accounts instead (e.g. {names}).")
+        return account
+
+    def clean_debit_amount(self):
+        return guards.not_negative(self.cleaned_data.get("debit_amount"), "Debit")
+
+    def clean_credit_amount(self):
+        return guards.not_negative(self.cleaned_data.get("credit_amount"), "Credit")
 
 
 JournalEntryLineFormSet = inlineformset_factory(

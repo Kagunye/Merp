@@ -5,6 +5,7 @@
 
 <form method="post" id="je-form" class="je-form">
   {% csrf_token %}
+  {% include "_includes/form_errors.html" with form=form formset=line_formset %}
 
   <!-- Unified card -->
   <div class="je-card">

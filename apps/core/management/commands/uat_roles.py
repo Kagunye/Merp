@@ -565,12 +565,34 @@ class Command(BaseCommand):
         self.step(w, "pos", "POS_CASHIER", "open the till with 5,000 float", good_open)
 
         def good_sell():
-            r = cashier.get(reverse("pos:terminal"))
-            body = r.content.decode() if r.status_code == 200 else ""
-            can_sell = "<form" in body and ("checkout" in body.lower() or "pos:" in body or "sale" in body.lower()) \
-                and "Take payment" in body and "action=" in body
-            return can_sell, "the terminal has no working checkout: sales can't be recorded"
-        self.step(w, "pos", "POS_CASHIER", "ring up a sale at the terminal", good_sell)
+            from apps.pos.models import POSSale
+            before_stock, before_cash = self.stock(w.product, w.wh1), self.bal(w, "1100")
+            cashier.post(reverse("pos:terminal"), {"product_0": str(w.product.pk), "qty_0": "2",
+                                                   "payment_method": "CASH", "amount_tendered": "1000"})
+            sale = POSSale.objects.filter(session=w.pos_session).first()
+            sold = before_stock - self.stock(w.product, w.wh1)
+            took = self.bal(w, "1100") - before_cash
+            return bool(sale and sold == 2 and took == sale.total_amount and sale.change_given >= 0), \
+                f"sale={bool(sale)}, stock -{sold}, cash +{took}"
+        self.step(w, "pos", "POS_CASHIER", "ring up 2 items for cash: stock down, cash and sales posted", good_sell)
+
+        def sell_more_than_stock():
+            from apps.pos.models import POSSale
+            n = POSSale.objects.filter(session=w.pos_session).count()
+            cashier.post(reverse("pos:terminal"), {"product_0": str(w.product.pk), "qty_0": "999999",
+                                                   "payment_method": "MPESA"})
+            return POSSale.objects.filter(session=w.pos_session).count() > n, "sold more than the store holds"
+        self.probe(w, "pos", "POS_CASHIER", "sell more than is in stock",
+                   "stock goes negative; shrinkage is hidden", "HIGH", sell_more_than_stock)
+
+        def short_cash():
+            from apps.pos.models import POSSale
+            n = POSSale.objects.filter(session=w.pos_session).count()
+            cashier.post(reverse("pos:terminal"), {"product_0": str(w.product.pk), "qty_0": "1",
+                                                   "payment_method": "CASH", "amount_tendered": "1"})
+            return POSSale.objects.filter(session=w.pos_session).count() > n, "cash sale with 1.00 tendered"
+        self.probe(w, "pos", "POS_CASHIER", "cash sale where less cash is tendered than the total",
+                   "the drawer is short from the start", "MEDIUM", short_cash)
 
         def neg_float():
             s = open_session("-2000")
@@ -610,30 +632,55 @@ class Command(BaseCommand):
         from apps.procurement.models import Bill, PurchaseOrder, PurchaseRequisition
         proc, acct, fm = self.a(w, "PROCUREMENT"), self.a(w, "ACCOUNTANT"), self.a(w, "FINANCE_MANAGER")
 
-        def po_payload(ref, sub="10000", tax="1600", total="11600"):
-            return {"reference": ref, "supplier": str(w.supplier.pk), "order_date": self.today.isoformat(),
-                    "expected_delivery_date": (self.today + timedelta(days=7)).isoformat(),
-                    "warehouse": str(w.wh1.pk), "subtotal": sub, "tax_amount": tax, "total_amount": total, "notes": ""}
+        def po_payload(ref, qty="10", cost="1000", **extra):
+            d = {"reference": ref, "supplier": str(w.supplier.pk), "order_date": self.today.isoformat(),
+                 "expected_delivery_date": (self.today + timedelta(days=7)).isoformat(),
+                 "warehouse": str(w.wh1.pk), "notes": "",
+                 "lines-TOTAL_FORMS": "1", "lines-INITIAL_FORMS": "0", "lines-MIN_NUM_FORMS": "1",
+                 "lines-MAX_NUM_FORMS": "1000", "lines-0-product": str(w.product.pk), "lines-0-description": "",
+                 "lines-0-quantity": qty, "lines-0-unit_cost": cost, "lines-0-tax_rate": str(w.vat.pk)}
+            d.update(extra)
+            return d
 
         def good_po():
             r = self.ref(w, "PO"); proc.post(reverse("procurement:po_create"), po_payload(r))
-            return PurchaseOrder.objects.filter(company=w.company, reference=r).exists(), ""
+            w.po = PurchaseOrder.objects.filter(company=w.company, reference=r).first()
+            return w.po is not None, "purchase order not saved"
         self.step(w, "purchasing", "PROCUREMENT", "raise a purchase order", good_po)
 
         def good_po_lines():
-            po = PurchaseOrder.objects.filter(company=w.company).first()
-            r = proc.get(reverse("procurement:po_detail", args=[po.pk]))
-            body = r.content.decode()
-            return ("lines-TOTAL_FORMS" in body or "add line" in body.lower()), \
-                "no way to add the items being ordered to a purchase order"
-        self.step(w, "purchasing", "PROCUREMENT", "add the items being ordered to the purchase order", good_po_lines)
+            po = w.po
+            ok = po and po.lines.count() == 1 and po.total_amount == D("11600")
+            return bool(ok), f"no way to add the items being ordered (lines={po and po.lines.count()}, " \
+                             f"total={po and po.total_amount})"
+        self.step(w, "purchasing", "PROCUREMENT", "PO for 10 × 1,000 + VAT totals 11,600 from its lines", good_po_lines)
 
         def good_receive():
-            po = PurchaseOrder.objects.filter(company=w.company).first()
-            before = self.stock(w.product, w.wh1)
-            proc.post(reverse("procurement:grn", args=[po.pk]), {})
-            return self.stock(w.product, w.wh1) > before, "goods received note can't be posted: stock isn't updated"
-        self.step(w, "purchasing", "PROCUREMENT", "receive the goods against the purchase order", good_receive)
+            po = w.po
+            before, grni_before = self.stock(w.product, w.wh1), self.bal(w, "2150")
+            line = po.lines.first()
+            proc.post(reverse("procurement:grn", args=[po.pk]), {f"qty_{line.pk}": "10",
+                                                                "received_date": self.today.isoformat()})
+            po.refresh_from_db()
+            gained = self.stock(w.product, w.wh1) - before
+            grni = self.bal(w, "2150") - grni_before
+            return gained == 10 and po.status == "FULLY_RECEIVED" and grni == D("10000"), \
+                f"stock +{gained}, PO {po.status}, goods-received-not-invoiced {grni}"
+        self.step(w, "purchasing", "PROCUREMENT", "receive the 10 units against the PO", good_receive)
+
+        def good_po_bill():
+            r = self.ref(w, "BILL")
+            grni_before, ap_before = self.bal(w, "2150"), self.bal(w, "2100")
+            acct.post(reverse("procurement:bill_create"),
+                      {**self.bill_payload(w, r, f"S-{secrets.token_hex(2)}", "10000", "1600", "11600"),
+                       "purchase_order": str(w.po.pk)})
+            b = Bill.objects.filter(company=w.company, reference=r).first()
+            cleared = grni_before - self.bal(w, "2150")
+            owed = self.bal(w, "2100") - ap_before
+            return bool(b and b.journal_entry_id and cleared == D("10000") and owed == D("11600")), \
+                f"bill={bool(b)}, GRNI cleared {cleared}, payables +{owed}"
+        self.step(w, "purchasing", "ACCOUNTANT", "supplier's bill for the PO clears goods-received and raises payables",
+                  good_po_bill)
 
         def good_req():
             r = self.ref(w, "REQ")
@@ -642,16 +689,35 @@ class Command(BaseCommand):
             req = PurchaseRequisition.objects.filter(company=w.company, reference=r).first()
             if not req:
                 return False, "requisition not saved"
+            proc.post(reverse("procurement:requisition_submit", args=[req.pk]))
             fm.post(reverse("procurement:requisition_approve", args=[req.pk]))
             req.refresh_from_db()
             return req.status == "APPROVED", f"a new requisition stays {req.get_status_display()}; it can't be sent for approval"
-        self.step(w, "purchasing", "PROCUREMENT", "raise a requisition and get it approved", good_req)
+        self.step(w, "purchasing", "PROCUREMENT", "raise a requisition, send it, and get it approved", good_req)
 
         def po_bad_totals():
-            r = self.ref(w, "PO"); proc.post(reverse("procurement:po_create"), po_payload(r, total="50000"))
-            return PurchaseOrder.objects.filter(company=w.company, reference=r).exists(), "10,000 + 1,600 saved as 50,000"
+            r = self.ref(w, "PO")
+            proc.post(reverse("procurement:po_create"), po_payload(r, subtotal="10000", tax_amount="1600",
+                                                                 total_amount="50000"))
+            po = PurchaseOrder.objects.filter(company=w.company, reference=r).first()
+            return bool(po and po.total_amount != D("11600")), f"10,000 + 1,600 saved as {po and po.total_amount}"
         self.probe(w, "purchasing", "PROCUREMENT", "purchase order whose total ≠ subtotal + VAT",
                    "commits the company to the wrong amount", "HIGH", po_bad_totals)
+
+        def po_negative():
+            r = self.ref(w, "PO"); proc.post(reverse("procurement:po_create"), po_payload(r, qty="-10"))
+            return PurchaseOrder.objects.filter(company=w.company, reference=r).exists(), "PO for -10 units saved"
+        self.probe(w, "purchasing", "PROCUREMENT", "purchase order for a negative quantity",
+                   "nonsense commitment; negative receipts", "MEDIUM", po_negative)
+
+        def over_receive():
+            r = self.ref(w, "PO"); proc.post(reverse("procurement:po_create"), po_payload(r, qty="5"))
+            po = PurchaseOrder.objects.get(company=w.company, reference=r)
+            before = self.stock(w.product, w.wh1)
+            proc.post(reverse("procurement:grn", args=[po.pk]), {f"qty_{po.lines.first().pk}": "50"})
+            return self.stock(w.product, w.wh1) - before > 5, "received 50 against an order for 5"
+        self.probe(w, "purchasing", "PROCUREMENT", "receive 10× more than was ordered",
+                   "stock and supplier liability inflated beyond what was agreed", "HIGH", over_receive)
 
         def double_bill():
             sref = f"INV-{secrets.token_hex(2)}"
@@ -1290,10 +1356,18 @@ class Command(BaseCommand):
 
         def good():
             r = self.ref(w, "INV")
-            rep.post(reverse("sales:invoice_create"), self.invoice_payload(w, r, qty="10", price="5000"))
+            rep.post(reverse("sales:invoice_create"), self.invoice_payload(w, r, qty="8", price="5000"))
             inv = Invoice.objects.filter(company=w.company, reference=r).first()
-            return bool(inv and inv.journal_entry_id and inv.total_amount == D("58000")), ""
-        self.step(w, "sales", "SALES_REP", "invoice 10 consulting days with VAT (58,000)", good)
+            return bool(inv and inv.journal_entry_id and inv.total_amount == D("46400")), ""
+        self.step(w, "sales", "SALES_REP", "invoice 8 consulting days with VAT (46,400)", good)
+
+        def manager_override():
+            r = self.ref(w, "INV")
+            self.a(w, "SALES_MANAGER").post(reverse("sales:invoice_create"),
+                                            self.invoice_payload(w, r, qty="2", price="5000"))
+            inv = Invoice.objects.filter(company=w.company, reference=r).first()
+            return bool(inv and inv.journal_entry_id), "sales manager couldn't approve going over the limit"
+        self.step(w, "sales", "SALES_MANAGER", "sales manager knowingly invoices past the credit limit", manager_override)
 
     # ================================================================ report
 

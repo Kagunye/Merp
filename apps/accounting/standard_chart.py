@@ -25,6 +25,7 @@ STANDARD_CHART = [
     ("1690", "Accumulated Depreciation", "ASSET", "1600"),
     ("2000", "Current Liabilities", "LIABILITY", None),
     ("2100", "Accounts Payable", "PAYABLE", "2000"),
+    ("2150", "Goods Received Not Invoiced", "LIABILITY", "2000"),
     ("2200", "VAT Payable", "TAX", "2000"),
     ("2210", "VAT Input (recoverable)", "TAX", "2000"),
     ("2300", "PAYE Payable", "LIABILITY", "2000"),

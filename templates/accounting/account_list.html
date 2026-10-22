@@ -20,7 +20,7 @@
   <div class="bg-white border border-gray-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4" style="border-left:4px solid var(--primary)">
     <div>
       <p class="font-semibold text-gray-900">Start with the standard Kenyan chart of accounts</p>
-      <p class="text-sm text-gray-500 mt-0.5">52 accounts (cash, bank, receivables, VAT, PAYE, NSSF, SHIF, sales, expenses) plus the 16% VAT rate. You can rename or add accounts afterwards.</p>
+      <p class="text-sm text-gray-500 mt-0.5">53 accounts (cash, bank, receivables, VAT, PAYE, NSSF, SHIF, sales, expenses) plus the 16% VAT rate. You can rename or add accounts afterwards.</p>
     </div>
     <form method="post" action="{% url 'accounting:account_load_standard' %}" class="no-card">
       {% csrf_token %}

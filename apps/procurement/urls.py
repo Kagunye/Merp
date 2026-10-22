@@ -24,6 +24,7 @@ urlpatterns = [
     path("orders/<uuid:pk>/email/", views.POEmailView.as_view(), name="po_email"),
     path("orders/<uuid:pk>/send/", views.po_send, name="po_send"),
     path("orders/<uuid:pk>/cancel/", views.po_cancel, name="po_cancel"),
+    path("requisitions/<uuid:pk>/submit/", views.requisition_submit, name="requisition_submit"),
     path("requisitions/<uuid:pk>/approve/", views.requisition_approve, name="requisition_approve"),
     path("requisitions/<uuid:pk>/reject/", views.requisition_reject, name="requisition_reject"),
     path("statements/<uuid:pk>/", views.SupplierStatementView.as_view(), name="supplier_statement"),

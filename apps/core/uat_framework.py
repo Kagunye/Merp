@@ -50,7 +50,8 @@ def feedback(response) -> list[str]:
     out = []
     req = getattr(response, "wsgi_request", None)
     storage = getattr(req, "_messages", None)
-    for m in getattr(storage, "_queued_messages", []) or []:
+    # Queued = flashed for the next page; loaded = already rendered on this one.
+    for m in (getattr(storage, "_queued_messages", None) or []) + (getattr(storage, "_loaded_messages", None) or []):
         out.append(str(m))
     ctx = getattr(response, "context", None)
     if ctx:
@@ -65,7 +66,9 @@ def feedback(response) -> list[str]:
                     out.append(f"{field_name}: {' '.join(e)}")
             elif isinstance(errs, list):
                 for e in errs:
-                    if e:
+                    if isinstance(e, dict):
+                        out.extend(f"{k}: {' '.join(v)}" for k, v in e.items())
+                    elif e:
                         out.append(str(e))
             nfe = getattr(f, "non_form_errors", None)
             if callable(nfe):
@@ -73,6 +76,18 @@ def feedback(response) -> list[str]:
     if getattr(response, "status_code", 200) == 403:
         out.append("no access")
     return out
+
+
+def shown_on_page(response, message: str) -> bool:
+    """Would the person actually see `message`? Redirects carry it as a flash
+    message on the next page; a re-rendered form must contain the text."""
+    if response is None or response.status_code in (302, 303, 403):
+        return True
+    import html
+    body = response.content.decode(errors="ignore")
+    text = message.split(": ", 1)[-1] if ": " in message else message
+    probe = text[:50]
+    return probe in body or html.escape(probe) in body or html.escape(probe, quote=False) in body
 
 
 @dataclass
@@ -150,6 +165,7 @@ class Harness:
                 accepted, detail = attempt()
                 holder["accepted"], holder["detail"] = accepted, detail
                 holder["feedback"] = feedback(agent.last_response) if agent and agent.last_response is not None else []
+                holder["response"] = agent.last_response if agent else None
                 raise _Undo()
         except _Undo:
             pass
@@ -160,7 +176,11 @@ class Harness:
         elif holder["accepted"]:
             outcome = Outcome("accepted", holder["detail"])
         elif holder["feedback"]:
-            outcome = Outcome("guarded", holder["feedback"][0][:140])
+            seen = [m for m in holder["feedback"] if shown_on_page(holder.get("response"), m)]
+            if seen:
+                outcome = Outcome("guarded", seen[0][:140])
+            else:
+                outcome = Outcome("silent", f"refused, but the reason isn't shown on the page: {holder['feedback'][0][:100]}")
         else:
             outcome = Outcome("silent", holder["detail"] or "refused without telling the user why")
         self.probes.append(ProbeResult(company.name, module, agent.role if agent else "-", name, risk,

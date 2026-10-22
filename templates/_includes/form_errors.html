@@ -1,0 +1,16 @@
+{% comment %}Lists every error on `form` and `formset` (optional) in one box at the top of a form.
+Usage: {% include "_includes/form_errors.html" with form=form formset=line_formset %}{% endcomment %}
+{% if form.errors or formset.total_error_count %}
+<div class="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg mb-4" role="alert">
+  <p class="font-semibold mb-1">Please fix the following:</p>
+  <ul class="list-disc ml-5 space-y-0.5">
+    {% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}
+    {% for field in form %}{% for e in field.errors %}<li><span class="font-medium">{{ field.label }}:</span> {{ e }}</li>{% endfor %}{% endfor %}
+    {% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}
+    {% for f in formset %}
+      {% for e in f.non_field_errors %}<li>Line {{ forloop.parentloop.counter }}: {{ e }}</li>{% endfor %}
+      {% for field in f %}{% for e in field.errors %}<li>Line {{ forloop.parentloop.parentloop.counter }} — {{ field.label }}: {{ e }}</li>{% endfor %}{% endfor %}
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}

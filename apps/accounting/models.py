@@ -155,6 +155,8 @@ class JournalEntry(BaseModel, NotesMixin):
             )
         if not self.lines.exists():
             raise ValidationError("Journal entry must have at least one line.")
+        if not self.total_debit:
+            raise ValidationError(f"{self.reference} has no amounts on it, so there is nothing to post.")
         assert_period_open(self.company, self.posting_date)
         with transaction.atomic():
             self.status = "POSTED"
@@ -209,6 +211,13 @@ def assert_period_open(company, posting_date):
         raise ValidationError(
             f"{closed.name} is {closed.get_status_display().lower()}, so nothing can be posted on "
             f"{posting_date:%d %b %Y}. Ask the finance manager to reopen it, or date the entry in an open period."
+        )
+    from apps.organizations.models import FiscalYear
+    years = FiscalYear.objects.filter(company=company)
+    if years.exists() and not years.filter(start_date__lte=posting_date, end_date__gte=posting_date).exists():
+        raise ValidationError(
+            f"No fiscal year covers {posting_date:%d %b %Y}. Check the date, or ask the finance manager to set "
+            f"up that fiscal year first."
         )
 
 

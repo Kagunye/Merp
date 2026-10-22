@@ -140,11 +140,16 @@ class StockMovement(BaseModel, NotesMixin):
         return f"{self.movement_type} {self.quantity} {self.product.sku}"
 
     def save(self, *args, **kwargs):
+        if self.quantity is None or self.quantity <= 0:
+            raise ValidationError("Stock movement quantity must be greater than zero; the movement type gives "
+                                  "the direction.")
         self.total_cost = self.quantity * self.unit_cost
         # Determine whether this is a new record (no pk yet means first save)
         is_new = self._state.adding
-        super().save(*args, **kwargs)
-        self._update_stock_level()
+        # One unit: if the stock level can't take the movement, the row isn't kept either.
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            self._update_stock_level()
         if is_new:
             self._post_gl()
 

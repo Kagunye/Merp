@@ -171,6 +171,40 @@ def post_invoice(invoice, user=None) -> JournalEntry:
     return je
 
 
+# ──────────────────────────── POS sale GL ───────────────────────────────────
+
+@transaction.atomic
+def post_pos_sale(sale, user=None) -> JournalEntry:
+    """A till sale is paid on the spot.
+
+    DR  Cash (1100) for cash, else Bank (1200)   sale.total_amount
+    CR  Sales revenue per line                   net of VAT
+    CR  VAT payable                              sale.tax_amount
+    Cost of sales is posted by the stock movements.
+    """
+    company = sale.session.company
+    if sale.payment_method == "CASH":
+        money = _get_account_safe(company, "1100") or _get_account_by_type(company, "CASH")
+    else:
+        money = _get_account_safe(company, "1200") or _get_account_by_type(company, "BANK")
+    default_revenue = _get_account_safe(company, "4100", "4200") or _get_account_by_type(company, "REVENUE")
+    default_vat = _get_account_safe(company, "2200") or _get_account_by_type(company, "TAX")
+    if not money or not default_revenue:
+        raise ValueError("GL posting failed: the chart of accounts needs cash/bank (1100/1200) and sales (4100).")
+
+    je = _new_je(company, "JE-POS-", "RECEIPT", sale.created_at.date() if sale.created_at else timezone.now().date(),
+                 f"Till sale {sale.reference}")
+    _dr(je, money, sale.total_amount, f"{sale.get_payment_method_display()}: {sale.reference}")
+    for line in sale.lines.select_related("product", "product__income_account", "product__tax_rate__account"):
+        net = line.line_total - line.tax_amount
+        _cr(je, line.product.income_account or default_revenue, net, f"{line.product.name} × {line.quantity:g}")
+        if line.tax_amount > 0:
+            rate = line.product.tax_rate
+            _cr(je, (rate and rate.account) or default_vat, line.tax_amount, f"VAT: {sale.reference}")
+    je.post(user=user)
+    return je
+
+
 # ──────────────────────── Customer Payment GL ────────────────────────────────
 
 @transaction.atomic
@@ -349,8 +383,11 @@ def post_bill(bill, user=None) -> JournalEntry:
                 # Non-recoverable or no VAT account: absorb tax into cost
                 _dr(je, inv_acct, line.line_total + tax_amount, line_desc)
     else:
-        # Header-level: charge the account the accountant chose, else Inventory.
-        charge_acct = getattr(bill, "expense_account", None) or inventory_acct
+        # Header-level: charge the account the accountant chose. A bill for a
+        # purchase order clears what the goods receipt put in GRNI; any other
+        # stock bill goes straight to Inventory.
+        charge_acct = getattr(bill, "expense_account", None) or (
+            grni_account(company) if bill.purchase_order_id else inventory_acct)
         if vat_input_acct and bill.tax_amount and bill.tax_amount > 0:
             # Recoverable VAT: separate input VAT debit
             _dr(je, charge_acct, bill.subtotal, f"Purchases: {bill.reference}")
@@ -443,10 +480,14 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
         or _get_account_safe(company, "1400")
         or _get_account_by_type(company, "ASSET")
     )
-    ap_acct = (
-        _get_account_safe(company, "2100")
-        or _get_account_by_type(company, "PAYABLE")
-    )
+    if movement.movement_type == "RECEIPT":
+        # Goods in from a supplier: owed once their bill arrives.
+        ap_acct = grni_account(company)
+    else:
+        ap_acct = (
+            _get_account_safe(company, "2100")
+            or _get_account_by_type(company, "PAYABLE")
+        )
 
     if not inv_acct or not ap_acct:
         return None
@@ -465,6 +506,20 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
         f"AP: {product.name} × {movement.quantity}")
     je.post(user=user)
     return je
+
+
+def grni_account(company) -> Account:
+    """Goods received not invoiced (2150): credited when a PO is received,
+    cleared when the supplier's bill for that PO is posted. Created on first use."""
+    acct = _get_account_safe(company, "2150")
+    if acct:
+        return acct
+    parent = _get_account_safe(company, "2000")
+    acct, _ = Account.objects.get_or_create(
+        company=company, code="2150",
+        defaults={"name": "Goods Received Not Invoiced", "account_type": "LIABILITY", "parent": parent},
+    )
+    return acct
 
 
 # ──────────────────────── Expense Claim GL ───────────────────────────────────

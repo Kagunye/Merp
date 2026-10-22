@@ -2,25 +2,84 @@
 {% block content %}
 {% url 'procurement:po_list' as back_url %}
 {% include "_includes/page_header.html" with title=page_title back_url=back_url %}
-<div class="bg-white rounded-xl border border-gray-200 p-6">
-  <form method="post" class="space-y-4">
-    {% csrf_token %}
-    {% if form.non_field_errors %}
-      <div class="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">{{ form.non_field_errors }}</div>
-    {% endif %}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {% for field in form %}
-      <div class="{% if field.name == 'notes' %}md:col-span-2{% endif %}">
-        <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">{{ field.label }}</label>
-        {{ field }}
-        {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors.0 }}</p>{% endif %}
-      </div>
-      {% endfor %}
+<form method="post" class="no-card space-y-4">
+  {% csrf_token %}
+  {% include "_includes/form_errors.html" with form=form formset=line_formset %}
+  <div class="bg-white rounded-xl border border-gray-200 p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+    {% for field in form %}
+    <div class="{% if field.name == 'notes' %}md:col-span-3{% endif %}">
+      <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="text-xs text-gray-400 mt-1">{{ field.help_text }}</p>{% endif %}
     </div>
-    <div class="flex gap-3 pt-2">
-      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Save Purchase Order</button>
-      <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
+    {% endfor %}
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="font-semibold text-gray-800">Items being ordered</h3>
+      <div class="text-sm font-semibold text-gray-700">Total incl. VAT: <span id="po-total" class="font-mono text-gray-900">0.00</span></div>
     </div>
-  </form>
-</div>
+    {{ line_formset.management_form }}
+    <table class="w-full text-sm">
+      <thead><tr class="bg-gray-50/50 border-b border-gray-100 text-xs uppercase tracking-wider text-gray-600">
+        <th class="text-left px-3 py-2 w-1/4">Product</th><th class="text-left px-3 py-2">Description</th>
+        <th class="text-right px-3 py-2 w-24">Qty</th><th class="text-right px-3 py-2 w-28">Unit cost</th>
+        <th class="text-left px-3 py-2 w-28">VAT</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody id="lines-tbody">
+        {% for lf in line_formset %}
+        <tr class="line-row border-b border-gray-50">
+          {% for hidden in lf.hidden_fields %}{{ hidden }}{% endfor %}
+          <td class="px-3 py-2">
+            <select name="{{ lf.product.html_name }}" class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white">
+              <option value="">— Select product</option>
+              {% for p in lf.product.field.queryset %}<option value="{{ p.pk }}" {% if lf.product.value|stringformat:"s" == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.sku }} — {{ p.name }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="px-3 py-2"><input type="text" name="{{ lf.description.html_name }}" value="{{ lf.description.value|default:'' }}" class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg"></td>
+          <td class="px-3 py-2"><input type="number" step="0.0001" min="0.0001" name="{{ lf.quantity.html_name }}" value="{{ lf.quantity.value|default:'' }}" class="line-qty w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg text-right font-mono" oninput="poTotal()"></td>
+          <td class="px-3 py-2"><input type="number" step="0.0001" min="0" name="{{ lf.unit_cost.html_name }}" value="{{ lf.unit_cost.value|default:'' }}" class="line-cost w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg text-right font-mono" oninput="poTotal()"></td>
+          <td class="px-3 py-2">
+            <select name="{{ lf.tax_rate.html_name }}" class="line-tax w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white" onchange="poTotal()">
+              <option value="" data-rate="0">— No tax</option>
+              {% for t in lf.tax_rate.field.queryset %}<option value="{{ t.pk }}" data-rate="{{ t.rate }}" {% if lf.tax_rate.value|stringformat:"s" == t.pk|stringformat:"s" %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="px-3 py-2 text-center">{% if lf.DELETE %}<input type="checkbox" name="{{ lf.DELETE.html_name }}" title="Remove line" onchange="poTotal()">{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="px-4 py-3 border-t border-gray-100"><button type="button" onclick="addLine()" class="text-sm hover:underline" style="color:var(--primary)">+ Add line</button></div>
+  </div>
+
+  <div class="flex gap-3">
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Save Purchase Order</button>
+    <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
+  </div>
+</form>
+<script>
+function poTotal() {
+  let t = 0;
+  document.querySelectorAll('.line-row').forEach(r => {
+    const del = r.querySelector('[name$="-DELETE"]');
+    if (del && del.checked) return;
+    const q = parseFloat(r.querySelector('.line-qty').value) || 0, c = parseFloat(r.querySelector('.line-cost').value) || 0;
+    const tx = r.querySelector('.line-tax'), rate = parseFloat(tx.options[tx.selectedIndex].dataset.rate) || 0;
+    t += q * c * (1 + rate / 100);
+  });
+  document.getElementById('po-total').textContent = t.toFixed(2);
+}
+function addLine() {
+  const tbody = document.getElementById('lines-tbody'), total = document.querySelector('[name="lines-TOTAL_FORMS"]');
+  const idx = parseInt(total.value), row = tbody.querySelector('.line-row').cloneNode(true);
+  row.querySelectorAll('input,select').forEach(el => {
+    el.name = el.name.replace(/-\d+-/, `-${idx}-`);
+    if (el.type === 'checkbox') el.checked = false; else if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
+  });
+  tbody.appendChild(row); total.value = idx + 1;
+}
+poTotal();
+</script>
 {% endblock %}

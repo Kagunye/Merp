@@ -57,6 +57,11 @@ class ProductCreateView(LoginRequiredMixin, CreateView):
     template_name = "inventory/product_form.html"
     success_url = reverse_lazy("inventory:product_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         company = self.request.active_company
@@ -84,6 +89,11 @@ class ProductUpdateView(LoginRequiredMixin, UpdateView):
     form_class = ProductForm
     template_name = "inventory/product_form.html"
     success_url = reverse_lazy("inventory:product_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_queryset(self):
         return Product.objects.filter(company=self.request.active_company)
@@ -172,11 +182,12 @@ class StockAdjustmentCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.performed_by = self.request.user
         try:
-            self.object = form.save()
+            with transaction.atomic():
+                self.object = form.save()
             messages.success(self.request, "Stock adjustment recorded.")
             return redirect(self.success_url)
         except ValidationError as e:
-            messages.error(self.request, str(e))
+            form.add_error("quantity", " ".join(e.messages))
             return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
@@ -281,44 +292,46 @@ class StockTransferView(LoginRequiredMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         from apps.organizations.models import Warehouse
         company = request.active_company
-        from_pk = request.POST.get("from_warehouse")
-        to_pk = request.POST.get("to_warehouse")
-        product_pk = request.POST.get("product")
-        qty_s = request.POST.get("quantity") or "0"
-        movement_date = request.POST.get("movement_date") or datetime.date.today()
+        from apps.core import guards
+        back = redirect("inventory:stock_transfer")
         reference = request.POST.get("reference") or ""
+        try:
+            qty = guards.parse_amount(request.POST.get("quantity") or "0", "Quantity")
+            movement_date = guards.not_in_future(datetime.date.fromisoformat(
+                request.POST.get("movement_date") or datetime.date.today().isoformat()), "Transfer date")
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
+            return back
+        except ValueError:
+            messages.error(request, "Enter a valid transfer date.")
+            return back
 
-        if from_pk == to_pk:
+        from_w = get_object_or_404(Warehouse, pk=request.POST.get("from_warehouse"), company=company)
+        to_w = get_object_or_404(Warehouse, pk=request.POST.get("to_warehouse"), company=company)
+        product = get_object_or_404(Product, pk=request.POST.get("product"), company=company)
+        if from_w.pk == to_w.pk:
             messages.error(request, "From and To warehouses must differ.")
-            return redirect("inventory:stock_transfer")
+            return back
 
         try:
-            qty = Decimal(qty_s)
-        except Exception:
-            qty = Decimal(0)
-        if qty <= 0:
-            messages.error(request, "Quantity must be positive.")
-            return redirect("inventory:stock_transfer")
-
-        from_w = get_object_or_404(Warehouse, pk=from_pk, company=company)
-        to_w = get_object_or_404(Warehouse, pk=to_pk, company=company)
-        product = get_object_or_404(Product, pk=product_pk, company=company)
-
-        with transaction.atomic():
-            StockMovement.objects.create(
-                product=product, warehouse=from_w, movement_type="TRANSFER_OUT",
-                quantity=qty, unit_cost=product.cost_price or Decimal(0),
-                reference=reference or f"TRF-{to_w.code}",
-                movement_date=movement_date, performed_by=request.user,
-                notes=f"Transfer to {to_w.name}",
-            )
-            StockMovement.objects.create(
-                product=product, warehouse=to_w, movement_type="TRANSFER_IN",
-                quantity=qty, unit_cost=product.cost_price or Decimal(0),
-                reference=reference or f"TRF-{from_w.code}",
-                movement_date=movement_date, performed_by=request.user,
-                notes=f"Transfer from {from_w.name}",
-            )
+            with transaction.atomic():
+                StockMovement.objects.create(
+                    product=product, warehouse=from_w, movement_type="TRANSFER_OUT",
+                    quantity=qty, unit_cost=product.cost_price or Decimal(0),
+                    reference=reference or f"TRF-{to_w.code}",
+                    movement_date=movement_date, performed_by=request.user,
+                    notes=f"Transfer to {to_w.name}",
+                )
+                StockMovement.objects.create(
+                    product=product, warehouse=to_w, movement_type="TRANSFER_IN",
+                    quantity=qty, unit_cost=product.cost_price or Decimal(0),
+                    reference=reference or f"TRF-{from_w.code}",
+                    movement_date=movement_date, performed_by=request.user,
+                    notes=f"Transfer from {from_w.name}",
+                )
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
+            return back
         messages.success(request, f"Transferred {qty} × {product.name}: {from_w.name} → {to_w.name}.")
         return redirect("inventory:warehouse_detail", pk=to_w.pk)
 
@@ -341,31 +354,42 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
         from apps.organizations.models import Warehouse
         company = request.active_company
         warehouse = get_object_or_404(Warehouse, pk=kwargs["pk"], company=company)
-        movement_date = request.POST.get("movement_date") or datetime.date.today()
-        count = 0
-        with transaction.atomic():
-            for sl in StockLevel.objects.filter(warehouse=warehouse).select_related("product"):
-                counted = request.POST.get(f"count_{sl.pk}")
-                if counted is None or counted == "":
-                    continue
-                try:
-                    counted_dec = Decimal(counted)
-                except Exception:
-                    continue
-                variance = counted_dec - sl.quantity
-                if variance == 0:
-                    continue
-                mtype = "ADJUSTMENT_PLUS" if variance > 0 else "ADJUSTMENT_MINUS"
-                StockMovement.objects.create(
-                    product=sl.product, warehouse=warehouse,
-                    movement_type=mtype,
-                    quantity=abs(variance),
-                    unit_cost=sl.product.cost_price or Decimal(0),
-                    reference=f"CYCLE-COUNT-{warehouse.code}",
-                    movement_date=movement_date,
-                    performed_by=request.user,
-                    notes="Cycle count adjustment",
-                )
-                count += 1
+        from apps.core import guards
+        back = redirect("inventory:inventory_count", pk=warehouse.pk)
+        try:
+            movement_date = guards.not_in_future(datetime.date.fromisoformat(
+                request.POST.get("movement_date") or datetime.date.today().isoformat()), "Count date")
+        except (ValueError, ValidationError) as e:
+            messages.error(request, " ".join(getattr(e, "messages", ["Enter a valid count date."])))
+            return back
+        plan = []
+        for sl in StockLevel.objects.filter(warehouse=warehouse).select_related("product"):
+            counted = (request.POST.get(f"count_{sl.pk}") or "").strip()
+            if not counted:
+                continue
+            try:
+                counted_dec = guards.parse_amount(counted, f"{sl.product.name} count", allow_zero=True)
+            except ValidationError:
+                messages.error(request, f"{sl.product.name}: a count must be zero or more (you entered {counted}).")
+                return back
+            if counted_dec != sl.quantity:
+                plan.append((sl, counted_dec - sl.quantity))
+        try:
+            with transaction.atomic():
+                for sl, variance in plan:
+                    StockMovement.objects.create(
+                        product=sl.product, warehouse=warehouse,
+                        movement_type="ADJUSTMENT_PLUS" if variance > 0 else "ADJUSTMENT_MINUS",
+                        quantity=abs(variance),
+                        unit_cost=sl.product.cost_price or Decimal(0),
+                        reference=f"CYCLE-COUNT-{warehouse.code}",
+                        movement_date=movement_date,
+                        performed_by=request.user,
+                        notes="Cycle count adjustment",
+                    )
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
+            return back
+        count = len(plan)
         messages.success(request, f"Cycle count posted: {count} adjustment(s).")
         return redirect("inventory:warehouse_detail", pk=warehouse.pk)

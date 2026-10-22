@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
@@ -89,6 +89,8 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
         ctx = self.get_context_data(form=form)
         formset = ctx["line_formset"]
         if formset.is_valid():
+            if not self._within_credit_limit(form, formset):
+                return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
             with transaction.atomic():
                 self.object = form.save()
                 formset.instance = self.object
@@ -101,6 +103,34 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
             messages.success(self.request, f"Invoice '{self.object.reference}' created and posted.")
             return redirect("sales:invoice_detail", pk=self.object.pk)
         return self.render_to_response(ctx)
+
+    # Roles that may knowingly invoice past a customer's credit limit.
+    CREDIT_OVERRIDE = {"ADMIN", "FINANCE_MANAGER", "SALES_MANAGER"}
+
+    def _within_credit_limit(self, form, formset):
+        customer = form.cleaned_data.get("customer")
+        limit = getattr(customer, "credit_limit", 0) or 0
+        if not customer or limit <= 0:
+            return True
+        new_total = Decimal("0")
+        for f in formset.forms:
+            d = getattr(f, "cleaned_data", None) or {}
+            if not d or d.get("DELETE") or d.get("quantity") is None or d.get("unit_price") is None:
+                continue
+            net = d["quantity"] * d["unit_price"] * (1 - (d.get("discount_percent") or Decimal("0")) / 100)
+            rate = d["tax_rate"].rate if d.get("tax_rate") else Decimal("0")
+            new_total += net * (1 + rate / 100)
+        owed = customer.invoices.filter(status__in=["SENT", "PARTIAL", "OVERDUE"]).aggregate(
+            t=Sum("outstanding_amount"))["t"] or Decimal("0")
+        if owed + new_total <= limit:
+            return True
+        text = (f"{customer.name} already owes {owed:,.2f}; this invoice ({new_total:,.2f}) takes them past "
+                f"their {limit:,.2f} credit limit.")
+        if getattr(self.request, "company_role", None) in self.CREDIT_OVERRIDE or self.request.user.is_superuser:
+            messages.warning(self.request, text + " Raised anyway on your authority.")
+            return True
+        form.add_error("customer", text + " Ask a sales manager or finance to approve it, or take a payment first.")
+        return False
 
     def _recalculate_totals(self, invoice):
         lines = invoice.lines.all()
