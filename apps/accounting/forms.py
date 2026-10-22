@@ -69,8 +69,9 @@ class JournalEntryLineForm(guards.GuardedFormMixin, forms.ModelForm):
         self.fields["account"].queryset = self.fields["account"].queryset.filter(is_active=True)
 
     def clean_account(self):
+        """Top-level group headings (e.g. 6000 Operating Expenses) only summarise their sub-accounts."""
         account = self.cleaned_data.get("account")
-        if account is not None:
+        if account is not None and account.parent_id is None:
             subs = account.children.filter(is_active=True).order_by("code")[:3]
             if subs:
                 names = ", ".join(f"{a.code} {a.name}" for a in subs)

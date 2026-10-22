@@ -19,15 +19,15 @@
         <th class="px-3 py-2 text-left">Product</th><th class="px-3 py-2 text-right w-24">Qty</th><th class="px-3 py-2 text-right w-28">Amount</th>
       </tr></thead>
       <tbody>
-        {% for i in rows %}
+        {% for row in rows %}
         <tr class="cart-row border-b border-gray-50">
           <td class="px-3 py-2">
-            <select name="product_{{ i }}" class="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white" onchange="tillTotal()">
+            <select name="product_{{ row.i }}" class="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg bg-white" onchange="tillTotal()">
               <option value="" data-price="0" data-rate="0">—</option>
-              {% for p in products %}<option value="{{ p.pk }}" data-price="{{ p.selling_price }}" data-rate="{% if p.tax_rate and not p.tax_rate.is_inclusive %}{{ p.tax_rate.rate }}{% else %}0{% endif %}">{{ p.name }} — {{ p.selling_price|floatformat:2 }}</option>{% endfor %}
+              {% for p in products %}<option value="{{ p.pk }}" data-price="{{ p.selling_price }}" data-rate="{% if p.tax_rate and not p.tax_rate.is_inclusive %}{{ p.tax_rate.rate }}{% else %}0{% endif %}" {% if row.product == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }} — {{ p.selling_price|floatformat:2 }}</option>{% endfor %}
             </select>
           </td>
-          <td class="px-3 py-2"><input type="number" name="qty_{{ i }}" min="0.0001" step="0.0001" class="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg text-right font-mono" oninput="tillTotal()"></td>
+          <td class="px-3 py-2"><input type="number" name="qty_{{ row.i }}" value="{{ row.qty }}" min="0.0001" step="0.0001" class="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg text-right font-mono" oninput="tillTotal()"></td>
           <td class="px-3 py-2 text-right font-mono row-amt">0.00</td>
         </tr>
         {% endfor %}
@@ -40,7 +40,7 @@
     <div>
       <label class="block text-xs text-gray-500 mb-1" for="pay-method">Paid by</label>
       <select id="pay-method" name="payment_method" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
-        {% for code, label in payment_methods %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+        {% for code, label in payment_methods %}<option value="{{ code }}" {% if code == method %}selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </div>
     <div>
@@ -62,6 +62,7 @@ function tillTotal() {
   });
   document.getElementById('till-total').textContent = t.toFixed(2);
 }
+tillTotal();
 </script>
 {% endif %}
 {% endblock %}

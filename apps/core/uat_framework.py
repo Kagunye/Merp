@@ -81,6 +81,8 @@ def feedback(response) -> list[str]:
                 out.extend(str(e) for e in nfe())
     if getattr(response, "status_code", 200) == 403:
         out.append("no access")
+    if getattr(response, "status_code", 200) == 405:
+        out.append("action needs a button press (POST), not a link")
     return out
 
 
@@ -92,7 +94,7 @@ def all_messages(response):
 def shown_on_page(response, message: str) -> bool:
     """Would the person actually see `message`? Redirects carry it as a flash
     message on the next page; a re-rendered form must contain the text."""
-    if response is None or response.status_code in (302, 303, 403):
+    if response is None or response.status_code in (302, 303, 403, 405):
         return True
     import html
     body = response.content.decode(errors="ignore")

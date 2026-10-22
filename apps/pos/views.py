@@ -155,9 +155,12 @@ class TerminalView(LoginRequiredMixin, TemplateView):
         ctx["session"] = self._session()
         ctx["products"] = scope(Product.objects.filter(is_active=True), self.request.active_company) \
             .select_related("tax_rate").order_by("name")
-        ctx["rows"] = range(self.ROWS)
+        posted = kwargs.get("posted") or {}
+        # After a refused sale, keep what the cashier rang up.
+        ctx["rows"] = [{"i": i, "product": posted.get(f"product_{i}", ""), "qty": posted.get(f"qty_{i}", "")}
+                       for i in range(self.ROWS)]
         ctx["payment_methods"] = POSSale.PAYMENT_METHODS[:4]
-        ctx.setdefault("posted", {})
+        ctx["method"] = posted.get("payment_method", "CASH")
         return ctx
 
     def post(self, request, *args, **kwargs):

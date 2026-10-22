@@ -29,7 +29,7 @@
         </div>
         <div class="je-field">
           <label class="je-label">Posting Date <span class="je-req">*</span></label>
-          <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:'' }}" class="je-input" required>
+          <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|date:'Y-m-d'|default:form.posting_date.value|default:'' }}" class="je-input" required>
           {% if form.posting_date.errors %}<p class="je-err">{{ form.posting_date.errors.0 }}</p>{% endif %}
         </div>
         <div class="je-field je-field-wide">

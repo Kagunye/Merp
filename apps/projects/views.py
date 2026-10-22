@@ -41,7 +41,15 @@ class ProjectListView(LoginRequiredMixin, ListView):
 class ProjectCreateView(LoginRequiredMixin, CreateView):
     model = Project
     template_name = "projects/project_form.html"
-    fields = ["reference", "name", "description", "status", "start_date", "end_date", "budget", "customer", "manager", "branch", "notes"]
+
+    def get_form_class(self):
+        from .forms import ProjectForm
+        return ProjectForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def get_success_url(self):
         from django.urls import reverse
@@ -65,7 +73,7 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
         narrow(form, company, customer="company", branch="company", manager="users")
         form.fields["customer"].queryset = form.fields["customer"].queryset.filter(is_active=True)
         form.fields["branch"].queryset = form.fields["branch"].queryset.filter(is_active=True)
-        if company:
+        if company and not form.is_bound:
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "PRJ-")
         form.fields["start_date"].initial = datetime.date.today()
@@ -104,7 +112,10 @@ class ProjectDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
 class TaskCreateView(LoginRequiredMixin, CreateView):
     model = Task
     template_name = "projects/task_form.html"
-    fields = ["title", "description", "status", "priority", "assigned_to", "due_date", "estimated_hours", "notes"]
+
+    def get_form_class(self):
+        from .forms import TaskForm
+        return TaskForm
 
     def get_success_url(self):
         from django.urls import reverse

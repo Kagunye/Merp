@@ -92,6 +92,11 @@ class FixedAssetCreateView(LoginRequiredMixin, CreateView):
     form_class = FixedAssetForm
     template_name = "fixed_assets/asset_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def get_success_url(self):
         from django.urls import reverse
         return reverse("fixed_assets:asset_detail", kwargs={"pk": self.object.pk})
@@ -103,9 +108,9 @@ class FixedAssetCreateView(LoginRequiredMixin, CreateView):
             form.fields["category"].queryset = AssetCategory.objects.filter(company=company, is_active=True)
             from apps.crm.models import Supplier
             form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
-            # Generate auto code
-            from apps.core.models import SequenceCounter
-            form.fields["code"].initial = SequenceCounter.next_number(company, "FA-")
+            if not form.is_bound:
+                from apps.core.models import SequenceCounter
+                form.fields["code"].initial = SequenceCounter.next_number(company, "FA-")
         import datetime
         form.fields["purchase_date"].initial = datetime.date.today()
         return form
@@ -162,42 +167,60 @@ class DepreciationRunView(LoginRequiredMixin, FormView):
         if asset.status != "ACTIVE":
             messages.error(self.request, "Only active assets can be depreciated.")
             return self.form_invalid(form)
-        # Check not already done for this period
-        if asset.depreciations.filter(period_date=period_date).exists():
-            messages.error(self.request, f"Depreciation for {period_date} already exists.")
+        import calendar
+        month_end = period_date.replace(day=calendar.monthrange(period_date.year, period_date.month)[1])
+        if month_end < asset.purchase_date:
+            form.add_error("period_date", f"{asset.code} was bought on {asset.purchase_date:%d %b %Y}; it can't be "
+                                          f"depreciated for an earlier month.")
             return self.form_invalid(form)
-        # Calculate depreciation amount
+        if month_end > datetime.date.today().replace(day=1) + datetime.timedelta(days=31):
+            form.add_error("period_date", "Depreciation can't be charged for a future month.")
+            return self.form_invalid(form)
+        done = asset.depreciations.filter(period_date__year=period_date.year, period_date__month=period_date.month).first()
+        if done:
+            form.add_error("period_date", f"{asset.code} was already depreciated for {period_date:%B %Y} "
+                                          f"({done.depreciation_amount:,.2f}).")
+            return self.form_invalid(form)
         if asset.depreciation_method == "SLM":
             amount = asset.monthly_depreciation_slm
-        else:  # WDV
-            monthly_rate = Decimal("1") - (asset.residual_value / asset.purchase_cost) ** (
-                Decimal("1") / (Decimal(str(asset.useful_life_years)) * 12)
-            ) if asset.purchase_cost > 0 else Decimal("0")
-            amount = asset.book_value * monthly_rate
+        else:  # WDV: the annual rate that brings cost down to residual over the life
+            life = Decimal(max(asset.useful_life_years, 1))
+            if asset.residual_value > 0 and asset.purchase_cost > 0:
+                annual_rate = 1 - (asset.residual_value / asset.purchase_cost) ** (1 / life)
+            else:
+                annual_rate = min(Decimal("2") / life, Decimal("1"))   # double-declining when no residual
+            amount = asset.book_value * annual_rate / 12
 
         # Cap at remaining depreciable amount
         remaining = asset.purchase_cost - asset.residual_value - asset.accumulated_depreciation
         if remaining <= 0:
             messages.warning(self.request, "Asset is fully depreciated.")
             return self.form_invalid(form)
-        amount = min(amount, remaining)
-        amount = amount.quantize(Decimal("0.01"))
+        amount = min(amount, remaining).quantize(Decimal("0.01"))
 
         new_accumulated = asset.accumulated_depreciation + amount
         new_book_value = asset.purchase_cost - new_accumulated
 
-        with transaction.atomic():
-            AssetDepreciation.objects.create(
-                asset=asset,
-                period_date=period_date,
-                depreciation_amount=amount,
-                accumulated_depreciation=new_accumulated,
-                book_value_after=new_book_value,
-            )
-            asset.accumulated_depreciation = new_accumulated
-            asset.book_value = new_book_value
-            asset.last_depreciated = period_date
-            asset.save(update_fields=["accumulated_depreciation", "book_value", "last_depreciated", "updated_at"])
+        from django.core.exceptions import ValidationError
+        from apps.accounting.gl_service import post_depreciation
+        try:
+            with transaction.atomic():
+                dep = AssetDepreciation.objects.create(
+                    asset=asset,
+                    period_date=month_end,
+                    depreciation_amount=amount,
+                    accumulated_depreciation=new_accumulated,
+                    book_value_after=new_book_value,
+                )
+                post_depreciation(dep, user=self.request.user)
+                asset.accumulated_depreciation = new_accumulated
+                asset.book_value = new_book_value
+                asset.last_depreciated = month_end
+                asset.save(update_fields=["accumulated_depreciation", "book_value", "last_depreciated", "updated_at"])
+        except (ValidationError, ValueError) as e:
+            form.add_error(None, " ".join(getattr(e, "messages", [str(e)])))
+            return self.form_invalid(form)
+        period_date = month_end
 
         messages.success(self.request, f"Depreciation of {amount:,.2f} posted for {period_date}.")
         return super().form_valid(form)
@@ -228,13 +251,23 @@ class AssetDisposalCreateView(LoginRequiredMixin, CreateView):
             messages.error(self.request, "This asset has already been disposed.")
             from django.urls import reverse
             return redirect(reverse("fixed_assets:asset_detail", kwargs={"pk": asset.pk}))
+        if form.cleaned_data["disposal_date"] < asset.purchase_date:
+            form.add_error("disposal_date", "An asset can't be disposed of before it was bought.")
+            return self.form_invalid(form)
         form.instance.asset = asset
         proceeds = form.cleaned_data["proceeds"]
         form.instance.gain_loss = proceeds - asset.book_value
-        with transaction.atomic():
-            disposal = form.save()
-            asset.status = "DISPOSED"
-            asset.save(update_fields=["status", "updated_at"])
+        from django.core.exceptions import ValidationError
+        from apps.accounting.gl_service import post_asset_disposal
+        try:
+            with transaction.atomic():
+                disposal = form.save()
+                post_asset_disposal(disposal, user=self.request.user)
+                asset.status = "DISPOSED"
+                asset.save(update_fields=["status", "updated_at"])
+        except (ValidationError, ValueError) as e:
+            form.add_error(None, " ".join(getattr(e, "messages", [str(e)])))
+            return self.form_invalid(form)
         messages.success(self.request, f"Asset {asset.code} disposed. Gain/Loss: {disposal.gain_loss:,.2f}")
         return redirect(self.get_success_url())
 

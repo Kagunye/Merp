@@ -20,6 +20,7 @@
 
   <form method="post" class="bg-white rounded-xl border border-gray-200 p-6">
     {% csrf_token %}
+    {% include "_includes/form_errors.html" with form=form %}
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700 mb-1">Depreciation Period <span class="text-red-500">*</span></label>
       {{ form.period_date }}

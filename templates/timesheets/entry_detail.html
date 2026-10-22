@@ -13,8 +13,8 @@
     <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-sm text-gray-900 mt-1">{{ entry.description|default:"—"|linebreaks }}</div></div>
   </div>
   <div class="mt-5 pt-4 border-t flex gap-3">
-    {% if entry.status == 'DRAFT' %}<form method="post" action="{% url 'timesheets:entry_submit' entry.pk %}">{% csrf_token %}<button type="submit">Submit for approval</button></form>{% endif %}
-    {% if entry.status == 'SUBMITTED' %}<form method="post" action="{% url 'timesheets:entry_approve' entry.pk %}">{% csrf_token %}<button type="submit">Approve</button></form>{% endif %}
+    {% if entry.status == 'DRAFT' and entry.user_id == request.user.pk %}<form method="post" action="{% url 'timesheets:entry_submit' entry.pk %}">{% csrf_token %}<button type="submit">Submit for approval</button></form>{% endif %}
+    {% if entry.status == 'SUBMITTED' and entry.user_id != request.user.pk and can_approve %}<form method="post" action="{% url 'timesheets:entry_approve' entry.pk %}">{% csrf_token %}<button type="submit">Approve</button></form>{% endif %}
   </div>
 </div>
 {% endblock %}

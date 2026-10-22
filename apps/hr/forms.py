@@ -116,6 +116,7 @@ class LeaveRequestForm(guards.GuardedFormMixin, forms.ModelForm):
         if only_self:
             emps = emps.filter(pk=own_employee.pk) if own_employee else emps.none()
             self.fields["employee"].help_text = "You can request leave for yourself only."
+            self.fields["employee"].error_messages["invalid_choice"] = "You can request leave for yourself only; ask HR to do it for someone else."
             if own_employee:
                 self.fields["employee"].initial = own_employee.pk
         self.fields["employee"].queryset = emps

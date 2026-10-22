@@ -567,6 +567,64 @@ def post_payroll(run, user=None) -> JournalEntry:
     return je
 
 
+# ──────────────────────────── Fixed assets GL ───────────────────────────────
+
+def _asset_accounts(asset):
+    co, cat = asset.company, asset.category
+    cost = (cat and cat.gl_asset_account) or _get_account_safe(co, "1610", "1630", "1620", "1600")
+    accumulated = (cat and cat.gl_accumulated_account) or ensure_account(
+        co, "1690", "Accumulated Depreciation", "ASSET", "1600")
+    expense = (cat and cat.gl_depreciation_account) or ensure_account(co, "6900", "Depreciation", "EXPENSE", "6000")
+    return cost, accumulated, expense
+
+
+@transaction.atomic
+def post_depreciation(dep, user=None) -> JournalEntry:
+    """DR Depreciation expense / CR Accumulated depreciation, dated the period."""
+    asset = dep.asset
+    _, accumulated, expense = _asset_accounts(asset)
+    je = _new_je(asset.company, "JE-DEP-", "DEPRECIATION", dep.period_date,
+                 f"Depreciation {asset.code} {dep.period_date:%b %Y}")
+    _dr(je, expense, dep.depreciation_amount, f"Depreciation: {asset.name}")
+    _cr(je, accumulated, dep.depreciation_amount, f"Accumulated depreciation: {asset.code}")
+    je.post(user=user)
+    type(dep).objects.filter(pk=dep.pk).update(journal_entry=je)
+    dep.journal_entry = je
+    return je
+
+
+@transaction.atomic
+def post_asset_disposal(disposal, received_into=None, user=None) -> JournalEntry:
+    """Take the asset off the books.
+
+    DR  Accumulated depreciation     accumulated to date
+    DR  Bank / cash                  proceeds
+    CR  Asset cost account           purchase cost
+    and the balance to Other income (gain) or Depreciation (loss on disposal).
+    """
+    asset = disposal.asset
+    co = asset.company
+    cost_acct, accumulated, expense = _asset_accounts(asset)
+    if not cost_acct:
+        raise ValueError("GL posting failed: no fixed-asset account (1610) to take the asset out of.")
+    money = received_into or payment_accounts(co).first()
+    if disposal.proceeds and not money:
+        raise ValueError("GL posting failed: add a bank or cash account to receive the sale proceeds.")
+    je = _new_je(co, "JE-DSP-", "MANUAL", disposal.disposal_date, f"Disposal of {asset.code} {asset.name}")
+    _dr(je, accumulated, asset.accumulated_depreciation, f"Clear accumulated depreciation: {asset.code}")
+    _dr(je, money, disposal.proceeds, f"Proceeds: {asset.code}")
+    _cr(je, cost_acct, asset.purchase_cost, f"Remove cost: {asset.code}")
+    if disposal.gain_loss > 0:
+        _cr(je, ensure_account(co, "4300", "Other Income", "REVENUE", "4000"), disposal.gain_loss,
+            f"Gain on disposal: {asset.code}")
+    elif disposal.gain_loss < 0:
+        _dr(je, expense, -disposal.gain_loss, f"Loss on disposal: {asset.code}")
+    je.post(user=user)
+    type(disposal).objects.filter(pk=disposal.pk).update(journal_entry=je)
+    disposal.journal_entry = je
+    return je
+
+
 # ──────────────────────── Expense Claim GL ───────────────────────────────────
 
 def payment_accounts(company):

@@ -6,6 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404
@@ -60,6 +61,7 @@ class EntryCreateView(LoginRequiredMixin, CreateView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["company"] = getattr(self.request, "active_company", None)
+        kwargs["user"] = self.request.user
         return kwargs
 
     def form_valid(self, form):
@@ -74,11 +76,23 @@ class EntryDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
     template_name = "timesheets/entry_detail.html"
     context_object_name = "entry"
 
+    def get_context_data(self, **kwargs):
+        from apps.core import access
+        ctx = super().get_context_data(**kwargs)
+        ctx["can_approve"] = access.can(self.request.user, getattr(self.request, "company_role", None),
+                                        "timesheets", "entry_approve", "POST")
+        return ctx
+
 
 @login_required
+@require_POST
 def entry_submit(request, pk):
     e = get_scoped_or_404(TimesheetEntry, request, pk=pk)
-    if e.status == "DRAFT":
+    if e.user_id != request.user.pk:
+        messages.error(request, "Only the person who logged these hours can submit them.")
+    elif e.status != "DRAFT":
+        messages.error(request, f"This entry is already {e.get_status_display().lower()}.")
+    else:
         e.status = "SUBMITTED"
         e.save(update_fields=["status"])
         messages.success(request, "Submitted for approval.")
@@ -86,9 +100,14 @@ def entry_submit(request, pk):
 
 
 @login_required
+@require_POST
 def entry_approve(request, pk):
     e = get_scoped_or_404(TimesheetEntry, request, pk=pk)
-    if e.status == "SUBMITTED":
+    if e.user_id == request.user.pk:
+        messages.error(request, "You can't approve your own hours; another manager must.")
+    elif e.status != "SUBMITTED":
+        messages.error(request, f"Only submitted hours can be approved (this entry is {e.get_status_display().lower()}).")
+    else:
         e.status = "APPROVED"
         e.approved_by = request.user
         e.approved_at = timezone.now()

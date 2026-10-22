@@ -363,21 +363,21 @@ class Command(BaseCommand):
         self._expect_bal("6200", 30000, "rent journal")
         self._expect_bal("1200", 470000, "rent journal")
 
-        bad = self._journal(self.acct, f"BAD-{self.tag}", [("6000", 100, 0), ("1100", 0, 90)])
+        bad = self._journal(self.acct, f"BAD-{self.tag}", [("6600", 100, 0), ("1100", 0, 90)])
         if bad:
             self._post(self.acct, reverse("accounting:journal_entry_post", args=[bad.pk]))
             bad.refresh_from_db()
         self._check(bad is None or bad.status != "POSTED", "unbalanced journal cannot be posted",
                     finding=("CRITICAL", "Journals", "An unbalanced journal was posted"))
 
-        oops = self._journal(self.acct, f"OOPS-{self.tag}", [("6000", 5000, 0), ("1100", 0, 5000)])
+        oops = self._journal(self.acct, f"OOPS-{self.tag}", [("6600", 5000, 0), ("1100", 0, 5000)])
         self._post(self.acct, reverse("accounting:journal_entry_post", args=[oops.pk]))
         self._post(self.acct, reverse("accounting:journal_entry_reverse", args=[oops.pk]))
         oops.refresh_from_db()
         self._check(oops.status == "POSTED" and bool(oops.reversed_by_id),
                     "mistaken journal reversed (original kept, linked to its reversal)",
                     finding=("HIGH", "Journals", "Reversing a journal did not link it to a reversal entry"))
-        self._expect_bal("6000", 0, "posting then reversing a 5,000 journal")
+        self._expect_bal("6600", 0, "posting then reversing a 5,000 journal")
         self._expect_bal("1100", 20000, "posting then reversing a 5,000 journal")
         self._tb_balanced("after journals")
 
@@ -639,7 +639,7 @@ class Command(BaseCommand):
                                                   "month, so opening and earlier balances are missing from it"))
 
         r = self._get(self.acct, reverse("reporting:profit_loss") + rng)
-        rev, exp = self._bal("4100") or 0, sum((self._bal(c) or 0) for c in ("6000", "6200", "6300", "6400"))
+        rev, exp = self._bal("4100") or 0, sum((self._bal(c) or 0) for c in ("6000", "6200", "6300", "6400", "6600"))
         want = rev - exp
         self._check(abs(r.context["net_profit"] - want) < D("0.01"),
                     f"P&L net result {r.context['net_profit']:,.2f} matches the ledger ({want:,.2f})",

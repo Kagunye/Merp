@@ -22,12 +22,12 @@
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Invoice Date *</label>
-        <input type="date" name="{{ form.invoice_date.html_name }}" value="{{ form.invoice_date.value|default:'' }}"
+        <input type="date" name="{{ form.invoice_date.html_name }}" value="{{ form.invoice_date.value|date:'Y-m-d'|default:form.invoice_date.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Due Date *</label>
-        <input type="date" name="{{ form.due_date.html_name }}" value="{{ form.due_date.value|default:'' }}"
+        <input type="date" name="{{ form.due_date.html_name }}" value="{{ form.due_date.value|date:'Y-m-d'|default:form.due_date.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
       </div>
       <div class="col-span-2">

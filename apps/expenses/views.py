@@ -44,15 +44,33 @@ class ExpenseClaimListView(LoginRequiredMixin, ListView):
         return ExpenseClaim.objects.filter(company=company).select_related("employee")
 
 
+# Roles that may enter claims on someone else's behalf.
+CLAIM_CLERKS = {"ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"}
+
+
+def _is_clerk(request):
+    return getattr(request, "company_role", None) in CLAIM_CLERKS or request.user.is_superuser
+
+
+def _claim_form_kwargs(view, kwargs):
+    from apps.core.guards import employee_of
+    company = company_of(view.request)
+    kwargs.update(company=company, only_self=not _is_clerk(view.request),
+                  own_employee=employee_of(view.request.user, company))
+    return kwargs
+
+
+def _owns(request, claim):
+    return claim.employee.user_id == request.user.pk
+
+
 class ExpenseClaimCreateView(LoginRequiredMixin, CreateView):
     model = ExpenseClaim
     form_class = ExpenseClaimForm
     template_name = "expenses/claim_form.html"
 
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs["company"] = company_of(self.request)
-        return kwargs
+        return _claim_form_kwargs(self, super().get_form_kwargs())
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -69,10 +87,18 @@ class ExpenseClaimUpdateView(CompanyScopedMixin, LoginRequiredMixin, UpdateView)
     form_class = ExpenseClaimForm
     template_name = "expenses/claim_form.html"
 
+    def dispatch(self, request, *args, **kwargs):
+        claim = self.get_object()
+        if claim.status != "DRAFT":
+            messages.error(request, f"{claim.reference} is {claim.get_status_display().lower()} and can't be edited.")
+            return redirect("expenses:claim_detail", pk=claim.pk)
+        if not (_owns(request, claim) or _is_clerk(request)):
+            messages.error(request, "Only the claimant or finance can edit this claim.")
+            return redirect("expenses:claim_detail", pk=claim.pk)
+        return super().dispatch(request, *args, **kwargs)
+
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs["company"] = company_of(self.request)
-        return kwargs
+        return _claim_form_kwargs(self, super().get_form_kwargs())
 
     def get_success_url(self):
         return reverse("expenses:claim_detail", args=[self.object.pk])
@@ -100,6 +126,13 @@ class ExpenseClaimDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView)
 @require_POST
 def claim_add_line(request, pk):
     claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
+    if claim.status != "DRAFT":
+        messages.error(request, f"{claim.reference} is {claim.get_status_display().lower()}; lines can only be "
+                                f"added to a draft claim. Start a new claim for further expenses.")
+        return redirect("expenses:claim_detail", pk=pk)
+    if not (_owns(request, claim) or _is_clerk(request)):
+        messages.error(request, "Only the claimant or finance can add to this claim.")
+        return redirect("expenses:claim_detail", pk=pk)
     form = ExpenseClaimLineForm(request.POST, request.FILES, company=company_of(request))
     if form.is_valid():
         line = form.save(commit=False)
@@ -109,7 +142,9 @@ def claim_add_line(request, pk):
         claim.save(update_fields=["total_amount"])
         messages.success(request, "Line added.")
     else:
-        messages.error(request, "Could not add line. Check the inputs.")
+        for field, errs in form.errors.items():
+            label = form.fields[field].label if field in form.fields else ""
+            messages.error(request, f"{label + ': ' if label else ''}{' '.join(errs)}")
     return redirect("expenses:claim_detail", pk=pk)
 
 
@@ -117,18 +152,35 @@ def claim_add_line(request, pk):
 @require_POST
 def claim_submit(request, pk):
     claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
-    if claim.status == "DRAFT":
+    if claim.status != "DRAFT":
+        messages.error(request, f"{claim.reference} is already {claim.get_status_display().lower()}.")
+    elif not (_owns(request, claim) or _is_clerk(request)):
+        messages.error(request, "Only the claimant can submit this claim.")
+    elif not claim.lines.exists() or claim.total_amount <= 0:
+        messages.error(request, "Add at least one expense before submitting the claim.")
+    else:
         claim.status = "SUBMITTED"
         claim.save(update_fields=["status"])
         messages.success(request, "Claim submitted for approval.")
     return redirect("expenses:claim_detail", pk=pk)
 
 
+def _decision_blocked(request, claim):
+    if claim.status != "SUBMITTED":
+        return f"{claim.reference} is {claim.get_status_display().lower()}; only submitted claims can be decided."
+    if _owns(request, claim):
+        return "You can't decide your own expense claim; another finance manager must."
+    return None
+
+
 @login_required
 @require_POST
 def claim_approve(request, pk):
     claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
-    if claim.status == "SUBMITTED":
+    blocked = _decision_blocked(request, claim)
+    if blocked:
+        messages.error(request, blocked)
+    else:
         from django.core.exceptions import ValidationError
         from django.db import transaction
         from apps.accounting.gl_service import accrue_expense_claim
@@ -157,6 +209,9 @@ def claim_pay(request, pk):
     if claim.status != "APPROVED":
         messages.error(request, "Only approved claims can be paid.")
         return redirect("expenses:claim_detail", pk=pk)
+    if _owns(request, claim):
+        messages.error(request, "You can't pay your own expense claim; someone else in finance must.")
+        return redirect("expenses:claim_detail", pk=pk)
     accounts = payment_accounts(company_of(request))
     pay_from = accounts.filter(pk=request.POST.get("pay_from")).first() or accounts.first()
     try:
@@ -174,7 +229,10 @@ def claim_pay(request, pk):
 @require_POST
 def claim_reject(request, pk):
     claim = get_scoped_or_404(ExpenseClaim, request, pk=pk)
-    if claim.status == "SUBMITTED":
+    blocked = _decision_blocked(request, claim)
+    if blocked:
+        messages.error(request, blocked)
+    else:
         claim.status = "REJECTED"
         claim.save(update_fields=["status"])
         messages.success(request, "Claim rejected.")
