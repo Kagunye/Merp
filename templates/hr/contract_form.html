@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'hr:employee_detail' employee.pk as back_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="The new contract becomes current; the old one is kept in the history" section_label="Contract" back_url=back_url cancel_url=back_url submit_label="Save contract" %}
+{% endblock %}

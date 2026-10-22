@@ -700,7 +700,9 @@ class Command(BaseCommand):
             proc.post(reverse("procurement:po_create"), po_payload(r, subtotal="10000", tax_amount="1600",
                                                                  total_amount="50000"))
             po = PurchaseOrder.objects.filter(company=w.company, reference=r).first()
-            return bool(po and po.total_amount != D("11600")), f"10,000 + 1,600 saved as {po and po.total_amount}"
+            if po and po.total_amount == D("11600"):
+                return "safe", "typed totals ignored; the PO total is worked out from its lines (11,600)"
+            return bool(po), f"10,000 + 1,600 saved as {po and po.total_amount}"
         self.probe(w, "purchasing", "PROCUREMENT", "purchase order whose total ≠ subtotal + VAT",
                    "commits the company to the wrong amount", "HIGH", po_bad_totals)
 
@@ -838,12 +840,16 @@ class Command(BaseCommand):
                 return False, "work order not saved"
             for action in ("release", "start"):
                 pm.post(reverse(f"manufacturing:work_order_{action}", args=[wo.pk]))
+            ap_before = self.bal(w, "2100")
             pm.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
                     {"actual_quantity": "5", "actual_end": self.today.isoformat()})
             wo.refresh_from_db()
+            ap_moved = self.bal(w, "2100") - ap_before
             ok = wo.status == "COMPLETED" and self.stock(w.finished, w.wh1) == D("5") \
-                and self.stock(w.component, w.wh1) == D("10")
-            return ok, f"status {wo.status}, gates {self.stock(w.finished, w.wh1)}, steel {self.stock(w.component, w.wh1)}"
+                and self.stock(w.component, w.wh1) == D("10") and ap_moved == 0 \
+                and wo.cost == 10 * w.component.cost_price
+            return ok, f"status {wo.status}, gates {self.stock(w.finished, w.wh1)}, steel " \
+                       f"{self.stock(w.component, w.wh1)}, payables moved {ap_moved}, cost {wo.cost}"
         self.step(w, "manufacturing", "PROJECT_MANAGER", "make 5 gates from 10 steel sheets (BOM → work order → complete)", good)
 
         def empty_bom():
@@ -875,6 +881,7 @@ class Command(BaseCommand):
             r = self.ref(w, "WO")
             pm.post(reverse("manufacturing:work_order_create"), wo_payload(r, w.bom, 1))
             wo = WorkOrder.objects.get(company=w.company, reference=r)
+            pm.post(reverse("manufacturing:work_order_release", args=[wo.pk]))
             before = self.stock(w.finished, w.wh1)
             pm.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
                     {"actual_quantity": "-4", "actual_end": self.today.isoformat()})
@@ -886,6 +893,7 @@ class Command(BaseCommand):
             r = self.ref(w, "WO")
             pm.post(reverse("manufacturing:work_order_create"), wo_payload(r, w.bom, 500))
             wo = WorkOrder.objects.get(company=w.company, reference=r)
+            pm.post(reverse("manufacturing:work_order_release", args=[wo.pk]))
             pm.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
                     {"actual_quantity": "500", "actual_end": self.today.isoformat()})
             wo.refresh_from_db()
@@ -926,9 +934,18 @@ class Command(BaseCommand):
         self.step(w, "hr", "HR_MANAGER", "hire a new employee", good)
 
         def good_salary():
-            body = hr.get(reverse("hr:employee_create")).content.decode().lower()
-            return "salary" in body, "there's no screen to record an employee's salary or contract"
-        self.step(w, "hr", "HR_MANAGER", "record the new employee's salary", good_salary)
+            n = self.ref(w, "EMP")
+            hr.post(reverse("hr:employee_create"), {**emp_payload(n), "basic_salary": "65000", "contract_type": "PERMANENT"})
+            e = Employee.objects.filter(company=w.company, employee_number=n).first()
+            if not e:
+                return False, "employee not saved"
+            hr.post(reverse("hr:contract_create", args=[e.pk]), {"contract_type": "PERMANENT", "job_title": "Senior fitter",
+                    "department": str(w.dept.pk), "start_date": self.today.isoformat(), "end_date": "",
+                    "basic_salary": "72000"})
+            current = e.contracts.filter(is_current=True)
+            return current.count() == 1 and current.first().basic_salary == D("72000") and e.contracts.count() == 2, \
+                f"contracts: {[(c.basic_salary, c.is_current) for c in e.contracts.all()]}"
+        self.step(w, "hr", "HR_MANAGER", "hire at 65,000, then raise the salary to 72,000", good_salary)
 
         def child():
             n = self.ref(w, "EMP")
@@ -1052,8 +1069,42 @@ class Command(BaseCommand):
 
         def good_posted():
             r = getattr(w, "payroll", None)
-            return bool(r and r.journal_entry_id), "payroll never reaches the ledger: salaries and PAYE payable missing"
-        self.step(w, "payroll", "PAYROLL_OFFICER", "payroll is posted to the ledger", good_posted)
+            if not r:
+                return False, "no payroll run"
+            paye_before = self.bal(w, "2300")
+            self.a(w, "FINANCE_MANAGER").post(reverse("payroll:run_approve", args=[r.pk]))
+            r.refresh_from_db()
+            paye_moved = self.bal(w, "2300") - paye_before
+            slips_paye = sum(p.paye_tax for p in r.payslips.all())
+            return bool(r.journal_entry_id and r.status == "POSTED" and paye_moved == slips_paye), \
+                f"status {r.status}, PAYE payable +{paye_moved} vs payslips {slips_paye}"
+        self.step(w, "payroll", "FINANCE_MANAGER", "finance manager approves; payroll posts to the ledger", good_posted)
+
+        def self_approve():
+            r = run(self.ref(w, "PAY"), start=self.last_month_start - timedelta(days=62),
+                    end=self.last_month_start - timedelta(days=32))
+            if not r:
+                return False, "run not prepared"
+            self.a(w, "PAYROLL_OFFICER").post(reverse("payroll:run_approve", args=[r.pk]))
+            r.refresh_from_db()
+            return r.status == "POSTED", "payroll officer approved their own run"
+        self.probe(w, "payroll", "PAYROLL_OFFICER", "approve the payroll you prepared",
+                   "one person can pay anyone anything (segregation of duties)", "CRITICAL", self_approve)
+
+        def fm_self_approve():
+            fm = self.a(w, "FINANCE_MANAGER")
+            ref = self.ref(w, "PAY")
+            fm.post(url, {"reference": ref, "period_start": (self.last_month_start - timedelta(days=93)).isoformat(),
+                          "period_end": (self.last_month_start - timedelta(days=63)).isoformat(),
+                          "payment_date": self.today.isoformat(), "notes": ""})
+            r = PayrollRun.objects.filter(company=w.company, reference=ref).first()
+            if not r:
+                return False, "run not prepared"
+            fm.post(reverse("payroll:run_approve", args=[r.pk]))
+            r.refresh_from_db()
+            return r.status == "POSTED", "finance manager prepared and approved the same run"
+        self.probe(w, "payroll", "FINANCE_MANAGER", "prepare a payroll and approve it yourself",
+                   "one person can pay anyone anything (segregation of duties)", "CRITICAL", fm_self_approve)
 
         def twice():
             run(self.ref(w, "PAY"))

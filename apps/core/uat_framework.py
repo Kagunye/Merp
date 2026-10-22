@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import secrets
+from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -51,8 +52,13 @@ def feedback(response) -> list[str]:
     req = getattr(response, "wsgi_request", None)
     storage = getattr(req, "_messages", None)
     # Queued = flashed for the next page; loaded = already rendered on this one.
-    for m in (getattr(storage, "_queued_messages", None) or []) + (getattr(storage, "_loaded_messages", None) or []):
-        out.append(str(m))
+    # Only messages this request produced (the agent strips ones carried over
+    # from earlier, possibly rolled-back, requests). Success messages are never a refusal.
+    from django.contrib.messages import SUCCESS
+    msgs = response.fresh_messages if hasattr(response, "fresh_messages") else all_messages(response)
+    for m in msgs:
+        if m.level != SUCCESS:
+            out.append(str(m))
     ctx = getattr(response, "context", None)
     if ctx:
         for key in ("form", "line_formset", "formset"):
@@ -78,6 +84,11 @@ def feedback(response) -> list[str]:
     return out
 
 
+def all_messages(response):
+    storage = getattr(getattr(response, "wsgi_request", None), "_messages", None)
+    return (getattr(storage, "_queued_messages", None) or []) + (getattr(storage, "_loaded_messages", None) or [])
+
+
 def shown_on_page(response, message: str) -> bool:
     """Would the person actually see `message`? Redirects carry it as a flash
     message on the next page; a re-rendered form must contain the text."""
@@ -100,6 +111,29 @@ class Agent:
     name: str
     client: Client = None
     last_response: object = None
+    carried: Counter = field(default_factory=Counter)
+
+    def _track(self, response):
+        """Mark which flash messages are new to this response. Messages queued
+        by a redirect stay in the session and resurface on the next request,
+        even if the database work behind them was rolled back."""
+        msgs = all_messages(response)
+        fresh, left = [], Counter(self.carried)
+        for m in msgs:
+            key = (m.level, str(m))
+            if left[key]:
+                left[key] -= 1
+            else:
+                fresh.append(m)
+        response.fresh_messages = fresh
+        # What Django's message storage writes back: everything unless it was rendered.
+        storage = getattr(getattr(response, "wsgi_request", None), "_messages", None)
+        queued = list(getattr(storage, "_queued_messages", None) or [])
+        still_stored = queued if getattr(storage, "used", False) else \
+            list(getattr(storage, "_loaded_messages", None) or []) + queued
+        self.carried = Counter((m.level, str(m)) for m in still_stored)
+        self.last_response = response
+        return response
 
     def login(self):
         c = Client(enforce_csrf_checks=True)
@@ -117,18 +151,15 @@ class Agent:
     def post(self, url, data=None, **kw):
         data = dict(data or {})
         data["csrfmiddlewaretoken"] = self.token()
-        self.last_response = self.client.post(url, data, **kw)
-        return self.last_response
+        return self._track(self.client.post(url, data, **kw))
 
     def post_json(self, url, payload):
         import json
-        self.last_response = self.client.post(url, json.dumps(payload), content_type="application/json",
-                                              HTTP_X_CSRFTOKEN=self.token())
-        return self.last_response
+        return self._track(self.client.post(url, json.dumps(payload), content_type="application/json",
+                                            HTTP_X_CSRFTOKEN=self.token()))
 
     def get(self, url):
-        self.last_response = self.client.get(url)
-        return self.last_response
+        return self._track(self.client.get(url))
 
 
 class Harness:
@@ -155,6 +186,7 @@ class Harness:
     # ---- bad transactions --------------------------------------------
     def probe(self, company, module, agent, name, risk, severity, attempt):
         """`attempt()` performs the bad transaction and returns (accepted, detail).
+        `accepted` may be "safe" when the input went through but was handled correctly.
 
         Everything it does is rolled back afterwards, so an accepted bad
         transaction can't affect later tests.
@@ -173,6 +205,9 @@ class Harness:
             holder = {"crash": f"{type(exc).__name__}: {str(exc)[:160]}"}
         if "crash" in holder:
             outcome = Outcome("crashed", holder["crash"])
+        elif holder["accepted"] == "safe":
+            # The input was taken but handled correctly (e.g. a tampered total recomputed).
+            outcome = Outcome("guarded", holder["detail"])
         elif holder["accepted"]:
             outcome = Outcome("accepted", holder["detail"])
         elif holder["feedback"]:

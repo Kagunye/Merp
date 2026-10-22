@@ -47,6 +47,11 @@ class PayrollRun(BaseModel, NotesMixin):
     total_deductions = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     total_net = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True)
+    prepared_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name="payroll_runs_prepared")
+    approved_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name="payroll_runs_approved")
+    approved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-period_end"]

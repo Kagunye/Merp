@@ -3,9 +3,11 @@ import datetime
 from decimal import Decimal
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
 from .forms import BOMForm, BOMLineFormSet, CompleteWorkOrderForm, WorkOrderForm
@@ -73,10 +75,12 @@ class BOMCreateView(LoginRequiredMixin, CreateView):
         form.instance.company = self.request.active_company
         ctx = self.get_context_data(form=form)
         formset = ctx["line_formset"]
+        formset.made = form.cleaned_data.get("product")
         if formset.is_valid():
-            self.object = form.save()
-            formset.instance = self.object
-            formset.save()
+            with transaction.atomic():
+                self.object = form.save()
+                formset.instance = self.object
+                formset.save()
             messages.success(self.request, f"BOM '{self.object.name}' created.")
             return redirect(self.get_success_url())
         return self.render_to_response(ctx)
@@ -149,7 +153,7 @@ class WorkOrderCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
-        wo = form.save()
+        wo = self.object = form.save()
         # Pre-populate consumptions from BOM lines
         for line in wo.bom.lines.all():
             ratio = wo.planned_quantity / wo.bom.production_quantity
@@ -184,78 +188,83 @@ class WorkOrderDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+@login_required
+@require_POST
 def work_order_complete(request, pk):
-    """POST — complete a work order, record stock movements."""
-    from django.contrib.auth.decorators import login_required
-    from apps.inventory.models import StockMovement
+    """Complete a released work order: issue the materials, receive the output.
+
+    The output is valued at what the materials cost, so production moves
+    value from raw materials to finished goods without touching profit.
+    """
+    from django.core.exceptions import ValidationError
+    from apps.inventory.models import StockLevel, StockMovement
 
     wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
-    if request.method != "POST":
-        return redirect("manufacturing:work_order_detail", pk=pk)
-    if wo.status not in ("RELEASED", "IN_PROGRESS", "DRAFT"):
-        messages.error(request, "Work order cannot be completed in its current state.")
-        return redirect("manufacturing:work_order_detail", pk=pk)
+    back = redirect("manufacturing:work_order_detail", pk=pk)
+    if wo.status not in ("RELEASED", "IN_PROGRESS"):
+        messages.error(request, f"{wo.reference} is {wo.get_status_display().lower()}. Release it to production "
+                                f"before recording output." if wo.status == "DRAFT" else
+                       f"{wo.reference} is {wo.get_status_display().lower()} and can't be completed.")
+        return back
 
     form = CompleteWorkOrderForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Invalid form data.")
-        return redirect("manufacturing:work_order_detail", pk=pk)
+        for field, errs in form.errors.items():
+            messages.error(request, " ".join(errs))
+        return back
 
     actual_qty = form.cleaned_data["actual_quantity"]
     actual_end = form.cleaned_data["actual_end"]
 
     if not wo.warehouse:
         messages.error(request, "Work order must have a warehouse assigned.")
-        return redirect("manufacturing:work_order_detail", pk=pk)
+        return back
 
-    with transaction.atomic():
-        # Record material consumption (PRODUCTION_OUT)
-        for consumption in wo.consumptions.select_related("product"):
-            if consumption.planned_quantity > 0:
-                try:
-                    StockMovement.objects.create(
-                        product=consumption.product,
-                        warehouse=wo.warehouse,
-                        movement_type="PRODUCTION_OUT",
-                        quantity=consumption.planned_quantity,
-                        unit_cost=consumption.product.cost_price,
-                        reference=wo.reference,
-                        movement_date=actual_end,
-                        performed_by=request.user,
-                    )
-                    consumption.actual_quantity = consumption.planned_quantity
-                    consumption.save(update_fields=["actual_quantity"])
-                except Exception as e:
-                    messages.error(request, f"Stock error for {consumption.product}: {e}")
-                    raise
+    short = []
+    for c in wo.consumptions.select_related("product"):
+        level = StockLevel.objects.filter(product=c.product, warehouse=wo.warehouse).first()
+        have = level.quantity if level else Decimal("0")
+        if c.planned_quantity > have and not c.product.allow_negative_stock:
+            short.append(f"{c.product.name} (need {c.planned_quantity:g}, have {have:g})")
+    if short:
+        messages.error(request, f"Not enough materials in {wo.warehouse.name}: {'; '.join(short)}.")
+        return back
 
-        # Record production output (PRODUCTION_IN)
-        try:
+    try:
+        with transaction.atomic():
+            material_cost = Decimal("0")
+            for consumption in wo.consumptions.select_related("product"):
+                if consumption.planned_quantity <= 0:
+                    continue
+                level = StockLevel.objects.filter(product=consumption.product, warehouse=wo.warehouse).first()
+                unit_cost = (level.avg_cost if level and level.avg_cost else consumption.product.cost_price)
+                StockMovement.objects.create(
+                    product=consumption.product, warehouse=wo.warehouse, movement_type="PRODUCTION_OUT",
+                    quantity=consumption.planned_quantity, unit_cost=unit_cost, reference=wo.reference,
+                    movement_date=actual_end, performed_by=request.user,
+                )
+                material_cost += consumption.planned_quantity * unit_cost
+                consumption.actual_quantity = consumption.planned_quantity
+                consumption.save(update_fields=["actual_quantity"])
+
             StockMovement.objects.create(
-                product=wo.bom.product,
-                warehouse=wo.warehouse,
-                movement_type="PRODUCTION_IN",
+                product=wo.bom.product, warehouse=wo.warehouse, movement_type="PRODUCTION_IN",
                 quantity=actual_qty,
-                unit_cost=wo.bom.product.cost_price,
-                reference=wo.reference,
-                movement_date=actual_end,
-                performed_by=request.user,
+                unit_cost=(material_cost / actual_qty) if material_cost else wo.bom.product.cost_price,
+                reference=wo.reference, movement_date=actual_end, performed_by=request.user,
             )
-        except Exception as e:
-            messages.error(request, f"Output stock error: {e}")
-            raise
+            wo.actual_quantity = actual_qty
+            wo.actual_end = actual_end
+            wo.cost = material_cost
+            wo.status = "COMPLETED"
+            wo.save(update_fields=["actual_quantity", "actual_end", "cost", "status", "updated_at"])
+    except ValidationError as e:
+        messages.error(request, " ".join(e.messages))
+        return back
 
-        wo.actual_quantity = actual_qty
-        wo.actual_end = actual_end
-        wo.status = "COMPLETED"
-        wo.save(update_fields=["actual_quantity", "actual_end", "status", "updated_at"])
-
-    messages.success(request, f"Work Order {wo.reference} completed. Output: {actual_qty} {wo.bom.product.name}")
-    return redirect("manufacturing:work_order_detail", pk=pk)
-
-
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST
+    messages.success(request, f"Work Order {wo.reference} completed. Output: {actual_qty:g} {wo.bom.product.name} "
+                              f"at a material cost of {material_cost:,.2f}.")
+    return back
 
 
 @login_required

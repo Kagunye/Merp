@@ -7,9 +7,21 @@
     <h1 class="text-2xl font-bold text-gray-900">{{ run.reference }}</h1>
     <p class="text-sm text-gray-500 mt-0.5">{{ run.period_start }} — {{ run.period_end }}</p>
   </div>
+  <div class="flex items-center gap-2">
+  {% if run.status == 'DRAFT' %}
+    {% if run.prepared_by_id == request.user.pk %}
+    <span class="text-xs text-gray-500">Prepared by you — waiting for a finance manager to approve.</span>
+    {% else %}
+    <form method="post" action="{% url 'payroll:run_approve' run.pk %}" class="no-card" onsubmit="return confirm('Approve and post this payroll to the ledger?');">
+      {% csrf_token %}
+      <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Approve &amp; post</button>
+    </form>
+    {% endif %}
+  {% endif %}
   <span class="badge {% if run.status == 'POSTED' %}bg-green-50 text-green-700{% elif run.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif run.status == 'APPROVED' %}bg-blue-50 text-blue-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm px-3 py-1.5">
     {{ run.get_status_display }}
   </span>
+  </div>
 </div>
 
 <!-- Totals summary -->

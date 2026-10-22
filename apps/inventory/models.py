@@ -196,9 +196,11 @@ class StockMovement(BaseModel, NotesMixin):
                 post_stock_delivery,
                 post_stock_receipt,
             )
-            if self.movement_type in ("DELIVERY", "ADJUSTMENT_MINUS", "PRODUCTION_OUT"):
+            # Production moves value between stock items (materials → finished
+            # goods at material cost), so it doesn't touch cost of sales or payables.
+            if self.movement_type in ("DELIVERY", "ADJUSTMENT_MINUS"):
                 post_stock_delivery(self)
-            elif self.movement_type in ("RECEIPT", "OPENING", "ADJUSTMENT_PLUS", "PRODUCTION_IN"):
+            elif self.movement_type in ("RECEIPT", "OPENING", "ADJUSTMENT_PLUS"):
                 post_stock_receipt(self)
         except Exception:
             # GL posting failure must never block stock operations

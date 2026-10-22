@@ -10,6 +10,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 
 from apps.core.scoping import CompanyScopedMixin, get_scoped_or_404, narrow
 
+from .forms import ContractForm, EmployeeForm, LeaveRequestForm
 from .models import Employee, LeaveRequest, LeaveType
 
 
@@ -43,54 +44,107 @@ class EmployeeListView(LoginRequiredMixin, ListView):
         return ctx
 
 
+def _style(form):
+    from django import forms as dforms
+    for field in form.fields.values():
+        w = field.widget
+        if isinstance(w, dforms.Select):
+            w.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+        elif isinstance(w, dforms.Textarea):
+            w.attrs.update({"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 3})
+        else:
+            w.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            if isinstance(w, dforms.DateInput):
+                w.input_type = "date"
+    return form
+
+
 class EmployeeCreateView(LoginRequiredMixin, CreateView):
     model = Employee
+    form_class = EmployeeForm
     template_name = "hr/employee_form.html"
-    fields = [
-        "employee_number", "first_name", "last_name", "other_names",
-        "gender", "date_of_birth", "date_hired", "status",
-        "department", "branch", "job_title", "reports_to",
-        "national_id", "kra_pin", "nssf_number", "nhif_number",
-        "phone", "email", "bank_name", "bank_account_number", "notes",
-    ]
 
     def get_success_url(self):
         from django.urls import reverse
         return reverse("hr:employee_detail", kwargs={"pk": self.object.pk})
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def get_form(self, form_class=None):
-        form = super().get_form(form_class)
+        form = _style(super().get_form(form_class))
         company = self.request.active_company
-        # Style all fields
-        for fname, field in form.fields.items():
-            from django import forms as dforms
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        narrow(form, company, department="company", branch="company", reports_to="company")
-        for fname in ("department", "branch", "reports_to"):
-            form.fields[fname].queryset = form.fields[fname].queryset.filter(is_active=True)
-        if company:
+        if company and not form.is_bound:
             from apps.core.models import SequenceCounter
             form.fields["employee_number"].initial = SequenceCounter.next_number(company, "EMP-")
         form.fields["date_hired"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
+        from django.db import transaction
+        from .models import Contract
         form.instance.company = self.request.active_company
-        messages.success(self.request, f"Employee '{form.instance.full_name}' created.")
-        return super().form_valid(form)
+        with transaction.atomic():
+            self.object = form.save()
+            salary = form.cleaned_data.get("basic_salary")
+            if salary:
+                Contract.objects.create(employee=self.object, contract_type=form.cleaned_data.get("contract_type") or "PERMANENT",
+                                        start_date=self.object.date_hired, basic_salary=salary, is_current=True,
+                                        job_title=self.object.job_title or "Staff", department=self.object.department)
+        note = "" if form.cleaned_data.get("basic_salary") else " Add their salary before the next payroll."
+        messages.success(self.request, f"Employee '{self.object.full_name}' created.{note}")
+        return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "New Employee"
+        return ctx
+
+
+class ContractCreateView(LoginRequiredMixin, CreateView):
+    """New contract or salary change. The previous contract stops being current."""
+    form_class = ContractForm
+    template_name = "hr/contract_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.employee = get_scoped_or_404(Employee, request, pk=kwargs["pk"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update(company=self.request.active_company, employee=self.employee)
+        return kwargs
+
+    def get_form(self, form_class=None):
+        form = _style(super().get_form(form_class))
+        current = self.employee.contracts.filter(is_current=True).first()
+        if not form.is_bound:
+            form.fields["start_date"].initial = datetime.date.today()
+            form.fields["job_title"].initial = self.employee.job_title
+            form.fields["department"].initial = self.employee.department_id
+            if current:
+                form.fields["basic_salary"].initial = current.basic_salary
+                form.fields["contract_type"].initial = current.contract_type
+        return form
+
+    def form_valid(self, form):
+        from django.db import transaction
+        with transaction.atomic():
+            self.employee.contracts.filter(is_current=True).update(is_current=False)
+            form.instance.employee = self.employee
+            form.instance.is_current = True
+            self.object = form.save()
+        messages.success(self.request, f"{self.employee.full_name}: {self.object.get_contract_type_display().lower()} "
+                                       f"contract at {self.object.basic_salary:,.2f} a month from "
+                                       f"{self.object.start_date:%d %b %Y}.")
+        return redirect("hr:employee_detail", pk=self.employee.pk)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["employee"] = self.employee
+        ctx["page_title"] = f"Contract / salary — {self.employee.full_name}"
         return ctx
 
 
@@ -105,6 +159,9 @@ class EmployeeDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView):
         ctx["contracts"] = self.object.contracts.order_by("-start_date")[:5]
         ctx["leave_requests"] = self.object.leave_requests.order_by("-created_at")[:10]
         ctx["payslips"] = self.object.payslips.select_related("payroll_run").order_by("-created_at")[:10]
+        from apps.core import access
+        ctx["can_edit_contract"] = access.can(self.request.user, getattr(self.request, "company_role", None),
+                                              "hr", "contract_create", "POST")
         return ctx
 
 
@@ -141,35 +198,32 @@ class LeaveRequestListView(LoginRequiredMixin, ListView):
         return ctx
 
 
+# Roles that may file and decide leave for other people.
+LEAVE_ADMINS = {"ADMIN", "HR_MANAGER"}
+
+
 class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
     model = LeaveRequest
+    form_class = LeaveRequestForm
     template_name = "hr/leave_form.html"
-    fields = ["employee", "leave_type", "start_date", "end_date", "notes"]
 
     def get_success_url(self):
         from django.urls import reverse
         return reverse("hr:leave_list")
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
+    def get_form_kwargs(self):
+        from apps.core.guards import employee_of
+        kwargs = super().get_form_kwargs()
         company = self.request.active_company
-        from django import forms as dforms
-        for fname, field in form.fields.items():
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        narrow(form, company, employee="company", leave_type="company")
-        form.fields["employee"].queryset = form.fields["employee"].queryset.filter(is_active=True, status="ACTIVE")
-        form.fields["leave_type"].queryset = form.fields["leave_type"].queryset.filter(is_active=True)
-        form.fields["start_date"].initial = datetime.date.today()
-        form.fields["end_date"].initial = datetime.date.today()
+        admin = getattr(self.request, "company_role", None) in LEAVE_ADMINS or self.request.user.is_superuser
+        kwargs.update(company=company, only_self=not admin, own_employee=employee_of(self.request.user, company))
+        return kwargs
+
+    def get_form(self, form_class=None):
+        form = _style(super().get_form(form_class))
+        if not form.is_bound:
+            form.fields["start_date"].initial = datetime.date.today()
+            form.fields["end_date"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
@@ -184,23 +238,33 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
 
 @login_required
 def leave_approve(request, pk):
-    """POST — approve or reject a leave request."""
-    leave = get_scoped_or_404(LeaveRequest, request, lookup="employee__company", pk=pk)
-    if request.method == "POST":
-        action = request.POST.get("action")
-        if action == "approve":
-            leave.status = "APPROVED"
-            leave.approved_by = request.user
-            leave.approved_at = timezone.now()
-            leave.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-            messages.success(request, f"Leave approved for {leave.employee.full_name}.")
-        elif action == "reject":
-            leave.status = "REJECTED"
-            leave.rejection_reason = request.POST.get("reason", "")
-            leave.save(update_fields=["status", "rejection_reason", "updated_at"])
-            messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
+    """POST — approve or reject a pending leave request (not your own)."""
     from django.urls import reverse
-    return redirect(reverse("hr:leave_list"))
+    leave = get_scoped_or_404(LeaveRequest, request, lookup="employee__company", pk=pk)
+    back = redirect(reverse("hr:leave_detail", args=[leave.pk]))
+    if request.method != "POST":
+        return back
+    action = request.POST.get("action")
+    if action not in ("approve", "reject"):
+        messages.error(request, "Choose approve or reject.")
+    elif leave.status != "PENDING":
+        messages.error(request, f"This request is already {leave.get_status_display().lower()}.")
+    elif leave.employee.user_id == request.user.pk:
+        messages.error(request, "You can't decide your own leave. Another HR manager or an admin must do it.")
+    elif action == "approve":
+        leave.status = "APPROVED"
+        leave.approved_by = request.user
+        leave.approved_at = timezone.now()
+        leave.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        messages.success(request, f"Leave approved for {leave.employee.full_name}.")
+    else:
+        leave.status = "REJECTED"
+        leave.approved_by = request.user
+        leave.approved_at = timezone.now()
+        leave.rejection_reason = request.POST.get("reason", "")
+        leave.save(update_fields=["status", "approved_by", "approved_at", "rejection_reason", "updated_at"])
+        messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
+    return back
 
 
 class HRIndexView(LoginRequiredMixin, TemplateView):
@@ -227,3 +291,9 @@ class LeaveRequestDetailView(CompanyScopedMixin, LoginRequiredMixin, DetailView)
     company_lookup = "employee__company"
     template_name = "hr/leave_detail.html"
     context_object_name = "leave"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        role_ok = getattr(self.request, "company_role", None) in LEAVE_ADMINS or self.request.user.is_superuser
+        ctx["can_decide"] = role_ok and self.object.employee.user_id != self.request.user.pk
+        return ctx

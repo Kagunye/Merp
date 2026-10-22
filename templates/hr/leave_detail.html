@@ -15,9 +15,23 @@
   </div>
 
   {% if leave.status == "PENDING" %}
-  <div class="mt-5 pt-4 border-t flex gap-3">
-    <form method="post" action="{% url 'hr:leave_approve' leave.pk %}">{% csrf_token %}<button type="submit">Approve</button></form>
+  <div class="mt-5 pt-4 border-t">
+    {% if can_decide %}
+    <form method="post" action="{% url 'hr:leave_approve' leave.pk %}" class="no-card flex flex-wrap items-end gap-3">
+      {% csrf_token %}
+      <div class="flex-1 min-w-[12rem]">
+        <label class="block text-xs text-gray-500 mb-1" for="reason">Reason (if rejecting)</label>
+        <input id="reason" name="reason" type="text" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg">
+      </div>
+      <button type="submit" name="action" value="approve" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Approve</button>
+      <button type="submit" name="action" value="reject" class="px-4 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Reject</button>
+    </form>
+    {% elif leave.employee.user_id == request.user.pk %}
+    <p class="text-sm text-gray-500">Waiting for HR to decide.</p>
+    {% endif %}
   </div>
+  {% elif leave.approved_by %}
+  <p class="mt-5 pt-4 border-t text-sm text-gray-500">{{ leave.get_status_display }} by {{ leave.approved_by }} on {{ leave.approved_at|date:"d M Y" }}{% if leave.rejection_reason %} — {{ leave.rejection_reason }}{% endif %}.</p>
   {% endif %}
 </div>
 {% endblock %}

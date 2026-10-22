@@ -508,18 +508,63 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
     return je
 
 
-def grni_account(company) -> Account:
-    """Goods received not invoiced (2150): credited when a PO is received,
-    cleared when the supplier's bill for that PO is posted. Created on first use."""
-    acct = _get_account_safe(company, "2150")
+def ensure_account(company, code, name, account_type, parent_code=None) -> Account:
+    """The active account `code`, created (under `parent_code`) if the chart lacks it."""
+    acct = _get_account_safe(company, code)
     if acct:
         return acct
-    parent = _get_account_safe(company, "2000")
     acct, _ = Account.objects.get_or_create(
-        company=company, code="2150",
-        defaults={"name": "Goods Received Not Invoiced", "account_type": "LIABILITY", "parent": parent},
+        company=company, code=code,
+        defaults={"name": name, "account_type": account_type,
+                  "parent": _get_account_safe(company, parent_code) if parent_code else None},
     )
     return acct
+
+
+def grni_account(company) -> Account:
+    """Goods received not invoiced (2150): credited when a PO is received,
+    cleared when the supplier's bill for that PO is posted."""
+    return ensure_account(company, "2150", "Goods Received Not Invoiced", "LIABILITY", "2000")
+
+
+# ──────────────────────────── Payroll GL ────────────────────────────────────
+
+@transaction.atomic
+def post_payroll(run, user=None) -> JournalEntry:
+    """Accrue an approved payroll run on its last day.
+
+    DR  6100 Salaries & wages            gross pay
+    DR  6110 NSSF employer               employer NSSF
+    DR  6130 Housing levy employer       employer levy
+    CR  2300 PAYE payable                PAYE
+    CR  2400 NSSF payable                employee + employer NSSF
+    CR  2500 SHIF payable                SHIF
+    CR  2510 Housing levy payable        employee + employer levy
+    CR  2620 Net salaries payable        net pay
+    """
+    if run.journal_entry_id:
+        return run.journal_entry
+    from django.db.models import Sum
+    co = run.company
+    t = run.payslips.aggregate(gross=Sum("gross_salary"), paye=Sum("paye_tax"), nssf=Sum("nssf_employee"),
+                               shif=Sum("nhif_shif"), levy=Sum("housing_levy"), net=Sum("net_salary"))
+    t = {k: v or Decimal("0") for k, v in t.items()}
+    # Employer contributions match the employee's for NSSF and the housing levy.
+    er_nssf, er_levy = t["nssf"], t["levy"]
+    je = _new_je(co, "JE-PAY-", "PAYROLL", run.period_end, f"Payroll {run.reference}")
+    _dr(je, ensure_account(co, "6100", "Salaries & Wages", "EXPENSE", "6000"), t["gross"], "Gross pay")
+    _dr(je, ensure_account(co, "6110", "NSSF - Employer", "EXPENSE", "6100"), er_nssf, "Employer NSSF")
+    _dr(je, ensure_account(co, "6130", "Housing Levy - Employer", "EXPENSE", "6100"), er_levy, "Employer housing levy")
+    _cr(je, ensure_account(co, "2300", "PAYE Payable", "LIABILITY", "2000"), t["paye"], "PAYE")
+    _cr(je, ensure_account(co, "2400", "NSSF Payable", "LIABILITY", "2000"), t["nssf"] + er_nssf, "NSSF")
+    _cr(je, ensure_account(co, "2500", "SHIF/NHIF Payable", "LIABILITY", "2000"), t["shif"], "SHIF")
+    _cr(je, ensure_account(co, "2510", "Housing Levy Payable", "LIABILITY", "2000"), t["levy"] + er_levy,
+        "Housing levy")
+    _cr(je, ensure_account(co, "2620", "Net Salaries Payable", "LIABILITY", "2000"), t["net"], "Net pay due to staff")
+    je.post(user=user)
+    type(run).objects.filter(pk=run.pk).update(journal_entry=je)
+    run.journal_entry = je
+    return je
 
 
 # ──────────────────────── Expense Claim GL ───────────────────────────────────

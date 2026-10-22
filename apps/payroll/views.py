@@ -3,6 +3,9 @@ import datetime
 from decimal import Decimal
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
+from django.views.decorators.http import require_POST
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
@@ -62,48 +65,60 @@ class PayrollRunCreateView(LoginRequiredMixin, CreateView):
         return form
 
     def form_valid(self, form):
+        from apps.core import guards
+        from apps.hr.models import Employee
+        from .statutory import compute
         company = self.request.active_company
-        form.instance.company = company
+        start, end = form.cleaned_data["period_start"], form.cleaned_data["period_end"]
+        problems = []
+        if end < start:
+            form.add_error("period_end", "The period can't end before it starts.")
+        try:
+            guards.plausible_date(start, "Period start")
+        except ValidationError as e:
+            form.add_error("period_start", e.messages[0])
+        if form.cleaned_data["payment_date"] < start:
+            form.add_error("payment_date", "Pay day can't be before the period starts.")
+        clash = PayrollRun.objects.filter(company=company, period_start__lte=end, period_end__gte=start) \
+            .exclude(status="CANCELLED").first()
+        if clash:
+            form.add_error(None, f"{clash.reference} already covers {clash.period_start:%d %b} – "
+                                 f"{clash.period_end:%d %b %Y}. Paying the same period twice would pay everyone twice.")
+        if PayrollRun.objects.filter(company=company, reference__iexact=form.cleaned_data["reference"]).exists():
+            form.add_error("reference", "That payroll reference is already used.")
+        if form.errors:
+            return self.form_invalid(form)
+
+        employees = Employee.objects.filter(company=company, status__in=["ACTIVE", "PROBATION"], is_active=True,
+                                            date_hired__lte=end)
+        unpaid = []
         with transaction.atomic():
-            run = form.save()
-            # Generate payslips for all active employees
-            from apps.hr.models import Employee
-            employees = Employee.objects.filter(company=company, status__in=["ACTIVE", "PROBATION"], is_active=True)
-            total_gross = Decimal("0")
-            total_deductions = Decimal("0")
-            total_net = Decimal("0")
+            form.instance.company = company
+            form.instance.prepared_by = self.request.user
+            run = self.object = form.save()
+            totals = {"gross": Decimal("0"), "ded": Decimal("0"), "net": Decimal("0")}
             for emp in employees:
-                # Get basic salary from current contract
                 contract = emp.contracts.filter(is_current=True).first()
-                basic = contract.basic_salary if contract else Decimal("0")
-                # Simple Kenya PAYE calculation
-                paye = Decimal("0")
-                nssf = min(Decimal("2160"), basic * Decimal("0.06"))
-                nhif = Decimal("500")
-                housing = basic * Decimal("0.015")
-                gross = basic
-                deductions = paye + nssf + nhif + housing
-                net = gross - deductions
-                total_gross += gross
-                total_deductions += deductions
-                total_net += net
+                if not contract or contract.basic_salary <= 0:
+                    unpaid.append(emp.full_name)
+                    continue
+                p = compute(contract.basic_salary)
                 Payslip.objects.create(
-                    payroll_run=run,
-                    employee=emp,
-                    gross_salary=gross,
-                    total_allowances=Decimal("0"),
-                    total_deductions=deductions,
-                    paye_tax=paye,
-                    nssf_employee=nssf,
-                    nhif_shif=nhif,
-                    housing_levy=housing,
-                    net_salary=net,
+                    payroll_run=run, employee=emp, gross_salary=p.gross, total_allowances=Decimal("0"),
+                    total_deductions=p.deductions, paye_tax=p.paye, nssf_employee=p.nssf, nhif_shif=p.shif,
+                    housing_levy=p.housing_levy, net_salary=p.net,
                 )
-            run.total_gross = total_gross
-            run.total_deductions = total_deductions
-            run.total_net = total_net
+                totals["gross"] += p.gross
+                totals["ded"] += p.deductions
+                totals["net"] += p.net
+            run.total_gross, run.total_deductions, run.total_net = totals["gross"], totals["ded"], totals["net"]
             run.save(update_fields=["total_gross", "total_deductions", "total_net"])
-        messages.success(self.request, f"Payroll run '{run.reference}' created with {employees.count()} payslips.")
+        messages.success(self.request, f"Payroll run '{run.reference}' prepared with {run.payslips.count()} payslips. "
+                                       f"A finance manager must approve it before it is posted.")
+        if unpaid:
+            messages.warning(self.request, f"Left out — no salary on record: {', '.join(unpaid[:10])}"
+                                           f"{'…' if len(unpaid) > 10 else ''}. Add their contract in HR, then run "
+                                           f"a supplementary payroll.")
         return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
@@ -171,3 +186,29 @@ class PayslipListView(LoginRequiredMixin, ListView):
         if not company:
             return Payslip.objects.none()
         return Payslip.objects.filter(payroll_run__company=company).select_related("employee", "payroll_run")
+
+
+@login_required
+@require_POST
+def run_approve(request, pk):
+    """A second person approves the run; approval posts it to the ledger."""
+    run = get_object_or_404(PayrollRun, pk=pk, company=request.active_company)
+    if run.status != "DRAFT":
+        messages.error(request, f"{run.reference} is {run.get_status_display().lower()}.")
+    elif run.prepared_by_id == request.user.pk:
+        messages.error(request, f"You prepared {run.reference}; someone else must approve it.")
+    elif not run.payslips.exists():
+        messages.error(request, f"{run.reference} has no payslips to approve.")
+    else:
+        from django.utils import timezone
+        from apps.accounting.gl_service import post_payroll
+        try:
+            with transaction.atomic():
+                post_payroll(run, user=request.user)
+                PayrollRun.objects.filter(pk=run.pk).update(status="POSTED", approved_by=request.user,
+                                                            approved_at=timezone.now())
+        except (ValidationError, ValueError) as e:
+            messages.error(request, " ".join(getattr(e, "messages", [str(e)])))
+        else:
+            messages.success(request, f"{run.reference} approved and posted: net pay {run.total_net:,.2f} due to staff.")
+    return redirect("payroll:run_detail", pk=pk)
