@@ -67,7 +67,7 @@
         <span class="text-red-600">{{ asset.accumulated_depreciation|floatformat:2 }}</span>
       </div>
       <div class="flex justify-between items-center py-2">
-        <span class="text-sm font-semibold text-gray-700">Net Book Value</span>
+        <span class="text-sm font-semibold text-gray-700">{% if asset.status == 'DISPOSED' %}Net Book Value at Disposal{% else %}Net Book Value{% endif %}</span>
         <span class="text-xl font-bold text-gray-900">{{ asset.book_value|floatformat:2 }}</span>
       </div>
       {% if asset.status == 'ACTIVE' %}
@@ -173,7 +173,7 @@
           {% else %}<span class="text-gray-400">—</span>{% endif %}
         </td>
         <td class="px-4 py-3 text-right whitespace-nowrap">
-          {% if dep.journal_entry and not dep.is_reversed %}
+          {% if asset.status == 'ACTIVE' and dep.journal_entry and not dep.is_reversed %}
           <form method="post" action="{% url 'fixed_assets:depreciation_reverse' dep.pk %}" class="inline-flex items-center gap-1"
                 onsubmit="return confirm('Stand this month down? An offsetting entry is booked in the same month and the register goes back.');">
             {% csrf_token %}

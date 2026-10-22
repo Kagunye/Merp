@@ -223,7 +223,9 @@ def next_charge_date(asset):
     standing. Suggesting it is not the same as assuming it — the run always
     asks, because catching up a month that was missed is ordinary work.
     """
-    if asset.is_fully_depreciated:
+    if asset.status != "ACTIVE" or asset.is_fully_depreciated:
+        # A disposed asset is not being used up any more, so the screen must
+        # not offer a charge the ledger would refuse.
         return None
     live = _live_periods(asset)
     start = next_month(max(live)) if live else month_start(asset.purchase_date)

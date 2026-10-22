@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ bill.reference }} — Procurement — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -32,7 +33,7 @@
   <form method="post" action="{% url 'procurement:bill_pay' bill.pk %}" class="flex items-end gap-3 flex-wrap">
     {% csrf_token %}
     <div class="flex-1 min-w-[180px]">
-      <label for="id_amount" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Record Supplier Payment</label>
+      <label for="id_amount" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Record Supplier Payment ({{ bill.currency }})</label>
       <input id="id_amount" type="number" step="0.01" name="amount" value="{{ bill.outstanding_amount }}" max="{{ bill.outstanding_amount }}" min="0.01" required class="form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
     </div>
     <div>
@@ -59,6 +60,10 @@
       <div><dt class="text-gray-500">Supplier Ref</dt><dd class="text-gray-900">{{ bill.supplier_reference|default:"—" }}</dd></div>
       <div><dt class="text-gray-500">Bill Date</dt><dd class="text-gray-900">{{ bill.bill_date }}</dd></div>
       <div><dt class="text-gray-500">Due Date</dt><dd class="text-gray-900">{{ bill.due_date }}</dd></div>
+      <div><dt class="text-gray-500">Currency</dt><dd class="font-mono text-gray-900">{{ bill.currency }}</dd></div>
+      {% if bill.currency != active_company.currency %}
+      <div><dt class="text-gray-500">Exchange rate</dt><dd class="font-mono text-gray-900">1 {{ bill.currency }} = {{ bill.rate|trim_qty }} {{ active_company.currency }}</dd></div>
+      {% endif %}
       {% if bill.original_bill %}<div class="col-span-2"><dt class="text-gray-500">Answers bill</dt><dd><a href="{% url 'procurement:bill_detail' bill.original_bill.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.original_bill.reference }}</a></dd></div>{% endif %}
       {% if bill.purchase_order %}<div class="col-span-2"><dt class="text-gray-500">Purchase Order</dt><dd><a href="{% url 'procurement:po_detail' bill.purchase_order.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.purchase_order.reference }}</a></dd></div>{% endif %}
       {% if bill.journal_entry %}<div class="col-span-2"><dt class="text-gray-500">Journal Entry</dt><dd><a href="{% url 'accounting:journal_entry_detail' bill.journal_entry.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.journal_entry.reference }}</a></dd></div>{% endif %}
@@ -71,6 +76,9 @@
       <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span class="font-mono">{{ bill.subtotal|floatformat:2 }}</span></div>
       <div class="flex justify-between"><span class="text-gray-500">Tax</span><span class="font-mono">{{ bill.tax_amount|floatformat:2 }}</span></div>
       <div class="flex justify-between font-bold border-t border-gray-100 pt-2"><span>Total</span><span class="font-mono text-gray-900">{{ bill.total_amount|floatformat:2 }}</span></div>
+      {% if bill.currency != active_company.currency and bill.journal_entry %}
+      <div class="flex justify-between"><span class="text-gray-500">Total in the ledger</span><span class="font-mono text-gray-700">{{ active_company.currency }} {{ bill.total_amount_base|floatformat:2 }}</span></div>
+      {% endif %}
       <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono text-green-700">{{ bill.paid_amount|floatformat:2 }}</span></div>
       {% if bill.credited_amount > 0 %}
       <div class="flex justify-between"><span class="text-gray-500">Debited back</span><span class="font-mono text-amber-700">{{ bill.credited_amount|floatformat:2 }}</span></div>

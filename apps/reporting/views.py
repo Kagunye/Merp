@@ -114,6 +114,12 @@ class ProfitLossView(LoginRequiredMixin, TemplateView):
         cogs_rows, total_cogs = _get_balance(["COST_OF_GOODS"])
         exp_rows, total_expenses = _get_balance(["EXPENSE"])
 
+        # The accounts are credit-normal in this reading, so costs arrive
+        # negative. The statement prints them as the positive charges they are;
+        # an unusual credit balance still shows as a negative charge.
+        for row in cogs_rows + exp_rows:
+            row["balance"] = -row["balance"]
+
         gross_profit = total_revenue + total_cogs  # cogs is negative
         net_profit = gross_profit + total_expenses  # expenses are negative
 
@@ -123,10 +129,10 @@ class ProfitLossView(LoginRequiredMixin, TemplateView):
             "revenue_rows": rev_rows,
             "total_revenue": total_revenue,
             "cogs_rows": cogs_rows,
-            "total_cogs": abs(total_cogs),
+            "total_cogs": -total_cogs,
             "gross_profit": gross_profit,
             "expense_rows": exp_rows,
-            "total_expenses": abs(total_expenses),
+            "total_expenses": -total_expenses,
             "net_profit": net_profit,
         })
         return ctx
@@ -213,8 +219,8 @@ class AgedDebtorsView(LoginRequiredMixin, TemplateView):
             status__in=["SENT", "PARTIAL", "OVERDUE"],
         ).select_related("customer").order_by("customer__name", "due_date")
 
-        buckets = {"0-30": [], "31-60": [], "61-90": [], "90+": []}
-        totals = {"0-30": Decimal("0"), "31-60": Decimal("0"), "61-90": Decimal("0"), "90+": Decimal("0")}
+        buckets = {"Current": [], "1-30": [], "31-60": [], "61-90": [], "90+": []}
+        totals = {key: Decimal("0") for key in buckets}
 
         for inv in invoices:
             days = (today - inv.due_date).days
@@ -223,8 +229,12 @@ class AgedDebtorsView(LoginRequiredMixin, TemplateView):
             outstanding = inv.outstanding_base
             if inv.outstanding_amount <= 0:
                 continue
-            if days <= 30:
-                bucket = "0-30"
+            # Not yet due is its own column: a 45-day term is not an ageing
+            # bucket, and a negative count must never be read as overdue.
+            if days <= 0:
+                bucket = "Current"
+            elif days <= 30:
+                bucket = "1-30"
             elif days <= 60:
                 bucket = "31-60"
             elif days <= 90:
@@ -262,16 +272,18 @@ class AgedCreditorsView(LoginRequiredMixin, TemplateView):
             status__in=["RECEIVED", "PARTIAL", "OVERDUE"],
         ).select_related("supplier").order_by("supplier__name", "due_date")
 
-        buckets = {"0-30": [], "31-60": [], "61-90": [], "90+": []}
-        totals = {"0-30": Decimal("0"), "31-60": Decimal("0"), "61-90": Decimal("0"), "90+": Decimal("0")}
+        buckets = {"Current": [], "1-30": [], "31-60": [], "61-90": [], "90+": []}
+        totals = {key: Decimal("0") for key in buckets}
 
         for bill in bills:
             days = (today - bill.due_date).days
             outstanding = bill.outstanding_base
             if bill.outstanding_amount <= 0:
                 continue
-            if days <= 30:
-                bucket = "0-30"
+            if days <= 0:
+                bucket = "Current"
+            elif days <= 30:
+                bucket = "1-30"
             elif days <= 60:
                 bucket = "31-60"
             elif days <= 90:

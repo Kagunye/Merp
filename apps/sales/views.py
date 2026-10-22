@@ -587,7 +587,7 @@ class ARAgingView(LoginRequiredMixin, TemplateView):
         rows = []
         for cust in Customer.objects.filter(company=company):
             per = {"customer": cust, "current": Decimal(0), "d30": Decimal(0), "d60": Decimal(0), "d90": Decimal(0), "d120": Decimal(0), "total": Decimal(0)}
-            for inv in Invoice.objects.filter(customer=cust, status__in=["SENT", "PARTIAL"]):
+            for inv in Invoice.objects.filter(customer=cust, status__in=["SENT", "PARTIAL", "OVERDUE"]):
                 # Bucketed in the book's own money: a dollar owed and a shilling
                 # owed cannot be added together and called a receivable.
                 out = inv.outstanding_base

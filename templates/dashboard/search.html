@@ -6,7 +6,7 @@
     <h1 class="text-2xl font-bold text-gray-900">Search</h1>
     <p class="text-sm text-gray-500 mt-1">
       {% if query %}
-        {{ result_count }} match{{ result_count|pluralize }} for “{{ query }}” in {{ company_name }}
+        {{ result_count }} match{{ result_count|pluralize:"es" }} for “{{ query }}” in {{ company_name }}
       {% else %}
         Type anything — documents, ledger entries, people and products in {{ company_name|default:"your company" }}.
       {% endif %}

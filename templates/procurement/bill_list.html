@@ -5,6 +5,9 @@
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Supplier Bills</h1>
     <p class="text-sm text-gray-500 mt-1">Manage supplier invoices and payments</p>
+    {% if total_outstanding %}
+    <p class="text-sm text-gray-500 mt-0.5">Owed: <span class="font-semibold text-gray-900">{{ active_company.currency|default:"KES" }} {{ total_outstanding|floatformat:2 }}</span></p>
+    {% endif %}
   </div>
   <div class="flex flex-wrap gap-2">
     <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Purchase Orders</a>
@@ -42,10 +45,12 @@
       <tr class="hover:bg-gray-50">
         <td class="px-4 py-3"><a href="{% url 'procurement:bill_detail' bill.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ bill.reference }}</a></td>
         <td class="px-4 py-3 text-gray-900">{{ bill.supplier.name }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ bill.bill_date }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ bill.due_date }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ bill.total_amount|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono {% if bill.outstanding_amount > 0 %}text-red-600{% else %}text-gray-400{% endif %}">{{ bill.outstanding_amount|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ bill.bill_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ bill.due_date|date:"d M Y" }}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ bill.total_amount|floatformat:2 }}{% if bill.currency != active_company.currency %} <span class="text-xs font-sans text-gray-500">{{ bill.currency }}</span>{% endif %}</td>
+        <td class="px-4 py-3 text-right font-mono {% if bill.status == 'CANCELLED' %}text-gray-400{% elif bill.outstanding_amount > 0 %}text-red-600{% else %}text-gray-400{% endif %}">
+          {% if bill.status == 'CANCELLED' %}—{% elif bill.outstanding_amount > 0 %}{{ bill.outstanding_amount|floatformat:2 }}{% if bill.currency != active_company.currency %} <span class="text-xs font-sans text-gray-500">{{ bill.currency }}</span>{% endif %}{% else %}—{% endif %}
+        </td>
         <td class="px-4 py-3">
           <span class="badge {% if bill.status == 'PAID' %}bg-green-50 text-green-700{% elif bill.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif bill.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif bill.status == 'PARTIAL' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %}">
             {{ bill.get_status_display }}

@@ -152,29 +152,28 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 a.current_balance for a in cash_accounts
             )
 
-            # Revenue this month
-            revenue_accounts = Account.objects.filter(
-                company=company,
-                account_type="REVENUE",
-                is_active=True,
-            )
-            monthly_revenue = JournalEntryLine.objects.filter(
-                account__in=revenue_accounts,
+            # Revenue and expenses month to date, netted exactly as the P&L
+            # nets them: credits less debits for revenue, debits less credits
+            # for costs, closing entries excluded, and no postings after today
+            # (a future-dated reversal is not this month's trading).
+            month_lines = JournalEntryLine.objects.filter(
+                journal_entry__company=company,
                 journal_entry__posting_date__gte=month_start,
+                journal_entry__posting_date__lte=today,
                 journal_entry__status="POSTED",
-            ).aggregate(total=Sum("credit_amount"))["total"] or Decimal("0")
+            ).exclude(journal_entry__entry_type="CLOSING")
 
-            # Expenses this month
-            expense_accounts = Account.objects.filter(
-                company=company,
-                account_type="EXPENSE",
-                is_active=True,
-            )
-            monthly_expenses = JournalEntryLine.objects.filter(
-                account__in=expense_accounts,
-                journal_entry__posting_date__gte=month_start,
-                journal_entry__status="POSTED",
-            ).aggregate(total=Sum("debit_amount"))["total"] or Decimal("0")
+            def _net(account_types):
+                agg = month_lines.filter(
+                    account__account_type__in=account_types,
+                ).aggregate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+                return (agg["dr"] or Decimal("0")), (agg["cr"] or Decimal("0"))
+
+            rev_dr, rev_cr = _net(["REVENUE"])
+            monthly_revenue = rev_cr - rev_dr
+
+            cost_dr, cost_cr = _net(["EXPENSE", "COST_OF_GOODS"])
+            monthly_expenses = cost_dr - cost_cr
 
             # AR/AP
             from apps.sales.models import Invoice
@@ -456,7 +455,7 @@ def global_search(request):
               Invoice.objects.filter(company=company).select_related("customer").order_by("-invoice_date"),
               ["reference", "customer__name"], "sales:invoice_detail",
               lambda o: o.reference,
-              lambda o: f"{o.customer.name} · {o.invoice_date} · {money(o.total_amount)}")
+              lambda o: f"{o.customer.name} · {o.invoice_date:%d %b %Y} · {money(o.total_amount)} {o.currency}")
         group("Sales orders",
               SalesOrder.objects.filter(company=company).select_related("customer").order_by("-order_date"),
               ["reference", "customer__name"], "sales:order_detail",
@@ -466,7 +465,7 @@ def global_search(request):
               Bill.objects.filter(company=company).select_related("supplier").order_by("-bill_date"),
               ["reference", "supplier__name"], "procurement:bill_detail",
               lambda o: o.reference,
-              lambda o: f"{o.supplier.name} · {money(o.total_amount)}")
+              lambda o: f"{o.supplier.name} · {o.bill_date:%d %b %Y} · {money(o.total_amount)} {o.currency}")
         group("Purchase orders",
               PurchaseOrder.objects.filter(company=company).select_related("supplier").order_by("-order_date"),
               ["reference", "supplier__name"], "procurement:po_detail",
@@ -476,7 +475,7 @@ def global_search(request):
               JournalEntry.objects.filter(company=company).order_by("-posting_date"),
               ["reference"], "accounting:journal_entry_detail",
               lambda o: o.reference,
-              lambda o: f"{o.get_entry_type_display()} · {o.posting_date} · {o.get_status_display()}")
+              lambda o: f"{o.get_entry_type_display()} · {o.posting_date:%d %b %Y} · {o.get_status_display()}")
         group("Customers",
               Customer.objects.filter(company=company).order_by("name"),
               ["name", "email", "phone", "tax_id"], "crm:customer_detail",
@@ -516,7 +515,7 @@ def global_search(request):
               BankTransaction.objects.filter(bank_account__company=company).select_related("bank_account").order_by("-transaction_date"),
               ["description", "reference"], "banking:transaction_detail",
               lambda o: o.description or o.reference or f"{o.transaction_type} {money(o.amount)}",
-              lambda o: f"{o.bank_account.name} · {o.transaction_date} · {money(o.amount)}")
+              lambda o: f"{o.bank_account.name} · {o.transaction_date:%d %b %Y} · {money(o.amount)}")
 
     ctx = {
         "query": q,

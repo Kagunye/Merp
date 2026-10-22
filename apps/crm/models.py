@@ -32,11 +32,18 @@ class Customer(BaseModel, AddressMixin, ContactMixin, NotesMixin):
 
     @property
     def outstanding_balance(self):
+        """What this customer owes, in the book's money.
+
+        Invoices are raised in whatever money the customer was billed in, so
+        their paper amounts cannot be added together. Each one is translated at
+        its own booked rate before the sum.
+        """
+        from decimal import Decimal
         from apps.sales.models import Invoice
-        from django.db.models import Sum
-        return Invoice.objects.filter(
-            customer=self, status__in=["SENT", "PARTIAL"]
-        ).aggregate(t=Sum("outstanding_amount"))["t"] or 0
+        return sum(
+            (inv.outstanding_base for inv in Invoice.objects.filter(
+                customer=self, status__in=["SENT", "PARTIAL", "OVERDUE"])),
+            Decimal("0"))
 
 
 class Supplier(BaseModel, AddressMixin, ContactMixin, NotesMixin):

@@ -35,7 +35,7 @@
         <div class="flex justify-between"><span class="text-gray-500">Tax ID</span><span class="font-mono text-xs text-gray-700">{{ customer.tax_id|default:"—" }}</span></div>
         <div class="flex justify-between"><span class="text-gray-500">Payment Terms</span><span class="text-gray-700">{{ customer.payment_terms_days }} days</span></div>
         <div class="flex justify-between"><span class="text-gray-500">Credit Limit</span><span class="font-mono text-gray-700">{{ customer.credit_limit|floatformat:2 }}</span></div>
-        <div class="flex justify-between"><span class="text-gray-500">Outstanding</span><span class="font-mono font-semibold {% if customer.outstanding_balance > 0 %}text-orange-600{% else %}text-gray-700{% endif %}">{{ customer.outstanding_balance|floatformat:2 }}</span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Outstanding ({{ active_company.currency|default:"KES" }})</span><span class="font-mono font-semibold {% if customer.outstanding_balance > 0 %}text-orange-600{% else %}text-gray-700{% endif %}">{{ customer.outstanding_balance|floatformat:2 }}</span></div>
       </div>
     </div>
 
@@ -60,9 +60,9 @@
           <tr class="hover:bg-gray-50/50">
             <td class="px-4 py-2.5"><a href="{% url 'sales:invoice_detail' inv.pk %}" class="font-mono font-semibold text-primary hover:underline">{{ inv.reference }}</a></td>
             <td class="px-4 py-2.5 text-gray-600">{{ inv.invoice_date|date:"d M Y" }}</td>
-            <td class="px-4 py-2.5 text-right font-mono text-gray-900">{{ inv.total_amount|floatformat:2 }}</td>
+            <td class="px-4 py-2.5 text-right font-mono text-gray-900">{{ inv.total_amount|floatformat:2 }}{% if inv.currency != active_company.currency %} <span class="text-xs text-gray-500">{{ inv.currency }}</span>{% endif %}</td>
             <td class="px-4 py-2.5 text-right font-mono {% if inv.outstanding_amount > 0 %}text-orange-600 font-semibold{% else %}text-gray-400{% endif %}">
-              {% if inv.outstanding_amount > 0 %}{{ inv.outstanding_amount|floatformat:2 }}{% else %}—{% endif %}
+              {% if inv.outstanding_amount > 0 %}{{ inv.outstanding_amount|floatformat:2 }}{% if inv.currency != active_company.currency %} <span class="text-xs font-sans text-gray-500">{{ inv.currency }}</span>{% endif %}{% else %}—{% endif %}
             </td>
             <td class="px-4 py-2.5 text-center"><span class="badge {% if inv.status == 'PAID' %}bg-green-50 text-green-700{% elif inv.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif inv.status == 'PARTIAL' %}bg-blue-50 text-blue-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ inv.get_status_display }}</span></td>
           </tr>

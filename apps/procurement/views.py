@@ -60,6 +60,16 @@ class BillListView(LoginRequiredMixin, ListView):
         ctx["status_choices"] = Bill.STATUS_CHOICES
         ctx["status_filter"] = self.request.GET.get("status", "")
         ctx["q"] = self.request.GET.get("q", "")
+        company = self.request.active_company
+        if company:
+            from apps.accounting.currency import book_currency
+            ctx["book"] = book_currency(company)
+            # Added in the book's money for the same reason as the invoice book:
+            # a dollar bill and a shilling bill do not share a total.
+            ctx["total_outstanding"] = sum(
+                (b.outstanding_base for b in Bill.objects.filter(
+                    company=company, status__in=["RECEIVED", "PARTIAL", "OVERDUE"],
+                    outstanding_amount__gt=Decimal("0"))), Decimal("0"))
         return ctx
 
 
@@ -349,7 +359,7 @@ class APAgingView(LoginRequiredMixin, TemplateView):
         rows = []
         for sup in Supplier.objects.filter(company=company):
             per = {"supplier": sup, "current": Decimal(0), "d30": Decimal(0), "d60": Decimal(0), "d90": Decimal(0), "d120": Decimal(0), "total": Decimal(0)}
-            for b in Bill.objects.filter(supplier=sup, status__in=["RECEIVED", "PARTIAL"]):
+            for b in Bill.objects.filter(supplier=sup, status__in=["RECEIVED", "PARTIAL", "OVERDUE"]):
                 # Owed in our money: dollars and shillings only add up once each
                 # has been converted at the rate its bill was raised at.
                 out = b.outstanding_base

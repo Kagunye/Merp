@@ -81,7 +81,7 @@
               <p class="font-medium text-gray-900">{{ line.description }}</p>
               {% if line.product %}<p class="text-xs text-gray-400 font-mono">{{ line.product.sku }}</p>{% endif %}
             </td>
-            <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.quantity|with_unit:line.product.unit_of_measure }}</td>
+            <td class="px-4 py-3 text-right font-mono text-gray-700">{% if line.product %}{{ line.quantity|with_unit:line.product.unit_of_measure }}{% else %}{{ line.quantity|trim_qty }}{% endif %}</td>
             <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.unit_price|floatformat:2 }}</td>
             <td class="px-4 py-3 text-right text-gray-500 text-xs">{% if line.discount_percent > 0 %}{{ line.discount_percent }}%{% else %}—{% endif %}</td>
             <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ line.line_total|floatformat:2 }}</td>
@@ -118,6 +118,12 @@
           <div class="flex justify-between"><span class="text-gray-500">Invoice Date</span><span class="text-gray-700">{{ invoice.invoice_date|date:"d M Y" }}</span></div>
           <div class="flex justify-between"><span class="text-gray-500">Due Date</span><span class="text-gray-700">{{ invoice.due_date|date:"d M Y" }}</span></div>
           <div class="flex justify-between"><span class="text-gray-500">Currency</span><span class="font-mono text-gray-700">{{ invoice.currency }}</span></div>
+          {% if invoice.currency != active_company.currency %}
+          <div class="flex justify-between"><span class="text-gray-500">Exchange rate</span><span class="font-mono text-gray-700">1 {{ invoice.currency }} = {{ invoice.rate|floatformat:4 }} {{ active_company.currency }}</span></div>
+          {% if invoice.journal_entry %}
+          <div class="flex justify-between"><span class="text-gray-500">In the ledger</span><span class="font-mono text-gray-700">{{ active_company.currency }} {{ invoice.total_amount_base|floatformat:2 }}</span></div>
+          {% endif %}
+          {% endif %}
           <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono font-semibold text-green-700">{{ invoice.paid_amount|floatformat:2 }}</span></div>
           {% if invoice.credited_amount > 0 %}
           <div class="flex justify-between"><span class="text-gray-500">Credited</span><span class="font-mono font-semibold text-amber-700">{{ invoice.credited_amount|floatformat:2 }}</span></div>

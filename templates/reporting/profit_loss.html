@@ -4,7 +4,7 @@
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Profit & Loss Statement</h1>
-    <p class="text-sm text-gray-500 mt-1">{{ date_from }} — {{ date_to }}</p>
+    <p class="text-sm text-gray-500 mt-1">{{ date_from }} — {{ date_to }} · in {{ active_company.currency }}, the currency the ledger keeps</p>
   </div>
   <div class="flex items-center gap-2">
     {% include "_includes/print_button.html" %}

@@ -13,10 +13,10 @@
   </div>
 </div>
 
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
   {% for bucket, total in totals.items %}
   <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-    <p class="text-sm text-gray-500">{{ bucket }} days</p>
+    <p class="text-sm text-gray-500">{% if bucket == 'Current' %}Current (not yet due){% else %}{{ bucket }} days overdue{% endif %}</p>
     <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }} <span class="text-xs font-medium text-gray-500">{{ book }}</span></p>
   </div>
   {% endfor %}
@@ -30,7 +30,7 @@
 {% if bills %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
   <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-    <h3 class="text-sm font-semibold text-gray-700">{{ bucket }} Days Overdue</h3>
+    <h3 class="text-sm font-semibold text-gray-700">{% if bucket == 'Current' %}Current — not yet due{% else %}{{ bucket }} Days Overdue{% endif %}</h3>
     <span class="font-mono font-semibold text-gray-900">{{ totals|get_item:bucket|floatformat:2 }}</span>
   </div>
   <table class="w-full text-sm">
