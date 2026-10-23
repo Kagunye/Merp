@@ -12,7 +12,8 @@ Prices come off the product card and the money is counted once: every figure is
 rounded to the cent as it is worked out, and the whole ticket is refused if the
 cash in the drawer would not cover it.
 """
-from decimal import Decimal, ROUND_HALF_UP
+import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -25,9 +26,45 @@ D = Decimal
 Z = D("0")
 
 
-def money(value) -> Decimal:
+# Larger than any till figure or quantity this book can store (money columns
+# hold 13 digits before the point, quantities 8).
+MONEY_LIMIT = D("1e13")
+QUANTITY_LIMIT = D("1e8")
+_THOUSANDS = re.compile(r"-?\d{1,3}(,\d{3})+(\.\d+)?")
+
+
+def number(value, label="Amount", *, limit=MONEY_LIMIT, blank=Z) -> Decimal:
+    """What a cashier typed, as a number — or a message saying why it isn't one.
+
+    Accepts "1,250" (thousands separators). Refuses words, "NaN", "Infinity" and
+    absurd sizes: Postgres would store NaN in a money column and every total
+    after it would be NaN too.
+    """
+    text = "" if value is None else str(value).strip()
+    if text == "":
+        return blank
+    if _THOUSANDS.fullmatch(text):
+        text = text.replace(",", "")
+    try:
+        result = D(text)
+    except InvalidOperation:
+        raise ValidationError(f"{label}: “{text}” is not a number.")
+    if not result.is_finite() or abs(result) >= limit:
+        raise ValidationError(f"{label}: “{text}” is not a usable figure.")
+    return result
+
+
+def money(value, label="Amount") -> Decimal:
     """The figure as it can actually be paid: to the cent, half up."""
-    return D(str(value if value is not None else 0)).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+    return number(value, label).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _counted(value, label):
+    """Cash counted into or out of a drawer: never below zero."""
+    amount = money(value, label)
+    if amount < 0:
+        raise ValidationError(f"{label} can't be negative.")
+    return amount
 
 
 def active_session(company, user):
@@ -54,7 +91,7 @@ def open_session(company, user, branch=None, opening_cash=Z):
     session = POSSession.objects.create(
         company=company, branch=branch, cashier=user,
         opened_at=timezone.now(), status="OPEN",
-        opening_cash=money(opening_cash))
+        opening_cash=_counted(opening_cash, "Opening float"))
     retotal(session)
     return session
 
@@ -64,7 +101,7 @@ def close_session(session, closing_cash=None):
     if session.status == "CLOSED":
         raise ValidationError("This till is already closed.")
     if closing_cash is not None and str(closing_cash).strip() != "":
-        session.closing_cash = money(closing_cash)
+        session.closing_cash = _counted(closing_cash, "Cash counted")
     session.status = "CLOSED"
     session.closed_at = timezone.now()
     session.save()
@@ -96,7 +133,7 @@ def ticket_row(product, quantity):
     list and no negotiated discount at a till, and a cashier typing a cheaper
     figure would be a loss the book could never explain.
     """
-    quantity = D(str(quantity))
+    quantity = number(quantity, "quantity", limit=QUANTITY_LIMIT)
     if quantity <= 0:
         raise ValidationError("a line has to sell something.")
     if not product.selling_price:
@@ -223,7 +260,7 @@ def checkout(company, user, quantities, *, session=None, payment_method="CASH",
         # tender box means "paid in full" rather than a refusal to take the sale.
         handed = total
     else:
-        handed = money(handed_text)
+        handed = money(handed_text, "Cash tendered")
         if handed < total:
             raise ValidationError(
                 f"Only {handed} tendered for a bill of {total} — the drawer cannot "
@@ -281,10 +318,7 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
         raw = str((quantities or {}).get(str(line.pk), "") or "").strip()
         if raw in ("", "0"):
             continue
-        try:
-            quantity = D(raw)
-        except Exception:
-            raise ValidationError(f"'{raw}' is not a quantity for {line.product.name}.")
+        quantity = number(raw, f"Refund quantity for {line.product.name}", limit=QUANTITY_LIMIT)
         if quantity <= 0:
             continue
         left = line.quantity - already.get(line.product_id, Z)
