@@ -174,12 +174,60 @@ class LogoutView(View):
         return redirect("accounts:login")
 
 
+def _device_label(user_agent):
+    """'Chrome on Windows' from a user-agent string; good enough for a sign-in list."""
+    ua = user_agent or ""
+    browser = next((name for key, name in (("Edg/", "Edge"), ("OPR/", "Opera"), ("Chrome/", "Chrome"),
+                                           ("Firefox/", "Firefox"), ("Safari/", "Safari")) if key in ua), "Browser")
+    system = next((name for key, name in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                                          ("Windows", "Windows"), ("Macintosh", "Mac"), ("Linux", "Linux")) if key in ua), "")
+    return f"{browser} on {system}" if system else browser
+
+
 class ProfileView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/profile.html"
 
+    # What a complete profile has, with the label shown when it's missing.
+    PROFILE_FIELDS = (("first_name", "First name"), ("last_name", "Last name"), ("phone", "Phone number"),
+                      ("job_title", "Job title"), ("avatar", "Profile photo"), ("bio", "A short bio"))
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["page_title"] = "My Profile"
+        user = self.request.user
+        company = getattr(self.request, "active_company", None)
+
+        memberships = list(user.memberships.filter(is_active=True).select_related("company", "branch")
+                           .order_by("-is_default", "company__name"))
+        for m in memberships:
+            m.is_current = company is not None and m.company_id == company.pk
+        current = next((m for m in memberships if m.is_current), None)
+
+        missing = [label for field, label in self.PROFILE_FIELDS if not getattr(user, field)]
+        done = len(self.PROFILE_FIELDS) - len(missing)
+
+        attempts = list(LoginAttempt.objects.filter(email__iexact=user.email).order_by("-created_at")[:5])
+        for a in attempts:
+            a.device = _device_label(a.user_agent)
+        successes = [a for a in attempts if a.success]
+        failed_recently = sum(1 for a in attempts if not a.success)
+
+        employee = None
+        if company is not None:
+            from apps.hr.models import Employee
+            employee = Employee.objects.filter(company=company, user=user).select_related(
+                "department", "branch", "reports_to").first()
+
+        ctx.update({
+            "page_title": "My Profile",
+            "memberships": memberships,
+            "current_membership": current,
+            "missing_fields": missing,
+            "completeness": round(100 * done / len(self.PROFILE_FIELDS)),
+            "sign_ins": attempts,
+            "previous_sign_in": successes[1] if len(successes) > 1 else None,
+            "failed_recently": failed_recently,
+            "employee": employee,
+        })
         return ctx
 
 
