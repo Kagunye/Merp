@@ -74,16 +74,24 @@
     #sidebar-nav { flex: 1 1 auto; overflow-y: auto; }
     #sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); }
 
-    /* Nav items — simpler, flatter */
+    /* Header / footer rules: a hairline of the brand surface, not a dark line. */
+    .sidebar-head { border-bottom: 1px solid rgba(255,255,255,0.14); position: relative; }
+    .sidebar-foot { border-top: 1px solid rgba(255,255,255,0.14); }
+    /* Tailwind's img { max-width:100% } squeezed the square mark in the rail. */
+    .sidebar-brand-mark, .sidebar-brand-lockup { max-width: none; }
+    #sidebar:not(.expanded) .sidebar-head { justify-content: center; padding: 0; }
+    #sidebar:not(.expanded) .sidebar-head > div { flex: 0 0 auto; }
+
+    /* Nav items */
     .nav-item {
       position: relative;
       display: flex; align-items: center;
-      height: 40px;
+      height: 38px;
       padding: 0 12px;
-      border-radius: 8px;
+      border-radius: 9px;
       cursor: pointer; text-decoration: none;
-      color: rgba(255,255,255,0.88);
-      transition: background 0.12s ease, color 0.12s ease;
+      color: rgba(255,255,255,0.9);
+      transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
     }
     .nav-item .nav-icon-wrap {
       width: 24px; height: 24px; flex-shrink: 0;
@@ -100,70 +108,84 @@
       background: #fff;
       color: var(--primary);
     }
+    .nav-item:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
-    /* Active state — left accent bar + white text, no pill */
+    /* Current page: the white pill, bold, lifted, with a brand-red marker,
+       so it stays the strongest thing in the menu even next to a hover. */
     .nav-item.active {
-      background: rgba(255,255,255,0.14);
-      color: #fff;
+      background: #fff;
+      color: var(--primary);
       font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.10), 0 6px 16px rgba(0,0,0,0.14);
     }
+    .nav-item.active .sidebar-label { font-weight: 650; }
     .nav-item.active::before {
       content: "";
       position: absolute;
-      left: 0; top: 20%; bottom: 20%;
+      left: 5px; top: 26%; bottom: 26%;
       width: 3px;
-      background: #fff;
-      border-radius: 0 2px 2px 0;
+      background: var(--primary);
+      border-radius: 2px;
     }
-    #sidebar:not(.expanded) .nav-item.active { background: rgba(255,255,255,0.14); }
-    #sidebar:not(.expanded) .nav-item.active::before { left: 0; }
+    #sidebar:not(.expanded) .nav-item.active::before { left: 3px; }
 
-    /* Section dividers — compact uppercase, hidden when collapsed */
+    /* Section headings: click to fold a section away (remembered per browser). */
     .nav-divider {
-      padding: 14px 14px 6px;
-      font-size: 10px; font-weight: 700;
-      text-transform: uppercase; letter-spacing: 0.14em;
-      color: rgba(255,255,255,0.55);
+      display: flex; align-items: center; justify-content: space-between;
+      width: 100%; margin-top: 10px;
+      padding: 8px 12px 6px;
+      background: none; border: 0; cursor: pointer; text-align: left;
+      font: inherit; font-size: 10.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: rgba(255,255,255,0.62);
+      border-radius: 6px;
     }
+    .nav-divider:hover { color: #fff; }
+    .nav-divider:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+    .nav-divider-chev { width: 14px; height: 14px; transition: transform 0.15s ease; opacity: 0.8; }
+    .nav-divider[aria-expanded="false"] .nav-divider-chev { transform: rotate(-90deg); }
+    .nav-group { display: grid; gap: 2px; }
+    .nav-group.is-folded { display: none; }
+    #sidebar:not(.expanded) .nav-group.is-folded { display: grid; }   /* the rail always shows every icon */
     #sidebar:not(.expanded) .nav-divider {
-      padding: 10px 0 4px;
-      text-align: center;
-      font-size: 0;
+      justify-content: center; padding: 10px 0 6px; margin-top: 4px;
+      font-size: 0; pointer-events: none;
     }
+    #sidebar:not(.expanded) .nav-divider span,
+    #sidebar:not(.expanded) .nav-divider-chev { display: none; }
     #sidebar:not(.expanded) .nav-divider::after {
       content: "";
       display: inline-block;
       width: 24px; height: 1px;
-      background: rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.22);
     }
 
-    /* Collapse chevron */
-    .sidebar-collapse-btn { color: rgba(255,255,255,0.8); transition: transform 0.2s; }
+    /* Collapse chevron. On the rail it sits on the sidebar's edge so the
+       logo keeps the whole header to itself. */
+    .sidebar-collapse-btn { color: rgba(255,255,255,0.85); transition: transform 0.2s, background 0.12s; }
     .sidebar-collapse-btn:hover { color: #fff; }
-    #sidebar:not(.expanded) .sidebar-collapse-btn svg { transform: rotate(180deg); }
+    #sidebar:not(.expanded) .sidebar-collapse-btn {
+      position: absolute; right: -13px; top: 19px;
+      width: 26px; height: 26px; border-radius: 999px;
+      background: #fff; color: var(--primary);
+      border: 1px solid #E5E7EB; box-shadow: 0 2px 8px rgba(0,0,0,0.16);
+      z-index: 60;
+    }
+    #sidebar:not(.expanded) .sidebar-collapse-btn svg { transform: rotate(180deg); width: 14px; height: 14px; }
+    @media (max-width: 639px) { #sidebar .sidebar-collapse-btn { display: none; } }
 
-    /* Collapsed-rail tooltip — pure CSS, uses the nav-item's title attribute. */
-    #sidebar:not(.expanded) .nav-item {
-      padding: 0; justify-content: center;
+    /* Collapsed-rail tooltip. Drawn outside the sidebar by script because the
+       scrolling menu clips anything that sticks out of it. */
+    #sidebar:not(.expanded) .nav-item { padding: 0; justify-content: center; }
+    #nav-tooltip {
+      position: fixed; z-index: 200; pointer-events: none;
+      background: #111827; color: #fff;
+      padding: 5px 10px; border-radius: 6px;
+      font-size: 12.5px; font-weight: 500; white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+      opacity: 0; transform: translateY(-50%); transition: opacity 0.1s ease;
     }
-    #sidebar:not(.expanded) .nav-item::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      left: calc(100% + 10px);
-      top: 50%;
-      transform: translateY(-50%);
-      background: #111827;
-      color: #fff;
-      padding: 5px 10px;
-      border-radius: 6px;
-      font-size: 12.5px; font-weight: 500;
-      white-space: nowrap;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.12s ease;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 100;
-    }
-    #sidebar:not(.expanded) .nav-item:hover::after { opacity: 1; }
+    #nav-tooltip.show { opacity: 1; }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -559,12 +581,12 @@
 <aside id="sidebar" class="fixed left-0 top-0 bottom-0 flex flex-col">
 
   <!-- Header row: brand (expanded) + hamburger toggle -->
-  <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid rgba(255,255,255,0.14);">
+  <div class="sidebar-head h-16 flex items-center shrink-0 px-3">
     <div class="flex items-center min-w-0 flex-1">
       <img src="{% static 'merp/images/mofisi-mark-white.png' %}" alt="Mofisi" class="sidebar-brand-mark">
       <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="sidebar-brand-lockup">
     </div>
-    <button type="button" onclick="toggleSidebar()" title="Toggle sidebar"
+    <button type="button" onclick="toggleSidebar()" title="Collapse or expand the menu" aria-label="Collapse or expand the menu"
             class="sidebar-collapse-btn w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
@@ -587,8 +609,8 @@
       <span class="sidebar-label">Dashboard</span>
     </a>
 
-    <!-- Finance section -->
-    <div class="nav-divider">Finance</div>
+    <button type="button" class="nav-divider" data-group="finance" aria-expanded="true" aria-controls="nav-group-finance" onclick="toggleNavGroup(this)"><span>Finance</span><svg class="nav-divider-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></button>
+    <div class="nav-group" id="nav-group-finance" data-group="finance">
 
     <a href="/accounting/" class="nav-item{% if ns == 'accounting' %} active{% endif %}" data-tooltip="Accounting">
       <div class="nav-icon-wrap">
@@ -602,7 +624,7 @@
     <a href="/business-management/" class="nav-item{% if ns == 'business_mgmt' %} active{% endif %}" data-tooltip="Business Mgmt">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7H4a1 1 0 00-1 1v10a2 2 0 002 2h14a2 2 0 002-2V8a1 1 0 00-1-1zM16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2M3 13h18"/>
         </svg>
       </div>
       <span class="sidebar-label">Business Mgmt</span>
@@ -616,9 +638,10 @@
       </div>
       <span class="sidebar-label">Banking</span>
     </a>
+    </div>
 
-    <!-- Sales section -->
-    <div class="nav-divider">Sales</div>
+    <button type="button" class="nav-divider" data-group="sales" aria-expanded="true" aria-controls="nav-group-sales" onclick="toggleNavGroup(this)"><span>Sales</span><svg class="nav-divider-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></button>
+    <div class="nav-group" id="nav-group-sales" data-group="sales">
 
     <a href="/crm/" class="nav-item{% if ns == 'crm' %} active{% endif %}" data-tooltip="Customers">
       <div class="nav-icon-wrap">
@@ -646,9 +669,10 @@
       </div>
       <span class="sidebar-label">Point of Sale</span>
     </a>
+    </div>
 
-    <!-- Supply Chain section -->
-    <div class="nav-divider">Supply Chain</div>
+    <button type="button" class="nav-divider" data-group="supply-chain" aria-expanded="true" aria-controls="nav-group-supply-chain" onclick="toggleNavGroup(this)"><span>Supply Chain</span><svg class="nav-divider-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></button>
+    <div class="nav-group" id="nav-group-supply-chain" data-group="supply-chain">
 
     <a href="/inventory/" class="nav-item{% if ns == 'inventory' %} active{% endif %}" data-tooltip="Inventory">
       <div class="nav-icon-wrap">
@@ -696,9 +720,10 @@
       </div>
       <span class="sidebar-label">Workshop</span>
     </a>
+    </div>
 
-    <!-- People section -->
-    <div class="nav-divider">People</div>
+    <button type="button" class="nav-divider" data-group="people" aria-expanded="true" aria-controls="nav-group-people" onclick="toggleNavGroup(this)"><span>People</span><svg class="nav-divider-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></button>
+    <div class="nav-group" id="nav-group-people" data-group="people">
 
     <a href="/hr/" class="nav-item{% if ns == 'hr' %} active{% endif %}" data-tooltip="HR">
       <div class="nav-icon-wrap">
@@ -736,9 +761,10 @@
       </div>
       <span class="sidebar-label">Recruitment</span>
     </a>
+    </div>
 
-    <!-- Operations section -->
-    <div class="nav-divider">Operations</div>
+    <button type="button" class="nav-divider" data-group="operations" aria-expanded="true" aria-controls="nav-group-operations" onclick="toggleNavGroup(this)"><span>Operations</span><svg class="nav-divider-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></button>
+    <div class="nav-group" id="nav-group-operations" data-group="operations">
 
     <a href="/projects/" class="nav-item{% if ns == 'projects' %} active{% endif %}" data-tooltip="Projects">
       <div class="nav-icon-wrap">
@@ -784,9 +810,10 @@
       </div>
       <span class="sidebar-label">Documents</span>
     </a>
+    </div>
 
-    <!-- Support section -->
-    <div class="nav-divider">Support</div>
+    <button type="button" class="nav-divider" data-group="support" aria-expanded="true" aria-controls="nav-group-support" onclick="toggleNavGroup(this)"><span>Support</span><svg class="nav-divider-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg></button>
+    <div class="nav-group" id="nav-group-support" data-group="support">
 
     <a href="/helpdesk/" class="nav-item{% if ns == 'helpdesk' %} active{% endif %}" data-tooltip="Help Desk">
       <div class="nav-icon-wrap">
@@ -814,13 +841,13 @@
       </div>
       <span class="sidebar-label">SMS</span>
     </a>
-
+    </div>
     {% endwith %}
   </nav>
 
   <!-- Settings / Control Panel at bottom -->
-  <div class="px-2 py-2 shrink-0" style="border-top:1px solid #1E2130;">
-    <a href="/control-panel/" class="nav-item" data-tooltip="Control Panel">
+  <div class="sidebar-foot px-2 py-2 shrink-0">
+    <a href="/control-panel/" class="nav-item{% if request.resolver_match.namespace == 'control_panel' %} active{% endif %}" data-tooltip="Control Panel">
       <div class="nav-icon-wrap">
         <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -1120,7 +1147,9 @@
 
   function toggleSidebar() {
     if (isPhone()) {
+      // The drawer is the full menu with labels, not the icon rail.
       const open = sidebar.classList.toggle('drawer-open');
+      sidebar.classList.toggle('expanded', open);
       backdrop.classList.toggle('show', open);
       return;
     }
@@ -1131,8 +1160,58 @@
 
   function closeDrawer() {
     sidebar.classList.remove('drawer-open');
+    if (isPhone()) sidebar.classList.remove('expanded');
     backdrop.classList.remove('show');
   }
+
+  // ---- Foldable menu sections, remembered per browser ----
+  const FOLD_KEY = 'sidebarFolded';
+  function readFolded() {
+    try { return JSON.parse(localStorage.getItem(FOLD_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function setFolded(group, folded) {
+    const btn = document.querySelector('.nav-divider[data-group="' + group + '"]');
+    const box = document.getElementById('nav-group-' + group);
+    if (!btn || !box) return;
+    btn.setAttribute('aria-expanded', String(!folded));
+    box.classList.toggle('is-folded', folded);
+  }
+  window.toggleNavGroup = function (btn) {
+    const group = btn.dataset.group;
+    const folded = btn.getAttribute('aria-expanded') === 'true';
+    setFolded(group, folded);
+    const list = readFolded().filter(g => g !== group);
+    if (folded) list.push(group);
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify(list)); } catch (e) {}
+  };
+  readFolded().forEach(g => setFolded(g, true));
+  // The section holding the page you're on is never folded away.
+  const current = document.querySelector('#sidebar-nav .nav-item.active');
+  if (current) {
+    current.setAttribute('aria-current', 'page');
+    const box = current.closest('.nav-group');
+    if (box) setFolded(box.dataset.group, false);
+    const nav = document.getElementById('sidebar-nav');
+    const r = current.getBoundingClientRect(), n = nav.getBoundingClientRect();
+    if (r.bottom > n.bottom || r.top < n.top) nav.scrollTop += r.top - n.top - n.height / 2 + r.height / 2;
+  }
+
+  // ---- Rail tooltips (positioned on the page, so the menu can't clip them) ----
+  const tip = document.createElement('div');
+  tip.id = 'nav-tooltip'; tip.setAttribute('role', 'tooltip');
+  document.body.appendChild(tip);
+  sidebar.querySelectorAll('.nav-item[data-tooltip]').forEach(item => {
+    item.addEventListener('mouseenter', () => {
+      if (sidebar.classList.contains('expanded')) return;
+      const r = item.getBoundingClientRect();
+      tip.textContent = item.dataset.tooltip;
+      tip.style.left = (r.right + 10) + 'px';
+      tip.style.top = (r.top + r.height / 2) + 'px';
+      tip.classList.add('show');
+    });
+    item.addEventListener('mouseleave', () => tip.classList.remove('show'));
+  });
+  document.getElementById('sidebar-nav').addEventListener('scroll', () => tip.classList.remove('show'));
 
   applyLayout();
   window.addEventListener('resize', () => { closeDrawer(); applyLayout(); });
