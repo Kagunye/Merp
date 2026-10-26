@@ -27,7 +27,35 @@ class BankAccount(BaseModel):
 
     @property
     def current_balance(self):
+        """What the ledger account behind this bank account holds.
+
+        The ledger is kept in the book's own currency, so for a foreign-currency
+        bank account this is the book-currency value — show it labelled with
+        the book's currency, never with this account's own.
+        """
         return self.gl_account.current_balance
+
+    @property
+    def is_foreign(self):
+        """Is this account held in a currency other than the book's own?"""
+        book = (getattr(self.company, "currency", "") or "").upper()
+        return bool(self.currency) and self.currency.upper() != book
+
+    @property
+    def statement_balance(self):
+        """The balance in the account's own currency, as the bank would print it.
+
+        The opening balance plus every transaction recorded against the account
+        — those are entered in the account's own money — which is what a USD
+        statement has to be compared with.
+        """
+        from django.db.models import Case, DecimalField, F, Sum, Value, When
+        signed = self.transactions.aggregate(t=Sum(Case(
+            When(transaction_type="CREDIT", then=F("amount")),
+            When(transaction_type="DEBIT", then=-F("amount")),
+            default=Value(0),
+            output_field=DecimalField(max_digits=15, decimal_places=2))))["t"]
+        return (self.opening_balance or Decimal("0")) + (signed or Decimal("0"))
 
 
 class Reconciliation(BaseModel, NotesMixin):

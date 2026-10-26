@@ -28,6 +28,8 @@
 
 <form method="post" action="{% url 'pos:terminal' %}" class="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
   {% csrf_token %}
+  {# One-time token: the same form submitted twice rings one ticket, not two. #}
+  <input type="hidden" name="ticket_token" value="{{ ticket_token }}" />
   <div class="lg:col-span-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
       <h2 class="text-sm font-semibold text-gray-700">The ticket</h2>

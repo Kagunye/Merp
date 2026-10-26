@@ -63,7 +63,7 @@
   </div>
 
   <div class="space-y-6">
-    {% if session.status == 'OPEN' %}
+    {% if session.status == 'OPEN' and can_close %}
     <form method="post" action="{% url 'pos:session_close' session.pk %}" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       {% csrf_token %}
       <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Close the till</h2></div>
@@ -78,6 +78,10 @@
         <button type="submit" class="w-full px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary)">Close session</button>
       </div>
     </form>
+    {% elif session.status == 'OPEN' %}
+    <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-sm text-gray-600">
+      This till is {{ session.cashier.get_full_name|default:session.cashier.username }}'s and is still open. Only they — or a company administrator — can count and close it.
+    </div>
     {% else %}
     <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-sm text-gray-600">
       This till is closed{% if session.closed_at %} since {{ session.closed_at|date:"d M Y, H:i" }}{% endif %}. Open a new session from the terminal to trade again.

@@ -50,7 +50,22 @@
       </tbody>
     </table>
     {% if report.counted_cash is None %}
+      {% if can_count %}
+      <form method="post" class="mt-3 space-y-2 no-print">
+        {% csrf_token %}
+        <p class="text-sm text-amber-700">This till was closed without a count, so the drawer is unproven. Count it now and record what is actually in it — any difference is written off to cash over and short.</p>
+        <label class="block text-sm">
+          <span class="text-xs font-medium text-gray-600">Cash counted</span>
+          <input type="number" step="0.01" min="0" name="closing_cash" placeholder="{{ report.expected_cash }}" required
+                 class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono" />
+        </label>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary)">Record the count</button>
+      </form>
+      {% elif session.status == 'OPEN' %}
       <p class="text-sm text-amber-700 mt-3">Nothing has been counted yet, so the drawer is unproven. Record the count on the session page when the shift ends.</p>
+      {% else %}
+      <p class="text-sm text-amber-700 mt-3">This till was closed without a count, so the drawer is unproven. Only its cashier or a company administrator can record the count.</p>
+      {% endif %}
     {% elif report.variance == 0 %}
       <p class="text-sm text-green-700 mt-3">The drawer balances to the ticket.</p>
     {% elif report.variance > 0 %}

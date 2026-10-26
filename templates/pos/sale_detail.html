@@ -72,6 +72,7 @@
     {% if can_refund %}
     <form method="post" action="{% url 'pos:sale_refund' sale.pk %}" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       {% csrf_token %}
+      <input type="hidden" name="refund_token" value="{{ refund_token }}" />
       <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Return goods and pay the money back</h2></div>
       <table class="w-full text-sm">
         <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Item</th><th class="px-4 py-3 text-right">Sold</th><th class="px-4 py-3 text-right">Still returnable</th><th class="px-4 py-3 text-right">Returning</th></tr></thead>
@@ -96,6 +97,14 @@
           <input type="text" name="reason" maxlength="255" placeholder="Faulty, wrong item, customer changed their mind…"
                  class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" />
         </label>
+        {% if refund_methods %}
+        <label class="block text-sm">
+          <span class="text-xs font-medium text-gray-600">Pay back by (administrator override)</span>
+          <select name="payment_method" class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
+            {% for value, label in refund_methods %}<option value="{{ value }}" {% if value == sale.payment_method %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        {% endif %}
         <div class="flex justify-end">
           <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary)">Refund this ticket</button>
         </div>
@@ -103,9 +112,13 @@
       <p class="px-4 py-3 text-xs text-gray-500 bg-gray-50 border-t border-gray-100">
         A refund is its own ticket rather than an edit of the sale: the money that went over the counter and the money that comes back are two events, and the till has to be able to prove both.
         The goods go back on <strong>{{ sale.warehouse.name|default:"the till's shelf" }}</strong> at the same cost they left at, and the revenue and VAT are taken back by a second entry — never by deleting this one.
-        {% if sale.payment_method == 'CASH' %}Cash refunds are paid out of this drawer, so the session has to still be open and hold enough notes.{% endif %}
+        The money goes back by {{ sale.get_payment_method_display }}, the way it came in{% if sale.payment_method == 'CASH' %}, out of your own drawer at {{ refund_till.branch.name }} — so it has to hold enough notes{% endif %}.
       </p>
     </form>
+    {% elif refund_needs_till %}
+    <div class="bg-amber-50 rounded-xl border border-amber-200 p-4 text-sm text-amber-800">
+      To refund this ticket, <a href="{% url 'pos:session_open' %}" class="underline font-semibold">open your own till</a> first — a refund is paid out of the drawer of the person handing the money back.
+    </div>
     {% elif sale.refund_of %}
     <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 text-sm text-gray-600">
       This is itself a refund ticket — goods come back on the sale it was issued against, not here.

@@ -8,8 +8,8 @@
   <div>
     <label class="text-xs text-gray-500 block mb-1">Trading from</label>
     <select name="branch" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-      <option value="">— Company default —</option>
-      {% for b in branches %}<option value="{{ b.pk }}">{{ b.name }}</option>{% endfor %}
+      {% if not default_branch %}<option value="">— Choose a branch —</option>{% endif %}
+      {% for b in branches %}<option value="{{ b.pk }}" {% if default_branch and b.pk == default_branch.pk %}selected{% endif %}>{{ b.name }}</option>{% endfor %}
     </select>
     <p class="text-xs text-gray-400 mt-1">The branch decides which shelf a sale takes its goods from.</p>
   </div>

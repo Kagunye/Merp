@@ -62,7 +62,7 @@
   Either the missing item(s) are not ticked, they are dated after this statement, or the closing balance is wrong.
   Balance per the ledger account
   <span class="font-mono px-1.5 rounded" style="{% account_chip reconciliation.bank_account %}">{{ reconciliation.bank_account.gl_account.code }}</span>
-  at {{ reconciliation.statement_date|date:"d M Y" }} is <span class="font-mono">{{ books_balance|floatformat:2 }}</span>.
+  at {{ reconciliation.statement_date|date:"d M Y" }} is <span class="font-mono">{{ books_balance|floatformat:2 }} {{ book }}</span>{% if book != currency %} (the ledger is kept in {{ book }}, so it cannot be compared with a {{ currency }} statement figure for figure){% endif %}.
 </div>
 {% endif %}
 
