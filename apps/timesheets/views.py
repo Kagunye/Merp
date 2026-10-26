@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
@@ -90,9 +91,14 @@ class EntryDetailView(LoginRequiredMixin, DetailView):
 
 
 @login_required
+@require_POST
 def entry_submit(request, pk):
     e = get_object_or_404(company_entries(request), pk=pk)
-    if e.status == "DRAFT":
+    if e.user_id != request.user.pk:
+        messages.error(request, "Only the person who logged these hours can submit them.")
+    elif e.status != "DRAFT":
+        messages.error(request, "This entry has already been submitted.")
+    else:
         e.status = "SUBMITTED"
         e.save(update_fields=["status"])
         messages.success(request, "Submitted for approval.")
@@ -100,13 +106,15 @@ def entry_submit(request, pk):
 
 
 @login_required
+@require_POST
 def entry_approve(request, pk):
     e = get_object_or_404(company_entries(request), pk=pk)
     if e.user_id == request.user.pk:
         # Hours you approve for yourself are hours nobody else agreed you worked.
         messages.error(request, "You cannot approve your own hours — somebody else has to.")
-        return redirect("timesheets:entry_detail", pk=pk)
-    if e.status == "SUBMITTED":
+    elif e.status != "SUBMITTED":
+        messages.error(request, "Only submitted hours can be approved.")
+    else:
         e.status = "APPROVED"
         e.approved_by = request.user
         e.approved_at = timezone.now()

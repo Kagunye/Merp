@@ -431,6 +431,14 @@ class PurchaseRequisitionCreateView(LoginRequiredMixin, CreateView):
         from .forms import PurchaseRequisitionForm
         return PurchaseRequisitionForm
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        from apps.organizations.models import Department
+        company = self.request.active_company
+        form.fields["department"].queryset = (
+            Department.objects.filter(company=company) if company else Department.objects.none())
+        return form
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         form.instance.requested_by = self.request.user

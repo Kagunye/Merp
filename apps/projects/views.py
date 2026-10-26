@@ -70,6 +70,8 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
             form.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
             form.fields["reference"].initial = SequenceCounter.next_number(company, "PRJ-")
+        from apps.core.forms import company_users
+        form.fields["manager"].queryset = company_users(company)
         form.fields["start_date"].initial = datetime.date.today()
         return form
 
@@ -129,9 +131,8 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
                 required=True,
             )
         if "assigned_to" in form.fields:
-            form.fields["assigned_to"].queryset = User.objects.filter(
-                memberships__company=company, is_active=True
-            ).distinct().order_by("first_name", "last_name")
+            from apps.core.forms import company_users
+            form.fields["assigned_to"].queryset = company_users(company)
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
                 field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"

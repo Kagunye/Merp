@@ -60,6 +60,14 @@ class DocumentUploadView(LoginRequiredMixin, CreateView):
     template_name = "documents/document_form.html"
     success_url = reverse_lazy("documents:document_list")
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        from .models import DocumentCategory
+        company = self.request.active_company
+        form.fields["category"].queryset = (
+            DocumentCategory.objects.filter(company=company) if company else DocumentCategory.objects.none())
+        return form
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         form.instance.uploaded_by = self.request.user

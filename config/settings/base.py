@@ -92,6 +92,7 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
     "auditlog.middleware.AuditlogMiddleware",
     "apps.core.middleware.CompanyContextMiddleware",
+    "apps.core.middleware.RoleAccessMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

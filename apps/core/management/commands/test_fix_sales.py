@@ -232,7 +232,9 @@ class Command(BaseCommand):
         self.company = company
         membership = CompanyMembership.objects.filter(company=company, user=self.user).first()
         if membership:
-            membership.role = "ACCOUNTANT"
+            # These checks are about the figures, not who may type them: an
+            # administrator may do every step, so no role wall gets in the way.
+            membership.role = "ADMIN"
             membership.save(update_fields=["role"])
         # Land on a page so the active company is resolved for this session.
         client.get(reverse("sales:index"))

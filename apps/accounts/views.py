@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
@@ -117,8 +118,7 @@ class LoginView(View):
                     messages.success(request, f"Welcome back, {user.first_name or user.email}!")
                 except Exception:
                     pass
-                next_url = request.GET.get("next", "/dashboard/")
-                return redirect(next_url)
+                return redirect(safe_next(request, "/dashboard/"))
             else:
                 try:
                     LoginAttempt.objects.create(
@@ -153,7 +153,8 @@ class RegisterView(View):
         form = RegisterForm(request.POST)
         if form.is_valid():
             user = form.save()
-            login(request, user)
+            # Several auth backends are configured, so login() must be told which one.
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             messages.success(
                 request,
                 f"Welcome to Mofisi, {user.first_name or user.email}! "
@@ -163,6 +164,16 @@ class RegisterView(View):
         return render(request, self.template_name, {"form": form})
 
 
+def safe_next(request, default):
+    """The ?next= target only if it stays on this site; otherwise `default`."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    target = request.GET.get("next") or request.POST.get("next") or ""
+    if target and url_has_allowed_host_and_scheme(
+            target, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return target
+    return default
+
+
 class LogoutView(View):
     def post(self, request):
         logout(request)
@@ -170,8 +181,11 @@ class LogoutView(View):
         return redirect("accounts:login")
 
     def get(self, request):
-        logout(request)
-        return redirect("accounts:login")
+        # Signing out changes state, so it takes a button press (POST with a
+        # CSRF token); a link or an <img> pointing here can't sign anyone out.
+        if not request.user.is_authenticated:
+            return redirect("accounts:login")
+        return render(request, "accounts/logout_confirm.html", {"page_title": "Sign out"})
 
 
 class ProfileView(LoginRequiredMixin, TemplateView):
@@ -280,6 +294,24 @@ class PasswordResetConfirmView(View):
         return render(request, self.template_name, {"form": form, "token": token})
 
 
+def _company_members(request):
+    """Users this person may manage: members of the active company (everyone,
+    for a platform admin). Never another company's users."""
+    from apps.core.access import is_platform_admin
+    if is_platform_admin(request.user):
+        return User.objects.all()
+    company = getattr(request, "active_company", None)
+    if company is None:
+        return User.objects.none()
+    return User.objects.filter(memberships__company=company).distinct()
+
+
+def _membership_active(company):
+    from django.db.models import Exists, OuterRef
+    from apps.organizations.models import CompanyMembership
+    return Exists(CompanyMembership.objects.filter(user=OuterRef("pk"), company=company, is_active=True))
+
+
 class UserListView(LoginRequiredMixin, ListView):
     model = User
     template_name = "accounts/user_list.html"
@@ -290,10 +322,11 @@ class UserListView(LoginRequiredMixin, ListView):
         company = self.request.active_company
         if not company:
             return User.objects.none()
+        # Everyone who has ever been in this company, so a disabled member can be re-enabled.
         qs = (
-            User.objects.filter(
-                memberships__company=company, memberships__is_active=True,
-            ).distinct().order_by("first_name", "last_name")
+            User.objects.filter(memberships__company=company)
+            .distinct().annotate(member_active=_membership_active(company))
+            .order_by("first_name", "last_name")
         )
         q = self.request.GET.get("q", "").strip()
         if q:
@@ -313,17 +346,30 @@ class UserListView(LoginRequiredMixin, ListView):
 class UserCreateView(LoginRequiredMixin, View):
     template_name = "accounts/user_form.html"
 
+    def _form(self, request, data=None):
+        from apps.core.access import is_platform_admin
+        return UserCreateForm(data, platform_admin=is_platform_admin(request.user))
+
     def get(self, request):
         return render(request, self.template_name, {
-            "form": UserCreateForm(),
+            "form": self._form(request),
             "page_title": "Create User",
         })
 
     def post(self, request):
-        form = UserCreateForm(request.POST)
+        from django.db import transaction
+        from apps.organizations.models import CompanyMembership
+        company = request.active_company
+        if company is None:
+            messages.error(request, "Switch to a company before adding users to it.")
+            return redirect("accounts:user_list")
+        form = self._form(request, request.POST)
         if form.is_valid():
-            user = form.save()
-            messages.success(request, f"User {user.full_name} created successfully.")
+            with transaction.atomic():
+                user = form.save()
+                CompanyMembership.objects.create(
+                    user=user, company=company, role=form.cleaned_data["company_role"], is_active=True)
+            messages.success(request, f"User {user.full_name} created and added to {company.name}.")
             return redirect("accounts:user_detail", pk=user.pk)
         return render(request, self.template_name, {"form": form})
 
@@ -348,23 +394,50 @@ class UserDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"User — {self.object.full_name}"
         ctx["memberships"] = self.object.memberships.select_related("company", "branch").all()
+        company = self.request.active_company
+        ctx["member_active"] = bool(company) and self.object.memberships.filter(
+            company=company, is_active=True).exists()
         return ctx
 
 
 class UserEditView(LoginRequiredMixin, View):
+    """Edit a colleague's details. Sign-in identity (email, username) is locked
+    when they also belong to another company: changing it there would let
+    one company take over an account another company relies on."""
     template_name = "accounts/user_form.html"
 
+    def _target(self, request, pk):
+        from apps.core.access import is_platform_admin
+        user = get_object_or_404(_company_members(request), pk=pk)
+        if is_platform_admin(user) and not is_platform_admin(request.user):
+            from django.http import Http404
+            raise Http404
+        return user
+
+    def _form(self, request, user, data=None, files=None):
+        from apps.core.access import is_platform_admin
+        form = UserEditForm(data, files, instance=user)
+        company = getattr(request, "active_company", None)
+        shared = (company is not None and not is_platform_admin(request.user)
+                  and user.pk != request.user.pk
+                  and user.memberships.filter(is_active=True).exclude(company=company).exists())
+        if shared:
+            for name in ("email", "username"):
+                form.fields[name].disabled = True
+                form.fields[name].help_text = "This person also belongs to another company, so only they can change it."
+        return form
+
     def get(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
+        user = self._target(request, pk)
         return render(request, self.template_name, {
-            "form": UserEditForm(instance=user),
+            "form": self._form(request, user),
             "profile_user": user,
             "page_title": f"Edit User — {user.full_name}",
         })
 
     def post(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
-        form = UserEditForm(request.POST, request.FILES, instance=user)
+        user = self._target(request, pk)
+        form = self._form(request, user, request.POST, request.FILES)
         if form.is_valid():
             form.save()
             messages.success(request, "User updated successfully.")
@@ -373,13 +446,28 @@ class UserEditView(LoginRequiredMixin, View):
 
 
 @login_required
+@require_POST
 def toggle_user_active(request, pk):
-    user = get_object_or_404(User, pk=pk)
+    """Disable or re-enable someone's access to the active company.
+
+    It changes their membership here, not their account, so one company can't
+    lock a person out of another company they also work for.
+    """
+    from apps.core.access import is_platform_admin
+    from apps.organizations.models import CompanyMembership
+    user = get_object_or_404(_company_members(request), pk=pk)
     if user == request.user:
-        messages.error(request, "You cannot deactivate your own account.")
+        messages.error(request, "You cannot disable your own access.")
         return redirect("accounts:user_detail", pk=pk)
-    user.is_active = not user.is_active
-    user.save(update_fields=["is_active"])
-    status = "activated" if user.is_active else "deactivated"
-    messages.success(request, f"User {user.full_name} has been {status}.")
+    if is_platform_admin(user) and not is_platform_admin(request.user):
+        messages.error(request, "Platform administrators can't be disabled from a company.")
+        return redirect("accounts:user_list")
+    membership = CompanyMembership.objects.filter(user=user, company=request.active_company).first()
+    if membership is None:
+        messages.error(request, f"{user.full_name} isn't a member of {request.active_company}.")
+        return redirect("accounts:user_list")
+    membership.is_active = not membership.is_active
+    membership.save(update_fields=["is_active"])
+    status = "enabled" if membership.is_active else "disabled"
+    messages.success(request, f"{user.full_name}'s access to {request.active_company.name} has been {status}.")
     return redirect("accounts:user_list")

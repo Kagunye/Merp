@@ -1,6 +1,7 @@
 """HR views."""
 import datetime
 from django.contrib import messages
+from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
@@ -345,8 +346,10 @@ def leave_approve(request, pk):
             messages.success(request, f"Leave approved for {leave.employee.full_name}.")
         elif action == "reject":
             leave.status = "REJECTED"
+            leave.approved_by = request.user
+            leave.approved_at = timezone.now()
             leave.rejection_reason = request.POST.get("reason", "")
-            leave.save(update_fields=["status", "rejection_reason", "updated_at"])
+            leave.save(update_fields=["status", "approved_by", "approved_at", "rejection_reason", "updated_at"])
             messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
         else:
             messages.error(
@@ -382,4 +385,12 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
 
     def get_queryset(self):
         return visible_leave(self.request)
+
+    def get_context_data(self, **kwargs):
+        from apps.core import access
+        ctx = super().get_context_data(**kwargs)
+        role = getattr(self.request, "company_role", None)
+        ctx["can_decide"] = (access.can(self.request.user, role, "hr", "leave_approve", "POST")
+                             and self.object.employee.user_id != self.request.user.pk)
+        return ctx
 

@@ -378,8 +378,14 @@ class Command(BaseCommand):
         # ── no till, no refund ──
         count = POSSale.objects.filter(refund_of=cash_sale).count()
         response, back = self.refund(self.c_acct, cash_sale, {self.milk: "1"})
-        self.expect_flash(self.c_acct, response, "no open till",
-                          "someone with no open till of their own cannot pay a refund out")
+        # With roles enforced the accountant is stopped at the door (403); a till
+        # role with no till of its own gets the "no open till" message instead.
+        self.expect("someone with no open till of their own cannot pay a refund out",
+                    POSSale.objects.filter(refund_of=cash_sale).count() == count
+                    and (response.status_code == 403
+                         or any("no open till" in str(m).lower()
+                                for m in self.flashes(self.c_acct, response))),
+                    f"HTTP {response.status_code}")
         self.expect("and nothing was refunded",
                     POSSale.objects.filter(refund_of=cash_sale).count() == count)
 

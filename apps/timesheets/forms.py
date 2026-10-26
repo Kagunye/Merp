@@ -32,10 +32,11 @@ class TimesheetEntryForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.company = company
         self.user = user
-        if company is not None:
-            from apps.projects.models import Project, Task
-            self.fields["project"].queryset = Project.objects.filter(company=company)
-            self.fields["task"].queryset = Task.objects.filter(project__company=company)
+        from apps.projects.models import Project, Task
+        self.fields["project"].queryset = (
+            Project.objects.filter(company=company) if company else Project.objects.none())
+        self.fields["task"].queryset = (
+            Task.objects.filter(project__company=company) if company else Task.objects.none())
 
     def clean_hours(self):
         hours = self.cleaned_data.get("hours")
@@ -65,6 +66,9 @@ class TimesheetEntryForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        project, task = cleaned.get("project"), cleaned.get("task")
+        if project and task and task.project_id != project.pk:
+            self.add_error("task", "That task belongs to a different project.")
         day, hours = cleaned.get("entry_date"), cleaned.get("hours")
         user = self.user or getattr(self.instance, "user", None)
         if day and hours and user is not None and getattr(user, "pk", None):
