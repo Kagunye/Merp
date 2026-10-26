@@ -142,9 +142,30 @@ def post(reconciliation, user=None):
 
 
 def reverse(reconciliation):
-    """Undo a posted statement and release every transaction it cleared."""
+    """Undo a posted statement and release every transaction it cleared.
+
+    Statements form a chain: each one opens on the closing balance of the
+    last posted statement before it. Reversing an earlier statement while a
+    later one stays posted would pull a link out of the middle of that chain
+    — the later statement would still open on a balance nobody now stands
+    behind, and a fresh draft for the earlier date would open from the
+    account's original opening balance, skipping everything in between. So
+    the statements are unwound from the newest back: reverse the later one
+    first, then this one.
+    """
     if reconciliation.status != "POSTED":
         raise ValidationError("Only a posted statement can be reversed.")
+    later = (
+        Reconciliation.objects.filter(
+            bank_account=reconciliation.bank_account, status="POSTED",
+            statement_date__gt=reconciliation.statement_date,
+        ).order_by("-statement_date").first()
+    )
+    if later:
+        raise ValidationError(
+            f"Statement {later.reference} to {later.statement_date:%d %b %Y} is posted after "
+            f"this one and opens on its closing balance. Reverse {later.reference} first, "
+            f"then {reconciliation.reference}.")
     with transaction.atomic():
         for txn in reconciliation.transactions.all():
             txn.reconciliation = None

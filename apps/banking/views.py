@@ -12,14 +12,17 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import (
-    CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView,
+    CreateView, DeleteView, DetailView, FormView, ListView, TemplateView, UpdateView,
 )
 
+from apps.accounting import gl_service
 from apps.accounting.currency import book_currency
 from apps.core.mixins import CompanyRequiredMixin
 
 from . import services
-from .forms import BankAccountForm, BankReconciliationForm, BankTransactionForm
+from .forms import (
+    BankAccountForm, BankReconciliationForm, BankTransactionForm, BankTransferForm,
+)
 from .models import BankAccount, BankTransaction, Reconciliation
 
 
@@ -189,8 +192,45 @@ class BankTransactionCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         return initial
 
     def form_valid(self, form):
-        messages.success(self.request, "Transaction recorded.")
-        return super().form_valid(form)
+        """Save the line and book its ledger entry, as one step.
+
+        Either both land or neither does: a line without its entry is the
+        bank book disagreeing with the ledger, which is the bug this screen
+        used to have.
+        """
+        try:
+            with db_transaction.atomic():
+                txn = form.save(commit=False)
+                txn.origin = "MANUAL"
+                txn.save()
+                entry = gl_service.post_bank_transaction(txn, user=self.request.user)
+        except ValidationError as e:
+            form.add_error(None, e.messages[0])
+            return self.form_invalid(form)
+        self.object = txn
+        messages.success(self.request, f"Transaction recorded and posted to the ledger in "
+                                       f"{entry.reference}.")
+        return redirect(self.get_success_url())
+
+
+# The fields whose change means the ledger entry behind a manual line is wrong
+# and has to be booked again. A new description or reference is only words.
+_LEDGER_FIELDS = ("bank_account_id", "transaction_date", "transaction_type", "amount",
+                  "counter_account_id")
+
+
+def _not_ours_to_change(txn):
+    """Why the bank screen may not edit or delete this line itself, or "".
+
+    A line fed from another document's entry is corrected at that document —
+    the receipt, the bill, the till, the payroll run — whose own reversal
+    takes the line off the bank book. A transfer's two sides go together.
+    """
+    if txn.origin == "LEDGER":
+        ref = txn.journal_entry.reference if txn.journal_entry else "its ledger entry"
+        return (f"This line comes from {ref}, posted by another screen. Correct or reverse "
+                "that document there — reversing it takes the line off the bank book.")
+    return ""
 
 
 class BankTransactionUpdateView(LoginRequiredMixin, UpdateView):
@@ -220,6 +260,13 @@ class BankTransactionUpdateView(LoginRequiredMixin, UpdateView):
                     f"{how} before changing it.",
                 )
                 return redirect("banking:transaction_detail", pk=txn.pk)
+            refusal = _not_ours_to_change(txn)
+            if not refusal and txn.origin == "TRANSFER":
+                refusal = ("This line is one side of a transfer. Delete the transfer and enter "
+                           "it again, so both accounts change together.")
+            if refusal:
+                messages.error(request, refusal)
+                return redirect("banking:transaction_detail", pk=txn.pk)
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
@@ -237,8 +284,34 @@ class BankTransactionUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("banking:transaction_detail", args=[self.object.pk])
 
     def form_valid(self, form):
-        messages.success(self.request, "Transaction updated.")
-        return super().form_valid(form)
+        """Save the correction and, if it moves money, re-book the entry.
+
+        The old entry is reversed on its own date and a fresh one booked from
+        the corrected line, so the ledger ends up saying what the line now
+        says while still showing that it once said something else.
+        """
+        before = BankTransaction.objects.select_related("journal_entry").get(pk=self.object.pk)
+        try:
+            with db_transaction.atomic():
+                txn = form.save(commit=False)
+                rebook = (before.journal_entry_id is None
+                          or any(getattr(before, f) != getattr(txn, f) for f in _LEDGER_FIELDS))
+                if rebook:
+                    gl_service.unbook_bank_transaction(before, user=self.request.user)
+                    txn.journal_entry = None
+                txn.origin = "MANUAL"
+                txn.save()
+                if rebook:
+                    gl_service.post_bank_transaction(txn, user=self.request.user)
+        except ValidationError as e:
+            form.add_error(None, e.messages[0])
+            return self.form_invalid(form)
+        self.object = txn
+        messages.success(
+            self.request,
+            f"Transaction updated and re-posted in {txn.journal_entry.reference}." if rebook
+            else "Transaction updated.")
+        return redirect(self.get_success_url())
 
 
 class BankTransactionDeleteView(LoginRequiredMixin, DeleteView):
@@ -257,31 +330,104 @@ class BankTransactionDeleteView(LoginRequiredMixin, DeleteView):
 
     def refuse_if_cleared(self):
         """A transaction inside a filed statement is evidence for that filing,
-        so it cannot be deleted until the statement is reversed."""
-        if not self.object.is_reconciled:
-            return None
-        statement = (self.object.reconciliation.reference if self.object.reconciliation
-                     else "a posted statement")
-        messages.error(
+        so it cannot be deleted until the statement is reversed. A line fed
+        from another document's entry is removed by reversing that document."""
+        if self.object.is_reconciled:
+            statement = (self.object.reconciliation.reference if self.object.reconciliation
+                         else "a posted statement")
+            messages.error(
+                self.request,
+                f"That transaction is cleared on statement {statement}; "
+                "reverse the statement before deleting it.",
+            )
+            return redirect("banking:transaction_detail", pk=self.object.pk)
+        refusal = _not_ours_to_change(self.object)
+        if refusal:
+            messages.error(self.request, refusal)
+            return redirect("banking:transaction_detail", pk=self.object.pk)
+        return None
+
+    def remove(self):
+        """Delete the line and take its entry off the ledger with it.
+
+        The entry is reversed, not erased; a transfer loses both its sides.
+        """
+        txn = self.object
+        try:
+            with db_transaction.atomic():
+                if txn.origin == "TRANSFER" and txn.journal_entry_id:
+                    reversal = gl_service.unbook_bank_transfer(
+                        txn.journal_entry, user=self.request.user)
+                    what = "Transfer deleted from both accounts"
+                else:
+                    reversal = gl_service.unbook_bank_transaction(txn, user=self.request.user)
+                    txn.delete()
+                    what = "Transaction deleted"
+        except ValidationError as e:
+            messages.error(self.request, e.messages[0])
+            return redirect("banking:transaction_detail", pk=txn.pk)
+        messages.success(
             self.request,
-            f"That transaction is cleared on statement {statement}; "
-            "reverse the statement before deleting it.",
-        )
-        return redirect("banking:transaction_detail", pk=self.object.pk)
+            f"{what}; its ledger entry is reversed by {reversal.reference}." if reversal
+            else f"{what}.")
+        return redirect(self.get_success_url())
 
     def form_valid(self, form):
         # Django 5 routes the confirmation POST through form_valid, not delete.
         blocked = self.refuse_if_cleared()
         if blocked is not None:
             return blocked
-        return super().form_valid(form)
+        return self.remove()
 
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
         blocked = self.refuse_if_cleared()
         if blocked is not None:
             return blocked
-        return super().delete(request, *args, **kwargs)
+        return self.remove()
+
+
+class BankTransferView(LoginRequiredMixin, CompanyRequiredMixin, FormView):
+    """Move money between two of the company's own bank or cash accounts.
+
+    One ledger entry carries both sides — and, between two currencies, the
+    realised exchange on the bank's rate against the filed one — while each
+    account gets its own line on its bank book to tick on its statement.
+    """
+    form_class = BankTransferForm
+    template_name = "banking/transfer_form.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_initial(self):
+        from django.utils import timezone
+        initial = super().get_initial()
+        initial["transfer_date"] = timezone.localdate()
+        account = _scoped_account(self.request.active_company, self.request.GET.get("account"))
+        if account:
+            initial["from_account"] = account.pk
+        return initial
+
+    def form_valid(self, form):
+        data = form.cleaned_data
+        try:
+            entry, out_line, in_line = gl_service.post_bank_transfer(
+                data["from_account"], data["to_account"], data["amount_sent"],
+                data["transfer_date"], amount_received=data.get("amount_received"),
+                reference=data.get("reference") or "",
+                description=data.get("description") or "", user=self.request.user)
+        except ValidationError as e:
+            form.add_error(None, e.messages[0])
+            return self.form_invalid(form)
+        messages.success(
+            self.request,
+            f"Transfer posted in {entry.reference}: {out_line.bank_account.currency} "
+            f"{out_line.amount} out of {out_line.bank_account.name}, "
+            f"{in_line.bank_account.currency} {in_line.amount} into {in_line.bank_account.name}.")
+        return redirect(reverse("banking:transaction_list") + f"?account={out_line.bank_account.pk}")
 
 
 class BankTransactionDetailView(LoginRequiredMixin, DetailView):

@@ -181,7 +181,20 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             return redirect("pos:session_open")
         quantities = {key[4:]: value for key, value in request.POST.items()
                       if key.startswith("qty_")}
-        token = request.POST.get("ticket_token")
+        token = services.clean_token(request.POST.get("ticket_token"))
+        if not token:
+            # The token is what makes a double click or a reloaded POST hand back
+            # the ticket it already rang instead of taking the money twice. A
+            # post without one — a stale page, a script, a hand-made request —
+            # has nothing to be recognised by, so it is refused rather than rung
+            # unguarded. The screen is shown again with a fresh token.
+            messages.error(
+                request,
+                "That ticket form had no one-time token, so it could not be protected "
+                "against being rung twice. Nothing was taken — check the lines below and "
+                "ring the ticket again from this screen.")
+            return render(request, self.template_name,
+                          self.get_context_data(cashier_session, company, quantities), status=200)
         already = services.submitted_ticket(cashier_session, token)
         if already:
             return self.already_rung(request, already)
@@ -361,7 +374,16 @@ def sale_refund(request, pk):
     sale = get_object_or_404(POSSale, pk=pk, session__company=company)
     quantities = {key[len("refund_qty_"):]: value
                   for key, value in request.POST.items() if key.startswith("refund_qty_")}
-    token = request.POST.get("refund_token")
+    token = services.clean_token(request.POST.get("refund_token"))
+    if not token:
+        # As at the terminal: without the form's one-time token a repeated post
+        # could not be told from a second refund, and would pay out twice.
+        messages.error(
+            request,
+            f"That refund form had no one-time token, so it could not be protected against "
+            f"paying out twice. Nothing was refunded — open {sale.reference} and refund it "
+            "from its page.")
+        return redirect("pos:sale_detail", pk=pk)
     till = services.active_session(company, request.user)
     already = services.submitted_ticket(till, token, refund_of=sale)
     if already:

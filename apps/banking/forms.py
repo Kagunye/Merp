@@ -69,10 +69,18 @@ class BankAccountForm(forms.ModelForm):
 
 
 class BankTransactionForm(forms.ModelForm):
+    """A deposit or withdrawal typed on the banking screen.
+
+    It always names its counter account, because saving it books the ledger
+    entry behind it (see gl_service.post_bank_transaction): a bank charge with
+    no expense to land on would move the bank book and leave the ledger where
+    it was.
+    """
+
     class Meta:
         model = BankTransaction
         fields = ["bank_account", "transaction_date", "value_date",
-                  "transaction_type", "amount", "description", "reference"]
+                  "transaction_type", "amount", "counter_account", "description", "reference"]
         widgets = {
             "transaction_date": date_input(),
             "value_date": date_input(),
@@ -81,9 +89,44 @@ class BankTransactionForm(forms.ModelForm):
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.company = company
+        counter = self.fields["counter_account"]
+        counter.required = True
+        counter.label = "Counter account"
+        counter.help_text = (
+            "What the money was: an expense for bank charges, income for interest, equity "
+            "for the owner's capital, a liability for a loan. Money between your own "
+            "accounts is a transfer — use Banking → Transfers.")
         if company:
+            from apps.accounting.gl_service import bank_counter_accounts
             self.fields["bank_account"].queryset = BankAccount.objects.filter(
                 company=company, is_active=True).order_by("name")
+            counter.queryset = bank_counter_accounts(company)
+
+    def clean_transaction_date(self):
+        """Today or earlier: a bank book records money that has moved.
+
+        A line dated next month would sit in the ledger as cash the company
+        does not yet have, and would be offered for ticking on a statement the
+        bank has not printed. A payment you expect to make is a plan, not a
+        transaction — enter it on the day it goes through.
+        """
+        from django.utils import timezone
+
+        day = self.cleaned_data.get("transaction_date")
+        if day and day > timezone.localdate():
+            raise forms.ValidationError(
+                f"{day:%d %b %Y} is in the future. Record a bank transaction on or after the "
+                "day it happens — today at the latest.")
+        return day
+
+    def clean(self):
+        cleaned = super().clean()
+        bank = cleaned.get("bank_account")
+        counter = cleaned.get("counter_account")
+        if bank and counter and counter.pk == bank.gl_account_id:
+            self.add_error("counter_account",
+                           "The counter account cannot be the bank's own ledger account.")
+        return cleaned
 
     def clean_amount(self):
         """The size of the movement, always above zero.
@@ -100,6 +143,82 @@ class BankTransactionForm(forms.ModelForm):
                 "Enter the amount as a figure above zero — choose Debit / Outflow for "
                 "money going out rather than typing a minus sign.")
         return amount
+
+
+class BankTransferForm(forms.Form):
+    """Money moved between two of the company's own bank or cash accounts.
+
+    Between two accounts in the same currency only the amount is needed; what
+    left one arrived in the other. Between shillings and dollars the bank's
+    own rate decides what arrives, so both figures are taken as the bank
+    printed them and the gap against the filed rate is realised exchange.
+    """
+    from_account = forms.ModelChoiceField(queryset=BankAccount.objects.none(), label="From")
+    to_account = forms.ModelChoiceField(queryset=BankAccount.objects.none(), label="To")
+    transfer_date = forms.DateField(widget=date_input(), label="Date")
+    amount_sent = forms.DecimalField(max_digits=15, decimal_places=2, label="Amount sent",
+                                     help_text="In the paying account's currency.")
+    amount_received = forms.DecimalField(
+        max_digits=15, decimal_places=2, required=False, label="Amount received",
+        help_text="In the receiving account's currency. Needed only when the two accounts "
+                  "keep different currencies.")
+    reference = forms.CharField(max_length=200, required=False)
+    description = forms.CharField(max_length=300, required=False)
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        accounts = (BankAccount.objects.filter(company=company, is_active=True)
+                    .select_related("gl_account").order_by("name")
+                    if company else BankAccount.objects.none())
+        for name in ("from_account", "to_account"):
+            self.fields[name].queryset = accounts
+            self.fields[name].label_from_instance = (
+                lambda a: f"{a.name} ({a.currency}) — {a.gl_account.code}")
+
+    def clean_transfer_date(self):
+        from django.utils import timezone
+
+        day = self.cleaned_data["transfer_date"]
+        if day > timezone.localdate():
+            raise forms.ValidationError(
+                f"{day:%d %b %Y} is in the future. Record the transfer on the day it goes "
+                "through — today at the latest.")
+        return day
+
+    def _positive(self, name):
+        amount = self.cleaned_data.get(name)
+        if amount is not None and (not amount.is_finite() or amount <= Decimal("0")):
+            raise forms.ValidationError("Enter the amount as a figure above zero.")
+        return amount
+
+    def clean_amount_sent(self):
+        return self._positive("amount_sent")
+
+    def clean_amount_received(self):
+        return self._positive("amount_received")
+
+    def clean(self):
+        cleaned = super().clean()
+        source, destination = cleaned.get("from_account"), cleaned.get("to_account")
+        if source and destination:
+            if source.pk == destination.pk:
+                self.add_error("to_account", "Pick a different account to move the money to.")
+            elif (source.currency or "").upper() != (destination.currency or "").upper() \
+                    and cleaned.get("amount_received") is None:
+                self.add_error(
+                    "amount_received",
+                    f"Enter what arrived in {destination.currency} — between {source.currency} "
+                    f"and {destination.currency} the bank's own rate decides it.")
+            elif (source.currency or "").upper() == (destination.currency or "").upper() \
+                    and cleaned.get("amount_received") is not None \
+                    and cleaned.get("amount_sent") is not None \
+                    and cleaned["amount_received"] != cleaned["amount_sent"]:
+                self.add_error(
+                    "amount_received",
+                    "Both accounts keep the same currency, so what arrives is what left. "
+                    "Record any bank charge as a withdrawal of its own.")
+        return cleaned
 
 
 class BankReconciliationForm(forms.ModelForm):

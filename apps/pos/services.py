@@ -425,8 +425,9 @@ def submitted_ticket(session, token, refund_of=None):
     A double click or a reload of a slow POST sends the same form — and the
     same token — twice. The first submission rang the ticket; the second must
     hand that ticket back rather than take the money, move the goods and book
-    the entry again. A form posted without a token (an older page, a script) is
-    not guarded, which is why the terminal and refund forms always render one.
+    the entry again. A form posted without a token (an older page, a script)
+    could not be guarded, so the terminal and refund views refuse it outright
+    and both forms always render one.
     """
     token = clean_token(token)
     if not token or session is None:

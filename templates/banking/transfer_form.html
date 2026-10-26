@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'banking:transaction_list' as back %}
+{% include "_includes/model_form.html" with title="Bank Transfer" subtitle="Move money between two of your own bank or cash accounts. Between currencies, enter what left and what arrived." back_url=back cancel_url=back submit_label="Post Transfer" %}
+{% endblock %}
