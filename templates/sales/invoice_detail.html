@@ -83,7 +83,7 @@
             </td>
             <td class="px-4 py-3 text-right font-mono text-gray-700">{% if line.product %}{{ line.quantity|with_unit:line.product.unit_of_measure }}{% else %}{{ line.quantity|trim_qty }}{% endif %}</td>
             <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.unit_price|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right text-gray-500 text-xs">{% if line.discount_percent > 0 %}{{ line.discount_percent }}%{% else %}—{% endif %}</td>
+            <td class="px-4 py-3 text-right text-gray-500 text-xs">{% if line.discount_percent > 0 %}{{ line.discount_percent|trim_qty }}%{% else %}—{% endif %}</td>
             <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ line.line_total|floatformat:2 }}</td>
           </tr>
           {% empty %}

@@ -141,14 +141,35 @@ def _book_exchange_difference(je: JournalEntry, company, difference: Decimal,
 
 # ──────────────────────────── Invoice GL ────────────────────────────────────
 
-def _invoice_targets(invoice, default_revenue, default_vat):
-    """The revenue and tax lines an invoice of this shape is worth.
+def _to_cents_summing_to(amounts, total):
+    """Round each amount to the cent so that the rounded parts add up to `total`.
 
-    Stated in the invoice's own currency; the caller converts the whole set at
-    the invoice's booked rate. Shared with the credit note so a return can never
-    book against different accounts from the sale it answers.
+    The header of an invoice is what the customer reads and pays, and it is
+    rounded once on the whole (three lines of KES 0.1648 VAT are KES 0.49 of
+    tax, not 3 x 0.16). The journal lines have to say the same thing, so each
+    part is rounded and whatever cent is left over between the parts and the
+    header goes on the largest part.
     """
-    targets = []
+    from apps.sales.models import cents
+    rounded = [cents(a) for a in amounts]
+    residue = cents(total) - sum(rounded, Decimal("0"))
+    if residue and rounded:
+        heaviest = max(range(len(amounts)), key=lambda i: abs(amounts[i]))
+        rounded[heaviest] += residue
+    return rounded
+
+
+def _invoice_targets(invoice, default_revenue, default_vat):
+    """The revenue lines and the tax lines an invoice of this shape is worth.
+
+    Returned as two lists of (account, amount, description), stated in the
+    invoice's own currency and already rounded so that revenue adds up to the
+    invoice's subtotal and tax to its tax figure, cent for cent. The caller
+    converts each set at the invoice's booked rate. Shared with the credit
+    note so a return can never book against different accounts — or different
+    cents — from the sale it answers.
+    """
+    revenue, tax = [], []
     for line in invoice.lines.select_related(
         "product", "product__income_account", "tax_rate", "tax_rate__account"
     ):
@@ -156,19 +177,45 @@ def _invoice_targets(invoice, default_revenue, default_vat):
             (line.product and line.product.income_account) or default_revenue
         )
         line_desc = line.description or (line.product.name if line.product else "Item")
-        targets.append((revenue_acct, line.line_total, line_desc))
+        revenue.append((revenue_acct, line.line_total, line_desc))
 
         if line.tax_amount and line.tax_amount > 0:
             tax_acct = (
                 (line.tax_rate and line.tax_rate.account) or default_vat
             )
-            targets.append((tax_acct, line.tax_amount, f"VAT: {invoice.reference}"))
+            tax.append((tax_acct, line.tax_amount, f"VAT: {invoice.reference}"))
 
-    if not targets:
+    if not revenue:
         # A header-only invoice still owes somebody its revenue.
-        targets = [(default_revenue, invoice.total_amount,
-                    f"Revenue: {invoice.reference}")]
-    return targets
+        return [(default_revenue, invoice.total_amount,
+                 f"Revenue: {invoice.reference}")], []
+
+    def settle(targets, header):
+        amounts = _to_cents_summing_to([t[1] for t in targets], header)
+        return [(acct, amount, desc) for (acct, _raw, desc), amount in zip(targets, amounts)]
+
+    return settle(revenue, invoice.subtotal), settle(tax, invoice.tax_amount)
+
+
+def _invoice_entry_amounts(invoice, rate, total_base, default_revenue, default_vat):
+    """Every revenue and VAT line of an invoice's entry, in the book currency.
+
+    The VAT is the invoice's own tax figure at the booked rate — USD 4.80 at
+    131.25 is KES 630.00, which is what the tax return will be asked for — and
+    revenue takes the rest of the receivable. Translating line by line and
+    letting the cents fall where they may would put KES 630.63 on VAT for a
+    paper that says 4.80, and leave AR holding 63 cents nobody owes once the
+    invoice is paid.
+    """
+    revenue, tax = _invoice_targets(invoice, default_revenue, default_vat)
+    tax_base = to_base(sum((t[1] for t in tax), Decimal("0")), rate) if tax else Decimal("0")
+    rows = []
+    for targets, whole in ((tax, tax_base), (revenue, total_base - tax_base)):
+        if not targets:
+            continue
+        bases = spread([t[1] for t in targets], rate, whole)
+        rows += [(account, base, desc) for (account, _f, desc), base in zip(targets, bases)]
+    return rows
 
 @transaction.atomic
 def post_invoice(invoice, user=None) -> JournalEntry:
@@ -182,8 +229,9 @@ def post_invoice(invoice, user=None) -> JournalEntry:
     CR  VAT Payable per taxed line          line.tax_amount  (tax_rate.account or 2200)
 
     Every figure is in the book currency. A foreign invoice is translated at the
-    rate booked on it, and the rounding difference between the lines and the
-    total lands on the largest line so the entry still balances.
+    rate booked on it. VAT is the invoice's own (rounded) tax figure at that
+    rate and revenue is the rest of the receivable, so the entry says to the
+    cent what the paper says; a cent left between lines lands on the largest.
 
     Parameters
     ----------
@@ -229,12 +277,9 @@ def post_invoice(invoice, user=None) -> JournalEntry:
         source_currency=invoice.currency, exchange_rate=rate,
     )
 
-    # Per-line revenue and VAT, all stated in the book's own currency.
-    targets = _invoice_targets(invoice, default_revenue, default_vat)
-
     _dr(je, ar_account, total_base, f"AR: {invoice.reference}")
-    bases = spread([t[1] for t in targets], rate, total_base)
-    for (account, _foreign, desc), base in zip(targets, bases):
+    for account, base, desc in _invoice_entry_amounts(
+            invoice, rate, total_base, default_revenue, default_vat):
         _cr(je, account, base, desc)
 
     je.post(user=user)
@@ -286,9 +331,10 @@ def post_credit_note(note, user=None) -> JournalEntry:
         f"Credit note {note.reference} — {note.customer.name}",
         source_currency=note.currency, exchange_rate=rate,
     )
-    targets = _invoice_targets(note, default_revenue, default_vat)
-    bases = spread([t[1] for t in targets], rate, total_base)
-    for (account, _foreign, desc), base in zip(targets, bases):
+    # The same cents the note shows, exactly as an invoice of the same lines
+    # would have posted them, only the other way round.
+    for account, base, desc in _invoice_entry_amounts(
+            note, rate, total_base, default_revenue, default_vat):
         _dr(je, account, base, desc)
     _cr(je, ar_account, total_base, f"AR credit: {note.reference}")
 

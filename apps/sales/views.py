@@ -1,6 +1,6 @@
 """Sales views."""
 import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -19,14 +19,72 @@ from apps.core.mixins import CompanyRequiredMixin
 from apps.core.models import SequenceCounter
 
 from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
-from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder
+from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, cents
+
+
+# Larger than anything the columns can hold: quantities are stored with 8
+# digits before the point, money with 13.
+QUANTITY_LIMIT = Decimal("1e8")
+MONEY_LIMIT = Decimal("1e13")
+
+
+def _typed_number(raw, label, limit=QUANTITY_LIMIT):
+    """What somebody typed into a number box, as a Decimal.
+
+    Raises a ValidationError that says what is wrong with it otherwise. Python
+    reads "NaN", "sNaN" and "Infinity" as numbers, but none of them is a
+    quantity or an amount: NaN cannot even be compared with zero without an
+    error, and stored in a money column it would turn every total after it
+    into NaN. Figures too large for the column are refused here as well,
+    rather than failing at the database.
+    """
+    text = "" if raw is None else str(raw).strip()
+    try:
+        value = Decimal(text)
+    except InvalidOperation:
+        raise ValidationError(f"{label}: '{text}' is not a number.")
+    if not value.is_finite() or abs(value) >= limit:
+        raise ValidationError(f"{label}: '{text}' is not a usable figure.")
+    return value
+
+
+def _qty(value):
+    """12.0000 written as 12 in a message."""
+    return format(Decimal(str(value)), "f").rstrip("0").rstrip(".") or "0"
+
+
+def _editable(invoice):
+    """Only a draft that has never reached the ledger can be rewritten.
+
+    Once an invoice is posted its entry is the record of what was billed; a
+    change of lines, customer or currency on the paper would leave AR and VAT
+    saying something else. A posted invoice is put right by a credit note or a
+    cancellation, which both leave their own entry behind.
+    """
+    return invoice.status == "DRAFT" and not invoice.journal_entry_id
+
+
+def _resync_order(invoice):
+    """Bring the order an invoice was raised from back in line with its invoices."""
+    if not invoice.sales_order_id:
+        return
+    order = SalesOrder.objects.select_for_update().filter(pk=invoice.sales_order_id).first()
+    if order:
+        order.sync_invoiced_quantities()
 
 
 def _recalculate_invoice_totals(invoice):
-    """Recompute header totals from the stored lines, which are the source of truth."""
+    """Recompute header totals from the stored lines, which are the source of truth.
+
+    Rounded to the cent here, once, the way the paper is printed: goods and tax
+    each to the cent, the total their sum. The ledger posts these same figures,
+    and the book-currency value worked out from them in save() is then the
+    same on every later save — it is not computed from a total with unrounded
+    tails that the database only trims afterwards.
+    """
     lines = invoice.lines.all()
-    invoice.subtotal = sum((line.line_total for line in lines), Decimal("0"))
-    invoice.tax_amount = sum((line.tax_amount for line in lines), Decimal("0"))
+    invoice.subtotal = cents(sum((line.line_total for line in lines), Decimal("0")))
+    invoice.tax_amount = cents(sum((line.tax_amount for line in lines), Decimal("0")))
     invoice.total_amount = invoice.subtotal + invoice.tax_amount
     # Saved through the model rather than a bulk update: the book-currency value
     # of a foreign invoice is only true once these totals are, and that is the
@@ -264,10 +322,13 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
             if not text:
                 continue
             try:
-                amount = Decimal(text)
-            except Exception:
+                amount = _typed_number(text, "Settled amount", MONEY_LIMIT)
+            except ValidationError:
                 return None, (f"'{text}' typed against one of the papers is not an "
                               "amount — the settled column takes a figure, not words.")
+            if amount != amount.quantize(Decimal("0.01")):
+                return None, (f"{text} typed against one of the papers is finer than a "
+                              "cent; money is settled to the cent.")
             if amount < 0:
                 return None, (f"{text} typed against one of the papers is money going "
                               "out; a settled paper is taken back by reversing the "
@@ -744,7 +805,13 @@ class SalesIndexView(LoginRequiredMixin, TemplateView):
 
 
 class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
-    """Invoice edit — reuses InvoiceForm. Blocks edits once posted/paid."""
+    """Invoice edit — reuses InvoiceForm, for drafts only.
+
+    A draft is a working paper and can be rewritten freely. Anything that has
+    reached the ledger — sent, part paid, paid, credited, cancelled — opens
+    read-only with a note saying how it is corrected instead, and a change
+    posted to it is refused: its entry would no longer match the paper.
+    """
     model = Invoice
     form_class = InvoiceForm
     template_name = "sales/invoice_form.html"
@@ -757,11 +824,18 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    def locked_message(self, invoice):
+        return (f"Invoice {invoice.reference} is {invoice.get_status_display()} and "
+                "already in the ledger, so it cannot be edited. Issue a credit note "
+                "for what is wrong, or cancel it and raise a new invoice.")
+
     def dispatch(self, request, *args, **kwargs):
         obj = self.get_object()
-        if obj.status in ("PAID", "CANCELLED", "CREDIT_NOTE"):
-            messages.error(request, f"Invoice {obj.reference} cannot be edited ({obj.get_status_display()}).")
-            return redirect("sales:invoice_detail", pk=obj.pk)
+        if not _editable(obj):
+            if request.method == "POST":
+                messages.error(request, self.locked_message(obj))
+                return redirect("sales:invoice_detail", pk=obj.pk)
+            messages.warning(request, self.locked_message(obj))
         return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self):
@@ -780,21 +854,22 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         formset = self.get_line_formset()
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
-        previous_total = self.object.total_amount
         with transaction.atomic():
+            # Checked again under a lock: the draft may have been posted from
+            # another screen between opening this form and saving it.
+            current = Invoice.objects.select_for_update().get(pk=self.object.pk)
+            if not _editable(current):
+                messages.error(self.request, self.locked_message(current))
+                return redirect("sales:invoice_detail", pk=current.pk)
             self.object = form.save()
             formset.instance = self.object
             formset.save()
             _recalculate_invoice_totals(self.object)
             self.object.refresh_from_db()
+            # A draft raised from an order bills exactly what its lines say;
+            # the order has to hear about a quantity cut or a line removed.
+            _resync_order(self.object)
         messages.success(self.request, f"Invoice {form.instance.reference} updated.")
-        if self.object.journal_entry_id and self.object.total_amount != previous_total:
-            messages.warning(
-                self.request,
-                f"This invoice is already posted to the GL for {previous_total}, but the saved "
-                f"lines total {self.object.total_amount}. Reverse that entry or issue a credit "
-                "note before the ledger and the document agree again.",
-            )
         return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
@@ -802,6 +877,14 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         ctx["page_title"] = f"Edit Invoice {self.object.reference}"
         ctx["is_edit"] = True
         ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        if not _editable(self.object):
+            # Shown for reading only; the post is refused in dispatch().
+            ctx["locked"] = True
+            for field in ctx["form"].fields.values():
+                field.disabled = True
+            for line_form in ctx["line_formset"].forms:
+                for field in line_form.fields.values():
+                    field.disabled = True
         return ctx
 
 
@@ -838,7 +921,7 @@ def invoice_cancel(request, pk):
                 return redirect("sales:invoice_detail", pk=pk)
         inv.status = "CANCELLED"
         inv.save(update_fields=["status", "updated_at"])
-        _release_order_quantity(inv)
+        _resync_order(inv)
 
     messages.success(
         request,
@@ -846,24 +929,6 @@ def invoice_cancel(request, pk):
         + (" Offsetting entry posted." if inv.journal_entry_id else ""),
     )
     return redirect("sales:invoice_detail", pk=pk)
-
-
-def _release_order_quantity(invoice):
-    """Hand the invoiced quantities back to the order.
-
-    Lines are matched by product: an invoice either came from one order or it
-    did not, and within one order a product is only ever ordered once.
-    """
-    if not invoice.sales_order_id:
-        return
-    for line in invoice.lines.filter(product__isnull=False):
-        for order_line in invoice.sales_order.lines.filter(product=line.product):
-            order_line.invoiced_quantity = max(
-                Decimal("0"), (order_line.invoiced_quantity or Decimal("0")) - line.quantity)
-            order_line.save(update_fields=["invoiced_quantity"])
-    if invoice.sales_order.status == "INVOICED":
-        invoice.sales_order.status = "CONFIRMED"
-        invoice.sales_order.save(update_fields=["status", "updated_at"])
 
 
 # ───────────────────────── document lifecycle ─────────────────────────
@@ -915,7 +980,11 @@ def order_deliver(request, pk):
     warehouse = order.warehouse
     raw_wh = request.POST.get("warehouse") or ""
     if raw_wh:
-        warehouse = Warehouse.objects.filter(pk=raw_wh, company=order.company).first()
+        try:
+            warehouse = Warehouse.objects.filter(pk=raw_wh, company=order.company).first()
+        except (ValidationError, ValueError):
+            # Not even the shape of a warehouse id — a tampered or stale form.
+            warehouse = None
         if not warehouse:
             messages.error(request, "That warehouse does not belong to this company.")
             return redirect("sales:order_deliver", pk=pk)
@@ -932,8 +1001,8 @@ def order_deliver(request, pk):
         if raw in (None, ""):
             continue  # an empty box means nothing left the shelf for that line
         try:
-            qty = Decimal(str(raw))
-        except Exception:
+            qty = _typed_number(raw, f"Quantity of {line.product.name}")
+        except ValidationError:
             messages.error(request, f"'{raw}' is not a quantity.")
             return redirect("sales:order_deliver", pk=pk)
         if qty < 0:
@@ -996,11 +1065,15 @@ def _fold_discount(line_percent, order_percent):
     The invoice has no header discount, so the two are multiplied out rather
     than added — otherwise a 10% order discount on a 10% line discount would
     bill 20% off instead of the 19% that was actually agreed.
+
+    Kept exact: two percentages to two places multiply out to at most six, and
+    the invoice line holds six. Rounding 5% then 2.5% (7.375%) to 7.38% made
+    the invoice a few shillings short of the order it was raised from.
     """
     kept = (Decimal("100") - (line_percent or Decimal("0"))) * \
            (Decimal("100") - (order_percent or Decimal("0"))) / Decimal("100")
     folded = Decimal("100") - kept
-    return min(folded.quantize(Decimal("0.01")), Decimal("99.99"))
+    return min(max(folded.quantize(Decimal("0.000001")), Decimal("0")), Decimal("100"))
 
 
 @login_required
@@ -1061,14 +1134,12 @@ def order_to_invoice(request, pk):
                 unit_price=line.unit_price,
                 discount_percent=_fold_discount(line.discount_percent, order.discount_percent),
                 tax_rate=line.tax_rate,
+                order_line=line,
             )
         _recalculate_invoice_totals(invoice)
-        for line, qty in outstanding:
-            line.invoiced_quantity = (line.invoiced_quantity or Decimal("0")) + qty
-            line.save(update_fields=["invoiced_quantity"])
-        if all(l.invoiced_quantity >= l.quantity for l in order.lines.all()):
-            order.status = "INVOICED"
-            order.save(update_fields=["status", "updated_at"])
+        # The order's billed quantities are counted from its invoices, this
+        # draft now among them.
+        order.sync_invoiced_quantities()
 
     messages.success(
         request,
@@ -1086,6 +1157,11 @@ def invoice_credit_note(request, pk):
     becomes a copy of those lines on a new document, at the original's currency
     and booked rate. The invoice being credited is not touched — it keeps its
     own entry and gains a record of what has been credited against it.
+
+    A unit can only be credited once. Each line's credit is capped at what it
+    billed less what earlier credit notes already gave back, and the invoice is
+    locked while that is worked out, so the same form sent twice cannot both
+    pass the check and book two notes for one return.
     """
     original = get_object_or_404(
         Invoice.objects.filter(company=request.active_company).select_related("customer"), pk=pk)
@@ -1099,33 +1175,53 @@ def invoice_credit_note(request, pk):
         messages.error(request, f"Cannot credit a {original.get_status_display().lower()}.")
         return redirect("sales:invoice_detail", pk=pk)
 
-    wanted = []
-    for line in original.lines.select_related("product", "tax_rate"):
+    typed = {}
+    for line in original.lines.all():
         raw = request.POST.get(f"credit_qty_{line.pk}")
         if raw in (None, ""):
             continue
         try:
-            qty = Decimal(str(raw))
-        except Exception:
+            qty = _typed_number(raw, f"Credit quantity of {line.description}")
+        except ValidationError:
             messages.error(request, f"'{raw}' is not a quantity.")
             return redirect("sales:invoice_detail", pk=pk)
         if qty < 0:
             messages.error(request, "Credit quantities cannot be negative.")
             return redirect("sales:invoice_detail", pk=pk)
-        if qty > line.quantity:
-            messages.error(
-                request,
-                f"Cannot credit {qty} of {line.description}: {original.reference} "
-                f"only billed {line.quantity}.")
-            return redirect("sales:invoice_detail", pk=pk)
         if qty > 0:
-            wanted.append((line, qty))
-    if not wanted:
+            typed[line.pk] = qty
+    if not typed:
         messages.error(request, "Enter at least one quantity to credit.")
         return redirect("sales:invoice_detail", pk=pk)
 
     today = datetime.date.today()
     with transaction.atomic():
+        # Locked, then read again: a second submit of the same form waits here
+        # and then sees the first note's quantities as already credited.
+        original = Invoice.objects.select_for_update().select_related("customer").get(pk=original.pk)
+        if not original.journal_entry_id or original.status in ("CANCELLED", "CREDIT_NOTE"):
+            messages.error(
+                request, f"{original.reference} is {original.get_status_display()}: "
+                "there is nothing on it left to credit.")
+            return redirect("sales:invoice_detail", pk=pk)
+        credited = _already_credited(original)
+        wanted = []
+        for line in original.lines.select_related("product", "tax_rate"):
+            qty = typed.get(line.pk)
+            if not qty:
+                continue
+            left = line.quantity - credited.get(line.pk, Decimal("0"))
+            if qty > left:
+                done = credited.get(line.pk, Decimal("0"))
+                messages.error(
+                    request,
+                    f"Cannot credit {_qty(qty)} of {line.description}: that is more than "
+                    f"is left to credit. {original.reference} billed {_qty(line.quantity)}"
+                    + (f" and earlier credit notes already gave back {_qty(done)}" if done else "")
+                    + f", so at most {_qty(max(left, Decimal('0')))} can still be credited.")
+                return redirect("sales:invoice_detail", pk=pk)
+            wanted.append((line, qty))
+
         note = Invoice(
             company=original.company, customer=original.customer,
             sales_order_id=None, original_invoice=original,
@@ -1141,6 +1237,7 @@ def invoice_credit_note(request, pk):
                 invoice=note, product=line.product, description=line.description,
                 quantity=qty, unit_price=line.unit_price,
                 discount_percent=line.discount_percent, tax_rate=line.tax_rate,
+                credited_line=line,
             )
         _recalculate_invoice_totals(note)
         note.refresh_from_db()
@@ -1176,3 +1273,28 @@ def invoice_credit_note(request, pk):
         f"Credit note {note.reference} for {note.total_amount} {note.currency} posted "
         f"against {original.reference}.")
     return redirect("sales:invoice_detail", pk=original.pk)
+
+
+def _already_credited(original):
+    """How much of each of the invoice's lines live credit notes have given back.
+
+    Returned as {invoice line pk: quantity}. A note line names the invoice line
+    it credits; notes written before that link existed are matched to the first
+    line of the same product, description and price, which is what they were
+    copied from. Cancelled notes give nothing back and are not counted.
+    """
+    lines = list(original.lines.all())
+    credited = {line.pk: Decimal("0") for line in lines}
+    note_lines = InvoiceLine.objects.filter(
+        invoice__original_invoice=original, invoice__status="CREDIT_NOTE")
+    for note_line in note_lines:
+        target = note_line.credited_line_id
+        if target not in credited:
+            target = next(
+                (line.pk for line in lines
+                 if line.product_id == note_line.product_id
+                 and line.description == note_line.description
+                 and line.unit_price == note_line.unit_price), None)
+        if target is not None:
+            credited[target] += note_line.quantity or Decimal("0")
+    return credited

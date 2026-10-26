@@ -1,7 +1,20 @@
 """Sales models: Quotation, Sales Order, Invoice, Payment."""
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from apps.core.models import BaseModel, NotesMixin
+
+
+def cents(amount):
+    """A figure as it is written on a document: to the cent, half up.
+
+    A header total is what the customer is asked to pay and what the ledger
+    posts, so it is rounded once, here, the same way every time. Leaving the
+    rounding to the database column would round half-to-even on some backends
+    and half-up in the journal, and the two would disagree by a cent.
+    """
+    return Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class SalesOrder(BaseModel, NotesMixin):
@@ -58,14 +71,76 @@ class SalesOrder(BaseModel, NotesMixin):
         # the undiscounted value would bill tax on money being forgiven.
         kept = (Decimal("100") - self.discount_percent) / 100
         tax = sum((l.tax_amount * kept for l in lines), Decimal("0"))
-        self.subtotal = subtotal
-        self.tax_amount = tax
-        self.total_amount = taxable + tax
+        # Rounded the way the invoice raised from this order rounds its own
+        # header — goods to the cent, tax to the cent, total as their sum — so
+        # converting the whole order bills exactly what the order promised.
+        self.subtotal = cents(subtotal)
+        self.tax_amount = cents(tax)
+        self.total_amount = cents(taxable) + self.tax_amount
         self.total_amount_base = to_base(
             self.total_amount, self.exchange_rate or Decimal("1"))
         self.save(update_fields=[
             "subtotal", "tax_amount", "total_amount", "total_amount_base", "updated_at",
         ])
+
+    def sync_invoiced_quantities(self):
+        """Work out again how much of each line has been billed, from the invoices.
+
+        The order's `invoiced_quantity` is a summary of the invoices raised from
+        it, never an independent figure: a draft invoice can be edited down from
+        20 to 8, or deleted, or cancelled, and the 12 nobody billed must become
+        billable again. Counting the live invoices each time — everything raised
+        from this order except cancelled ones — is what keeps the two in step;
+        adding and subtracting on each event drifts as soon as one event is
+        missed. Credit notes are not counted here: a credit corrects an invoice,
+        it does not un-bill the order.
+
+        An invoice line knows the order line it came from. Lines written before
+        that link existed fall back to the order line for the same product,
+        which is what the old matching did.
+
+        The order's status follows: fully billed is INVOICED; an order that was
+        INVOICED and now has something left to bill goes back to whatever its
+        deliveries say it is.
+        """
+        lines = list(self.lines.all())
+        if not lines:
+            return
+        billed = {line.pk: Decimal("0") for line in lines}
+        by_product = {}
+        for line in lines:
+            by_product.setdefault(line.product_id, line.pk)
+        live = InvoiceLine.objects.filter(
+            invoice__sales_order=self, invoice__original_invoice__isnull=True,
+        ).exclude(invoice__status__in=["CANCELLED", "CREDIT_NOTE"])
+        for invoice_line in live:
+            target = invoice_line.order_line_id
+            if target not in billed:
+                target = by_product.get(invoice_line.product_id)
+            if target is not None:
+                billed[target] += invoice_line.quantity or Decimal("0")
+        for line in lines:
+            if line.invoiced_quantity != billed[line.pk]:
+                line.invoiced_quantity = billed[line.pk]
+                line.save(update_fields=["invoiced_quantity"])
+
+        if self.status in ("DRAFT", "CANCELLED"):
+            return
+        if all(line.invoiced_quantity >= line.quantity for line in lines):
+            status = "INVOICED"
+        elif self.status == "INVOICED":
+            delivered = [line.delivered_quantity or Decimal("0") for line in lines]
+            if all(d >= line.quantity for d, line in zip(delivered, lines)):
+                status = "DELIVERED"
+            elif any(d > 0 for d in delivered):
+                status = "PARTIALLY_DELIVERED"
+            else:
+                status = "CONFIRMED"
+        else:
+            status = self.status
+        if status != self.status:
+            self.status = status
+            self.save(update_fields=["status", "updated_at"])
 
 
 class SalesOrderLine(models.Model):
@@ -161,6 +236,18 @@ class Invoice(BaseModel, NotesMixin):
     def clean(self):
         from apps.accounting.currency import stamp_document
         super().clean()
+        if self.pk and not self.journal_entry_id:
+            # A draft keeps the rate it was given only while it is still the
+            # same money on the same day. Switch a shilling draft to dollars,
+            # or move its date, and the stored rate describes a different
+            # document: kept, a USD 100 invoice would post as KES 100. The rate
+            # is dropped so the stamp below books the day's rate for the
+            # currency and date the draft now carries.
+            stored = type(self).objects.filter(pk=self.pk).values(
+                "currency", "invoice_date").first()
+            if stored and ((stored["currency"] or "").upper() != (self.currency or "").upper()
+                           or stored["invoice_date"] != self.invoice_date):
+                self.exchange_rate = None
         stamp_document(self, self.invoice_date)
 
     def save(self, *args, **kwargs):
@@ -197,8 +284,21 @@ class InvoiceLine(models.Model):
     description = models.CharField(max_length=500)
     quantity = models.DecimalField(max_digits=12, decimal_places=4)
     unit_price = models.DecimalField(max_digits=15, decimal_places=4)
-    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    # Six places, not two: an order's own discount is folded into each line
+    # when the order is invoiced, and 5% off the line then 2.5% off the order
+    # is 7.375% — rounded to 7.38% the invoice would bill less than the order.
+    discount_percent = models.DecimalField(max_digits=9, decimal_places=6, default=Decimal("0"))
     tax_rate = models.ForeignKey("accounting.TaxRate", on_delete=models.SET_NULL, null=True, blank=True)
+    # Where the line came from. An invoice line raised from an order points at
+    # the order line it bills, so the order can count what is billed; a credit
+    # note line points at the invoice line it credits, so the same unit cannot
+    # be credited twice across several notes.
+    order_line = models.ForeignKey(
+        SalesOrderLine, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="invoice_lines")
+    credited_line = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="credit_lines")
 
     @property
     def line_total(self):
@@ -273,3 +373,12 @@ class PaymentAllocation(models.Model):
 
     def __str__(self):
         return f"{self.payment.reference} → {self.invoice.reference}: {self.allocated_amount}"
+
+
+@receiver(post_delete, sender=Invoice)
+def _hand_back_order_quantities(sender, instance, **kwargs):
+    """A deleted draft bills nothing, so the order it came from is billable again."""
+    if instance.sales_order_id:
+        order = SalesOrder.objects.filter(pk=instance.sales_order_id).first()
+        if order:
+            order.sync_invoiced_quantities()
