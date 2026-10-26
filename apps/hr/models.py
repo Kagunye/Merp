@@ -1,4 +1,6 @@
 """HR models: Employee, Leave, Attendance, Contract."""
+import datetime
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -87,18 +89,45 @@ class Contract(BaseModel):
                 f"{who} has no basic pay on this contract. "
                 "Payroll works the month out of this figure, so a contract that "
                 "pays nothing is a contract that has not been priced yet.")
-        if self.end_date and self.is_current and self.end_date < timezone.localdate():
-            raise ValidationError(
-                "This contract ended in the past, so it cannot be the current one. "
-                "Uncheck it, or write a new contract from the day this one left off.")
+        # A contract that has already ended is history, not the one in force
+        # today — but history is exactly what payroll needs to re-run an old
+        # month or pay a leaver for the days they worked. So an ended contract
+        # is simply not current; it is never refused for having ended.
+        if self.has_ended():
+            self.is_current = False
+
+    def has_ended(self, on_date=None):
+        """Did this contract finish before `on_date` (today by default)?"""
+        on_date = on_date or timezone.localdate()
+        return bool(self.end_date and self.end_date < on_date)
 
     def save(self, *args, **kwargs):
+        # Saved by other screens than the form too (termination, a script), so
+        # the rule that an ended contract is not current is applied here as
+        # well as in clean().
+        if self.has_ended():
+            self.is_current = False
         super().save(*args, **kwargs)
-        # Exactly one current contract per employee: payroll takes the current one
-        # to work the month out, and two of them would pay the person twice.
+        # Exactly one current contract per employee: "current" means the one in
+        # force today, and two of them would leave nobody sure which pay is
+        # right. Payroll itself reads the contracts by their dates (see
+        # apps.payroll.services.contract_days), so the flag is a label for
+        # today, not the switch that decides who is paid in an older month.
         if self.is_current:
             self.employee.contracts.exclude(pk=self.pk).filter(
                 is_current=True).update(is_current=False)
+            # The contract this one supersedes stops the day before this one
+            # starts. Writing the end date down makes the history say what
+            # happened — a raise from the 16th means the old pay ran to the
+            # 15th — so a month re-run later pays each contract for its own
+            # days. An older contract that already ends earlier is left alone.
+            if self.start_date:
+                day_before = self.start_date - datetime.timedelta(days=1)
+                self.employee.contracts.exclude(pk=self.pk).filter(
+                    start_date__lt=self.start_date,
+                ).filter(
+                    models.Q(end_date__isnull=True) | models.Q(end_date__gt=day_before),
+                ).update(end_date=day_before)
 
 
 class LeaveType(BaseModel):
@@ -161,15 +190,38 @@ class LeaveRequest(BaseModel, NotesMixin):
             days += self.leave_type.max_carry_forward_days
         return days
 
-    def days_already_taken(self):
-        """Days of the same leave, in the same calendar year, already granted or
-        waiting — everything this request has to fit beside."""
+    def years(self):
+        """The calendar years this request has days in, earliest first."""
+        if not (self.start_date and self.end_date) or self.end_date < self.start_date:
+            return []
+        return list(range(self.start_date.year, self.end_date.year + 1))
+
+    def days_in_year(self, year):
+        """How many of this request's days fall in that calendar year.
+
+        Each year has its own entitlement, so leave from 28 December to 5
+        January is four days of this year's allowance and five of next year's —
+        not nine days of this year's because that is when it started.
+        """
+        if not (self.start_date and self.end_date):
+            return 0
+        first = max(self.start_date, datetime.date(year, 1, 1))
+        last = min(self.end_date, datetime.date(year, 12, 31))
+        return max((last - first).days + 1, 0)
+
+    def days_already_taken(self, year=None):
+        """Days of the same leave in that calendar year (the start year by
+        default) already granted or waiting — everything this request has to
+        fit beside. A request that straddles the year end counts only its days
+        inside the year asked about."""
+        year = year or self.start_date.year
         others = LeaveRequest.objects.filter(
             employee_id=self.employee_id, leave_type_id=self.leave_type_id,
             status__in=self.COUNTED_STATUSES,
-            start_date__year=self.start_date.year,
+            start_date__lte=datetime.date(year, 12, 31),
+            end_date__gte=datetime.date(year, 1, 1),
         ).exclude(pk=self.pk)
-        return sum((r.days_requested for r in others), 0)
+        return sum((r.days_in_year(year) for r in others), 0)
 
     def clean(self):
         super().clean()
@@ -182,12 +234,13 @@ class LeaveRequest(BaseModel, NotesMixin):
         if not (self.leave_type_id and self.employee_id):
             return
         allowed = self.entitlement()
-        taken = self.days_already_taken()
-        if taken + self.days_requested > allowed:
-            left = max(allowed - taken, 0)
-            raise ValidationError(
-                f"This asks for {self.days_requested} day(s) of {self.leave_type.name}, "
-                f"but {self.employee.full_name} has {left} of {allowed} left for "
-                f"{self.start_date.year} ({taken} already granted or waiting). Shorten "
-                "the request, split it across leave years, or use a different kind of "
-                "leave.")
+        for year in self.years():
+            asked = self.days_in_year(year)
+            taken = self.days_already_taken(year)
+            if taken + asked > allowed:
+                left = max(allowed - taken, 0)
+                raise ValidationError(
+                    f"This asks for {asked} day(s) of {self.leave_type.name} in {year}, "
+                    f"but {self.employee.full_name} has {left} of {allowed} left for "
+                    f"{year} ({taken} already granted or waiting). Shorten the "
+                    "request, or use a different kind of leave.")

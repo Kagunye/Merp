@@ -12,7 +12,9 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 
 from apps.core.mixins import CompanyRequiredMixin
 from .access import manages_people, own_employee
-from .forms import ContractForm, LeaveRequestForm
+from .forms import (
+    LEAVER_STATUSES, ContractForm, EmployeeForm, LeaveRequestForm, TerminationForm,
+)
 from .models import Contract, Employee, LeaveRequest, LeaveType
 from apps.core.forms import ISO_DATE
 
@@ -138,6 +140,96 @@ class EmployeeDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+class EmployeeUpdateView(LoginRequiredMixin, CompanyRequiredMixin, UpdateView):
+    """Correct an employee's record, and link it to the login they use."""
+    model = Employee
+    form_class = EmployeeForm
+    template_name = "hr/employee_form.html"
+
+    def get_queryset(self):
+        return Employee.objects.filter(company=self.request.active_company)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        _style(form)
+        return form
+
+    def form_valid(self, form):
+        was_leaver = form.initial.get("status") in LEAVER_STATUSES
+        employee = form.save(commit=False)
+        if was_leaver and employee.status not in LEAVER_STATUSES:
+            # Taken back on: the old leaving date no longer stops their pay,
+            # but the contract it ended is still history. Pay restarts from a
+            # new contract, so say so rather than let the next run skip them.
+            employee.date_terminated = None
+            messages.warning(
+                self.request,
+                f"{employee.full_name} is back on the staff list. Their old contract "
+                "ended when they left — add a new contract from the day they restart, "
+                "or payroll has nothing to pay them from.")
+        employee.save()
+        messages.success(self.request, f"{employee.full_name}'s record is saved.")
+        return redirect("hr:employee_detail", pk=employee.pk)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = f"Edit — {self.object.full_name}"
+        return ctx
+
+
+class EmployeeTerminateView(LoginRequiredMixin, CompanyRequiredMixin, TemplateView):
+    """Record somebody leaving: status, last day, and the end of their contract.
+
+    Payroll pays them up to and including the last day, pro-rated, and nothing
+    for any day after it.
+    """
+    template_name = "hr/employee_terminate.html"
+
+    @property
+    def employee(self):
+        if not hasattr(self, "_employee"):
+            self._employee = get_object_or_404(
+                Employee, pk=self.kwargs["pk"], company=self.request.active_company)
+        return self._employee
+
+    def get_form(self):
+        data = self.request.POST if self.request.method == "POST" else None
+        form = TerminationForm(
+            data, employee=self.employee,
+            initial={"date_terminated": self.employee.date_terminated
+                     or timezone.localdate()})
+        _style(form)
+        return form
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.setdefault("form", self.get_form())
+        ctx["employee"] = self.employee
+        ctx["page_title"] = f"Terminate — {self.employee.full_name}"
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        from .services import terminate_employee
+
+        form = self.get_form()
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+        day = form.cleaned_data["date_terminated"]
+        warnings = terminate_employee(self.employee, day, form.cleaned_data["status"])
+        messages.success(
+            request,
+            f"{self.employee.full_name} leaves on {day:%d %b %Y}. Their contract ends "
+            "that day: payroll pays them up to it, pro-rated, and not after it.")
+        for warning in warnings:
+            messages.warning(request, warning)
+        return redirect("hr:employee_detail", pk=self.employee.pk)
+
+
 class ContractCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     """Write the pay a person is actually on.
 
@@ -184,9 +276,10 @@ class ContractCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         messages.success(
             self.request,
             f"{form.instance.employee.full_name}'s contract is saved"
-            + (" — it is the pay payroll works from."
+            + (" — it is the pay in force today."
                if form.instance.is_current else
-               ", but it is not marked current, so payroll will not use it."))
+               " as history: payroll pays it for the days its dates cover, but it is "
+               "not the contract in force today."))
         return super().form_valid(form)
 
     def get_success_url(self):

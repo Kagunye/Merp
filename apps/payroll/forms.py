@@ -136,8 +136,8 @@ class StatutoryRuleForm(AccountChoiceForm):
         model = StatutoryRule
         fields = ["code", "name", "method", "basis", "employee_percent",
                   "employer_percent", "employee_flat", "employer_flat", "basis_cap",
-                  "monthly_relief", "reduces_taxable_pay", "payable_account",
-                  "expense_account", "effective_from", "is_active"]
+                  "monthly_relief", "reduces_taxable_pay", "employee_minimum",
+                  "payable_account", "expense_account", "effective_from", "is_active"]
         widgets = {"effective_from": date_input()}
 
     def __init__(self, *args, **kwargs):
@@ -181,6 +181,11 @@ class StatutoryRuleForm(AccountChoiceForm):
     def clean_monthly_relief(self):
         return refuse_negative(self, "monthly_relief", "The monthly relief")
 
+    def clean_employee_minimum(self):
+        value = refuse_negative(self, "employee_minimum", "The employee's monthly minimum")
+        # Nought is the same as no floor, and is stored as no floor.
+        return value or None
+
     def clean(self):
         cleaned = super().clean()
         if self.company and cleaned.get("code"):
@@ -204,7 +209,20 @@ class SalaryComponentForm(AccountChoiceForm):
     class Meta:
         model = SalaryComponent
         fields = ["employee", "name", "component_type", "calculation", "amount",
-                  "percent", "is_taxable", "gl_account", "is_active"]
+                  "percent", "is_taxable", "counts_as_statutory_pay",
+                  "reduces_taxable_pay", "gl_account", "is_active"]
+
+    # A yes/no list rather than a tick box: a tick box that is not in the post
+    # reads as "no", and this one defaults to yes — an older screen or a script
+    # that never heard of it must not quietly take every allowance out of the
+    # pension and health base.
+    counts_as_statutory_pay = forms.TypedChoiceField(
+        label="Counts as pay for statutory contributions",
+        choices=[("True", "Yes — pension, health and housing shares are charged on it"),
+                 ("False", "No — a reimbursement such as mileage, not pay")],
+        coerce=lambda v: v in (True, "True", "true", "on", "1"),
+        empty_value=True, required=False, initial="True",
+        help_text="Only matters for an earning. Deductions are never pay.")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

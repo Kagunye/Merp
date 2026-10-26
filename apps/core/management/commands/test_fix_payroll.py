@@ -24,6 +24,21 @@ fails for the same reason a user would be hurt:
    10. an empty contract form is a form error, not a crash
    11. no negative or more-than-whole rates and figures in the payroll tables
    12. timesheet hours fit in a day, and the day is a plausible one
+   13. basic pay is pro-rated by calendar days: a joiner, a mid-month raise, a
+       contract that ends mid-month
+   14. a leaver is paid for the days worked, from a contract that is no longer
+       current; an ended contract is saved as history, not refused
+   15. re-running a cancelled month pays from the contracts in force then
+   16. HR terminates an employee: contract ended, paid to the day, then stopped
+   17. re-activating a second tiered table is refused like creating one
+   18. leave across the year end draws on each year's entitlement separately
+   19. staff see only their own hours; HR and project managers see everybody's
+   20. an employee sees their own approved payslips and nobody else's
+   21. HR links a login to an employee, from this company's members only
+   22. a run's payment date has to fall in or shortly after its period
+   23. a reimbursement is left out of the statutory base; a pension deduction
+       can come off taxable pay
+   24. SHIF is never less than its 300 minimum for somebody who is paid
 
 Exits non-zero when any check fails.
 """
@@ -153,7 +168,8 @@ class Command(BaseCommand):
                                  ("FM", "FINANCE_MANAGER", "Fiona"),
                                  ("FM2", "FINANCE_MANAGER", "Faith"),
                                  ("EMP", "EMPLOYEE", "Evans"),
-                                 ("VIEW", "VIEWER", "Victor")):
+                                 ("VIEW", "VIEWER", "Victor"),
+                                 ("PM", "PROJECT_MANAGER", "Paul")):
             u = self.user(key.lower(), first, role.title())
             CompanyMembership.objects.create(company=company, user=u, role=role,
                                              is_default=True)
@@ -165,6 +181,12 @@ class Command(BaseCommand):
         self.check_expenses()
         self.check_leave()
         self.check_timesheets()
+        # Second round of fixes (13-24 below).
+        self.check_contract_history()
+        self.check_rule_toggle()
+        self.check_leave_year_end()
+        self.check_hours_privacy()
+        self.check_employee_edit()
 
     def employee(self, number, first, status="ACTIVE", user=None):
         from apps.hr.models import Employee
@@ -666,3 +688,359 @@ class Command(BaseCommand):
         hr.post(reverse("timesheets:entry_approve", args=[entry.pk]))
         entry.refresh_from_db()
         self.expect("a colleague can", entry.status == "APPROVED", entry.status)
+
+    # ─────────────────── second round: history, pro-rating, leavers ──────────
+
+    def contract(self, employee, basic, start, end="", current=True, pk=None):
+        """Write a contract through HR's own screen, as HR would."""
+        data = {"employee": str(employee.pk), "contract_type": "PERMANENT",
+                "job_title": "Staff", "department": "", "start_date": start,
+                "end_date": end, "basic_salary": str(basic),
+                "is_current": "on" if current else ""}
+        url = (reverse("hr:contract_update", args=[pk]) if pk
+               else reverse("hr:contract_create", args=[employee.pk]))
+        return self.c["HR"].post(url, data)
+
+    def basic_of(self, run, employee):
+        slip = run.payslips.filter(employee=employee).first() if run else None
+        return slip.basic_pay() if slip else None
+
+    def check_contract_history(self):
+        from apps.hr.models import Contract
+        from apps.payroll.models import SalaryComponent
+
+        company = self.company
+        hr, po, fm = self.c["HR"], self.c["PO"], self.c["FM"]
+        # 2027 is clear of the runs the first round raised, and the statutory
+        # table (from October 2026) is in force all year.
+        raised = self.employee("RB1", "Raised")
+        leaver = self.employee("LD1", "Leaver")
+        self.contract(raised, 50000, "2025-01-01")
+        self.contract(leaver, 40000, "2025-01-01")
+
+        self.section("15. re-running a cancelled month uses the contracts of the time")
+        resp, aug = self.make_run(po, "PR-27-08", "2027-08-01", "2027-08-31")
+        self.expect("August 2027 pays both at their August rates",
+                    self.basic_of(aug, raised) == D("50000.00")
+                    and self.basic_of(aug, leaver) == D("40000.00"),
+                    f"{self.basic_of(aug, raised)} / {self.basic_of(aug, leaver)}")
+        if aug:
+            fm.post(reverse("payroll:run_cancel", args=[aug.pk]), {"reason": "re-run"})
+
+        self.section("13. pro-rating by calendar days")
+        joiner = self.employee("JN1", "Joiner")
+        self.contract(joiner, 30000, "2027-09-15")
+        self.contract(raised, 60000, "2027-09-16")
+        old = Contract.objects.filter(employee=raised, basic_salary=D("50000")).first()
+        self.expect("a raise ends the contract it supersedes the day before it starts",
+                    old is not None and old.end_date == datetime.date(2027, 9, 15)
+                    and not old.is_current,
+                    str(old and (old.end_date, old.is_current)))
+        theirs = Contract.objects.get(employee=leaver)
+        self.contract(leaver, 40000, "2025-01-01", end="2027-09-15", current=False,
+                      pk=theirs.pk)
+        future = self.employee("FL1", "LeavesNov")
+        self.contract(future, 30000, "2025-01-01", end="2027-11-15")
+
+        self.section("14. an ended contract is history, not an error")
+        lapsed = self.employee("XL1", "Lapsed")
+        resp = self.contract(lapsed, 30000, "2025-01-01", end="2026-01-31", current=True)
+        saved = Contract.objects.filter(employee=lapsed).first()
+        self.expect("a contract that ended in the past saves even when ticked current",
+                    resp.status_code == 302 and saved is not None,
+                    f"HTTP {resp.status_code} {self.errors(resp)}")
+        self.expect("and is stored as not current",
+                    saved is not None and not saved.is_current)
+
+        # The people the statutory and termination checks need, all on the books
+        # before September is worked out.
+        low = self.employee("LW1", "LowPay")
+        self.contract(low, 8000, "2025-01-01")
+        mileage = self.employee("MI1", "Mileage")
+        self.contract(mileage, 100000, "2025-01-01")
+        pension = self.employee("PN1", "Pension")
+        self.contract(pension, 100000, "2025-01-01")
+        leaving = self.employee("TM1", "Terminated")
+        self.contract(leaving, 30000, "2025-01-01")
+        self.contract(self.evans, 50000, "2027-09-01")
+        hana = self.employee("HN1", "Hana", user=self.users["HR"])
+        self.contract(hana, 40000, "2027-09-01")
+
+        self.section("23. reimbursements and tax-deductible deductions")
+        comp_url = reverse("payroll:component_create")
+        resp = po.post(comp_url, {
+            "employee": str(mileage.pk), "name": "Mileage", "component_type": "ALLOWANCE",
+            "calculation": "FIXED", "amount": "20000", "percent": "0", "is_taxable": "",
+            "counts_as_statutory_pay": "False", "gl_account": "", "is_active": "on"})
+        self.expect("a mileage reimbursement is saved as not statutory pay",
+                    SalaryComponent.objects.filter(
+                        company=company, name="Mileage",
+                        counts_as_statutory_pay=False).exists(), self.errors(resp))
+        resp = po.post(comp_url, {
+            "employee": str(pension.pk), "name": "Private pension",
+            "component_type": "DEDUCTION", "calculation": "FIXED", "amount": "5000",
+            "percent": "0", "is_taxable": "", "reduces_taxable_pay": "on",
+            "gl_account": str(self.account("2600").pk), "is_active": "on"})
+        self.expect("a private pension deduction is saved as reducing taxable pay",
+                    SalaryComponent.objects.filter(
+                        company=company, name="Private pension",
+                        reduces_taxable_pay=True).exists(), self.errors(resp))
+        self.refused("an allowance cannot reduce taxable pay", po.post(comp_url, {
+            "employee": str(pension.pk), "name": "Odd allowance",
+            "component_type": "ALLOWANCE", "calculation": "FIXED", "amount": "100",
+            "percent": "0", "is_taxable": "on", "reduces_taxable_pay": "on",
+            "gl_account": "", "is_active": "on"}), "earning")
+        po.post(comp_url, {
+            "employee": str(low.pk), "name": "Lunch", "component_type": "ALLOWANCE",
+            "calculation": "FIXED", "amount": "1", "percent": "0", "is_taxable": "on",
+            "gl_account": "", "is_active": ""})
+        lunch = SalaryComponent.objects.filter(company=company, name="Lunch").first()
+        self.expect("an element posted without the statutory flag still counts as pay",
+                    lunch is not None and lunch.counts_as_statutory_pay)
+
+        resp, rerun = self.make_run(po, "PR-27-08R", "2027-08-01", "2027-08-31")
+        self.expect("the re-run August still pays the raised employee 50,000",
+                    self.basic_of(rerun, raised) == D("50000.00"),
+                    str(self.basic_of(rerun, raised)))
+        self.expect("and the leaver 40,000, from a contract that is no longer current",
+                    self.basic_of(rerun, leaver) == D("40000.00"),
+                    str(self.basic_of(rerun, leaver)))
+
+        resp, sep = self.make_run(po, "PR-27-09", "2027-09-01", "2027-09-30")
+        said = self.said(po, resp)
+        if not self.expect("September 2027 is raised",
+                           sep is not None and sep.payslips.exists(), said):
+            return
+        self.expect("a joiner from 15 September at 30,000 is paid 16,000",
+                    self.basic_of(sep, joiner) == D("16000.00"),
+                    str(self.basic_of(sep, joiner)))
+        slip = sep.payslips.get(employee=joiner)
+        nssf = slip.lines.filter(code="NSSF", kind="DEDUCTION").first()
+        self.expect("and the pension is worked on the pro-rated pay",
+                    nssf is not None and nssf.basis == D("16000.00")
+                    and nssf.amount == D("960.00"), str(nssf and (nssf.basis, nssf.amount)))
+        self.expect("the slip says how the pay was pro-rated",
+                    "16 of 30 days" in slip.lines.get(code="BASIC").description)
+        slip = sep.payslips.get(employee=raised)
+        self.expect("a raise from 16 September pays 50,000 then 60,000: 55,000",
+                    slip.basic_pay() == D("55000.00")
+                    and slip.lines.filter(code="BASIC").count() == 2,
+                    f"{slip.basic_pay()} on {slip.lines.filter(code='BASIC').count()} line(s)")
+        self.expect("a leaver whose contract ended 15 September is paid 20,000",
+                    self.basic_of(sep, leaver) == D("20000.00"),
+                    str(self.basic_of(sep, leaver)))
+        self.expect("and is not named as left off the run", "Leaver" not in said, said)
+
+        self.section("24. the SHIF minimum")
+        slip = sep.payslips.get(employee=low)
+        shif = slip.lines.filter(code="SHIF", kind="DEDUCTION").first()
+        self.expect("8,000 of pay pays SHIF of 300, not 2.75% of it (220)",
+                    shif is not None and shif.amount == D("300.00"),
+                    str(shif and shif.amount))
+
+        slip = sep.payslips.get(employee=mileage)
+        bases = {l.code: l.basis for l in slip.lines.filter(kind="DEDUCTION")}
+        self.expect("mileage is paid but left out of the NSSF, SHIF and housing base",
+                    slip.gross_salary == D("120000.00")
+                    and bases.get("NSSF") == D("100000.00")
+                    and bases.get("SHIF") == D("100000.00")
+                    and bases.get("HOUSING") == D("100000.00"),
+                    f"gross {slip.gross_salary}, bases {bases}")
+        slip = sep.payslips.get(employee=pension)
+        paye = slip.lines.filter(code="PAYE").first()
+        self.expect("a private pension comes off the pay before PAYE",
+                    slip.taxable_pay == D("84750.00")
+                    and paye is not None and paye.basis == D("84750.00"),
+                    f"taxable {slip.taxable_pay}, PAYE on {paye and paye.basis}")
+        fm.post(reverse("payroll:run_approve", args=[sep.pk]))
+        sep.refresh_from_db()
+
+        self.section("16. terminating an employee")
+        url = reverse("hr:employee_terminate", args=[leaving.pk])
+        self.expect("the terminate screen opens for HR", hr.get(url).status_code == 200)
+        self.expect("and not for an employee",
+                    self.c["EMP"].post(url, {"date_terminated": "2027-10-15"}).status_code
+                    == 403)
+        self.refused("a leaving date before the hire date is refused",
+                     hr.post(url, {"date_terminated": "2020-01-01", "status": "TERMINATED"}),
+                     "hired")
+        resp = hr.post(url, {"date_terminated": "2027-10-15", "status": "TERMINATED"})
+        leaving.refresh_from_db()
+        ended = Contract.objects.get(employee=leaving)
+        self.expect("termination sets the status and the leaving date",
+                    resp.status_code == 302 and leaving.status == "TERMINATED"
+                    and leaving.date_terminated == datetime.date(2027, 10, 15),
+                    f"HTTP {resp.status_code}, {leaving.status} {leaving.date_terminated}")
+        self.expect("and ends the contract on that day",
+                    ended.end_date == datetime.date(2027, 10, 15), str(ended.end_date))
+        resp, octr = self.make_run(po, "PR-27-10", "2027-10-01", "2027-10-31")
+        self.expect("October pays the leaver 15 of 31 days of 30,000: 14,516.13",
+                    self.basic_of(octr, leaving) == D("14516.13"),
+                    str(self.basic_of(octr, leaving)))
+        resp, nov = self.make_run(po, "PR-27-11", "2027-11-01", "2027-11-30")
+        said = self.said(po, resp)
+        self.expect("November does not pay them",
+                    nov is not None and not nov.payslips.filter(employee=leaving).exists())
+        self.expect("nor names them as missing a contract", "Terminated" not in said, said)
+        self.expect("a contract ending 15 November at 30,000 pays 15,000",
+                    self.basic_of(nov, future) == D("15000.00"),
+                    str(self.basic_of(nov, future)))
+        past = self.employee("TM2", "PastLeaver")
+        self.contract(past, 30000, "2025-01-01")
+        hr.post(reverse("hr:employee_terminate", args=[past.pk]),
+                {"date_terminated": "2026-10-10", "status": "RESIGNED"})
+        gone = Contract.objects.get(employee=past)
+        self.expect("a leaving date in the past takes the current flag off the contract",
+                    gone.end_date == datetime.date(2026, 10, 10) and not gone.is_current,
+                    str((gone.end_date, gone.is_current)))
+
+        self.section("22. the payment date belongs to the period")
+        resp, bad = self.make_run(po, "PR-PD1", "2027-12-01", "2027-12-31",
+                                  payment_date="2019-01-01")
+        self.refused("a December 2027 run paid in 2019 is refused", resp, "before the pay")
+        resp, bad = self.make_run(po, "PR-PD2", "2027-12-01", "2027-12-31",
+                                  payment_date="2028-03-01")
+        self.refused("a payment date 61 days after the period is refused", resp, "60 days")
+        resp, ok = self.make_run(po, "PR-PD3", "2027-12-01", "2027-12-31",
+                                 payment_date="2028-02-29")
+        self.expect("60 days after the period is accepted", ok is not None,
+                    self.errors(resp))
+
+        self.section("20. my payslips")
+        from django.test import RequestFactory
+        from apps.payroll.views import MyPayslipListView
+
+        def own(user):
+            # Called directly: the role table has to open this page to the
+            # EMPLOYEE role (see the report), but the filtering is the view's.
+            request = RequestFactory().get(reverse("payroll:my_payslips"))
+            request.user, request.active_company = user, company
+            view = MyPayslipListView()
+            view.setup(request)
+            return list(view.get_queryset())
+
+        mine = own(self.users["EMP"])
+        self.expect("an employee's own payslips are theirs alone, from approved runs",
+                    mine and [s.employee_id for s in mine] == [self.evans.pk]
+                    and all(s.payroll_run.status in ("APPROVED", "POSTED") for s in mine),
+                    str([(s.employee.full_name, s.payroll_run.reference) for s in mine]))
+        self.expect("a login with no employee record has none", own(self.users["VIEW"]) == [])
+        page = hr.get(reverse("payroll:my_payslips"))
+        listed = list(page.context["payslips"]) if page.context else []
+        self.expect("the page shows HR only their own slip, not the company's",
+                    page.status_code == 200 and [s.employee_id for s in listed] == [hana.pk],
+                    f"HTTP {page.status_code}, {len(listed)} slip(s)")
+        other_slip = sep.payslips.get(employee=raised)
+        self.expect("somebody else's payslip is a 404 on the own-payslip page",
+                    hr.get(reverse("payroll:my_payslip_detail", args=[other_slip.pk]))
+                    .status_code == 404)
+        self.expect("their own opens",
+                    bool(listed) and hr.get(reverse("payroll:my_payslip_detail",
+                                                    args=[listed[0].pk])).status_code == 200)
+
+    def check_rule_toggle(self):
+        from apps.payroll.models import StatutoryRule
+
+        self.section("17. re-activating a second tiered table")
+        paye = StatutoryRule.objects.filter(company=self.company, code="PAYE").first()
+        second = StatutoryRule.objects.create(
+            company=self.company, code="TAX2", name="Second tiers", method="BANDS",
+            payable_account=paye.payable_account, effective_from=datetime.date(2027, 1, 1),
+            is_active=False)
+        resp = self.c["PO"].post(reverse("payroll:rule_toggle", args=[second.pk]))
+        second.refresh_from_db()
+        said = self.said(self.c["PO"], resp)
+        self.expect("a retired second tiered table cannot be switched back on",
+                    not second.is_active and "tiered table" in said, said)
+        self.c["PO"].post(reverse("payroll:rule_toggle", args=[paye.pk]))
+        self.c["PO"].post(reverse("payroll:rule_toggle", args=[paye.pk]))
+        paye.refresh_from_db()
+        self.expect("retiring and re-activating PAYE itself still works", paye.is_active)
+
+    def check_leave_year_end(self):
+        from apps.hr.models import LeaveType
+
+        self.section("18. leave across the year end")
+        annual = LeaveType.objects.get(company=self.company, name="Annual")
+
+        def ask(start, end):
+            return self.c["EMP"].post(reverse("hr:leave_create"), {
+                "employee": str(self.evans.pk), "leave_type": str(annual.pk),
+                "start_date": start, "end_date": end, "notes": ""})
+
+        # 5 days of 2026 are already granted. 21 Dec to 8 Jan is 11 days of 2026
+        # and 8 of 2027 — counted all against 2026 it would be 24 of 21.
+        resp = ask("2026-12-21", "2027-01-08")
+        self.expect("leave over the year end fits each year's allowance",
+                    resp.status_code == 302, self.errors(resp))
+        self.refused("14 more days of 2027 beside those 8 is beyond 2027's 21",
+                     ask("2027-02-01", "2027-02-14"), "2027")
+        resp = ask("2027-02-01", "2027-02-13")
+        self.expect("13 more days of 2027 is exactly the allowance", resp.status_code == 302,
+                    self.errors(resp))
+
+    def check_hours_privacy(self):
+        from apps.timesheets.models import TimesheetEntry
+
+        self.section("19. whose hours are shown")
+        self.c["HR"].post(reverse("timesheets:entry_create"), {
+            "project": "", "task": "", "entry_date": "2026-10-22", "hours": "6",
+            "description": "hr-own", "billable": "on"})
+        theirs = TimesheetEntry.objects.filter(company=self.company,
+                                               description="hr-own").first()
+        emp = self.c["EMP"]
+        listed = list(emp.get(reverse("timesheets:entry_list")).context["entries"])
+        self.expect("an employee's list shows only their own hours",
+                    listed and all(e.user_id == self.users["EMP"].pk for e in listed),
+                    str(len(listed)))
+        home = emp.get(reverse("timesheets:home")).context
+        self.expect("and so does their home page",
+                    all(e.user_id == self.users["EMP"].pk for e in home["recent_entries"]))
+        self.expect("a colleague's entry is a 404 to them",
+                    theirs is not None
+                    and emp.get(reverse("timesheets:entry_detail", args=[theirs.pk]))
+                    .status_code == 404)
+        for key in ("HR", "PM"):
+            users = {e.user_id for e in
+                     self.c[key].get(reverse("timesheets:entry_list")).context["entries"]}
+            self.expect(f"{key} sees everybody's hours",
+                        self.users["EMP"].pk in users and self.users["HR"].pk in users,
+                        str(len(users)))
+        listed = list(self.c["VIEW"].get(reverse("timesheets:entry_list")).context["entries"])
+        self.expect("a viewer with no hours of their own sees none", listed == [])
+
+    def check_employee_edit(self):
+        from apps.accounts.models import User
+
+        self.section("21. editing an employee and linking a login")
+        hr = self.c["HR"]
+        other = self.other
+        url = reverse("hr:employee_update", args=[other.pk])
+        outsider = self.user("outsider", "Olly", "Outsider")
+        page = hr.get(url)
+        offered = set(page.context["form"].fields["user"].queryset) if page.context else set()
+        self.expect("the login list is this company's members not already linked",
+                    self.users["VIEW"] in offered and self.users["PM"] in offered
+                    and self.users["EMP"] not in offered and outsider not in offered,
+                    f"HTTP {page.status_code}, {len(offered)} offered")
+        self.expect("an employee cannot open the edit screen",
+                    self.c["EMP"].get(url).status_code == 403)
+        base = {"employee_number": other.employee_number, "first_name": other.first_name,
+                "last_name": other.last_name, "other_names": "", "gender": "",
+                "date_of_birth": "", "date_hired": f"{other.date_hired:{ISO}}",
+                "status": "ACTIVE", "department": "", "branch": "", "job_title": "Staff",
+                "reports_to": "", "user": "", "national_id": "", "kra_pin": "",
+                "nssf_number": "", "nhif_number": "", "phone": "", "email": "",
+                "bank_name": "", "bank_account_number": "", "notes": ""}
+        self.refused("a login from outside the company is refused",
+                     hr.post(url, dict(base, user=str(outsider.pk))))
+        self.refused("leaving is not a status the edit screen sets",
+                     hr.post(url, dict(base, status="TERMINATED")), "Terminate")
+        resp = hr.post(url, dict(base, user=str(self.users["VIEW"].pk), job_title="Clerk"))
+        other.refresh_from_db()
+        self.expect("HR links a member's login and edits the record",
+                    resp.status_code == 302 and other.user_id == self.users["VIEW"].pk
+                    and other.job_title == "Clerk",
+                    f"HTTP {resp.status_code} {self.errors(resp)}")
+        self.expect("the outsider was never linked",
+                    not User.objects.filter(pk=outsider.pk, employee__isnull=False).exists())

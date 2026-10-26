@@ -1,0 +1,47 @@
+{% extends "base/base.html" %}
+{% block title %}My payslips — Mofisi{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+    <p class="text-sm text-gray-500 mt-0.5">Your own payslips from months that have been approved. A month still being worked out appears here once it is signed off.</p>
+  </div>
+
+  {% if not employee %}
+  <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
+    Your login is not linked to an employee record in this company, so there are no payslips to show. Ask HR to link your login on your employee record.
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+    <table class="w-full text-sm" style="min-width: 640px">
+      <thead>
+        <tr class="border-b border-gray-100 bg-gray-50/50">
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Period</th>
+          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Paid on</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Gross</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Deductions</th>
+          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Net</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for ps in payslips %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="px-4 py-3">
+            <a href="{% url 'payroll:my_payslip_detail' ps.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ ps.payroll_run.period_start|date:"d M Y" }} to {{ ps.payroll_run.period_end|date:"d M Y" }}</a>
+            <div class="text-xs text-gray-400">{{ ps.payroll_run.reference }}</div>
+          </td>
+          <td class="px-4 py-3 text-gray-600">{{ ps.payroll_run.payment_date|date:"d M Y" }}</td>
+          <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
+          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No payslips yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "_includes/pagination.html" %}
+</div>
+{% endblock %}

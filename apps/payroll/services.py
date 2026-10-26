@@ -6,6 +6,7 @@ the pay the table says it applies to, and writes down both the figure and the
 basis it was taken from, so a payslip can be proved months later without anyone
 remembering anything.
 """
+import datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -21,17 +22,19 @@ Z = Decimal("0")
 # The table a new employer starts from. Every row of it becomes data the
 # accountant can change — these are opening figures, not rules the program
 # enforces. (code, name, method, basis, employee %, employer %, cap, relief,
-# allowable against tax, payable account, employer expense account, bands)
+# allowable against tax, payable account, employer expense account, bands, and
+# optionally the employee's monthly minimum)
 #
 # Kenya as at February 2026: NSSF is 6% each of pensionable (gross) pay up to the
 # year-four ceiling of 108,000; SHIF is the employee's alone; and since December
 # 2024 SHIF and the housing levy both come off the pay before PAYE is worked out.
 # The PAYE steps are 24,000 / 32,333 / 500,000 / 800,000, less 2,400 relief.
+# SHIF is never less than 300 a month for anybody who is paid at all.
 DEFAULT_TABLE = [
     ("NSSF", "Pension — NSSF", "PERCENT", "GROSS", "6", "6", "108000", None, True,
      "2400", "6110", []),
     ("SHIF", "Health insurance — SHIF", "PERCENT", "GROSS", "2.75", "0",
-     None, None, True, "2500", None, []),
+     None, None, True, "2500", None, [], "300"),
     ("HOUSING", "Housing Levy", "PERCENT", "GROSS", "1.5", "1.5", None, None,
      True, "2550", "6130", []),
     ("PAYE", "Pay as you earn", "BANDS", "GROSS", "0", "0", None, "2400", False,
@@ -124,8 +127,10 @@ def ensure_default_table(company, effective_from):
         return Account.objects.filter(company=company, code=code, is_active=True).first()
 
     created = []
-    for (code, name, method, basis, employee_percent, employer_percent, cap,
-         relief, allowable, payable_code, expense_code, bands) in DEFAULT_TABLE:
+    for row in DEFAULT_TABLE:
+        (code, name, method, basis, employee_percent, employer_percent, cap,
+         relief, allowable, payable_code, expense_code, bands) = row[:12]
+        minimum = row[12] if len(row) > 12 else None
         if StatutoryRule.objects.filter(company=company, code__iexact=code).exists():
             continue
         payable = active(payable_code) or ensure_account(
@@ -141,6 +146,7 @@ def ensure_default_table(company, effective_from):
             basis_cap=Decimal(cap) if cap else None,
             monthly_relief=Decimal(relief) if relief else Z,
             reduces_taxable_pay=allowable, payable_account=payable,
+            employee_minimum=Decimal(minimum) if minimum else None,
             expense_account=expense, effective_from=effective_from,
         )
         for lower, upper, percent in bands:
@@ -160,18 +166,74 @@ def components_for(company, employee):
         company=company, is_active=True).order_by("component_type", "name")
 
 
-def current_contract(employee, period_start, period_end):
-    """The contract a month's pay is worked from.
+def contract_days(employee, period_start, period_end):
+    """Which contracts paid which days of the period, as [(contract, days)].
 
-    Being flagged current is not enough on its own: a contract that ended before
-    the period began must not pay into it, and one that starts after the period
-    ends is next month's business.
+    A month is paid from the contracts that actually covered it, by their own
+    start and end dates — not from whichever one happens to be flagged current
+    today. That is what lets a leaver be paid for the fortnight they worked
+    after their contract has ended, a raise from the 16th pay the old rate for
+    the first half and the new one for the second, and a cancelled month be run
+    again months later from the contracts in force at the time.
+
+    Each day goes to one contract only. Where two overlap (a contract typed
+    over an older one that was never given an end date), the one flagged
+    current wins, then the one that started later: either way the newer
+    statement of the person's pay is the one that holds. Nothing is paid after
+    the employee's termination date. The contracts are listed in date order.
     """
-    return employee.contracts.filter(
-        is_current=True, start_date__lte=period_end,
+    last_day = period_end
+    if employee.date_terminated and employee.date_terminated < last_day:
+        last_day = employee.date_terminated
+    if last_day < period_start:
+        return []
+    contracts = list(employee.contracts.filter(
+        start_date__lte=last_day,
     ).filter(
         Q(end_date__isnull=True) | Q(end_date__gte=period_start),
-    ).order_by("-start_date").first()
+    ))
+    if not contracts:
+        return []
+    ranked = sorted(contracts, key=lambda c: (c.is_current, c.start_date, c.created_at),
+                    reverse=True)
+    days = {}
+    day = period_start
+    while day <= last_day:
+        for contract in ranked:
+            if contract.start_date <= day and (
+                    contract.end_date is None or contract.end_date >= day):
+                days[contract.pk] = days.get(contract.pk, 0) + 1
+                break
+        day += datetime.timedelta(days=1)
+    paid = [c for c in contracts if c.pk in days]
+    return [(c, days[c.pk]) for c in sorted(paid, key=lambda c: (c.start_date, c.created_at))]
+
+
+def current_contract(employee, period_start, period_end):
+    """The latest contract that pays any day of the period, or None.
+
+    Used to say whether somebody can be paid at all; the pay itself is worked
+    out day by day from `contract_days`.
+    """
+    paid = contract_days(employee, period_start, period_end)
+    return paid[-1][0] if paid else None
+
+
+def period_days(period_start, period_end):
+    """Calendar days in the pay period, both ends included."""
+    return (period_end - period_start).days + 1
+
+
+def prorated_basic(contract, days, total_days):
+    """A contract's basic pay for the days it covered.
+
+    Pro-rating is by calendar days: a 30,000 contract that starts on the 15th
+    of a 30-day month pays 16/30 of 30,000. A contract that covers the whole
+    period pays its monthly figure exactly, with no rounding drift.
+    """
+    if days >= total_days:
+        return money(contract.basic_salary)
+    return money(Decimal(contract.basic_salary) * Decimal(days) / Decimal(total_days))
 
 
 def build_payslip(run, employee, rules):
@@ -181,17 +243,34 @@ def build_payslip(run, employee, rules):
     pay honestly — a negative take-home is a table that is wrong, not a figure to
     book.
     """
-    contract = current_contract(employee, run.period_start, run.period_end)
-    basic = money(contract.basic_salary) if contract else None
-    if basic is None:
+    segments = contract_days(employee, run.period_start, run.period_end)
+    if not segments:
         return None
+    total_days = period_days(run.period_start, run.period_end)
 
     slip = Payslip.objects.create(payroll_run=run, employee=employee)
     payslip_lines = []
+    basic = Z
+    for contract, days in segments:
+        amount = prorated_basic(contract, days, total_days)
+        basic += amount
+        if days >= total_days:
+            description = "Basic salary"
+        else:
+            # Pro-rated pay says how it was pro-rated, so the slip can be
+            # checked against the contract without anybody's help.
+            description = (f"Basic salary — {days} of {total_days} days at "
+                           f"{money(contract.basic_salary):,} a month")
+        payslip_lines.append(dict(
+            kind="EARNING", code="BASIC", description=description,
+            basis=money(contract.basic_salary), amount=amount, is_taxable=True))
+    basic = money(basic)
     earned = basic
-    payslip_lines.append(dict(
-        kind="EARNING", code="BASIC", description="Basic salary", basis=basic,
-        amount=basic, is_taxable=True))
+    # The pay the statutory shares are worked out on. Basic pay always counts;
+    # an earning that only gives the employee their own money back (mileage,
+    # a refund of costs) does not — it is not pay, and charging pension and
+    # health shares on it takes a cut of a reimbursement.
+    statutory_gross = basic
 
     components = list(components_for(run.company_id, employee))
     # A percentage is always measured on pay that is already known: allowances
@@ -203,7 +282,7 @@ def build_payslip(run, employee, rules):
 
     def emit(component, amount, measured):
         """One pay element on the slip, beside the pay its rate was read off."""
-        nonlocal earned
+        nonlocal earned, statutory_gross
         if amount <= 0:
             return
         row = dict(code=component.component_type, description=component.name,
@@ -213,9 +292,14 @@ def build_payslip(run, employee, rules):
                    component_id=component.pk)
         if component.is_earning():
             earned += amount
+            if component.is_statutory_pay():
+                statutory_gross += amount
             row.update(kind="EARNING", is_taxable=component.is_taxable)
         else:
-            row.update(kind="DEDUCTION")
+            # A deduction the tax authority allows off the pay (a private
+            # pension) is taken off before PAYE, the way the statutory pension
+            # is. No ceiling is applied — see SalaryComponent.reduces_taxable_pay.
+            row.update(kind="DEDUCTION", reduces_tax=component.reduces_taxable_pay)
         payslip_lines.append(row)
 
     for component in fixed_rows + basic_rows:
@@ -234,18 +318,22 @@ def build_payslip(run, employee, rules):
     employer_total = Z
     taxable = sum((row["amount"] for row in payslip_lines
                    if row["kind"] == "EARNING" and row["is_taxable"]), Z)
+    taxable -= sum((row["amount"] for row in payslip_lines
+                    if row["kind"] == "DEDUCTION" and row.get("reduces_tax")), Z)
     for rule in rules:
-        employee_share = rule.employee_amount(basic, earned)
-        employer_share = rule.employer_amount(basic, earned)
+        employee_share = rule.employee_amount(basic, statutory_gross)
+        employer_share = rule.employer_amount(basic, statutory_gross)
         if rule.method == "BANDS":
             # Income tax is the last figure of the month, because it is worked
-            # out on what is left after the allowable deductions.
+            # out on what is left after the allowable deductions — never on
+            # less than nothing.
+            taxable = max(taxable, Z)
             taxed = money(taxable)
             employee_share = rule.tax_on(taxable) - money(rule.monthly_relief)
             if employee_share < 0:
                 employee_share = Z
         else:
-            taxed = rule.basis_for(basic, earned)
+            taxed = rule.basis_for(basic, statutory_gross)
         if employee_share > 0:
             deductions += employee_share
             if rule.reduces_taxable_pay:
@@ -280,6 +368,25 @@ def build_payslip(run, employee, rules):
     return slip
 
 
+def payable_staff(company, period_start):
+    """The people a run for a period starting on that day has to pay.
+
+    Everybody on a payable status, and also a leaver whose last day falls in
+    or after the period: their status already says TERMINATED, but the days
+    they worked before going are still owed. Somebody who left before the
+    period began is not on it.
+    """
+    from apps.hr.models import Employee
+
+    return Employee.objects.filter(
+        company=company, is_active=True,
+    ).filter(
+        Q(status__in=PAYABLE_STATUSES) | Q(date_terminated__isnull=False),
+    ).filter(
+        Q(date_terminated__isnull=True) | Q(date_terminated__gte=period_start),
+    ).order_by("last_name", "first_name")
+
+
 def calculate(run):
     """Work the whole run out from the tables, replacing any draft figures.
 
@@ -287,8 +394,6 @@ def calculate(run):
     as the figures: an empty payslip column on a run the bookkeeper approves is
     how somebody goes a month unpaid without anyone noticing.
     """
-    from apps.hr.models import Employee
-
     if not run.is_editable:
         raise ValidationError(
             f"'{run.reference}' is {run.status}, so its figures are settled. A posted "
@@ -315,9 +420,7 @@ def calculate(run):
                 f"'{rule.code}' is set up as a tiered table but has no bands, so it "
                 "would tax nobody. Add the steps to the table before the run is "
                 "calculated.")
-    unpaid = list(Employee.objects.filter(
-        company=run.company, status__in=PAYABLE_STATUSES,
-        is_active=True).order_by("last_name", "first_name"))
+    unpaid = list(payable_staff(run.company, run.period_start))
 
     with transaction.atomic():
         run.payslips.all().delete()

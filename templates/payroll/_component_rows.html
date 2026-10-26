@@ -25,6 +25,8 @@ Context expected:
       <td class="px-4 py-3 align-top">
         {% if c.is_earning %}<span class="badge bg-green-50 text-green-700">adds to pay</span>{% else %}<span class="badge bg-red-50 text-red-700">taken off</span>{% endif %}
         {% if c.is_earning and not c.is_taxable %}<div class="text-xs text-gray-400 mt-1">not taxable</div>{% endif %}
+        {% if c.is_earning and not c.counts_as_statutory_pay %}<div class="text-xs text-gray-400 mt-1">not pay for NSSF, SHIF or housing levy</div>{% endif %}
+        {% if not c.is_earning and c.reduces_taxable_pay %}<div class="text-xs text-sky-600 mt-1">taken off before PAYE</div>{% endif %}
       </td>
       <td class="px-4 py-3 align-top font-mono text-gray-700">
         {% if c.calculation == 'FIXED' %}{{ c.amount|floatformat:2 }}

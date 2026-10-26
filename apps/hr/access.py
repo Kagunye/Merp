@@ -21,6 +21,13 @@ PEOPLE_ROLES = {"ADMIN", "HR_MANAGER", "PAYROLL_OFFICER"}
 FINANCE_ROLES = {"ADMIN", "FINANCE_MANAGER", "ACCOUNTANT", "PAYROLL_OFFICER"}
 
 
+# The roles whose job is other people's hours: HR, and the project managers who
+# approve time against their projects. Everybody else logs and sees their own —
+# a colleague's timesheet says where they were and for how long, which is not
+# a clerk's business.
+HOURS_ROLES = {"ADMIN", "HR_MANAGER", "PROJECT_MANAGER"}
+
+
 def role_of(user, company):
     """The user's role in this company, or None when they have no membership."""
     if not user or not user.is_authenticated or company is None:
@@ -41,6 +48,11 @@ def manages_people(user, company):
 def manages_claims(user, company):
     """May this user raise, see and settle expense claims for anybody?"""
     return _is_superuser(user) or role_of(user, company) in (FINANCE_ROLES | PEOPLE_ROLES)
+
+
+def sees_all_hours(user, company):
+    """May this user see everybody's timesheet entries, not only their own?"""
+    return _is_superuser(user) or role_of(user, company) in HOURS_ROLES
 
 
 def own_employee(user, company):

@@ -4853,7 +4853,11 @@ class Command(BaseCommand):
         contract_form = {
             "employee": str(self.employee.pk), "contract_type": "PERMANENT",
             "job_title": "Field Technician", "department": "",
-            "start_date": f"{self.today:{iso}}", "end_date": "",
+            # Starts on the first of the month, not today: payroll now pro-rates
+            # basic pay by the calendar days a contract covers, and every figure
+            # below is a whole month of 100,000. A contract starting today would
+            # be paid only for the days left in the month.
+            "start_date": f"{period_start:{iso}}", "end_date": "",
             "basic_salary": "100000.00", "is_current": "on",
         }
         self.post(client, "contract", contract_url, contract_form)
@@ -4899,12 +4903,19 @@ class Command(BaseCommand):
             "end_date": f"{period_start - datetime.timedelta(days=1):{iso}}",
             "basic_salary": "20000.00", "is_current": "on",
         }
-        resp = self.reject(client, "a lapsed contract marked current", sam_url, sam_form)
-        errs = " ".join(str(e) for row in resp.context["form"].errors.values() for e in row)
-        self.expect("and it names the rule the row broke",
-                    "current one" in errs, errs)
-        self.post(client, "the lapsed contract, honestly ended", sam_url,
-                  merge(sam_form, {"is_current": ""}))
+        # Changed deliberately: a contract that ended in the past used to be
+        # refused when ticked current. Payroll now pays from contract history
+        # (a leaver's last fortnight, a re-run of an old month), so an ended
+        # contract is saved as history and simply is not current — the same
+        # end state the old test reached by posting it again unticked.
+        self.post(client, "a lapsed contract marked current", sam_url, sam_form)
+        lapsed = Contract.objects.filter(employee=samuel).first()
+        self.expect("a lapsed contract is kept as history rather than refused",
+                    lapsed is not None
+                    and Contract.objects.filter(employee=samuel).count() == 1)
+        self.expect("and it is saved as not current, because it has ended",
+                    lapsed is not None and not lapsed.is_current,
+                    str(lapsed and lapsed.is_current))
         home = client.get(reverse("payroll:index"))
         self.expect("a person whose contract ended is still reported, not skipped quietly",
                     home.context["staff_count"] == 2 and home.context["unpaid_staff"] == 1,

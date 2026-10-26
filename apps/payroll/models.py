@@ -6,6 +6,7 @@ a tiered income-tax table there — and every figure on a payslip has to be able
 say which table and which pay it came out of. So the rates live in rows, the
 lines live in rows, and a run is only ever a calculation over both.
 """
+import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -33,6 +34,10 @@ SETTLED_RUNS = ["APPROVED", "POSTED", "CANCELLED"]
 # month without pay and nobody notices. Unpaid leave is a pay element (a
 # deduction), not a reason to drop the payslip.
 PAYABLE_STATUSES = ["ACTIVE", "PROBATION", "ON_LEAVE"]
+
+# How long after a pay period ends its payment date may fall. Longer than any
+# honest delay in paying a month, short enough to catch a mistyped year.
+PAYMENT_GRACE_DAYS = 60
 
 
 def normalise_code(code):
@@ -88,6 +93,10 @@ class StatutoryRule(BaseModel):
         default=False,
         help_text="A pension contribution is taken off the pay before income tax is "
                   "worked out; a health levy is not.")
+    employee_minimum = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, default=None,
+        help_text="The least the employee pays in a month they earn anything — SHIF "
+                  "is 2.75% of pay but never less than 300. Leave blank for no floor.")
     payable_account = models.ForeignKey(
         "accounting.Account", on_delete=models.PROTECT, related_name="statutory_rules",
         help_text="Where the money is owed to until it is remitted.")
@@ -179,7 +188,13 @@ class StatutoryRule(BaseModel):
         """
         if self.method == "BANDS":
             return Decimal("0")
-        return self._figure(basic, gross, self.employee_percent, self.employee_flat)
+        figure = self._figure(basic, gross, self.employee_percent, self.employee_flat)
+        # A floor is a minimum contribution for somebody who is paid at all: a
+        # month with no pay owes nothing, but a month of very little pay still
+        # owes the minimum the scheme charges, not 2.75% of very little.
+        if self.employee_minimum and self.basis_for(basic, gross) > 0:
+            figure = max(figure, money(self.employee_minimum))
+        return figure
 
     def employer_amount(self, basic, gross):
         if self.employer_percent == 0 and self.employer_flat == 0:
@@ -280,6 +295,17 @@ class SalaryComponent(BaseModel):
     percent = models.DecimalField(max_digits=9, decimal_places=6, default=Decimal("0"))
     is_taxable = models.BooleanField(
         default=True, help_text="An earning that income tax is worked out on.")
+    counts_as_statutory_pay = models.BooleanField(
+        default=True, verbose_name="Counts as pay for statutory contributions",
+        help_text="An earning the pension, health and housing shares are worked out "
+                  "on. Untick it for a reimbursement — mileage, a refund of costs — "
+                  "which gives the employee back their own money and is not pay.")
+    reduces_taxable_pay = models.BooleanField(
+        default=False, verbose_name="Reduces taxable pay",
+        help_text="A deduction taken off the pay before income tax is worked out — a "
+                  "private pension contribution the tax authority allows. No ceiling "
+                  "is applied here: the whole deduction comes off, so check it is "
+                  "within the allowable limit before ticking this.")
     gl_account = models.ForeignKey(
         "accounting.Account", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="salary_components",
@@ -306,6 +332,12 @@ class SalaryComponent(BaseModel):
         if self.calculation != "FIXED" and self.percent == 0:
             raise ValidationError(
                 f"'{self.name}' is a share of pay with no percentage in it.")
+        if self.reduces_taxable_pay and self.component_type != "DEDUCTION":
+            raise ValidationError(
+                f"'{self.name}' is an earning, so it cannot reduce taxable pay — only "
+                "a deduction (a pension contribution, say) comes off the pay before "
+                "tax. Untick 'Reduces taxable pay', or untick 'taxable' if the earning "
+                "itself is not taxed.")
         if self.component_type == "DEDUCTION" and not self.gl_account_id:
             raise ValidationError(
                 f"'{self.name}' takes money out of pay and holds it for somebody else "
@@ -336,6 +368,10 @@ class SalaryComponent(BaseModel):
 
     def is_earning(self):
         return self.component_type != "DEDUCTION"
+
+    def is_statutory_pay(self):
+        """Does this earning count in the pay the statutory shares look at?"""
+        return self.is_earning() and self.counts_as_statutory_pay
 
 
 class PayrollRun(BaseModel, NotesMixin):
@@ -388,6 +424,24 @@ class PayrollRun(BaseModel, NotesMixin):
         # them validates the row with a blank half of the period in it.
         if self.period_start and self.period_end and self.period_end < self.period_start:
             raise ValidationError("A pay period cannot end before it starts.")
+        # The payment date is the date the whole month is booked on, so a typo
+        # in it posts the month's pay into a different year. Pay is not handed
+        # out before the period it is for has begun, and a month paid more than
+        # PAYMENT_GRACE_DAYS after it ended is a mistake far more often than it
+        # is a late payroll.
+        if self.payment_date and self.period_start and self.period_end:
+            latest = self.period_end + datetime.timedelta(days=PAYMENT_GRACE_DAYS)
+            if self.payment_date < self.period_start:
+                raise ValidationError({"payment_date": (
+                    f"The payment date {self.payment_date:%d %b %Y} is before the pay "
+                    f"period starts on {self.period_start:%d %b %Y}. Pay is made for a "
+                    "period that has begun — check the year, or the period dates.")})
+            if self.payment_date > latest:
+                raise ValidationError({"payment_date": (
+                    f"The payment date {self.payment_date:%d %b %Y} is more than "
+                    f"{PAYMENT_GRACE_DAYS} days after the period ends on "
+                    f"{self.period_end:%d %b %Y}. The month would be booked on that "
+                    f"date, so choose a day no later than {latest:%d %b %Y}.")})
 
     @property
     def total_cost(self):
@@ -438,18 +492,22 @@ class Payslip(BaseModel):
         self.total_allowances = earned - self.basic_pay()
         self.total_deductions = money(
             sum((l.amount for l in self.lines.filter(kind="DEDUCTION")), Decimal("0")))
-        self.taxable_pay = money(
+        # Never below nought: allowable deductions bigger than the taxable pay
+        # leave nothing to tax, not a negative figure to tax.
+        self.taxable_pay = max(money(
             sum((l.amount for l in self.lines.filter(kind="EARNING", is_taxable=True)),
                 Decimal("0"))
             - sum((l.amount for l in self.lines.filter(kind="DEDUCTION", reduces_tax=True)),
-                  Decimal("0")))
+                  Decimal("0"))), Decimal("0.00"))
         self.employer_cost = money(
             sum((l.amount for l in self.lines.filter(kind="EMPLOYER")), Decimal("0")))
         self.net_salary = earned - self.total_deductions
 
     def basic_pay(self):
-        line = self.lines.filter(kind="EARNING", code="BASIC").first()
-        return line.amount if line else Decimal("0")
+        """Basic pay for the period. A month paid on two contracts — a raise
+        from the 16th — has a basic line for each, so they are added up."""
+        return money(sum((l.amount for l in self.lines.filter(kind="EARNING", code="BASIC")),
+                         Decimal("0")))
 
 
 class PayslipLine(models.Model):

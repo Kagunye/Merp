@@ -7,9 +7,15 @@
     <h1 class="text-2xl font-bold text-gray-900">{{ employee.full_name }}</h1>
     <p class="text-sm text-gray-500 mt-0.5">{{ employee.employee_number }} &bull; {{ employee.job_title|default:"No title" }}</p>
   </div>
-  <span class="badge {% if employee.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif employee.status == 'TERMINATED' or employee.status == 'RESIGNED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm">
-    {{ employee.get_status_display }}
-  </span>
+  <div class="flex items-center gap-2 flex-wrap">
+    <span class="badge {% if employee.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif employee.status == 'TERMINATED' or employee.status == 'RESIGNED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm">
+      {{ employee.get_status_display }}
+    </span>
+    <a href="{% url 'hr:employee_update' employee.pk %}" class="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
+    {% if employee.status != 'TERMINATED' and employee.status != 'RESIGNED' %}
+    <a href="{% url 'hr:employee_terminate' employee.pk %}" class="px-3 py-1.5 text-sm text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50">Terminate</a>
+    {% endif %}
+  </div>
 </div>
 
 <!-- Tabs -->
@@ -31,6 +37,7 @@
       <div><dt class="text-gray-500">National ID</dt><dd class="text-gray-900">{{ employee.national_id|default:"—" }}</dd></div>
       <div><dt class="text-gray-500">Phone</dt><dd class="text-gray-900">{{ employee.phone|default:"—" }}</dd></div>
       <div><dt class="text-gray-500">Email</dt><dd class="text-gray-900">{{ employee.email|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Login</dt><dd class="text-gray-900">{% if employee.user %}{{ employee.user.get_full_name|default:employee.user.username }}{% else %}— not linked{% endif %}</dd></div>
     </dl>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-6">

@@ -424,6 +424,71 @@ class PayslipDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+# The runs whose payslips an employee is shown: months somebody has signed off.
+# A draft is still a working figure that may change before pay day, and a
+# cancelled month was never paid as it stands.
+OWN_PAYSLIP_RUNS = ["APPROVED", "POSTED"]
+
+
+def own_payslips(request):
+    """The signed-off payslips of the employee this login belongs to, in the
+    active company — and nobody else's, whatever the login's role. A login
+    with no employee record has no payslips of its own."""
+    from apps.hr.access import own_employee
+
+    company = getattr(request, "active_company", None)
+    mine = own_employee(request.user, company)
+    if mine is None:
+        return Payslip.objects.none(), None
+    return (Payslip.objects.filter(
+        employee=mine, payroll_run__company=company,
+        payroll_run__status__in=OWN_PAYSLIP_RUNS,
+    ).select_related("payroll_run", "payroll_run__company", "employee"), mine)
+
+
+class MyPayslipListView(LoginRequiredMixin, ListView):
+    """An employee's own payslips.
+
+    The payroll screens show the whole company's pay, so they are for the
+    people who run payroll. Everybody else still has a right to their own
+    slips, and this page is the one that shows them — filtered to the login's
+    own employee record, so it can be opened by any role.
+    """
+    template_name = "payroll/my_payslips.html"
+    context_object_name = "payslips"
+    paginate_by = 24
+
+    def get_queryset(self):
+        qs, self.employee = own_payslips(self.request)
+        return qs.order_by("-payroll_run__period_end")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = "My payslips"
+        ctx["employee"] = self.employee
+        return ctx
+
+
+class MyPayslipDetailView(LoginRequiredMixin, DetailView):
+    """One of the employee's own payslips; anybody else's is a 404."""
+    template_name = "payroll/payslip_detail.html"
+    context_object_name = "payslip"
+
+    def get_queryset(self):
+        return own_payslips(self.request)[0]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        slip = self.object
+        ctx["page_title"] = f"Payslip — {slip.payroll_run.period_end:%b %Y}"
+        ctx["earnings"] = slip.lines.filter(kind="EARNING")
+        ctx["deductions"] = slip.lines.filter(kind="DEDUCTION")
+        ctx["employer"] = slip.lines.filter(kind="EMPLOYER")
+        ctx["book"] = book_currency(slip.payroll_run.company)
+        ctx["own_view"] = True
+        return ctx
+
+
 class StatutoryRuleListView(LoginRequiredMixin, ListView):
     """The rates table: the row in force, and every older version beside it."""
     template_name = "payroll/rule_list.html"
@@ -562,8 +627,25 @@ class StatutoryRuleDetailView(LoginRequiredMixin, DetailView):
 @require_POST
 def rule_deactivate(request, pk):
     rule = get_object_or_404(StatutoryRule, pk=pk, company=request.active_company)
-    rule.is_active = not rule.is_active
-    rule.save(update_fields=["is_active", "updated_at"])
+    if not rule.is_active:
+        # Re-activating a row is the same as creating it again, so it has to pass
+        # the same checks — above all, that a tiered table under another code is
+        # not already in force. Two of them would each tax the same pay, and
+        # the toggle is otherwise a side door past the rule the create form
+        # enforces.
+        rule.is_active = True
+        try:
+            rule.clean()
+        except ValidationError as exc:
+            messages.error(
+                request,
+                f"{rule.code} ({rule.effective_from:%d %b %Y}) stays retired: "
+                f"{exc.messages[0]}")
+            return redirect("payroll:rule_detail", pk=rule.pk)
+    else:
+        rule.is_active = False
+    StatutoryRule.objects.filter(pk=rule.pk).update(
+        is_active=rule.is_active, updated_at=timezone.now())
     messages.success(
         request,
         f"{rule.code} ({rule.effective_from:%d %b %Y}) is now "

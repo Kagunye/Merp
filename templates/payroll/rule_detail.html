@@ -62,6 +62,7 @@
       <p class="text-sm text-gray-700">{{ rule.payable_account.name }}</p>
       <p class="text-xs text-gray-500 mt-2">Balance <span class="font-mono">{{ rule.payable_account.current_balance|floatformat:2 }}</span> — what is owed and not yet remitted.</p>
       {% if rule.reduces_taxable_pay %}<p class="text-xs text-sky-600 mt-2">Allowed off taxable pay before income tax is worked out.</p>{% endif %}
+      {% if rule.employee_minimum %}<p class="text-xs text-gray-500 mt-2">Never less than <span class="font-mono">{{ rule.employee_minimum|floatformat:2 }}</span> a month for anybody who is paid.</p>{% endif %}
     </div>
   </div>
 

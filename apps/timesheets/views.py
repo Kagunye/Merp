@@ -10,8 +10,26 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from apps.core.mixins import CompanyRequiredMixin
+from apps.hr.access import sees_all_hours
 from .forms import TimesheetEntryForm
 from .models import TimesheetEntry
+
+
+def company_entries(request):
+    """The timesheet entries this login may see, in the active company only.
+
+    A pk from another book is a 404 here, not a page of somebody else's hours.
+    Inside the book, HR, administrators and project managers see everybody's
+    time — approving it is their job — and everybody else sees their own and
+    nothing more.
+    """
+    company = getattr(request, "active_company", None)
+    if not company:
+        return TimesheetEntry.objects.none()
+    qs = TimesheetEntry.objects.filter(company=company)
+    if sees_all_hours(request.user, company):
+        return qs
+    return qs.filter(user=request.user)
 
 
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
@@ -22,7 +40,9 @@ class ModuleHomeView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         company = getattr(self.request, "active_company", None)
         if company:
-            qs = TimesheetEntry.objects.filter(company=company)
+            # The week's totals and the recent list are the same privacy as
+            # the entry list: a member of staff's "total" is their own hours.
+            qs = company_entries(self.request)
             today = date.today()
             week_start = today - timedelta(days=today.weekday())
             ctx["my_hours_this_week"] = sum(
@@ -32,6 +52,7 @@ class ModuleHomeView(LoginRequiredMixin, TemplateView):
             ctx["total_hours_this_week"] = sum((e.hours for e in qs.filter(entry_date__gte=week_start)), Decimal(0))
             ctx["pending_count"] = qs.filter(status="SUBMITTED").count()
             ctx["recent_entries"] = qs.select_related("user", "project")[:12]
+            ctx["sees_all"] = sees_all_hours(self.request.user, company)
         return ctx
 
 
@@ -42,13 +63,21 @@ class EntryListView(LoginRequiredMixin, ListView):
     paginate_by = 50
 
     def get_queryset(self):
-        company = self.request.active_company
-        if not company:
-            return TimesheetEntry.objects.none()
-        qs = TimesheetEntry.objects.filter(company=company).select_related("user", "project", "task")
+        qs = company_entries(self.request).select_related("user", "project", "task")
         if self.request.GET.get("mine") == "1":
             qs = qs.filter(user=self.request.user)
+        status = self.request.GET.get("status")
+        if status in dict(TimesheetEntry.STATUS_CHOICES):
+            qs = qs.filter(status=status)
         return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        company = getattr(self.request, "active_company", None)
+        ctx["subtitle"] = ("All time logged in the organisation"
+                           if sees_all_hours(self.request.user, company)
+                           else "The time you have logged")
+        return ctx
 
 
 class EntryCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
@@ -70,15 +99,6 @@ class EntryCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         form.instance.user = self.request.user
         messages.success(self.request, "Time entry added.")
         return super().form_valid(form)
-
-
-def company_entries(request):
-    """Timesheet entries in the active company only — a pk from another book
-    is a 404 here, not a page of somebody else's hours."""
-    company = getattr(request, "active_company", None)
-    if not company:
-        return TimesheetEntry.objects.none()
-    return TimesheetEntry.objects.filter(company=company)
 
 
 class EntryDetailView(LoginRequiredMixin, DetailView):
