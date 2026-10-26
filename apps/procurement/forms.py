@@ -59,4 +59,25 @@ class BillForm(forms.ModelForm):
                 f"Total must equal subtotal + tax ({subtotal + tax}). "
                 "The payable posted to the ledger must match the bill.",
             )
+        # The same supplier invoice entered twice is the commonest way a bill
+        # gets paid twice: refuse it while the first one still stands.
+        supplier = cleaned.get("supplier")
+        supplier_ref = (cleaned.get("supplier_reference") or "").strip()
+        if supplier and supplier_ref and self.company:
+            twin = Bill.objects.filter(
+                company=self.company, supplier=supplier,
+                supplier_reference__iexact=supplier_ref,
+            ).exclude(status__in=["CANCELLED", "DEBIT_NOTE"]).exclude(
+                pk=self.instance.pk).first()
+            if twin:
+                self.add_error(
+                    "supplier_reference",
+                    f"{supplier.name}'s invoice {supplier_ref} is already in the book as "
+                    f"{twin.reference}. Cancel that bill first if this one replaces it.")
+        po = cleaned.get("purchase_order")
+        if po and is_new(self) and po.status == "BILLED":
+            self.add_error(
+                "purchase_order",
+                f"{po.reference} is already fully billed. A second bill against it "
+                "would charge the same goods twice.")
         return cleaned

@@ -22,18 +22,39 @@ Z = Decimal("0")
 # accountant can change — these are opening figures, not rules the program
 # enforces. (code, name, method, basis, employee %, employer %, cap, relief,
 # allowable against tax, payable account, employer expense account, bands)
+#
+# Kenya as at February 2026: NSSF is 6% each of pensionable (gross) pay up to the
+# year-four ceiling of 108,000; SHIF is the employee's alone; and since December
+# 2024 SHIF and the housing levy both come off the pay before PAYE is worked out.
+# The PAYE steps are 24,000 / 32,333 / 500,000 / 800,000, less 2,400 relief.
 DEFAULT_TABLE = [
-    ("NSSF", "Pension — NSSF", "PERCENT", "BASIC", "6", "6", "36000", None, True,
+    ("NSSF", "Pension — NSSF", "PERCENT", "GROSS", "6", "6", "108000", None, True,
      "2400", "6110", []),
-    ("SHIF", "Health insurance — SHIF", "PERCENT", "GROSS", "2.75", "2.75",
-     None, None, False, "2500", "6120", []),
+    ("SHIF", "Health insurance — SHIF", "PERCENT", "GROSS", "2.75", "0",
+     None, None, True, "2500", None, []),
     ("HOUSING", "Housing Levy", "PERCENT", "GROSS", "1.5", "1.5", None, None,
-     False, "2550", "6130", []),
+     True, "2550", "6130", []),
     ("PAYE", "Pay as you earn", "BANDS", "GROSS", "0", "0", None, "2400", False,
-     "2300", None, [("0", "24000", "10"), ("24000", "33333", "25"),
-                    ("33333", "500000", "30"), ("500000", "800000", "32.5"),
+     "2300", None, [("0", "24000", "10"), ("24000", "32333", "25"),
+                    ("32333", "500000", "30"), ("500000", "800000", "32.5"),
                     ("800000", None, "35")]),
 ]
+
+
+def overlapping_run(company, start, end, exclude=None):
+    """A live run that already pays any day of this period, or None.
+
+    Matching only the exact dates is not enough: 1-31 October beside 1-30
+    October pays the whole of October twice.
+    """
+    from .models import PayrollRun
+
+    runs = PayrollRun.objects.filter(
+        company=company, period_start__lte=end, period_end__gte=start,
+    ).exclude(status="CANCELLED")
+    if exclude is not None and exclude.pk:
+        runs = runs.exclude(pk=exclude.pk)
+    return runs.order_by("period_start").first()
 
 
 def rules_as_at(company, on_date):

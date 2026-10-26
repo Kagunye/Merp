@@ -677,23 +677,26 @@ def po_to_bill(request, pk):
             "before it is sent and goods have arrived.")
         return redirect("procurement:po_detail", pk=pk)
 
-    outstanding = [(l, l.to_bill) for l in po.lines.all()]
-    outstanding = [(l, q) for l, q in outstanding if q > 0]
-    if not outstanding:
-        received = sum((l.received_quantity for l in po.lines.all()), Decimal("0"))
-        messages.error(
-            request,
-            f"Nothing left to bill on {po.reference}. "
-            + ("Record the goods receipt first — the bill is raised against what arrived."
-               if received == 0 else "Everything received has already been billed."))
-        return redirect("procurement:po_detail", pk=pk)
-
-    subtotal = sum((l.unit_cost * q for l, q in outstanding), Decimal("0"))
-    tax = sum((l.unit_cost * q * ((l.tax_rate.rate if l.tax_rate else Decimal("0")) / 100)
-               for l, q in outstanding), Decimal("0"))
-
     today = datetime.date.today()
     with transaction.atomic():
+        # The order is locked while its unbilled quantities are read and taken:
+        # a second click on "Bill" waits here, then finds nothing left to bill.
+        po = PurchaseOrder.objects.select_for_update().select_related("supplier").get(pk=po.pk)
+        outstanding = [(l, l.to_bill) for l in po.lines.all()]
+        outstanding = [(l, q) for l, q in outstanding if q > 0]
+        if not outstanding:
+            received = sum((l.received_quantity for l in po.lines.all()), Decimal("0"))
+            messages.error(
+                request,
+                f"Nothing left to bill on {po.reference}. "
+                + ("Record the goods receipt first — the bill is raised against what arrived."
+                   if received == 0 else "Everything received has already been billed."))
+            return redirect("procurement:po_detail", pk=pk)
+
+        subtotal = sum((l.unit_cost * q for l, q in outstanding), Decimal("0"))
+        tax = sum((l.unit_cost * q * ((l.tax_rate.rate if l.tax_rate else Decimal("0")) / 100)
+                   for l, q in outstanding), Decimal("0"))
+
         bill = Bill(
             company=po.company, supplier=po.supplier, purchase_order=po,
             reference=SequenceCounter.next_number(po.company, "BILL-"),
@@ -937,6 +940,11 @@ def bill_post(request, pk):
     return redirect("procurement:bill_detail", pk=pk)
 
 
+# A draft is posted on the way to being paid; anything else is either settled
+# already or not a payable at all — a cancelled bill, or a debit note.
+PAYABLE_BILL_STATUSES = ("DRAFT", "RECEIVED", "PARTIAL", "OVERDUE")
+
+
 @login_required
 @require_POST
 def bill_pay(request, pk):
@@ -951,11 +959,22 @@ def bill_pay(request, pk):
     from apps.core.models import SequenceCounter
 
     bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
+    if bill.status not in PAYABLE_BILL_STATUSES:
+        messages.error(
+            request,
+            f"Cannot pay {bill.reference}: it is {bill.get_status_display().lower()}. "
+            "Only a bill the supplier is still owed can take a payment.")
+        return redirect("procurement:bill_detail", pk=pk)
     try:
-        amount = Decimal(request.POST.get("amount") or "0")
+        amount = Decimal(str(request.POST.get("amount") or "0").replace(",", "").strip())
     except Exception:
+        amount = None
+    # The ledger holds 13 digits before the point; anything past that, or not a
+    # number at all, is a typing slip rather than a payment.
+    if amount is None or not amount.is_finite() or abs(amount) >= Decimal("1e13"):
         messages.error(request, "Invalid amount.")
         return redirect("procurement:bill_detail", pk=pk)
+    amount = amount.quantize(Decimal("0.01"))
     if amount <= 0:
         messages.error(request, "Payment amount must be positive.")
         return redirect("procurement:bill_detail", pk=pk)
@@ -1016,6 +1035,16 @@ def bill_pay(request, pk):
     bank_base = to_base(amount, payment_rate)
 
     with transaction.atomic():
+        # Re-read the bill under a lock: two payments sent together must not
+        # both pass the outstanding check and pay the supplier twice.
+        bill = Bill.objects.select_for_update().get(pk=bill.pk)
+        if bill.status not in PAYABLE_BILL_STATUSES or amount > bill.outstanding_amount:
+            messages.error(
+                request,
+                f"{bill.reference} is {bill.get_status_display().lower()} with "
+                f"{bill.outstanding_amount} outstanding, so {amount} cannot be paid "
+                "against it. Nothing was recorded.")
+            return redirect("procurement:bill_detail", pk=pk)
         ref = SequenceCounter.next_number(company, "JE-SPAY-")
         je = JournalEntry.objects.create(
             company=company,
@@ -1041,7 +1070,7 @@ def bill_pay(request, pk):
             f"Realised exchange on {bill.reference}")
         je.post(user=request.user)
         bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
-        bill.outstanding_amount = bill.total_amount - bill.paid_amount
+        bill.outstanding_amount = bill.total_amount - bill.paid_amount - bill.credited_amount
         if bill.outstanding_amount <= 0:
             bill.status = "PAID"
         else:

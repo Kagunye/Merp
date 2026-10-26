@@ -245,6 +245,14 @@ def run_approve(request, pk):
             f"'{run.reference}' is {run.status.lower()} and cannot be approved from "
             "there — a posted run is in the ledger and a cancelled one is finished.")
         return redirect("payroll:run_detail", pk=run.pk)
+    clash = services.overlapping_run(run.company, run.period_start, run.period_end, exclude=run)
+    if clash:
+        messages.error(
+            request,
+            f"'{clash.reference}' already pays {clash.period_start} to "
+            f"{clash.period_end}. Cancel one of the two runs first, or everybody is "
+            "paid twice.")
+        return redirect("payroll:run_detail", pk=run.pk)
     if not run.payslips.exists():
         messages.error(
             request,
@@ -267,18 +275,29 @@ def run_approve(request, pk):
 def run_post(request, pk):
     from apps.accounting import gl_service
 
-    run = get_object_or_404(PayrollRun, pk=pk, company=request.active_company)
-    if run.journal_entry_id:
-        messages.warning(request, f"'{run.reference}' is already in the ledger.")
-        return redirect("payroll:run_detail", pk=run.pk)
-    if run.status != "APPROVED":
-        messages.error(
-            request,
-            f"'{run.reference}' is {run.status.lower()}, and pay does not go into the "
-            "book until it has been approved. Approve it first.")
-        return redirect("payroll:run_detail", pk=run.pk)
+    get_object_or_404(PayrollRun, pk=pk, company=request.active_company)
     try:
         with transaction.atomic():
+            # Two clicks on Post must not book the month twice: the second one
+            # waits here for the first, then finds the entry already made.
+            run = PayrollRun.objects.select_for_update().get(pk=pk)
+            if run.journal_entry_id:
+                messages.warning(request, f"'{run.reference}' is already in the ledger.")
+                return redirect("payroll:run_detail", pk=run.pk)
+            if run.status != "APPROVED":
+                messages.error(
+                    request,
+                    f"'{run.reference}' is {run.status.lower()}, and pay does not go into "
+                    "the book until it has been approved. Approve it first.")
+                return redirect("payroll:run_detail", pk=run.pk)
+            clash = services.overlapping_run(run.company, run.period_start, run.period_end, exclude=run)
+            if clash:
+                messages.error(
+                    request,
+                    f"'{clash.reference}' already pays {clash.period_start} to "
+                    f"{clash.period_end}. Cancel one of the two runs before either is "
+                    "posted, or everybody is paid twice.")
+                return redirect("payroll:run_detail", pk=run.pk)
             entry = gl_service.post_payroll_run(run, user=request.user)
     except ValidationError as exc:
         messages.error(request, exc.messages[0])

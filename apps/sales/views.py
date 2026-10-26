@@ -1019,15 +1019,23 @@ def order_to_invoice(request, pk):
                "confirm it before invoicing."))
         return redirect("sales:order_detail", pk=pk)
 
-    lines = list(order.lines.select_related("product"))
-    outstanding = [(l, l.quantity - (l.invoiced_quantity or Decimal("0"))) for l in lines]
-    outstanding = [(l, q) for l, q in outstanding if q > 0]
-    if not outstanding:
-        messages.error(request, f"Order {order.reference} has nothing left to invoice.")
-        return redirect("sales:order_detail", pk=pk)
-
     today = datetime.date.today()
     with transaction.atomic():
+        # Locked while the uninvoiced quantities are read and taken, so a double
+        # click raises one invoice and the second finds nothing left to bill.
+        order = SalesOrder.objects.select_for_update().select_related("customer").get(pk=order.pk)
+        if order.status in ("DRAFT", "CANCELLED", "INVOICED"):
+            messages.error(
+                request, f"Order {order.reference} is {order.get_status_display()}: "
+                "nothing is left to invoice.")
+            return redirect("sales:order_detail", pk=pk)
+        lines = list(order.lines.select_related("product"))
+        outstanding = [(l, l.quantity - (l.invoiced_quantity or Decimal("0"))) for l in lines]
+        outstanding = [(l, q) for l, q in outstanding if q > 0]
+        if not outstanding:
+            messages.error(request, f"Order {order.reference} has nothing left to invoice.")
+            return redirect("sales:order_detail", pk=pk)
+
         invoice = Invoice(
             company=order.company, customer=order.customer, sales_order=order,
             reference=SequenceCounter.next_number(order.company, "INV-"),

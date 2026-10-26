@@ -7,6 +7,7 @@ from django import forms
 
 from apps.core.forms import date_input, is_new
 from .models import PayrollRun, SalaryComponent, StatutoryRule
+from .services import overlapping_run
 
 FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 TEXTAREA_CLASS = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -75,15 +76,14 @@ class PayrollRunForm(AccountChoiceForm):
         start, end = cleaned.get("period_start"), cleaned.get("period_end")
         if start and end and end < start:
             self.add_error("period_end", "A pay period cannot end before it starts.")
-        if is_new(self) and start and end:
-            clash = PayrollRun.objects.filter(
-                company=self.company, period_start=start, period_end=end,
-            ).exclude(status="CANCELLED").exists() if self.company else False
+        if start and end and self.company:
+            clash = overlapping_run(self.company, start, end, exclude=self.instance)
             if clash:
                 self.add_error(
                     "period_end",
-                    "A run already covers this period. Two runs for the same month "
-                    "would pay everybody twice — amend or cancel the first one.")
+                    f"'{clash.reference}' already covers {clash.period_start} to "
+                    f"{clash.period_end}. Two runs over the same days would pay "
+                    "everybody twice — amend or cancel the first one.")
         return cleaned
 
 
