@@ -125,10 +125,44 @@ class Reconciliation(BaseModel, NotesMixin):
 
 
 class BankTransaction(BaseModel, NotesMixin):
+    """One line of the bank book: a movement the bank statement should show.
+
+    Every line has a ledger entry behind it, and where it came from decides
+    who may change it:
+
+    * MANUAL   — typed on the banking screen (bank charges, interest, the
+                 owner putting capital in). The screen wrote its own entry,
+                 Dr bank / Cr the counter account for a deposit and the other
+                 way round for a withdrawal, so the screen may re-book it while
+                 it is uncleared and reverse it when it is deleted.
+    * TRANSFER — one side of a transfer between two of the company's own bank
+                 or cash accounts. Both sides share one entry, so they are
+                 removed together.
+    * LEDGER   — fed from an entry some other screen posted: a customer
+                 receipt, a supplier payment, a till's card takings, a payroll
+                 run, an expense claim, a hand-typed journal. The document that
+                 made the entry owns it; the bank book only mirrors it so the
+                 statement can be ticked against it. It is corrected at its
+                 source, and disappears again when that entry is reversed
+                 before the bank has seen it.
+    """
     TRANSACTION_TYPES = [
         ("CREDIT", "Credit / Inflow"),
         ("DEBIT", "Debit / Outflow"),
     ]
+    ORIGINS = [
+        ("MANUAL", "Entered on the banking screen"),
+        ("TRANSFER", "Transfer between own accounts"),
+        ("LEDGER", "From a posted ledger entry"),
+    ]
+    origin = models.CharField(max_length=8, choices=ORIGINS, default="MANUAL", db_index=True)
+    # The other side of a manual deposit or withdrawal: the expense a bank
+    # charge is, the income interest is, the equity or loan the money came
+    # from. Kept on the line so an edit re-books against the same account.
+    counter_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="bank_counter_lines",
+    )
     bank_account = models.ForeignKey(BankAccount, on_delete=models.CASCADE, related_name="transactions")
     transaction_date = models.DateField(db_index=True)
     value_date = models.DateField(null=True, blank=True)

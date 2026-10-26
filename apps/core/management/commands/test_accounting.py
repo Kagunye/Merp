@@ -218,6 +218,44 @@ def merge(*parts):
     return out
 
 
+class _FormTokenClient:
+    """A test client that sends the till's one-time form token like a browser.
+
+    Added with the rule that the terminal and refund views refuse a post
+    without one (section 19, the counter). Before a POST to the terminal or
+    to a ticket's refund it opens the page that renders that form and copies
+    its token in, unless the caller sent one. Everything else passes straight
+    through to the wrapped client.
+    """
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def _token(self, page, name):
+        response = self.inner.get(page)
+        ctx = getattr(response, "context", None)
+        return (ctx.get(name) if ctx else None) or ""
+
+    def post(self, path, data=None, **kwargs):
+        from django.urls import Resolver404, resolve
+
+        data = dict(data or {})
+        try:
+            match = resolve(path)
+        except Resolver404:
+            match = None
+        name = match.view_name if match else ""
+        if name == "pos:terminal" and "ticket_token" not in data:
+            data["ticket_token"] = self._token(path, "ticket_token")
+        elif name == "pos:sale_refund" and "refund_token" not in data:
+            data["refund_token"] = self._token(
+                reverse("pos:sale_detail", kwargs=match.kwargs), "refund_token")
+        return self.inner.post(path, data, **kwargs)
+
+
 class Command(BaseCommand):
     help = "Post the accounting flows through the real forms and verify the ledger rules."
 
@@ -1548,6 +1586,10 @@ class Command(BaseCommand):
         self.expect("it points at the asset account it was mapped to",
                     bank.gl_account_id == bank_gl.pk)
 
+        # A manual bank line now books its own ledger entry, so the form needs
+        # the account on the other side: owner's capital for the money in,
+        # professional fees for the money out. The figures under test are the
+        # bank book's, which this does not change.
         def record(day, kind, amount, description):
             self.post(client, "bank transaction", reverse("banking:transaction_create"), {
                 "bank_account": bank.pk,
@@ -1555,6 +1597,7 @@ class Command(BaseCommand):
                 "value_date": "",
                 "transaction_type": kind,
                 "amount": amount,
+                "counter_account": self.account("3100" if kind == "CREDIT" else "6800").pk,
                 "description": description,
                 "reference": "",
             })
@@ -1739,6 +1782,25 @@ class Command(BaseCommand):
             self.expect_flash(client, resp, "posted", "the second statement posts")
 
         reverse_url = reverse("banking:reconciliation_reverse", args=[recon.pk])
+        # Statements are a chain — the second opens on the first's closing
+        # balance — so the first cannot be reversed while the second stands.
+        # This section used to reverse the first with the second still posted;
+        # it now proves that is refused, then reverses the second and the
+        # first in that order, and still proves the items go back to
+        # outstanding.
+        if second is not None:
+            resp = client.post(reverse_url)
+            self.expect_flash(client, resp, f"Reverse {second.reference} first",
+                              "the earlier statement is not reversed while a later one stands")
+            recon.refresh_from_db()
+            self.expect("and it is still posted", recon.status == "POSTED", recon.status)
+            resp = client.post(reverse("banking:reconciliation_reverse", args=[second.pk]))
+            self.expect_flash(client, resp, "outstanding again",
+                              "the later statement reverses first")
+            second.refresh_from_db()
+            late.refresh_from_db()
+            self.expect("the later statement releases its item",
+                        second.status == "REVERSED" and not late.is_reconciled)
         resp = client.post(reverse_url)
         self.expect_flash(client, resp, "outstanding again", "reversing releases the items")
         recon.refresh_from_db()
@@ -1751,8 +1813,10 @@ class Command(BaseCommand):
                         for t in (deposit, cheque, cashup)))
         open_rows = client.get(
             reverse("banking:transaction_list") + "?reconciled=false").context["transactions"]
+        # Four, not three: the standing order released by the second statement
+        # is outstanding again too, now that both statements are reversed.
         self.expect("the released items reappear on the outstanding list",
-                    open_rows.count() == 3, f"{open_rows.count()} rows")
+                    open_rows.count() == 4, f"{open_rows.count()} rows")
         resp = client.post(reverse_url)
         self.expect_flash(client, resp, "Only a posted statement can be reversed",
                           "reversing twice is refused")
@@ -1768,10 +1832,12 @@ class Command(BaseCommand):
             self.expect("the fresh draft on the earlier date opens from the account again",
                         reopened.opening_balance == D("80000.00"),
                         str(reopened.opening_balance))
-            self.note("Reversing the first statement while a later one stays posted sends a "
-                      "new draft for the earlier date back to the account's original opening "
-                      "balance. Carrying across a later posted statement would be the "
-                      "alternative; today the rule is 'last posted statement before the date'.")
+            # The old note here described reversing the first statement while
+            # the second stayed posted; that is now refused, so the note says
+            # what the rule is instead.
+            self.note("Statements are reversed newest first, so a fresh draft for an earlier "
+                      "date always opens on the last posted statement before it — here none, "
+                      "so the account's own opening balance.")
 
         resp = client.post(reverse("banking:transaction_delete", args=[cashup.pk]))
         self.expect("an outstanding transaction can be deleted",
@@ -4100,6 +4166,13 @@ class Command(BaseCommand):
         from apps.accounting.models import JournalEntry
         from apps.inventory.models import StockLevel, StockMovement
         from apps.pos.models import POSSale, POSSession
+
+        # The terminal and refund views now refuse a post without the form's
+        # one-time token (it is what stops a double click taking the money
+        # twice). Every till post below therefore goes the way a browser's
+        # does: open the form, then send it back with the token it rendered.
+        # The checks themselves are unchanged.
+        client = _FormTokenClient(client)
 
         company = self.company
         branch = company.branches.first()

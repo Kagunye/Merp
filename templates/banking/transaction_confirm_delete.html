@@ -2,7 +2,7 @@
 {% load ui_extras %}
 {% block content %}
 {% url 'banking:transaction_detail' txn.pk as back %}
-{% include "_includes/page_header.html" with title="Delete transaction" subtitle="This cannot be undone" back_url=back %}
+{% include "_includes/page_header.html" with title="Delete transaction" subtitle="The line is removed and its ledger entry reversed" back_url=back %}
 
 <div class="bg-white rounded-xl border border-gray-200 p-6 max-w-2xl" style="{% account_row txn.bank_account %}">
   <div class="grid grid-cols-2 gap-5 mb-6">

@@ -788,6 +788,279 @@ def post_till_variance(session, user=None) -> Optional[JournalEntry]:
     return je
 
 
+# ─────────────────────────── Banking ────────────────────────────────────────
+
+# The kinds of ledger account a manual deposit or withdrawal may be booked
+# against. Bank and cash are left out because money moving between two of the
+# company's own accounts is a transfer, and the transfer screen books both
+# sides of it at once (and the exchange between them, when the currencies
+# differ). Receivables and payables are left out because a customer's or a
+# supplier's money has to go through Sales → Payments or the bill, where it is
+# allocated to what it settles; booked straight to the control account it
+# would move the total while every customer's and supplier's own balance
+# stayed where it was.
+BANK_COUNTER_EXCLUDED_TYPES = ("BANK", "CASH", "RECEIVABLE", "PAYABLE")
+
+
+def bank_counter_accounts(company):
+    """The accounts a manual bank deposit or withdrawal may name as its other side."""
+    return (Account.objects.filter(company=company, is_active=True)
+            .exclude(account_type__in=BANK_COUNTER_EXCLUDED_TYPES).order_by("code"))
+
+
+def bank_rate(bank_account, on_date):
+    """Book-currency units per one unit of the bank account's own money.
+
+    One for an account kept in the book's own currency. A foreign account's
+    movements are entered in its own money (a USD statement prints dollars),
+    so the ledger needs the day's filed rate to value them — and refuses,
+    with the usual message, when none has been filed.
+    """
+    from apps.accounting.models import ExchangeRate
+    company = bank_account.company
+    code = (bank_account.currency or book_currency(company)).upper()
+    return ExchangeRate.rate_for(company, code, on_date)
+
+
+def _is_foreign(bank_account):
+    code = (bank_account.currency or "").upper()
+    return bool(code) and code != book_currency(bank_account.company)
+
+
+@transaction.atomic
+def post_bank_transaction(txn, user=None) -> JournalEntry:
+    """Book a deposit or withdrawal typed on the banking screen.
+
+    A deposit                                A withdrawal
+    DR  the bank's ledger account            DR  the counter account
+    CR  the counter account                  CR  the bank's ledger account
+
+    The counter account is what the money was: a bank charge is an expense,
+    interest is income, the owner's money is equity, a loan drawn is a
+    liability. Without the entry the bank book and the ledger drift apart —
+    a statement would reconcile while the balance sheet still showed the
+    money before the charge — so a manual line is never saved without one.
+    Petty cash works the same way: a Cash ledger account behind a petty-cash
+    "bank" account is credited by a spend exactly as a bank is.
+
+    A foreign-currency account's line is in its own money; the entry carries
+    its book-currency value at the day's filed rate, and says which currency
+    and rate it was translated from.
+
+    The line is linked to its entry *before* the entry is posted, so the
+    bank-book feed (apps.banking.bankbook) that runs as any entry posts sees
+    that this line already stands for it and does not add a second one.
+
+    Idempotent: a line that already carries its entry hands that entry back.
+    """
+    from apps.banking.models import BankTransaction
+
+    if txn.journal_entry_id:
+        return txn.journal_entry
+    bank = txn.bank_account
+    company = bank.company
+    counter = txn.counter_account
+    if counter is None:
+        raise ValidationError(
+            "Choose the account on the other side of this transaction — an expense "
+            "for a bank charge, income for interest, equity for the owner's money, a "
+            "liability for a loan — so the ledger moves with the bank.")
+    if counter.company_id != company.pk:
+        raise ValidationError("That counter account belongs to a different company.")
+    if counter.pk == bank.gl_account_id:
+        raise ValidationError(
+            "The counter account cannot be the bank's own ledger account — the entry "
+            "would move nothing.")
+    if counter.account_type in BANK_COUNTER_EXCLUDED_TYPES:
+        raise ValidationError(
+            f"{counter.code} {counter.name} is a {counter.get_account_type_display().lower()} "
+            "account. Money between your own bank or cash accounts is a transfer — use "
+            "Banking → Transfers; a customer's or supplier's money goes through Sales → "
+            "Payments or the bill.")
+    amount = txn.amount or Decimal("0")
+    if amount <= 0:
+        raise ValidationError("A bank transaction moves an amount above zero.")
+
+    foreign = _is_foreign(bank)
+    rate = bank_rate(bank, txn.transaction_date)
+    base = to_base(amount, rate)
+    deposit = txn.transaction_type == "CREDIT"
+    label = txn.description or txn.reference or ("Deposit" if deposit else "Withdrawal")
+    je = _new_je(
+        company, "JE-BNK-", "MANUAL", txn.transaction_date,
+        f"{'Deposit to' if deposit else 'Withdrawal from'} {bank.name}: {label}",
+        source_currency=bank.currency if foreign else "",
+        exchange_rate=rate if foreign else None,
+    )
+    # The entry is not stamped with a source document type: the book's
+    # registry of source types (and the audit that every stamped entry points
+    # at a live row) belongs to the ledger, and a deleted manual line would
+    # leave its reversed entry pointing at nothing. The link runs the other
+    # way, from the line to the entry; should the entry be reversed from the
+    # journal screen anyway, the bank-book feed answers it (see bankbook.
+    # unwind) and unbook_bank_transaction tidies the answer away on delete.
+    if deposit:
+        _dr(je, bank.gl_account, base, f"{bank.name}: {label}"[:500])
+        _cr(je, counter, base, label[:500])
+    else:
+        _dr(je, counter, base, label[:500])
+        _cr(je, bank.gl_account, base, f"{bank.name}: {label}"[:500])
+    BankTransaction.objects.filter(pk=txn.pk).update(journal_entry=je)
+    txn.journal_entry = je
+    je.post(user=user)
+    return je
+
+
+@transaction.atomic
+def unbook_bank_transaction(txn, user=None) -> Optional[JournalEntry]:
+    """Take a manual line's entry off the ledger, ahead of deleting or re-booking it.
+
+    The entry is reversed rather than erased — on its own date, so a month
+    already reported still nets to what it should — and the line is unlinked
+    from it first. Unlinked, the reversal has nothing on the bank book to
+    answer, so the feed removes the mirror line it would otherwise have added:
+    the bank never saw this money, and neither should the statement screen.
+
+    A line saved before manual lines posted to the ledger has no entry, and
+    nothing needs undoing. Returns the reversal, or None.
+    """
+    from apps.banking.models import BankTransaction
+
+    entry = txn.journal_entry
+    if entry is None:
+        return None
+    BankTransaction.objects.filter(pk=txn.pk).update(journal_entry=None)
+    txn.journal_entry = None
+    if entry.reversed_by_id:
+        # Already reversed from the journal screen, which left the bank book
+        # an answering line for the reversal; with this line gone, that
+        # answer has nothing to answer.
+        _drop_unseen_lines(entry.reversed_by, txn.bank_account_id)
+        return None
+    if entry.status != "POSTED":
+        return None
+    return entry.reverse(user=user)
+
+
+def _drop_unseen_lines(entry, bank_account_id):
+    """Remove the bank-book lines an entry put on one account, if no statement has them."""
+    from apps.banking.models import BankTransaction
+    BankTransaction.objects.filter(
+        journal_entry=entry, bank_account_id=bank_account_id, origin="LEDGER",
+        is_reconciled=False, reconciliation__isnull=True).delete()
+
+
+@transaction.atomic
+def post_bank_transfer(source, destination, amount_sent, on_date, *, amount_received=None,
+                       reference="", description="", user=None):
+    """Move money between two of the company's own bank or cash accounts.
+
+    One entry, both sides:
+
+        DR  the receiving account     what arrived, in book currency
+        CR  the paying account        what left, in book currency
+        CR  realised exchange gain    or DR realised exchange loss — the gap
+
+    Each side is valued at its own currency's filed rate for the day (a
+    shilling account at one). When both accounts keep the same money what
+    left is what arrived and there is no gap; between shillings and dollars
+    the bank's own rate on the transfer seldom matches the filed one, and the
+    difference is realised exchange — booked to the same accounts (4310 /
+    7300) a foreign receipt or payment uses.
+
+    Both bank-book lines — money out on the paying account, money in on the
+    receiving one, each in that account's own currency — are linked to the
+    entry before it posts, so each account's statement has its side to tick
+    and the feed adds nothing on top.
+
+    Returns (entry, out_line, in_line).
+    """
+    from apps.banking.models import BankTransaction
+
+    company = source.company
+    if destination.company_id != company.pk:
+        raise ValidationError("Both accounts of a transfer must belong to this company.")
+    if source.pk == destination.pk or source.gl_account_id == destination.gl_account_id:
+        raise ValidationError(
+            "A transfer needs two different accounts — money moved to where it already "
+            "is moves nothing.")
+    amount_sent = Decimal(str(amount_sent))
+    book = book_currency(company)
+    same_money = ((source.currency or book).upper() == (destination.currency or book).upper())
+    if amount_received in (None, ""):
+        if not same_money:
+            raise ValidationError(
+                f"Enter what arrived in {destination.currency} as well as what left in "
+                f"{source.currency} — between two currencies the bank's own rate decides it.")
+        amount_received = amount_sent
+    amount_received = Decimal(str(amount_received))
+    if amount_sent <= 0 or amount_received <= 0:
+        raise ValidationError("A transfer moves an amount above zero on both sides.")
+    if same_money and amount_received != amount_sent:
+        raise ValidationError(
+            "Both accounts keep the same currency, so what arrives is what left. Record any "
+            "bank charge on the transfer as a withdrawal of its own.")
+
+    sent_base = to_base(amount_sent, bank_rate(source, on_date))
+    received_base = to_base(amount_received, bank_rate(destination, on_date))
+    label = description or f"Transfer {source.name} → {destination.name}"
+    foreign_side = destination if _is_foreign(destination) else (
+        source if _is_foreign(source) else None)
+    je = _new_je(
+        company, "JE-TRF-", "MANUAL", on_date,
+        f"{label}: {source.currency} {amount_sent} out of {source.name}, "
+        f"{destination.currency} {amount_received} into {destination.name}"
+        + (f" ({reference})" if reference else ""),
+        source_currency=foreign_side.currency if foreign_side else "",
+        exchange_rate=bank_rate(foreign_side, on_date) if foreign_side else None,
+    )
+    _dr(je, destination.gl_account, received_base, f"Transfer in from {source.name}")
+    _cr(je, source.gl_account, sent_base, f"Transfer out to {destination.name}")
+    _book_exchange_difference(
+        je, company, received_base - sent_base, f"Realised exchange on transfer: {label}")
+
+    common = dict(transaction_date=on_date, reference=reference[:200], origin="TRANSFER",
+                  journal_entry=je)
+    out_line = BankTransaction.objects.create(
+        bank_account=source, transaction_type="DEBIT", amount=amount_sent,
+        description=f"{label} (to {destination.name})"[:500], **common)
+    in_line = BankTransaction.objects.create(
+        bank_account=destination, transaction_type="CREDIT", amount=amount_received,
+        description=f"{label} (from {source.name})"[:500], **common)
+    # Not stamped with a source document type, for the same reason as a
+    # manual line (see post_bank_transaction): the lines point at the entry.
+    je.post(user=user)
+    return je, out_line, in_line
+
+
+@transaction.atomic
+def unbook_bank_transfer(entry, user=None) -> Optional[JournalEntry]:
+    """Take a transfer off both bank books and the ledger together.
+
+    Refused while either side is ticked on a statement: the bank has seen that
+    money move, and the statement it sits on would no longer add up.
+    """
+    from apps.banking.models import BankTransaction
+
+    lines = list(BankTransaction.objects.filter(journal_entry=entry, origin="TRANSFER")
+                 .select_related("reconciliation", "bank_account"))
+    cleared = [line for line in lines if line.is_reconciled or line.reconciliation_id]
+    if cleared:
+        statement = cleared[0].reconciliation.reference if cleared[0].reconciliation else ""
+        raise ValidationError(
+            f"One side of this transfer is cleared on statement {statement or 'a statement'} "
+            f"for {cleared[0].bank_account.name}; release it there before removing the "
+            "transfer.")
+    BankTransaction.objects.filter(pk__in=[line.pk for line in lines]).delete()
+    if entry.reversed_by_id:
+        for line in lines:
+            _drop_unseen_lines(entry.reversed_by, line.bank_account_id)
+        return None
+    if entry.status != "POSTED":
+        return None
+    return entry.reverse(user=user)
+
+
 # ─────────────────────────── Bill GL ────────────────────────────────────────
 
 def _bill_targets(bill, inventory_acct, vat_input_acct):

@@ -40,6 +40,20 @@ two cashiers at two branches of one company:
                                      their own money; no negative or zero
                                      amounts; a cleared transaction is not
                                      edited under its statement
+   12. no token, no ticket        -> a terminal or refund post without the
+                                     form's one-time token is refused
+   13. manual lines post          -> a deposit or withdrawal typed on the bank
+                                     screen books Dr/Cr against its counter
+                                     account; petty cash too; an edit re-books,
+                                     a delete reverses; no future dates
+   14. the ledger feeds the bank  -> till card takings, refunds, an expense
+       book                          claim and a journal each put one line on
+                                     the bank book; a reversal unwinds it, or
+                                     answers it once the bank has seen it
+   15. transfers                  -> one entry, a line on each account; KES to
+                                     USD books the gap as realised exchange
+   16. the statement chain        -> an earlier statement is not reversed
+                                     while a later one stands
 """
 import datetime
 import re
@@ -254,9 +268,24 @@ class Command(BaseCommand):
         client.post(reverse("pos:session_open"), data)
         return self.session_of(user)
 
+    def form_token(self, client, url, name):
+        """The one-time token a form renders, fetched the way a browser would.
+
+        The terminal and refund views refuse a post without one, so every
+        ticket and refund here opens its form first. A page the client cannot
+        open (a role stopped at the door) gives no token; a fresh one is sent
+        instead so the check still reaches the rule it is about.
+        """
+        import uuid
+        page = client.get(url)
+        ctx = getattr(page, "context", None)
+        token = ctx.get(name) if ctx else None
+        return token or uuid.uuid4().hex
+
     def ring(self, client, items, **extra):
         from apps.pos.models import POSSale
         data = {f"qty_{product.pk}": qty for product, qty in items.items()}
+        data["ticket_token"] = self.form_token(client, reverse("pos:terminal"), "ticket_token")
         data.update(extra)
         response = client.post(reverse("pos:terminal"), data)
         match = re.search(r"/sales/([0-9a-fA-F-]{36})/?$", response.get("Location") or "")
@@ -270,6 +299,8 @@ class Command(BaseCommand):
             if line.product_id in {p.pk for p in items}:
                 data[f"refund_qty_{line.pk}"] = items[next(p for p in items
                                                            if p.pk == line.product_id)]
+        data["refund_token"] = self.form_token(
+            client, reverse("pos:sale_detail", args=[sale.pk]), "refund_token")
         data.update(extra)
         response = client.post(reverse("pos:sale_refund", args=[sale.pk]), data)
         match = re.search(r"/sales/([0-9a-fA-F-]{36})/?$", response.get("Location") or "")
@@ -289,6 +320,11 @@ class Command(BaseCommand):
         self.check_bad_input()
         self.check_closing()
         self.check_banking()
+        self.check_tokens_required()
+        self.check_manual_bank_lines()
+        self.check_ledger_feeds_bank_book()
+        self.check_transfers()
+        self.check_statement_chain()
 
         self.section("11. The book after it all")
         dr, cr = self.book_balances()
@@ -708,9 +744,12 @@ class Command(BaseCommand):
         tx_url = reverse("banking:transaction_create")
         day = timezone.localdate() - datetime.timedelta(days=3)
 
+        # Every manual line names its counter account now, because saving it
+        # books the ledger entry; these deposits are the owner's capital.
         def txn_form(amount, kind="CREDIT", description="Deposit", account=kes):
             return {"bank_account": account.pk, "transaction_date": day.isoformat(),
                     "value_date": "", "transaction_type": kind, "amount": amount,
+                    "counter_account": self.account("3100").pk,
                     "description": description, "reference": ""}
 
         for amount in ("-500", "0"):
@@ -760,3 +799,437 @@ class Command(BaseCommand):
         self.expect("an outstanding transaction can still be corrected",
                     response.status_code == 302 and open_one.amount == D("750"),
                     f"HTTP {response.status_code}, {open_one.amount}")
+        self.kes = kes
+        self.usd = usd
+
+    # ───────────────────── 12. the one-time token is required ─────────────────
+
+    def check_tokens_required(self):
+        from apps.pos.models import POSSale
+
+        self.section("12. No one-time token, no ticket and no refund")
+        till = self.open_till(self.c_nbo, self.nbo, float_="2000")
+        if not self.expect("a fresh till is open for the checks that follow", till is not None):
+            return
+        self.nbo_till = till
+        before = POSSale.objects.filter(session__company=self.company).count()
+        response = self.c_nbo.post(reverse("pos:terminal"), {
+            f"qty_{self.milk.pk}": "1", "payment_method": "CASH", "amount_tendered": "100"})
+        self.expect("a ticket posted without the form's token is not rung",
+                    response.status_code == 200
+                    and POSSale.objects.filter(session__company=self.company).count() == before,
+                    f"HTTP {response.status_code}")
+        self.expect("and the cashier is told why, on the screen with a fresh token",
+                    any("one-time token" in m for m in self.flash(response))
+                    and bool(response.context and response.context.get("ticket_token")),
+                    str(self.flash(response)))
+        response = self.c_nbo.post(reverse("pos:terminal"), {
+            f"qty_{self.milk.pk}": "1", "payment_method": "CASH", "ticket_token": "   "})
+        self.expect("a blank token is no token",
+                    POSSale.objects.filter(session__company=self.company).count() == before)
+
+        response, sale = self.ring(self.c_nbo, {self.sugar: "2"}, payment_method="CASH")
+        if not self.expect("with the form's token the same ticket rings", sale is not None,
+                           str(self.flash(response))):
+            return
+        line = sale.lines.first()
+        response = self.c_nbo.post(reverse("pos:sale_refund", args=[sale.pk]),
+                                   {f"refund_qty_{line.pk}": "1"})
+        self.expect("a refund posted without the form's token pays nothing out",
+                    POSSale.objects.filter(refund_of=sale).count() == 0)
+        self.expect_flash(self.c_nbo, response, "one-time token",
+                          "and the message says to refund from the ticket's page")
+        response, back = self.refund(self.c_nbo, sale, {self.sugar: "1"})
+        self.expect("from the ticket's own page the refund goes through", back is not None,
+                    str(self.flashes(self.c_nbo, response)))
+
+    # ───────────────────── 13. manual bank lines post to the ledger ───────────
+
+    def manual_line(self, account, kind, amount, description, counter=None, day=None):
+        from apps.banking.models import BankTransaction
+        data = {"bank_account": account.pk,
+                "transaction_date": (day or timezone.localdate()).isoformat(),
+                "value_date": "", "transaction_type": kind, "amount": amount,
+                "counter_account": counter.pk if counter else "",
+                "description": description, "reference": ""}
+        response = self.admin_client.post(reverse("banking:transaction_create"), data)
+        return response, BankTransaction.objects.filter(bank_account=account,
+                                                        description=description).first()
+
+    def check_manual_bank_lines(self):
+        from apps.banking.models import BankAccount, BankTransaction
+
+        self.section("13. A deposit or withdrawal typed on the bank screen posts to the ledger")
+        kes = self.kes
+        bank0, capital0, charges0 = self.balance("1200"), self.balance("3100"), self.balance("7100")
+        # The ledger account already held till takings from before this bank
+        # account existed, so the two are compared by how far each moves.
+        book0 = kes.statement_balance
+
+        def agree():
+            return (self.balance("1200") - bank0) == (kes.statement_balance - book0)
+        response, deposit = self.manual_line(kes, "CREDIT", "50000", "Owner's capital in",
+                                             self.account("3100"))
+        self.expect("a deposit of 50,000 is saved with a posted entry behind it",
+                    deposit is not None and deposit.journal_entry is not None
+                    and deposit.journal_entry.status == "POSTED" and deposit.origin == "MANUAL",
+                    str(self.form_errors(response)))
+        self.expect("Dr bank 50,000 / Cr share capital 50,000",
+                    self.balance("1200") == bank0 + D("50000")
+                    and self.balance("3100") == capital0 - D("50000"),
+                    f"1200 {self.balance('1200') - bank0}, 3100 {self.balance('3100') - capital0}")
+        self.expect("and it is on the bank book once, not twice",
+                    deposit is not None and BankTransaction.objects.filter(
+                        journal_entry=deposit.journal_entry).count() == 1)
+        response, charge = self.manual_line(kes, "DEBIT", "8000", "Ledger fees",
+                                            self.account("7100"))
+        response, loan_out = self.manual_line(kes, "DEBIT", "13000", "Loan repayment",
+                                              self.account("2810"))
+        self.expect("withdrawals of 8,000 and 13,000 take 21,000 off the bank",
+                    charge is not None and loan_out is not None
+                    and self.balance("1200") == bank0 + D("50000") - D("21000")
+                    and self.balance("7100") == charges0 + D("8000"),
+                    f"1200 moved {self.balance('1200') - bank0}")
+        self.expect("so the bank's ledger account moves exactly as its bank book does",
+                    agree(), f"ledger {self.balance('1200') - bank0}, "
+                             f"bank book {kes.statement_balance - book0}")
+
+        response, none = self.manual_line(kes, "DEBIT", "100", "No counter account")
+        self.expect("a line with no counter account is refused, and nothing saved",
+                    none is None and "counter_account" in self.form_errors(response),
+                    str(self.form_errors(response)))
+        response, wrong = self.manual_line(kes, "CREDIT", "100", "Customer money",
+                                           self.account("1300"))
+        self.expect("receivables are not offered as a counter account",
+                    wrong is None and "counter_account" in self.form_errors(response),
+                    str(self.form_errors(response).get("counter_account")))
+        tomorrow = timezone.localdate() + datetime.timedelta(days=1)
+        response, future = self.manual_line(kes, "CREDIT", "100", "Tomorrow's money",
+                                            self.account("4400"), day=tomorrow)
+        self.expect("a date after today is refused",
+                    future is None and "transaction_date" in self.form_errors(response),
+                    str(self.form_errors(response).get("transaction_date")))
+        response, today_line = self.manual_line(kes, "CREDIT", "120", "Interest today",
+                                                self.account("4400"))
+        self.expect("today itself is accepted", today_line is not None,
+                    str(self.form_errors(response)))
+
+        # Petty cash on a Cash ledger account behaves the same way.
+        response = self.admin_client.post(reverse("banking:account_create"), {
+            "name": "Petty cash", "bank_name": "Office", "account_number": "PC1",
+            "account_type": "PETTY_CASH", "currency": "KES", "branch": "",
+            "gl_account": self.account("1110").pk, "opening_balance": "0"})
+        petty = BankAccount.objects.filter(company=self.company, name="Petty cash").first()
+        if not self.expect("a petty-cash account sits on the Cash ledger account 1110",
+                           petty is not None, str(self.form_errors(response))):
+            return
+        self.petty = petty
+        cash0, office0 = self.balance("1110"), self.balance("6600")
+        response, float_in = self.manual_line(petty, "CREDIT", "1000", "Float from owner",
+                                              self.account("3100"))
+        response, spend = self.manual_line(petty, "DEBIT", "300", "Printer paper",
+                                           self.account("6600"))
+        self.expect("a petty-cash spend of 300 moves the Cash ledger account",
+                    spend is not None and self.balance("1110") == cash0 + D("700")
+                    and self.balance("6600") == office0 + D("300"),
+                    f"1110 {self.balance('1110') - cash0}, 6600 {self.balance('6600') - office0}")
+
+        # An edit that moves money re-books; one that only renames does not.
+        old_entry = charge.journal_entry
+        response = self.admin_client.post(reverse("banking:transaction_edit", args=[charge.pk]), {
+            "bank_account": kes.pk, "transaction_date": charge.transaction_date.isoformat(),
+            "value_date": "", "transaction_type": "DEBIT", "amount": "8500",
+            "counter_account": self.account("7100").pk, "description": "Ledger fees",
+            "reference": ""})
+        charge.refresh_from_db()
+        old_entry.refresh_from_db()
+        self.expect("an uncleared withdrawal corrected to 8,500 is re-booked",
+                    response.status_code == 302 and charge.amount == D("8500")
+                    and old_entry.reversed_by_id is not None
+                    and charge.journal_entry_id not in (None, old_entry.pk)
+                    and self.balance("7100") == charges0 + D("8500")
+                    and self.balance("1200") == bank0 + D("50000") - D("21500") + D("120"),
+                    f"HTTP {response.status_code}, 7100 {self.balance('7100') - charges0}")
+        self.expect("and the old entry's reversal leaves nothing on the bank book",
+                    not BankTransaction.objects.filter(
+                        journal_entry=old_entry.reversed_by).exists()
+                    and not BankTransaction.objects.filter(journal_entry=old_entry).exists())
+        entry = charge.journal_entry
+        self.admin_client.post(reverse("banking:transaction_edit", args=[charge.pk]), {
+            "bank_account": kes.pk, "transaction_date": charge.transaction_date.isoformat(),
+            "value_date": "", "transaction_type": "DEBIT", "amount": "8500",
+            "counter_account": self.account("7100").pk, "description": "Bank ledger fees",
+            "reference": "CHG-1"})
+        charge.refresh_from_db()
+        self.expect("a change of wording only keeps the same entry",
+                    charge.journal_entry_id == entry.pk and charge.reference == "CHG-1")
+
+        # Delete reverses.
+        entry = loan_out.journal_entry
+        response = self.admin_client.post(reverse("banking:transaction_delete", args=[loan_out.pk]))
+        entry.refresh_from_db()
+        self.expect("deleting an uncleared withdrawal reverses its entry",
+                    not BankTransaction.objects.filter(pk=loan_out.pk).exists()
+                    and entry.reversed_by_id is not None
+                    and self.balance("1200") == bank0 + D("50000") - D("8500") + D("120"),
+                    f"1200 moved {self.balance('1200') - bank0}")
+        self.expect_flash(self.admin_client, response, "reversed by",
+                          "and says which entry reversed it")
+        self.expect("after the edit and the delete the bank book and the ledger still agree",
+                    agree(), f"ledger {self.balance('1200') - bank0}, "
+                             f"bank book {kes.statement_balance - book0}")
+
+    # ───────────────────── 14. the ledger feeds the bank book ─────────────────
+
+    def check_ledger_feeds_bank_book(self):
+        from apps.accounting.models import JournalEntry, JournalEntryLine
+        from apps.banking import bankbook, services
+        from apps.banking.models import BankTransaction, Reconciliation
+        from apps.expenses.models import ExpenseCategory, ExpenseClaim, ExpenseClaimLine
+        from apps.hr.models import Employee
+        from apps.accounting import gl_service
+
+        self.section("14. Every posted entry on a bank account reaches its bank book")
+        kes = self.kes
+        today = timezone.localdate()
+        bank0, book0 = self.balance("1200"), kes.statement_balance
+
+        response, card = self.ring(self.c_nbo, {self.sugar: "1"}, payment_method="CARD")
+        line = BankTransaction.objects.filter(journal_entry=card.journal_entry).first() \
+            if card else None
+        self.expect("a card ticket puts its takings on the bank book of the bank behind 1200",
+                    line is not None and line.bank_account_id == kes.pk
+                    and line.origin == "LEDGER" and line.transaction_type == "CREDIT"
+                    and line.amount == card.total_amount,
+                    f"{line.transaction_type} {line.amount}" if line else "no line")
+        response, mpesa = self.ring(self.c_nbo, {self.milk: "1"}, payment_method="MPESA")
+        self.expect("so does an M-Pesa ticket",
+                    mpesa is not None and BankTransaction.objects.filter(
+                        journal_entry=mpesa.journal_entry, bank_account=kes).exists(),
+                    str(self.flash(response)))
+        response, cash = self.ring(self.c_nbo, {self.milk: "1"}, payment_method="CASH")
+        self.expect("a cash ticket does not — 1100 has no bank account behind it",
+                    cash is not None and not BankTransaction.objects.filter(
+                        journal_entry=cash.journal_entry).exists())
+        self.expect("the takings are offered on a statement for ticking",
+                    line is not None and line in list(services.outstanding(kes, today)))
+        response, back = self.refund(self.c_nbo, card, {self.sugar: "1"})
+        out = BankTransaction.objects.filter(journal_entry=back.journal_entry).first() \
+            if back else None
+        self.expect("a card refund is an outflow on the bank book",
+                    out is not None and out.transaction_type == "DEBIT"
+                    and out.amount == back.total_amount, str(out))
+        before = BankTransaction.objects.count()
+        bankbook.feed(card.journal_entry)
+        self.expect("feeding the same entry again adds nothing",
+                    BankTransaction.objects.count() == before)
+
+        employee = Employee.objects.create(company=self.company, employee_number=f"E{self.stamp}",
+                                           first_name="Peter", last_name="Petty",
+                                           date_hired=today)
+        category = ExpenseCategory.objects.create(company=self.company, name="Office tea",
+                                                  gl_account=self.account("6600"))
+        claim = ExpenseClaim.objects.create(company=self.company, reference=f"EXP-{self.stamp}",
+                                            employee=employee, claim_date=today,
+                                            status="APPROVED", total_amount=D("750"))
+        ExpenseClaimLine.objects.create(claim=claim, category=category, description="tea",
+                                        expense_date=today, amount=D("750"))
+        entry = gl_service.post_expense_claim(claim, bank_account=self.petty, user=self.admin)
+        paid = BankTransaction.objects.filter(journal_entry=entry).first()
+        self.expect("an expense claim paid from petty cash is on petty cash's book",
+                    paid is not None and paid.bank_account_id == self.petty.pk
+                    and paid.transaction_type == "DEBIT" and paid.amount == D("750"), str(paid))
+        self.expect("and petty cash's book still agrees with its ledger account",
+                    self.petty.current_balance == self.petty.statement_balance,
+                    f"{self.petty.current_balance} / {self.petty.statement_balance}")
+
+        def journal(amount, memo):
+            je = JournalEntry.objects.create(company=self.company, reference=f"JNL-{memo}",
+                                             entry_type="MANUAL", posting_date=today,
+                                             notes=memo)
+            JournalEntryLine.objects.create(journal_entry=je, account=self.account("1200"),
+                                            debit_amount=D(amount), credit_amount=Z)
+            JournalEntryLine.objects.create(journal_entry=je, account=self.account("4400"),
+                                            debit_amount=Z, credit_amount=D(amount))
+            je.post(user=self.admin)
+            return je
+
+        je = journal("444", "interest-1")
+        fed = BankTransaction.objects.filter(journal_entry=je)
+        self.expect("a hand-typed journal on 1200 is on the bank book", fed.count() == 1)
+        reversal = je.reverse(user=self.admin)
+        self.expect("reversed before the bank saw it, it leaves the bank book entirely",
+                    not BankTransaction.objects.filter(journal_entry__in=[je, reversal]).exists())
+
+        je = journal("555", "interest-2")
+        seen = BankTransaction.objects.get(journal_entry=je)
+        recon = services.create_draft(self.company, kes, f"STM-SEEN-{self.stamp}", today,
+                                      D("0"), user=self.admin)
+        services.clear(seen, recon)
+        reversal = je.reverse(user=self.admin)
+        answer = BankTransaction.objects.filter(journal_entry=reversal).first()
+        self.expect("reversed after the bank saw it, the original stays ticked",
+                    BankTransaction.objects.filter(pk=seen.pk, is_reconciled=True).exists())
+        self.expect("and the reversal gets an outflow of its own to tick",
+                    answer is not None and answer.transaction_type == "DEBIT"
+                    and answer.amount == D("555") and not answer.is_reconciled, str(answer))
+        services.unclear(BankTransaction.objects.get(pk=seen.pk))
+        recon.delete()
+        self.expect("no statement was left behind by the check",
+                    not Reconciliation.objects.filter(reference=f"STM-SEEN-{self.stamp}").exists())
+        response = self.admin_client.post(reverse("banking:transaction_delete",
+                                                  args=[line.pk]))
+        self.expect_flash(self.admin_client, response, "correct or reverse",
+                          "a fed line is corrected at its source, not deleted here")
+        self.expect("and it is still there", BankTransaction.objects.filter(pk=line.pk).exists())
+        response = self.admin_client.get(reverse("banking:transaction_edit", args=[line.pk]))
+        self.expect("nor edited there", response.status_code == 302, f"HTTP {response.status_code}")
+        self.expect("1200 and its bank book moved by the same amount through all of it",
+                    self.balance("1200") - bank0 == kes.statement_balance - book0,
+                    f"ledger {self.balance('1200') - bank0}, "
+                    f"bank book {kes.statement_balance - book0}")
+
+    # ───────────────────── 15. transfers between own accounts ─────────────────
+
+    def check_transfers(self):
+        from apps.accounting.models import Currency, ExchangeRate, JournalEntry
+        from apps.banking.models import BankTransaction
+
+        self.section("15. Transfers: one entry, a line on each account")
+        kes, usd, petty = self.kes, self.usd, self.petty
+        url = reverse("banking:transfer_create")
+        today = timezone.localdate()
+        page = self.admin_client.get(url)
+        self.expect("the transfer screen opens", page.status_code == 200,
+                    f"HTTP {page.status_code}")
+
+        def transfer(source, destination, sent, received="", description="Transfer"):
+            return self.admin_client.post(url, {
+                "from_account": source.pk, "to_account": destination.pk,
+                "transfer_date": today.isoformat(), "amount_sent": sent,
+                "amount_received": received, "reference": "", "description": description})
+
+        bank0, cash0 = self.balance("1200"), self.balance("1110")
+        response = transfer(kes, petty, "2000", description="Top up petty cash")
+        out = BankTransaction.objects.filter(bank_account=kes,
+                                             description__startswith="Top up petty cash").first()
+        into = BankTransaction.objects.filter(bank_account=petty,
+                                              description__startswith="Top up petty cash").first()
+        self.expect("a KES transfer posts one entry with a line on each account",
+                    response.status_code == 302 and out is not None and into is not None
+                    and out.journal_entry_id == into.journal_entry_id
+                    and out.transaction_type == "DEBIT" and into.transaction_type == "CREDIT"
+                    and BankTransaction.objects.filter(journal_entry=out.journal_entry).count() == 2,
+                    str(self.form_errors(response)))
+        self.expect("and moves 2,000 from 1200 to 1110",
+                    self.balance("1200") == bank0 - D("2000")
+                    and self.balance("1110") == cash0 + D("2000"))
+        response = transfer(kes, petty, "2000", "1900")
+        self.expect("between two shilling accounts a different amount received is refused",
+                    response.status_code == 200 and "amount_received" in self.form_errors(response))
+        response = transfer(kes, kes, "10")
+        self.expect("a transfer to the same account is refused",
+                    response.status_code == 200 and "to_account" in self.form_errors(response))
+
+        Currency.objects.get_or_create(code="USD", defaults={"name": "US Dollar"})
+        usd_cur = Currency.objects.get(code="USD")
+        ExchangeRate.objects.update_or_create(company=self.company, currency=usd_cur,
+                                              effective_date=today, defaults={"rate": D("130")})
+        response = transfer(kes, usd, "13000", description="Dollars for imports")
+        self.expect("KES to USD without the dollars received is refused",
+                    response.status_code == 200 and "amount_received" in self.form_errors(response))
+        bank0, usd0, loss0 = self.balance("1200"), self.balance("1210"), self.balance("7300")
+        usd_book0 = usd.statement_balance
+        response = transfer(kes, usd, "13000", "98", description="Dollars for imports")
+        out = BankTransaction.objects.filter(bank_account=kes,
+                                             description__startswith="Dollars for imports").first()
+        into = BankTransaction.objects.filter(bank_account=usd,
+                                              description__startswith="Dollars for imports").first()
+        self.expect("KES 13,000 out and USD 98 in are two lines of one entry",
+                    response.status_code == 302 and out is not None and into is not None
+                    and out.amount == D("13000") and into.amount == D("98")
+                    and out.journal_entry_id == into.journal_entry_id,
+                    str(self.form_errors(response)))
+        self.expect("USD 98 at the filed 130 is KES 12,740; the 260 gap is realised exchange loss",
+                    self.balance("1200") == bank0 - D("13000")
+                    and self.balance("1210") == usd0 + D("12740")
+                    and self.balance("7300") == loss0 + D("260"),
+                    f"1200 {self.balance('1200') - bank0}, 1210 {self.balance('1210') - usd0}, "
+                    f"7300 {self.balance('7300') - loss0}")
+        self.expect("and the USD account's own book moves by USD 98",
+                    usd.statement_balance == usd_book0 + D("98"))
+        entry = out.journal_entry
+        self.expect("the transfer's entry balances",
+                    entry.status == "POSTED" and entry.is_balanced())
+
+        response = self.admin_client.post(reverse("banking:transaction_delete", args=[into.pk]))
+        entry.refresh_from_db()
+        self.expect("deleting a transfer takes both sides off and reverses the entry",
+                    not BankTransaction.objects.filter(pk__in=[out.pk, into.pk]).exists()
+                    and entry.reversed_by_id is not None
+                    and self.balance("1200") == bank0 and self.balance("1210") == usd0
+                    and self.balance("7300") == loss0,
+                    str(self.flashes(self.admin_client, response)))
+        self.expect("and its reversal leaves nothing on either bank book",
+                    not BankTransaction.objects.filter(journal_entry=entry.reversed_by).exists())
+        # A transfer reversed behind the bank screen's back (the journal
+        # screen) still leaves each bank book agreeing with its ledger
+        # account, and deleting it afterwards tidies every line away.
+        journal = JournalEntry.objects.filter(company=self.company,
+                                              reference__startswith="JE-TRF-",
+                                              reversed_by__isnull=True).first()
+        if not self.expect("the shilling transfer is still standing", journal is not None):
+            return
+        bank0, book0 = self.balance("1200"), kes.statement_balance
+        cash0, petty0 = self.balance("1110"), petty.statement_balance
+        reversal = journal.reverse(user=self.admin)
+        self.expect("reversed from the journal, each bank book gets the answering line",
+                    BankTransaction.objects.filter(journal_entry=reversal).count() == 2
+                    and self.balance("1200") - bank0 == kes.statement_balance - book0
+                    and self.balance("1110") - cash0 == petty.statement_balance - petty0,
+                    f"1200 {self.balance('1200') - bank0} / book {kes.statement_balance - book0}")
+        side = BankTransaction.objects.filter(journal_entry=journal).first()
+        self.admin_client.post(reverse("banking:transaction_delete", args=[side.pk]))
+        self.expect("and deleting that transfer afterwards leaves no line behind",
+                    not BankTransaction.objects.filter(
+                        journal_entry__in=[journal, reversal]).exists())
+
+    # ───────────────────── 16. statements are unwound newest first ─────────────
+
+    def check_statement_chain(self):
+        from apps.banking.models import Reconciliation
+
+        self.section("16. An earlier statement is not reversed while a later one stands")
+        petty = self.petty
+        today = timezone.localdate()
+
+        def statement(reference, day):
+            self.admin_client.post(reverse("banking:reconciliation_create"), {
+                "bank_account": petty.pk, "reference": reference,
+                "statement_date": day.isoformat(),
+                "closing_balance": str(petty.opening_balance), "notes": "Chain check only"})
+            recon = Reconciliation.objects.filter(bank_account=petty, reference=reference).first()
+            if recon:
+                self.admin_client.post(reverse("banking:reconciliation_post", args=[recon.pk]))
+                recon.refresh_from_db()
+            return recon
+
+        first = statement(f"PC-1-{self.stamp}", today - datetime.timedelta(days=2))
+        second = statement(f"PC-2-{self.stamp}", today - datetime.timedelta(days=1))
+        if not self.expect("two statements are posted",
+                           first and second and first.status == second.status == "POSTED",
+                           f"{getattr(first, 'status', None)} / {getattr(second, 'status', None)}"):
+            return
+        response = self.admin_client.post(reverse("banking:reconciliation_reverse",
+                                                  args=[first.pk]))
+        first.refresh_from_db()
+        self.expect_flash(self.admin_client, response, f"Reverse {second.reference} first",
+                          "reversing the earlier one is refused, naming the later one")
+        self.expect("and the earlier statement is still posted", first.status == "POSTED")
+        self.admin_client.post(reverse("banking:reconciliation_reverse", args=[second.pk]))
+        self.admin_client.post(reverse("banking:reconciliation_reverse", args=[first.pk]))
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.expect("newest first, both reverse",
+                    first.status == "REVERSED" and second.status == "REVERSED",
+                    f"{first.status} / {second.status}")
