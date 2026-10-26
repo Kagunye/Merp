@@ -30,6 +30,9 @@ HR = frozenset({"HR_MANAGER"})
 PAYROLL = frozenset({"PAYROLL_OFFICER"})
 AUDIT = frozenset({"AUDITOR"})
 TILL = SALES | {"POS_CASHIER"}
+# Who may commit the company to a supplier: the buyers, and the finance
+# manager who signs the budget off.
+BUYERS = frozenset({"PROCUREMENT", "FINANCE_MANAGER"})
 # Everybody who works in the book rather than only reads it: a VIEWER is a
 # read-only seat and an AUDITOR examines the records, so neither may add to
 # or alter them -- an auditor who could edit what they audit is no check.
@@ -69,8 +72,9 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # A purchase order is a promise to pay a supplier: the buyers raise and
     # cancel it. The stores receive against it (grn*), and must not also be
     # able to order what they will then say arrived.
-    ("procurement", "po_create", frozenset({"PROCUREMENT"}), frozenset({"PROCUREMENT"})),
-    ("procurement", "po_cancel", NOBODY, frozenset({"PROCUREMENT"})),
+    ("procurement", "po_create", BUYERS, BUYERS),
+    ("procurement", "po_cancel", NOBODY, BUYERS),
+    ("procurement", "requisition_to_po", NOBODY, BUYERS),
     ("procurement", "po_close_short", NOBODY, frozenset({"PROCUREMENT", "FINANCE_MANAGER"})),
     ("procurement", "bill_pay", NOBODY, FINANCE),
     ("procurement", "bill_post", NOBODY, FINANCE),
@@ -92,7 +96,7 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("payroll", "run_cancel", NOBODY, FM),
     # Everybody may see their own payslips; the view only ever lists the
     # signed-in person's own.
-    ("payroll", "my_payslips", EVERYONE, NOBODY),
+    ("payroll", "my_payslip*", EVERYONE, NOBODY),
     ("payroll", "band_*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("payroll", "rule*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("payroll", "component_*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),

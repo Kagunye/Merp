@@ -379,7 +379,18 @@ class Command(BaseCommand):
 
         manager = User.objects.filter(is_superuser=True, is_active=True).first()
         if not manager:
-            raise FlowError("No superuser available for approval step.")
+            # The demo seed makes no superuser, so the flow brings its own
+            # approver, the same way it brings its own staff member above.
+            manager, _ = User.objects.get_or_create(
+                email="flowc.manager@test.local",
+                defaults={"username": "flowc.manager", "first_name": "Flow",
+                          "last_name": "Manager", "is_active": True},
+            )
+            if not manager.has_usable_password():
+                manager.set_password("Dummy@2026")
+            manager.is_staff = True
+            manager.is_superuser = True
+            manager.save()
         self.stdout.write(ok(f"Staff: {staff.email}, Manager: {manager.email}"))
 
         # 2. Staff raises a requisition

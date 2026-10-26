@@ -962,8 +962,8 @@ class Command(BaseCommand):
                     and who("procurement:grn") == {"ADMIN", "WAREHOUSE_MANAGER"},
                     str(sorted(who("procurement:grn_record"))))
         self.expect("purchase orders are raised and cancelled by procurement, not the stores",
-                    who("procurement:po_create") == {"ADMIN", "PROCUREMENT"}
-                    and who("procurement:po_cancel") == {"ADMIN", "PROCUREMENT"}
+                    who("procurement:po_create") == {"ADMIN", "PROCUREMENT", "FINANCE_MANAGER"}
+                    and who("procurement:po_cancel") == {"ADMIN", "PROCUREMENT", "FINANCE_MANAGER"}
                     and not can("WAREHOUSE_MANAGER", "procurement:po_create"))
         self.expect("a requisition is submitted by whoever may raise one",
                     who("procurement:requisition_submit") == who("procurement:requisition_create"),
@@ -1153,20 +1153,20 @@ class Command(BaseCommand):
                     counter("PO-") == 0 and shown == ["PO-00001"] * 3, f"{shown}, {counter('PO-')}")
         client.post(reverse("procurement:po_create"), {
             "reference": shown[0], "supplier": supplier.pk, "order_date": str(self.today),
-            "expected_delivery_date": "", "warehouse": "", "notes": ""})
+            "expected_delivery_date": "", "warehouse": "", "notes": "", "currency": "KES"})
         self.expect("saving it takes the number that was shown",
                     PurchaseOrder.objects.filter(company=company, reference="PO-00001").exists()
                     and counter("PO-") == 1, str(counter("PO-")))
         stale = shown[0]
         client.post(reverse("procurement:po_create"), {
             "reference": stale, "supplier": supplier.pk, "order_date": str(self.today),
-            "expected_delivery_date": "", "warehouse": "", "notes": ""})
+            "expected_delivery_date": "", "warehouse": "", "notes": "", "currency": "KES"})
         self.expect("a form left open while somebody else used its number gets the next one",
                     PurchaseOrder.objects.filter(company=company, reference="PO-00002").exists()
                     and PurchaseOrder.objects.filter(company=company, reference=stale).count() == 1)
         client.post(reverse("procurement:po_create"), {
             "reference": "SUP-REF-77", "supplier": supplier.pk, "order_date": str(self.today),
-            "expected_delivery_date": "", "warehouse": "", "notes": ""})
+            "expected_delivery_date": "", "warehouse": "", "notes": "", "currency": "KES"})
         self.expect("a reference typed by hand is kept and leaves the series alone",
                     PurchaseOrder.objects.filter(company=company, reference="SUP-REF-77").exists()
                     and counter("PO-") == 2)

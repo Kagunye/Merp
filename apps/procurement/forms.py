@@ -79,6 +79,12 @@ class PurchaseOrderForm(forms.ModelForm):
 
     def clean_reference(self):
         reference = (self.cleaned_data.get("reference") or "").strip()
+        # A number from the company's own PO- series is only the preview the form
+        # showed: if somebody saved with it meanwhile, the save takes the next one
+        # (SequenceCounter.claim_number). Only a reference typed by hand can clash.
+        series = reference[3:] if reference.upper().startswith("PO-") else ""
+        if is_new(self) and series.isdigit():
+            return reference
         if reference and self.company is not None:
             twin = PurchaseOrder.objects.filter(
                 company=self.company, reference__iexact=reference).exclude(
