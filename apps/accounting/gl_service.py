@@ -538,8 +538,15 @@ def _debit_note_targets(note, inventory_acct, vat_input_acct):
     """
     original = note.original_bill
     entry = getattr(original, "journal_entry", None) if original else None
-    charge = (original.expense_account
-              if original and original.expense_account_id else inventory_acct)
+    # The same account the bill itself would have been charged to: its own
+    # account, the general expense account for an unordered bill nobody
+    # coded, and stock only for a bill that answers an order.
+    if original and original.expense_account_id:
+        charge = original.expense_account
+    elif original and not original.purchase_order_id:
+        charge = unordered_charge_account(note.company)
+    else:
+        charge = inventory_acct
     if entry is None or entry.status != "POSTED":
         return _bill_targets(note, charge, vat_input_acct), note.rate
 
@@ -623,6 +630,11 @@ def post_debit_note(note, user=None) -> JournalEntry:
     if not (ap_account and inventory_acct):
         raise ValueError("GL posting failed: payables or inventory account missing.")
 
+    if not note.exchange_rate and note.original_bill_id:
+        # A note is a part of the bill it answers and is valued at that bill's
+        # rate, never at the rate of the day the note happens to be raised:
+        # the tax and the payable it reverses entered the book at the bill's.
+        note.exchange_rate = note.original_bill.rate
     rate = note.rate
     total_base = note.total_amount_base or to_base(note.total_amount, rate)
 
@@ -660,7 +672,8 @@ def post_debit_note(note, user=None) -> JournalEntry:
     je.post(user=user)
 
     from apps.procurement.models import Bill as _Bill
-    _Bill.objects.filter(pk=note.pk).update(journal_entry=je, status="DEBIT_NOTE")
+    _Bill.objects.filter(pk=note.pk).update(
+        journal_entry=je, status="DEBIT_NOTE", exchange_rate=note.exchange_rate)
     note.journal_entry = je
     note.status = "DEBIT_NOTE"
     return je
@@ -1412,6 +1425,56 @@ def _bill_targets(bill, inventory_acct, vat_input_acct):
     return targets
 
 
+GENERAL_EXPENSE = ("6000", "Operating Expenses", "EXPENSE", None)
+
+
+def unordered_charge_account(company) -> Account:
+    """Where a bill with no order and no account chosen is charged: 6000.
+
+    A typed bill is for something nobody ordered through purchasing — a
+    service, a repair, the electricity — and those are expenses. It is never
+    stock: goods reach the shelf only through a receipt, and a bill charged to
+    inventory on its own say-so lifts the inventory account above the stock
+    that is actually there. 6000 is the general expense account every chart
+    starts with; a book that has lost it gets it back rather than having the
+    bill refused.
+    """
+    return (_get_account_safe(company, GENERAL_EXPENSE[0])
+            or ensure_account(company, *GENERAL_EXPENSE))
+
+
+def direct_charge_account(company, product) -> Account:
+    """The account a bought service, or any untracked item, is charged to.
+
+    The product's own cost account when it names one — that is the account the
+    product is expensed through, and for a service bought in it is where the
+    cost belongs — otherwise the general expense account. Never stock and
+    never the accrual: nothing untracked is ever received onto a shelf.
+    """
+    account = getattr(product, "cogs_account", None) if product else None
+    if account is not None and account.is_active and account.account_type in (
+            "EXPENSE", "COST_OF_GOODS"):
+        return account
+    return unordered_charge_account(company)
+
+
+def _direct_charges(bill, rate):
+    """The untracked lines of an order bill, as (account, book value, description).
+
+    "Bill this order" writes them onto the bill in the bill's own money, one
+    per account; they are converted here at the bill's booked rate.
+    """
+    rows = []
+    for row in (bill.direct_charges or []):
+        account = Account.objects.filter(company=bill.company, pk=row.get("account")).first()
+        amount = Decimal(str(row.get("amount") or "0"))
+        if account is None or not amount:
+            continue
+        rows.append((account, to_base(amount, rate),
+                     row.get("description") or f"Services billed: {bill.reference}"))
+    return rows
+
+
 @transaction.atomic
 def post_bill(bill, user=None) -> JournalEntry:
     """
@@ -1421,7 +1484,8 @@ def post_bill(bill, user=None) -> JournalEntry:
     --------------------------------------------------------
     DR  Stock Received Not Invoiced (2110) what the receipt accrued for the
                                            quantities this bill answers
-    DR/CR Purchase Price Variance (5400)   the bill's goods value less that
+    DR  the service's expense account      untracked lines (bill.direct_charges)
+    DR/CR Purchase Price Variance (5400)   the bill's goods value less those
     DR  VAT Input (code 2210, if exists)   bill.tax_amount
     CR  Accounts Payable (2100)            bill.total_amount
 
@@ -1437,13 +1501,15 @@ def post_bill(bill, user=None) -> JournalEntry:
 
     Entries created, for a bill with no order
     -----------------------------------------
-    DR  the account the bill was coded to  bill.subtotal (bill.expense_account)
+    DR  the account the bill was coded to  bill.subtotal (bill.expense_account,
+                                           or 6000 when none was chosen)
     DR  VAT Input (code 2210, if exists)   bill.tax_amount
     CR  Accounts Payable (2100)            bill.total_amount
 
     A bill with no order behind it brings nothing onto the shelf — goods only
     arrive through a receipt — so it is charged to the expense or asset account
-    the bookkeeper chose. Coded to Stock Received Not Invoiced, it answers goods
+    the bookkeeper chose, and to general expenses when they chose none, never
+    to inventory. Coded to Stock Received Not Invoiced, it answers goods
     that were received without an order, and records the accrual it released.
 
     Returns the JournalEntry.
@@ -1482,12 +1548,15 @@ def post_bill(bill, user=None) -> JournalEntry:
         source_currency=bill.currency, exchange_rate=rate,
     )
 
-    # A bill with no order is charged where the bookkeeper coded it. Older
-    # bills, entered before bills carried an account, keep the stock account
-    # they were always posted to.
-    charge_acct = (bill.expense_account
-                   if not bill.purchase_order_id and bill.expense_account_id
-                   else inventory_acct)
+    # A bill with no order is charged where the bookkeeper coded it, and one
+    # nobody coded is a general expense (6000) — never stock. Goods reach the
+    # shelf only through a receipt, so a bill charged to inventory on its own
+    # would lift the inventory account above the stock it describes, and the
+    # difference could never be counted, sold or written off.
+    charge_acct = (bill.expense_account if bill.expense_account_id
+                   else unordered_charge_account(company))
+    if bill.purchase_order_id:
+        charge_acct = inventory_acct
     targets = _bill_targets(bill, charge_acct, vat_input_acct)
 
     _cr(je, ap_account, total_base, f"AP: {bill.reference}")
@@ -1504,11 +1573,38 @@ def post_bill(bill, user=None) -> JournalEntry:
                 _dr(je, account, base, desc)
             else:
                 goods += base
+        # Services and other untracked lines on the order never went on a
+        # shelf, so no receipt accrued them and there is nothing on 2110 for
+        # this bill to release. They are an expense the day they are billed,
+        # charged where the product says it is expensed — leaving them in the
+        # goods figure would book their whole cost as a price variance against
+        # an accrual of nothing.
+        direct = _direct_charges(bill, rate)
+        if direct and not bill.accrual_to_clear:
+            # Nothing on this bill came off a shelf, so whatever the supplier
+            # finally asked — above or below the order — is still the cost of
+            # the service, not a variance on stock that was never received.
+            # The difference goes on the largest charge.
+            gap = goods - sum((base for _a, base, _d in direct), Decimal("0"))
+            if gap:
+                heaviest = max(range(len(direct)), key=lambda i: direct[i][1])
+                account, base, desc = direct[heaviest]
+                direct[heaviest] = (account, base + gap, desc)
+        for account, base, desc in direct:
+            if base < 0:
+                _cr(je, account, -base, desc)
+            else:
+                _dr(je, account, base, desc)
+            goods -= base
         remaining = max(accrual_remaining(bill.purchase_order), Decimal("0"))
         # What the receipt accrued for the quantities this bill was raised
         # for. A bill from before that figure was kept falls back on whatever
         # the order still has standing, as it always did.
         due = bill.accrual_to_clear if bill.accrual_to_clear else min(goods, remaining)
+        if direct and not bill.accrual_to_clear:
+            # Every line this bill was raised for was a service: nothing was
+            # accrued for it, and nothing is taken off the order's accrual.
+            due = Decimal("0")
         cleared = min(due, remaining)
         if cleared > 0:
             _dr(je, ensure_account(company, *NOT_BILLED), cleared,
@@ -1572,7 +1668,11 @@ def goods_accrued(purchase_order) -> Decimal:
     """
     from apps.inventory.models import StockMovement
 
-    return sum((movement.total_cost for movement in StockMovement.objects.filter(
+    # Valued exactly as the receipt's journal entry valued it (quantity times
+    # unit cost, rounded half-up to the cent once), not from the stored
+    # total, which the database rounds its own way: the accrual worked out
+    # here has to be the accrual 2110 actually holds, to the cent.
+    return sum((_movement_value(movement) for movement in StockMovement.objects.filter(
         purchase_order=purchase_order, movement_type="RECEIPT")), Decimal("0"))
 
 
@@ -1690,8 +1790,18 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
         return None
 
     kind = movement.movement_type
-    if kind == "RECEIPT":
+    if kind == "RECEIPT" and movement.purchase_order_id:
         credit, reason = ensure_account(company, *NOT_BILLED), "Goods received"
+    elif kind == "RECEIPT":
+        # A receipt with no order behind it has nothing on 2110 to answer: the
+        # accrual is proved order by order (what each order received less what
+        # its bills cleared), and a credit no order owns would sit there for
+        # ever, or be cleared only by a bill somebody coded to the accrual by
+        # hand. No screen records such a receipt any more — goods from a
+        # supplier come in on their purchase order — so the only ones left are
+        # stock loaded by a script or an import, which is stock the owners
+        # brought into the business. It is booked the way opening stock is.
+        credit, reason = ensure_account(company, *OPENING_EQUITY), "Stock introduced"
     elif kind == "OPENING":
         credit, reason = ensure_account(company, *OPENING_EQUITY), "Opening stock"
     elif kind == "ADJUSTMENT_PLUS":

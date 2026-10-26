@@ -9,7 +9,7 @@
   </div>
   <div class="flex items-center gap-2">
     {% include "_includes/print_button.html" %}
-    <span class="badge {% if po.status == 'FULLY_RECEIVED' or po.status == 'BILLED' %}bg-green-50 text-green-700{% elif po.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif po.status == 'CANCELLED' %}bg-gray-100 text-gray-500 line-through{% elif po.status == 'PARTIALLY_RECEIVED' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
+    <span class="badge {% if po.status == 'FULLY_RECEIVED' or po.status == 'BILLED' %}bg-green-50 text-green-700{% elif po.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif po.status == 'CANCELLED' %}bg-gray-100 text-gray-500 line-through{% elif po.status == 'CLOSED' %}bg-gray-100 text-gray-700{% elif po.status == 'PARTIALLY_RECEIVED' %}bg-amber-50 text-amber-700{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
       {{ po.get_status_display }}
     </span>
     {% if po.status == 'DRAFT' %}
@@ -18,11 +18,17 @@
       <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Send to Supplier</button>
     </form>
     {% endif %}
-    {% if po.status != 'DRAFT' and po.status != 'CANCELLED' %}
+    {% if po.status != 'DRAFT' and po.status != 'CANCELLED' and po.status != 'CLOSED' %}
     <a href="{% url 'procurement:grn' po.pk %}" class="no-print px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Receive Goods</a>
     <form method="post" action="{% url 'procurement:po_to_bill' po.pk %}" class="no-print">
       {% csrf_token %}
       <button type="submit" class="px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Convert to Bill</button>
+    </form>
+    {% endif %}
+    {% if po.status == 'PARTIALLY_RECEIVED' %}
+    <form method="post" action="{% url 'procurement:po_close_short' po.pk %}" class="no-print" onsubmit="return confirm('Close this order short? The goods not yet received will no longer be expected. Bill and post what arrived first.');">
+      {% csrf_token %}
+      <button type="submit" class="px-3 py-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100" title="The rest of this order will never arrive">Close short</button>
     </form>
     {% endif %}
     {% if po.status == 'DRAFT' or po.status == 'SENT' %}
@@ -42,6 +48,8 @@
       <div><dt class="text-gray-500">Order Date</dt><dd class="text-gray-900">{{ po.order_date }}</dd></div>
       <div><dt class="text-gray-500">Expected Delivery</dt><dd class="text-gray-900">{{ po.expected_delivery_date|default:"—" }}</dd></div>
       <div><dt class="text-gray-500">Warehouse</dt><dd class="text-gray-900">{{ po.warehouse.name|default:"—" }}</dd></div>
+      <div><dt class="text-gray-500">Currency</dt><dd class="text-gray-900">{{ po.currency }}{% if po.exchange_rate and po.exchange_rate != 1 %} at {{ po.exchange_rate|floatformat:"-6" }}{% endif %}</dd></div>
+      {% if po.requisition %}<div><dt class="text-gray-500">Requisition</dt><dd class="text-gray-900"><a href="{% url 'procurement:requisition_detail' po.requisition.pk %}" class="hover:underline" style="color:var(--primary)">{{ po.requisition.reference }}</a></dd></div>{% endif %}
     </dl>
     {% if po.notes %}<p class="text-sm text-gray-600 mt-4">{{ po.notes }}</p>{% endif %}
 

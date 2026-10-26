@@ -49,13 +49,13 @@ class ProductForm(forms.ModelForm):
 
 
 class StockMovementForm(forms.ModelForm):
-    """A stock movement typed in by hand, outside any order.
+    """A stock adjustment typed in by hand, outside any order.
 
     Only movements that make sense on their own are offered. A transfer has two
     ends and is made on the transfer screen, which writes both; one end typed
     here would put stock on a shelf that nothing left, or take it off with
-    nowhere for it to go. Returns, production and opening balances each belong
-    to the document that explains them.
+    nowhere for it to go. Receipts, issues, returns, production and opening
+    balances each belong to the document that explains them.
 
     Stock going out is always valued at the shelf's own average, whatever is
     typed in the cost box: the shelf's value is its quantity times that
@@ -64,17 +64,21 @@ class StockMovementForm(forms.ModelForm):
     real, positive cost — or, for a surplus found on a count, the shelf's
     average when the box is left empty.
     """
-    # What the hand-entry screen offers. Receipts and issues without an order
-    # are kept for the shop with no purchasing or sales paperwork: a receipt
-    # accrues on 2110 Stock Received Not Invoiced, and the supplier's bill for
-    # it is entered against that account to clear it.
+    # What the hand-entry screen offers: adjustments, and nothing else. Goods
+    # come in from a supplier through a goods receipt on a purchase order —
+    # that is what accrues them on 2110 against the order the bill will later
+    # answer — and they go out to a customer through a sales delivery or the
+    # till, which is what charges their cost against the sale. A receipt typed
+    # here had no order to accrue against, so its 2110 credit could only ever
+    # be cleared by a bill coded to the accrual by hand, and an issue typed
+    # here charged cost of sales with no sale behind it. Both are refused; a
+    # count that differs from the shelf is an adjustment, and that is all this
+    # screen records.
     CHOICES = [
         ("ADJUSTMENT_PLUS", "Adjustment increase — stock found or added on a count"),
         ("ADJUSTMENT_MINUS", "Adjustment decrease — stock lost, damaged or written off"),
-        ("RECEIPT", "Goods received without a purchase order"),
-        ("DELIVERY", "Goods issued without a sales order"),
     ]
-    OUTGOING = ("ADJUSTMENT_MINUS", "DELIVERY")
+    OUTGOING = ("ADJUSTMENT_MINUS",)
 
     class Meta:
         model = StockMovement
@@ -87,10 +91,16 @@ class StockMovementForm(forms.ModelForm):
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["movement_type"].choices = self.CHOICES
+        # Said in the bookkeeper's terms rather than "not a valid choice": the
+        # receipt or issue they tried to type has a proper home elsewhere.
+        self.fields["movement_type"].error_messages["invalid_choice"] = (
+            "This screen records count adjustments only. Goods from a supplier are "
+            "received on their purchase order (Receive Goods), and goods for a "
+            "customer go out through a sales delivery or the till.")
         self.fields["unit_cost"].required = False
         self.fields["unit_cost"].help_text = (
             "Cost of one unit coming in. Stock going out is always taken off at "
-            "the shelf's average cost, so this is ignored for a decrease or an issue.")
+            "the shelf's average cost, so this is ignored for a decrease.")
         if not company:
             return
         from apps.organizations.models import Warehouse
@@ -144,11 +154,7 @@ class StockMovementForm(forms.ModelForm):
                     f"{warehouse.name}, so {quantity.normalize():f} cannot go out.")
             value = quantity * average
         else:
-            if kind == "RECEIPT" and cost <= 0:
-                self.add_error(
-                    "unit_cost",
-                    "Goods received need the cost they were bought at — a figure greater than zero.")
-            elif kind == "ADJUSTMENT_PLUS" and cost <= 0 and average <= 0:
+            if kind == "ADJUSTMENT_PLUS" and cost <= 0 and average <= 0:
                 self.add_error(
                     "unit_cost",
                     f"{product.name} has never been costed in {warehouse.name}, so there is "

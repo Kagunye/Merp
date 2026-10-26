@@ -52,6 +52,10 @@ class PurchaseOrder(BaseModel, NotesMixin):
         ("PARTIALLY_RECEIVED", "Partially Received"),
         ("FULLY_RECEIVED", "Fully Received"),
         ("BILLED", "Billed"),
+        # Part of the order arrived and was billed, and the supplier will never
+        # send the rest. The order is finished as it stands: what arrived and
+        # what was billed are left exactly as they are.
+        ("CLOSED", "Closed short"),
         ("CANCELLED", "Cancelled"),
     ]
     company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="purchase_orders")
@@ -122,6 +126,20 @@ class PurchaseOrderLine(models.Model):
         if not self.tax_rate:
             return Decimal("0")
         return self.line_total * (self.tax_rate.rate / 100)
+
+    @property
+    def base_unit_cost(self):
+        """One unit at the order's price, in book money, to the stock card's four places.
+
+        This is what the goods receipt puts the goods on the shelf at — the
+        order's price times the order's own rate — and what the bill raised
+        from the order expects to release from the accrual. It is held to four
+        places rather than cents: a dollar price of 7.77 at 129.555 is
+        1,006.6424 a unit, and cutting that to 1,006.64 before multiplying by
+        the quantity would leave the receipt a cent or more below the bill
+        that answers it, for no reason but the rounding.
+        """
+        return (self.unit_cost * self.order.rate).quantize(Decimal("0.0001"))
 
     @property
     def to_receive(self):
@@ -207,6 +225,14 @@ class Bill(BaseModel, NotesMixin):
         related_name="+", verbose_name="Charge to account",
         help_text="The expense or asset account this bill is for. "
                   "Bills for ordered goods are raised from the purchase order instead.")
+    # The services and other untracked items on an order bill, one row per
+    # account: [{"account": <pk>, "amount": "<bill currency>", "description":
+    # ...}]. Nothing untracked is ever received onto a shelf, so no receipt
+    # accrued it and the bill cannot release an accrual for it; posting charges
+    # these straight to the expense account each row names instead of letting
+    # their cost fall into purchase price variance. Filled in by "Bill this
+    # order" from the order's own lines.
+    direct_charges = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["-bill_date", "-created_at"]
@@ -226,13 +252,36 @@ class Bill(BaseModel, NotesMixin):
         from apps.accounting.currency import to_base
         return to_base(self.outstanding_amount, self.rate)
 
+    def settlement_base(self, amount):
+        """The book value of settling `amount` of this bill, payment or note.
+
+        A foreign bill is converted once, as a whole, when it is posted. Each
+        part that settles it afterwards is worth the bill's outstanding balance
+        in book money before the part, less the same after it — so the parts
+        add up to the whole exactly, and the last one takes whatever cent the
+        rounding of the others left. Converting each part on its own (33.33 at
+        129.555 three times) can leave AP a cent away from nothing on a bill
+        that is settled in full.
+        """
+        from apps.accounting.currency import to_base
+        rate = self.rate
+        before = self.outstanding_amount
+        return to_base(before, rate) - to_base(before - amount, rate)
+
     def save(self, *args, **kwargs):
         from apps.accounting.models import to_base
 
         self.outstanding_amount = self.total_amount - self.paid_amount - self.credited_amount
-        # The book-currency value follows the bill's own money and its booked rate.
-        self.total_amount_base = to_base(
-            self.total_amount, self.exchange_rate or Decimal("1"))
+        # The book-currency value follows the bill's own money and its booked
+        # rate. A debit note is the exception: it is a part of the bill it
+        # answers, and its book value is that bill's balance before the note
+        # less its balance after (see note_base), so that the notes and the
+        # payments against a foreign bill add up to the bill's own book value
+        # to the cent. Converting the part on its own would leave a cent on the
+        # payable once the bill is settled. That figure is kept once set.
+        if not (self.original_bill_id and self.total_amount_base):
+            self.total_amount_base = to_base(
+                self.total_amount, self.exchange_rate or Decimal("1"))
         # Only a bill the ledger already carries can settle itself. A draft is
         # not yet a payable, and a debit note keeps its own name: it answers a
         # payable rather than being one.

@@ -2,10 +2,18 @@ from decimal import Decimal
 
 from django import forms
 from apps.core.forms import date_input, is_new, pick_currency
+from apps.inventory.numbers import money
 from .models import Bill, PurchaseOrder, PurchaseRequisition
 
 
 class PurchaseRequisitionForm(forms.ModelForm):
+    """The header of a request to buy: who wants it, by when, for which team.
+
+    The lines — what, how many, roughly what it will cost — are added on the
+    requisition itself once it is saved, and it is submitted for approval from
+    there.
+    """
+
     class Meta:
         model = PurchaseRequisition
         fields = ["reference", "department", "required_date", "notes"]
@@ -14,25 +22,92 @@ class PurchaseRequisitionForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 2}),
         }
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+
+    def clean_reference(self):
+        # Two requisitions under one reference cannot both be approved, raised
+        # into orders and traced back: the reference is how the order, the
+        # approver and the person who asked find each other.
+        reference = (self.cleaned_data.get("reference") or "").strip()
+        if not reference:
+            raise forms.ValidationError("Give the requisition a reference.")
+        if self.company is not None:
+            twin = PurchaseRequisition.objects.filter(
+                company=self.company, reference__iexact=reference).exclude(
+                pk=self.instance.pk).first()
+            if twin:
+                raise forms.ValidationError(
+                    f"Requisition {twin.reference} already exists "
+                    f"({twin.get_status_display().lower()}). Use another reference, "
+                    "or open that requisition instead.")
+        return reference
+
+
+class PurchaseOrderForm(forms.ModelForm):
+    """A purchase order's header, in the money the supplier is paid in.
+
+    The currency is chosen the way a bill's is, from the currencies the book
+    holds a rate for, and the day's rate is stamped on the order when it is
+    saved. The goods receipt costs stock at the order price times that rate,
+    and the bill raised from the order inherits both, so an order placed in
+    dollars stays in dollars from the order to the payment — and the stock it
+    brings in is valued in shillings at the rate the order was placed at.
+    """
+
+    class Meta:
+        model = PurchaseOrder
+        fields = ["reference", "supplier", "order_date", "expected_delivery_date",
+                  "warehouse", "currency", "notes"]
+        widgets = {
+            "order_date": date_input(),
+            "expected_delivery_date": date_input(),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if not company:
+            return
+        from apps.crm.models import Supplier
+        from apps.organizations.models import Warehouse
+        self.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
+        self.fields["warehouse"].queryset = Warehouse.objects.filter(company=company, is_active=True)
+        pick_currency(self, company)
+
+    def clean_reference(self):
+        reference = (self.cleaned_data.get("reference") or "").strip()
+        if reference and self.company is not None:
+            twin = PurchaseOrder.objects.filter(
+                company=self.company, reference__iexact=reference).exclude(
+                pk=self.instance.pk).first()
+            if twin:
+                raise forms.ValidationError(
+                    f"Purchase order {twin.reference} already exists. Use another reference.")
+        return reference
+
 
 def chargeable_accounts(company):
     """The accounts a bill with no order behind it may be charged to.
 
-    Expenses, costs and assets — a service, a utility, a piece of equipment —
-    and Stock Received Not Invoiced, for goods that were taken into stock
-    without an order and are only now being billed. The stock accounts
-    themselves are left out on purpose: stock is valued by what is on the
-    shelf, and a bill alone puts nothing on the shelf, so a bill coded to
+    Expenses, costs and assets — a service, a utility, a piece of equipment.
+    The stock accounts are left out on purpose: stock is valued by what is on
+    the shelf, and a bill alone puts nothing on the shelf, so a bill coded to
     inventory would raise the account above the stock it is meant to describe.
+    So is Stock Received Not Invoiced (2110): only a goods receipt on a
+    purchase order accrues there, and that order's own bill — raised with
+    "Bill this order" — is what clears it. A typed bill coded to 2110 would
+    debit an accrual no receipt ever credited.
     """
-    from django.db.models import Q
     from apps.accounting.models import Account
     from apps.inventory.models import Product
 
     stock = set(Product.objects.filter(company=company, inventory_account__isnull=False)
                 .values_list("inventory_account_id", flat=True))
     return (Account.objects.filter(company=company, is_active=True)
-            .filter(Q(account_type__in=["EXPENSE", "COST_OF_GOODS", "ASSET"]) | Q(code="2110"))
+            .filter(account_type__in=["EXPENSE", "COST_OF_GOODS", "ASSET"])
             .exclude(code__in=["1400", "1450"]).exclude(pk__in=stock)
             .order_by("code"))
 
@@ -97,9 +172,26 @@ class BillForm(forms.ModelForm):
             if self.instance.purchase_order_id:
                 self.fields["expense_account"].disabled = True
                 self.fields["expense_account"].required = False
+                # The bill answers the order in the order's money, at the
+                # order's rate: that is what the receipt costed the goods at and
+                # what the accrual holds. Re-labelling a shilling draft as
+                # dollars would keep the shilling rate of one and value the
+                # dollars as shillings.
+                if "currency" in self.fields:
+                    self.fields["currency"].disabled = True
 
     def clean(self):
         cleaned = super().clean()
+        currency = cleaned.get("currency")
+        moved = (not is_new(self) and not self.instance.purchase_order_id
+                 and cleaned.get("bill_date") and cleaned["bill_date"] != self.instance.bill_date)
+        if moved or (not is_new(self) and currency
+                     and currency != (self.instance.currency or "")):
+            # A typed draft moved to another currency, or to another date, is
+            # valued afresh at the rate for its currency on its date; the rate
+            # booked for the old code or the old day says nothing about the
+            # new one. (A draft from an order keeps the order's rate.)
+            self.instance.exchange_rate = None
         if is_new(self) and (self.data.get(self.add_prefix("purchase_order")) or "").strip():
             raise forms.ValidationError(
                 "A bill for goods on a purchase order is raised from the order: open the "
@@ -123,8 +215,17 @@ class BillForm(forms.ModelForm):
             self.add_error(
                 "purchase_order",
                 f"{po.reference} is cancelled, so nothing on it can be billed.")
-        if po:
+        if po or (not is_new(self) and self.instance.purchase_order_id):
             cleaned["expense_account"] = None
+        elif not cleaned.get("expense_account") and self.company is not None:
+            # A bill typed in with no account chosen is a general expense
+            # (6000) — the bill records it, so the posting, the debit note and
+            # the reader of the bill all see the same account. It is never
+            # charged to stock by default: nothing a bill says puts goods on a
+            # shelf.
+            from apps.accounting.gl_service import unordered_charge_account
+            cleaned["expense_account"] = unordered_charge_account(self.company)
+            self.instance.expense_account = cleaned["expense_account"]
         subtotal = cleaned.get("subtotal") or Decimal("0")
         tax = cleaned.get("tax_amount") or Decimal("0")
         total = cleaned.get("total_amount")
@@ -135,7 +236,7 @@ class BillForm(forms.ModelForm):
         if abs((subtotal + tax) - total) > Decimal("0.01"):
             self.add_error(
                 "total_amount",
-                f"Total must equal subtotal + tax ({subtotal + tax}). "
+                f"Total must equal subtotal + tax ({money(subtotal + tax)}). "
                 "The payable posted to the ledger must match the bill.",
             )
         # The same supplier invoice entered twice is the commonest way a bill
