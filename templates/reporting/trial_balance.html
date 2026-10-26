@@ -5,7 +5,7 @@
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-gray-900">Trial Balance</h1>
-    <p class="text-sm text-gray-500 mt-1">{{ date_from }} — {{ date_to }}</p>
+    <p class="text-sm text-gray-500 mt-1">Balances as at {{ date_to|date:"d M Y" }} · movement {{ date_from|date:"d M Y" }} — {{ date_to|date:"d M Y" }}</p>
   </div>
   <div class="flex items-center gap-2">
     {% include "_includes/print_button.html" %}
@@ -21,20 +21,26 @@
   </form>
 </div>
 
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-lg text-sm font-medium bg-red-50 text-red-800 border border-red-200">{{ error }}</div>
+{% endif %}
 {% if is_balanced is not None %}
 <div class="mb-4 px-4 py-3 rounded-lg text-sm font-medium {% if is_balanced %}bg-green-50 text-green-800 border border-green-200{% else %}bg-red-50 text-red-800 border border-red-200{% endif %}">
   {% if is_balanced %}Trial balance is balanced.{% else %}Warning: Trial balance is NOT balanced!{% endif %}
 </div>
 {% endif %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 border-b border-gray-200">
       <tr>
         <th class="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-700">Account</th>
         <th class="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Debit</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Brought forward</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Period debits</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700">Period credits</th>
+        <th class="px-4 py-3 text-right font-semibold text-gray-700 border-l border-gray-200">Debit</th>
         <th class="px-4 py-3 text-right font-semibold text-gray-700">Credit</th>
       </tr>
     </thead>
@@ -44,18 +50,23 @@
         <td class="px-4 py-3 font-mono"><span class="px-1.5 py-0.5 rounded text-xs" style="{% account_chip row.account %}">{{ row.account.code }}</span></td>
         <td class="px-4 py-3 text-gray-900">{{ row.account.name }}{% if row.retired %} <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 align-middle">retired</span>{% endif %}</td>
         <td class="px-4 py-3 text-gray-500">{{ row.account.get_account_type_display }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{% if row.debit > 0 %}{{ row.debit|floatformat:2 }}{% endif %}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-500">{% if row.opening_debit > 0 %}{{ row.opening_debit|floatformat:2 }} Dr{% elif row.opening_credit > 0 %}{{ row.opening_credit|floatformat:2 }} Cr{% endif %}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-500">{% if row.period_debit > 0 %}{{ row.period_debit|floatformat:2 }}{% endif %}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-500">{% if row.period_credit > 0 %}{{ row.period_credit|floatformat:2 }}{% endif %}</td>
+        <td class="px-4 py-3 text-right font-mono text-gray-900 border-l border-gray-100">{% if row.debit > 0 %}{{ row.debit|floatformat:2 }}{% endif %}</td>
         <td class="px-4 py-3 text-right font-mono text-gray-900">{% if row.credit > 0 %}{{ row.credit|floatformat:2 }}{% endif %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="5" class="px-4 py-12 text-center text-gray-400">No posted transactions in this period.</td></tr>
+      <tr><td colspan="8" class="px-4 py-12 text-center text-gray-400">No posted balances as at this date.</td></tr>
       {% endfor %}
     </tbody>
     {% if rows %}
     <tfoot class="bg-gray-50 border-t-2 border-gray-300">
       <tr>
-        <td colspan="3" class="px-4 py-3 font-bold text-gray-900">Totals</td>
-        <td class="px-4 py-3 text-right font-bold font-mono text-gray-900">{{ total_debit|floatformat:2 }}</td>
+        <td colspan="4" class="px-4 py-3 font-bold text-gray-900">Totals</td>
+        <td class="px-4 py-3 text-right font-bold font-mono text-gray-500">{{ total_period_debit|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-bold font-mono text-gray-500">{{ total_period_credit|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-bold font-mono text-gray-900 border-l border-gray-100">{{ total_debit|floatformat:2 }}</td>
         <td class="px-4 py-3 text-right font-bold font-mono text-gray-900">{{ total_credit|floatformat:2 }}</td>
       </tr>
     </tfoot>

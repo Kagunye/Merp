@@ -72,12 +72,36 @@ class Account(BaseModel):
 
     @property
     def current_balance(self):
+        return self.balance_as_at(None)
+
+    def balance_as_at(self, on_date):
+        """The account's balance at the close of `on_date`, in its normal sign.
+
+        None means every posting the book holds, future-dated ones included —
+        which is what an "is anything still on this account" question needs.
+        Anything that reports a figure *as at* a day passes the day: a receipt
+        dated next week has not happened yet, and a balance that counts it is a
+        forecast, not a balance.
+        """
         lines = self.journal_lines.filter(journal_entry__status="POSTED")
-        debit_total = lines.aggregate(t=models.Sum("debit_amount"))["t"] or Decimal("0")
-        credit_total = lines.aggregate(t=models.Sum("credit_amount"))["t"] or Decimal("0")
+        if on_date is not None:
+            lines = lines.filter(journal_entry__posting_date__lte=on_date)
+        totals = lines.aggregate(dr=models.Sum("debit_amount"), cr=models.Sum("credit_amount"))
+        debit_total = totals["dr"] or Decimal("0")
+        credit_total = totals["cr"] or Decimal("0")
         if NORMAL_BALANCE.get(self.account_type) == "DEBIT":
             return debit_total - credit_total
         return credit_total - debit_total
+
+    @property
+    def has_postings(self):
+        """Whether any journal line, posted or still a draft, names this account.
+
+        Drafts count: a draft is a working paper that will be posted as typed,
+        and changing what kind of account it lands on underneath it would post
+        it somewhere the bookkeeper never chose.
+        """
+        return self.journal_lines.exclude(journal_entry__status="CANCELLED").exists()
 
     @property
     def normal_balance(self):
@@ -130,6 +154,41 @@ class JournalEntry(BaseModel, NotesMixin):
         ("REVERSAL", "Reversal"),
     ]
 
+    # The kinds of entry a person types on the manual journal screen. Every
+    # other kind is machinery: an invoice, a payroll run, a depreciation charge
+    # or a period close writes its own entry, and the type is how the rest of
+    # the book recognises it — a CLOSING entry is left out of the profit and
+    # loss and out of the next close, a REVALUATION is exchange machinery that
+    # the next revaluation takes off again. Letting a person type those would
+    # let a hand-made journal hide from the reports that are meant to show it.
+    # OPENING stays on the list because a new book is often opened by hand as
+    # one ordinary journal; the opening-balances screen is the guarded way in.
+    USER_ENTRY_TYPES = ("MANUAL", "OPENING")
+
+    # Where an entry made by a module is answered, so the generic Reverse
+    # button can say which screen to use instead of offsetting the ledger
+    # behind the document's back.
+    REVERSE_ELSEWHERE = {
+        "INVOICE": "Cancel the invoice, or raise a credit note against it, from Sales → Invoices.",
+        "CREDIT_NOTE": "A credit note answers its invoice; work with it from Sales → Invoices.",
+        "BILL": "Cancel the bill, or raise a debit note against it, from Purchasing → Bills.",
+        "DEBIT_NOTE": "A debit note answers its bill; work with it from Purchasing → Bills.",
+        "PAYMENT": "Reverse the payment from the screen it was recorded on (Sales → Payments "
+                   "for a receipt, the bill for a supplier payment, the till for a refund).",
+        "RECEIPT": "Refund the sale from the till it was rung on, or reverse the receipt "
+                   "from Sales → Payments.",
+        "PAYROLL": "Cancel the payroll run from Payroll → Runs.",
+        "DEPRECIATION": "Stand the month's charge down from the asset's page in Fixed Assets.",
+        "ASSET": "Stand the purchase down from the asset's page in Fixed Assets.",
+        "DISPOSAL": "Bring the asset back from its page in Fixed Assets.",
+        "STOCK_ADJUSTMENT": "Post an opposite stock movement from Inventory, so the shelf "
+                            "and the ledger move together.",
+        "CLOSING": "Reopen the period, or the fiscal year, from Accounting → Fiscal Years.",
+        "REVALUATION": "Take the revaluation off from Accounting → Exchange Revaluation.",
+        "REVERSAL": "A reversal is not reversed again — that would quietly reinstate the "
+                    "original. Post a fresh entry for what should stand.",
+    }
+
     company = models.ForeignKey("organizations.Company", on_delete=models.PROTECT, related_name="journal_entries")
     reference = models.CharField(max_length=50, db_index=True)
     entry_type = models.CharField(max_length=20, choices=ENTRY_TYPES, default="MANUAL")
@@ -180,15 +239,48 @@ class JournalEntry(BaseModel, NotesMixin):
     def post(self, user=None):
         if self.status != "DRAFT":
             raise ValidationError(f"Cannot post a journal entry with status '{self.status}'.")
+        if not self.lines.exists():
+            raise ValidationError("Journal entry must have at least one line.")
+        # Every module writes its lines straight to the table, so the rules a
+        # line form enforces are enforced again here, where every entry passes.
+        lines = self.lines.all()
+        if lines.filter(models.Q(debit_amount__lt=0) | models.Q(credit_amount__lt=0)).exists():
+            raise ValidationError(
+                "A journal line cannot carry a negative amount. Put the figure on the "
+                "other side of the line instead — a negative credit is a debit.")
+        if lines.filter(debit_amount__gt=0, credit_amount__gt=0).exists():
+            raise ValidationError(
+                "A journal line is either a debit or a credit, not both. Split it into "
+                "two lines.")
+        if lines.filter(debit_amount=0, credit_amount=0).exists():
+            raise ValidationError(
+                "A journal line with neither a debit nor a credit moves nothing. Give "
+                "it an amount or remove it.")
         if not self.is_balanced():
             raise ValidationError(
                 f"Journal entry is not balanced: debit={self.total_debit}, credit={self.total_credit}."
             )
-        if not self.lines.exists():
-            raise ValidationError("Journal entry must have at least one line.")
+        if self.total_debit <= 0:
+            raise ValidationError(
+                "This entry adds up to nothing, so there is nothing to post. Enter the "
+                "amounts it should move, or cancel the draft.")
+        period = self.period if self.period_id else period_for(self.company, self.posting_date)
+        if period is None:
+            # A date the calendar does not cover belongs to no year, so no close
+            # would ever sweep it and no report bounded by a year would show it.
+            raise ValidationError(
+                f"No fiscal year covers {self.posting_date:%d %b %Y}. Create that year "
+                "under Accounting → Fiscal Years before posting into it, or check the date.")
+        if period.status == "LOCKED" or period.fiscal_year.is_closed:
+            # A closed year has been swept into retained earnings. Anything
+            # posted into it now would sit in the profit and loss accounts of
+            # a year whose result has already been carried forward.
+            raise ValidationError(
+                f"{period.fiscal_year.name} is closed, and {self.posting_date:%d %b %Y} "
+                "falls inside it. Reopen the fiscal year first, or date the entry in an "
+                "open year.")
         with transaction.atomic():
-            if self.period_id is None:
-                self.period = period_for(self.company, self.posting_date)
+            self.period = period
             self.status = "POSTED"
             self.posted_by = user
             self.posted_at = timezone.now()
@@ -213,6 +305,64 @@ class JournalEntry(BaseModel, NotesMixin):
             return f"{self.period.fiscal_year.name} is closed and this entry is dated inside it."
         return ""
 
+    @property
+    def is_reversal(self):
+        """Whether this entry exists to offset another one."""
+        return self.entry_type == "REVERSAL" or JournalEntry.objects.filter(
+            reversed_by=self).exists()
+
+    def linked_documents(self):
+        """The rows elsewhere in the book that point at this entry.
+
+        Read from the model registry rather than a hand-kept list, so a module
+        added later — a till, a payroll run, an expense claim — is recognised
+        as the owner of its entry without this file having to know it exists.
+        """
+        found = []
+        for relation in self._meta.related_objects:
+            if relation.many_to_many or relation.related_model in (
+                    JournalEntry, JournalEntryLine):
+                continue
+            if relation.related_model._meta.app_label == "banking":
+                # A bank statement line is matched to an entry, it does not
+                # write one: the journal is still the bookkeeper's own.
+                continue
+            row = relation.related_model._default_manager.filter(
+                **{relation.field.name: self}).first()
+            if row is not None:
+                found.append(row)
+        return found
+
+    def generic_reversal_refusal(self):
+        """Why the journal screen's own Reverse button must not touch this entry.
+
+        Returns "" when it may. The button is for journals a person typed: an
+        entry written by an invoice, a payroll run, a depreciation charge or a
+        close belongs to that document, and offsetting it here would leave the
+        document saying one thing and the ledger another — an invoice still
+        owed while receivables show it settled, an asset still worn while its
+        accumulated depreciation is back. Those are answered on their own
+        screens, which reverse the entry and the document together.
+        """
+        if self.status != "POSTED":
+            return "Only a posted entry can be reversed; a draft is cancelled instead."
+        if self.reversed_by_id:
+            return f"{self.reference} has already been reversed by {self.reversed_by.reference}."
+        if self.is_reversal:
+            return self.REVERSE_ELSEWHERE["REVERSAL"]
+        if self.entry_type not in self.USER_ENTRY_TYPES:
+            return (f"{self.reference} was written by the ledger as a "
+                    f"{self.get_entry_type_display().lower()} entry. "
+                    + self.REVERSE_ELSEWHERE.get(
+                        self.entry_type, "Reverse it from the screen that made it."))
+        documents = self.linked_documents()
+        if self.source_document_type or documents:
+            owner = (f"{documents[0]._meta.verbose_name} {documents[0]}" if documents
+                     else self.source_document_type)
+            return (f"{self.reference} belongs to {owner}. Reverse it from that "
+                    "document's own screen, so the document and the ledger move together.")
+        return ""
+
     def reverse(self, user=None, posting_date=None):
         if self.status != "POSTED":
             raise ValidationError("Only posted entries can be reversed.")
@@ -220,6 +370,13 @@ class JournalEntry(BaseModel, NotesMixin):
             raise ValidationError(
                 f"{self.reference} has already been reversed by {self.reversed_by.reference}."
             )
+        if self.is_reversal:
+            # Reversing a reversal reinstates the original without anyone having
+            # posted it again — the original would be live a second time while
+            # still carrying its "reversed" link.
+            raise ValidationError(
+                f"{self.reference} is itself a reversal, and a reversal is not reversed "
+                "again. Post a fresh entry for what should stand.")
         with transaction.atomic():
             from apps.core.models import SequenceCounter
             ref = SequenceCounter.next_number(self.company, "JE-REV-")
@@ -291,6 +448,8 @@ class JournalEntryLine(models.Model):
             raise ValidationError("Amounts cannot be negative.")
         if self.debit_amount > 0 and self.credit_amount > 0:
             raise ValidationError("A line cannot have both debit and credit amounts.")
+        if not self.debit_amount and not self.credit_amount:
+            raise ValidationError("A line needs a debit or a credit; a line of nothing moves nothing.")
 
 
 class BudgetLine(BaseModel):

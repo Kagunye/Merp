@@ -84,9 +84,14 @@ class AssetCategoryForm(BookScopedForm):
 class FixedAssetForm(BookScopedForm):
     class Meta:
         model = FixedAsset
+        # Status is not on the form. Each change of status is a ledger event —
+        # a disposal or write-off clears the cost and the wear, standing the
+        # purchase down takes the cost back out — and each has its own screen
+        # that posts the entry. A status typed here moved the register and left
+        # the ledger behind.
         fields = ["code", "name", "category", "serial_number", "location",
                   "purchase_date", "purchase_cost", "residual_value",
-                  "useful_life_years", "depreciation_method", "status",
+                  "useful_life_years", "depreciation_method",
                   "supplier", "paid_into", "warranty_expiry", "notes"]
         widgets = {
             "purchase_date": date_input(),
@@ -118,24 +123,25 @@ class FixedAssetForm(BookScopedForm):
             self.fields["code"].initial = SequenceCounter.next_number(company, "FA-")
             return
 
-        disposal = getattr(self.instance, "disposal", None)
-        if disposal is not None and not disposal.is_reversed:
-            # The disposal screen owns the status of an asset that has gone.
-            self.fields["status"].disabled = True
-        else:
-            # Marking an asset DISPOSED here would take it off the register while
-            # the ledger still carried its cost; only a disposal posts the entry.
-            self.fields["status"].choices = [
-                c for c in self.fields["status"].choices if c[0] != "DISPOSED"]
-
-        if self.instance.journal_entry_id or self.instance.depreciations.exists():
-            self.fields["purchase_date"].disabled = True
-            for name in ("purchase_cost", "residual_value", "useful_life_years",
-                         "depreciation_method"):
+        asset = self.instance
+        disposal = getattr(asset, "disposal", None)
+        charged = any(row.journal_entry_id and not row.journal_entry.reversed_by_id
+                      for row in asset.depreciations.select_related("journal_entry"))
+        if asset.acquisition_is_live or charged \
+                or (disposal is not None and not disposal.is_reversed):
+            # The category decides which cost, wear and expense accounts the
+            # asset posts to, and paid_into which bank paid for it. Changing
+            # either under a posted purchase would leave the cost on one
+            # account while every later entry credits another — one account
+            # left holding the asset for ever, the other driven below nothing.
+            for name in ("purchase_date", "purchase_cost", "residual_value",
+                         "useful_life_years", "depreciation_method",
+                         "category", "paid_into"):
                 self.fields[name].disabled = True
                 self.fields[name].help_text = (
                     "Already fed to the ledger, so it cannot be changed here. "
-                    "Reverse the entries that used it first.")
+                    "Stand the purchase (and any charges) down from the asset's "
+                    "page first, then correct it and save to book it again.")
 
     def clean(self):
         cleaned = super().clean()

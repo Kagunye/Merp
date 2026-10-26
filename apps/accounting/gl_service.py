@@ -1199,9 +1199,24 @@ def close_period(company, period, user=None):
     return je
 
 
+def _closed_year_refusal(fiscal_year):
+    """Why a period of this year cannot change state on its own, or ""."""
+    if fiscal_year.is_closed:
+        return (f"{fiscal_year.name} is closed, so its periods are locked with it. "
+                "Reopen the fiscal year first: reopening one month inside a closed "
+                "year would leave its result in retained earnings and in the month "
+                "at the same time.")
+    return ""
+
+
 @transaction.atomic
 def reopen_period(company, period, user=None):
     """Reverse the period's closing entry and hand the months their figures back."""
+    from django.core.exceptions import ValidationError
+
+    refusal = _closed_year_refusal(period.fiscal_year)
+    if refusal:
+        raise ValidationError(refusal)
     entry = closing_entry_for(company, PERIOD_CLOSE, period.pk)
     if entry:
         entry.reverse(user=user)
@@ -1210,42 +1225,121 @@ def reopen_period(company, period, user=None):
     return entry
 
 
+def income_statement_balances(company, as_at):
+    """Every profit and loss account's balance at the close of `as_at`.
+
+    Unlike period_activity this counts the closing entries too: it answers
+    "what is still sitting in the account", which is what a year end has to
+    leave at nothing. A late adjustment filed into a month that was already
+    closed shows up here and nowhere else, because the month's own closing
+    entry was drawn before the adjustment existed.
+    """
+    rows = (
+        JournalEntryLine.objects.filter(
+            account__company=company,
+            account__account_type__in=INCOME_STATEMENT_TYPES,
+            journal_entry__status="POSTED",
+            journal_entry__posting_date__lte=as_at,
+        )
+        .values("account_id", "account__code", "account__name")
+        .annotate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        .order_by("account__code")
+    )
+    balances = []
+    for row in rows:
+        net = (row["dr"] or Decimal("0")) - (row["cr"] or Decimal("0"))
+        if net:
+            balances.append({
+                "account_id": row["account_id"],
+                "code": row["account__code"],
+                "name": row["account__name"],
+                "net": net,
+            })
+    return balances
+
+
 @transaction.atomic
 def close_fiscal_year(company, fiscal_year, user=None):
-    """Close every open period, then empty current year profit into retained earnings."""
+    """Close every open period, then carry the year's whole result to retained earnings.
+
+    The year end entry does two things. It empties current year profit as it
+    stood on the last day of the year — dated, because a later year's closed
+    January also lands in 3300 and is that year's business, not this one's.
+    And it sweeps whatever is still left in a profit and loss account at the
+    year end straight to retained earnings: a late adjustment filed into a
+    month after that month was closed is real profit for the year, and leaving
+    it behind would start next year with last year's sales still on the books.
+    Afterwards every income and expense account reads nothing as at the year
+    end, and retained earnings has moved by exactly the year's profit.
+
+    Years close in order. An earlier year still open would have its own
+    profit sitting in 3300 at this year's end, and sweeping it here and again
+    when that year closes would count it twice.
+    """
+    from django.core.exceptions import ValidationError
+    from apps.organizations.models import FiscalYear
+
+    earlier = (FiscalYear.objects
+               .filter(company=company, is_closed=False,
+                       start_date__lt=fiscal_year.start_date)
+               .exclude(pk=fiscal_year.pk).order_by("start_date").first())
+    if earlier:
+        raise ValidationError(
+            f"{earlier.name} is still open. Years are closed in order, so close "
+            f"{earlier.name} before {fiscal_year.name}.")
+
     entries = []
     for period in fiscal_year.periods.filter(status="OPEN").order_by("start_date"):
         entry = close_period(company, period, user=user)
         if entry:
             entries.append(entry)
 
+    year_end = fiscal_year.end_date
     profit_account = _get_account_safe(company, "3300")
     retained = (
         _get_account_safe(company, "3200") or _get_account_by_type(company, "EQUITY")
     )
-    year_entry = None
-    if profit_account and retained and profit_account.pk != retained.pk:
-        balance = profit_account.current_balance
-        if balance:
-            amount = abs(balance)
-            year_entry = _new_je(
-                company, "JE-YE-", "CLOSING", fiscal_year.end_date,
-                f"Year end {fiscal_year.name}: "
-                f"{profit_account.code} to {retained.code} {retained.name}",
-            )
-            if balance > 0:
-                _dr(year_entry, profit_account, amount, f"Clear {profit_account.name}")
-                _cr(year_entry, retained, amount, f"Retained {fiscal_year.name}")
+    if profit_account and retained and profit_account.pk == retained.pk:
+        # A chart with a single equity account keeps the year's result in it
+        # already; there is nothing to move from one to the other.
+        profit_account = None
+    carried = profit_account.balance_as_at(year_end) if profit_account else Decimal("0")
+    residual = income_statement_balances(company, year_end)
+
+    if carried or residual:
+        if not retained:
+            raise ValueError(
+                "Closing a year needs a Retained Earnings account (code 3200).")
+        year_entry = _new_je(
+            company, "JE-YE-", "CLOSING", year_end,
+            f"Year end {fiscal_year.name}: "
+            + (f"{profit_account.code} " if profit_account else "")
+            + f"to {retained.code} {retained.name}",
+        )
+        profit = carried
+        for row in residual:
+            account = Account.objects.get(pk=row["account_id"])
+            label = f"Year end {fiscal_year.name}: {row['code']} posted after its month closed"
+            if row["net"] < 0:
+                _dr(year_entry, account, -row["net"], label)
             else:
-                _dr(year_entry, retained, amount, f"Cover {fiscal_year.name} loss")
-                _cr(year_entry, profit_account, amount, f"Clear {profit_account.name}")
-            year_entry.source_document_type = YEAR_CLOSE
-            year_entry.source_document_id = str(fiscal_year.pk)
-            year_entry.save(update_fields=[
-                "source_document_type", "source_document_id", "updated_at",
-            ])
-            year_entry.post(user=user)
-            entries.append(year_entry)
+                _cr(year_entry, account, row["net"], label)
+            profit -= row["net"]
+        if carried > 0:
+            _dr(year_entry, profit_account, carried, f"Clear {profit_account.name}")
+        elif carried < 0:
+            _cr(year_entry, profit_account, -carried, f"Clear {profit_account.name}")
+        if profit > 0:
+            _cr(year_entry, retained, profit, f"Retained {fiscal_year.name}")
+        elif profit < 0:
+            _dr(year_entry, retained, -profit, f"Cover {fiscal_year.name} loss")
+        year_entry.source_document_type = YEAR_CLOSE
+        year_entry.source_document_id = str(fiscal_year.pk)
+        year_entry.save(update_fields=[
+            "source_document_type", "source_document_id", "updated_at",
+        ])
+        year_entry.post(user=user)
+        entries.append(year_entry)
 
     fiscal_year.is_closed = True
     fiscal_year.save(update_fields=["is_closed", "updated_at"])
@@ -1256,7 +1350,29 @@ def close_fiscal_year(company, fiscal_year, user=None):
 
 @transaction.atomic
 def reopen_fiscal_year(company, fiscal_year, user=None):
-    """Undo a year end: reverse the sweep and every period close, then unlock."""
+    """Undo a year end: unlock, then reverse the sweep and every period close.
+
+    The year is unlocked before anything is reversed, because the reversals
+    are dated inside it and a closed year accepts no postings. A later year
+    that is already closed has to be reopened first: its own year end was
+    drawn on the figures this year carried forward.
+    """
+    from django.core.exceptions import ValidationError
+    from apps.organizations.models import FiscalYear
+
+    later = (FiscalYear.objects
+             .filter(company=company, is_closed=True,
+                     start_date__gt=fiscal_year.start_date)
+             .exclude(pk=fiscal_year.pk).order_by("-start_date").first())
+    if later:
+        raise ValidationError(
+            f"{later.name} is closed, and its year end was drawn on what "
+            f"{fiscal_year.name} carried forward. Reopen {later.name} first.")
+
+    fiscal_year.is_closed = False
+    fiscal_year.save(update_fields=["is_closed", "updated_at"])
+    fiscal_year.periods.filter(status="LOCKED").update(status="CLOSED")
+
     reversed_entries = []
     year_entry = closing_entry_for(company, YEAR_CLOSE, fiscal_year.pk)
     if year_entry:
@@ -1269,6 +1385,4 @@ def reopen_fiscal_year(company, fiscal_year, user=None):
             reversed_entries.append(entry)
         period.status = "OPEN"
         period.save(update_fields=["status", "updated_at"])
-    fiscal_year.is_closed = False
-    fiscal_year.save(update_fields=["is_closed", "updated_at"])
     return reversed_entries
