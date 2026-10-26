@@ -42,6 +42,28 @@ Everything happens inside one transaction that is rolled back at the end.
     9. exchange revaluation         -> outstanding read as at the revaluation
                                        day, and a settled document's
                                        unrealised share released on settlement
+   10. the role table               -> expense claims, documents, tickets,
+                                       disposals, and the rules other modules
+                                       asked for (orders, payroll, receiving,
+                                       purchase orders, transfers)
+   11. object rules                 -> only an admin or the uploader deletes a
+                                       document, and the file goes with it;
+                                       only the assignee resolves a ticket and
+                                       the reporter may close it; marking a
+                                       notification read is a POST
+   12. dashboard and search         -> each widget and result type only for a
+                                       role that may open the page behind it,
+                                       and no link the role cannot follow
+   13. numbering                    -> opening a create form takes no number;
+                                       saving takes the one shown
+   14. figures and limits           -> index tiles as at today, cash flow nets
+                                       transfers and keeps retired tills,
+                                       budgets ignore the close, the currency
+                                       register is the platform's, lives are
+                                       capped at 100 years
+   15. revaluation shares           -> a part payment releases its slice, a
+                                       cancellation or a backdated receipt the
+                                       rest, and checking twice changes nothing
 """
 import datetime
 import re
@@ -253,6 +275,18 @@ class Command(BaseCommand):
         self.check_reports()
         self.section("9. Exchange revaluation as at its day, released on settlement")
         self.check_revaluation()
+        self.section("10. The role table")
+        self.check_role_table()
+        self.section("11. Documents, tickets and notifications")
+        self.check_object_rules()
+        self.section("12. The dashboard and the search box, by role")
+        self.check_dashboard_rights()
+        self.section("13. Opening a form takes no number")
+        self.check_numbering()
+        self.section("14. Index tiles, cash flow, budgets, currencies, asset lives")
+        self.check_figures()
+        self.section("15. A revaluation's shares, released in proportion")
+        self.check_revaluation_shares()
 
     # ────────────────────────── 1. generic reverse ───────────────────────────
 
@@ -839,3 +873,506 @@ class Command(BaseCommand):
                     self.bal("1350") == Z and self.bal("4320") + self.bal("7310") == Z
                     and not revaluation.live_releases(company).exists(),
                     f"1350 {self.bal('1350')}")
+
+    # ──────────────────────────── people in a book ───────────────────────────
+
+    def member(self, role, label=None):
+        """A login holding `role` in the current book, and a client working in it."""
+        from apps.accounts.models import User
+        from apps.organizations.models import CompanyMembership
+
+        stamp = datetime.datetime.now().strftime("%H%M%S%f")
+        name = (label or role).lower()
+        user = User.objects.create(
+            username=f"fix.{name}.{stamp}", email=f"fix.{name}.{stamp}@ledger.local",
+            first_name=role.title(), last_name="Member")
+        CompanyMembership.objects.create(company=self.company, user=user, role=role,
+                                         is_default=True)
+        client = Client()
+        client.force_login(user, backend="django.contrib.auth.backends.ModelBackend")
+        session = client.session
+        session["active_company_id"] = str(self.company.id)
+        session.save()
+        return user, client
+
+    # ─────────────────────────── 10. the role table ──────────────────────────
+
+    def check_role_table(self):
+        from types import SimpleNamespace
+
+        from apps.core import access
+
+        person = SimpleNamespace(is_authenticated=True, is_superuser=False, is_system_admin=False)
+
+        def can(role, target, method="GET"):
+            ns, _, name = target.rpartition(":")
+            return access.can(person, role, ns, name, method)
+
+        def who(target, method="POST"):
+            return {r for r in access.ROLES if can(r, target, method)}
+
+        everyone_but_readers = access.ROLES - {"ADMIN", "VIEWER", "AUDITOR"}
+        self.expect("a claim is raised, edited and submitted by anyone but a viewer or auditor",
+                    all(who(t) - {"ADMIN"} == everyone_but_readers
+                        for t in ("expenses:claim_create", "expenses:claim_edit",
+                                  "expenses:claim_submit", "expenses:claim_add_line")),
+                    str(sorted(who("expenses:claim_edit"))))
+        self.expect("a claim is approved and rejected by the finance or HR manager",
+                    who("expenses:claim_approve") == {"ADMIN", "FINANCE_MANAGER", "HR_MANAGER"}
+                    and who("expenses:claim_reject") == who("expenses:claim_approve"),
+                    str(sorted(who("expenses:claim_approve"))))
+        self.expect("and paid by finance",
+                    who("expenses:claim_pay") == {"ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"})
+        self.expect("documents: viewers and auditors may not upload, delete or add a category",
+                    not any(can(r, t, "POST") for r in ("VIEWER", "AUDITOR")
+                            for t in ("documents:document_upload", "documents:document_delete",
+                                      "documents:category_create"))
+                    and can("EMPLOYEE", "documents:document_upload", "POST"))
+        self.expect("helpdesk: viewers and auditors may not comment",
+                    not can("VIEWER", "helpdesk:ticket_comment", "POST")
+                    and not can("AUDITOR", "helpdesk:ticket_comment", "POST")
+                    and can("EMPLOYEE", "helpdesk:ticket_comment", "POST"))
+        self.expect("the finance manager may open the disposal form",
+                    can("FINANCE_MANAGER", "fixed_assets:asset_dispose")
+                    and not can("ACCOUNTANT", "fixed_assets:asset_dispose"))
+        self.expect("a sales order is confirmed by the sales manager or finance, not the rep",
+                    who("sales:order_confirm") == {"ADMIN", "SALES_MANAGER", "FINANCE_MANAGER",
+                                                   "ACCOUNTANT"},
+                    str(sorted(who("sales:order_confirm"))))
+        self.expect("and cancelled by the same people",
+                    who("sales:order_cancel") == who("sales:order_confirm"))
+        self.expect("on-account credit is applied by finance",
+                    who("sales:payment_apply_credit") == {"ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"})
+        self.expect("HR may look at payroll but not run it",
+                    can("HR_MANAGER", "payroll:run_list")
+                    and not any(can("HR_MANAGER", t, "POST") for t in (
+                        "payroll:run_create", "payroll:run_calculate", "payroll:rule_create",
+                        "payroll:component_create", "payroll:band_create")),
+                    str(sorted(who("payroll:run_create"))))
+        self.expect("runs, calculation and rules are the payroll officer's",
+                    all(can("PAYROLL_OFFICER", t, "POST") for t in (
+                        "payroll:run_create", "payroll:run_calculate", "payroll:rule_create")))
+        self.expect("approve and post stay with finance",
+                    who("payroll:run_approve") == {"ADMIN", "FINANCE_MANAGER"}
+                    and who("payroll:run_post") == {"ADMIN", "FINANCE_MANAGER"})
+        self.expect("everybody may open their own payslips",
+                    all(can(r, "payroll:my_payslips") for r in access.ROLES))
+        self.expect("goods are received by the warehouse manager only",
+                    who("procurement:grn_record") == {"ADMIN", "WAREHOUSE_MANAGER"}
+                    and who("procurement:grn") == {"ADMIN", "WAREHOUSE_MANAGER"},
+                    str(sorted(who("procurement:grn_record"))))
+        self.expect("purchase orders are raised and cancelled by procurement, not the stores",
+                    who("procurement:po_create") == {"ADMIN", "PROCUREMENT"}
+                    and who("procurement:po_cancel") == {"ADMIN", "PROCUREMENT"}
+                    and not can("WAREHOUSE_MANAGER", "procurement:po_create"))
+        self.expect("a requisition is submitted by whoever may raise one",
+                    who("procurement:requisition_submit") == who("procurement:requisition_create"),
+                    str(sorted(who("procurement:requisition_submit"))))
+        self.expect("an order is closed short by procurement or the finance manager",
+                    who("procurement:po_close_short") == {"ADMIN", "PROCUREMENT", "FINANCE_MANAGER"})
+        self.expect("bank transfers are finance's",
+                    who("banking:transfer_create") == {"ADMIN", "FINANCE_MANAGER", "ACCOUNTANT"})
+
+    # ─────────────────── 11. documents, tickets, notifications ───────────────
+
+    def check_object_rules(self):
+        import os
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from apps.documents.models import Document
+        from apps.helpdesk.models import Ticket
+        from apps.notifications.models import Notification
+
+        company, admin_client, admin = self.book("objects")
+        uploader, up_client = self.member("EMPLOYEE", "uploader")
+        colleague, col_client = self.member("EMPLOYEE", "colleague")
+        viewer, view_client = self.member("VIEWER")
+        auditor, aud_client = self.member("AUDITOR")
+
+        def upload(client, name):
+            return client.post(reverse("documents:document_upload"), {
+                "name": name, "category": "", "description": "", "expiry_date": "",
+                "file": SimpleUploadedFile(f"{name}.txt", b"signed delivery note")})
+
+        resp = upload(view_client, "viewer-doc")
+        self.expect("a viewer cannot upload a document",
+                    resp.status_code == 403
+                    and not Document.objects.filter(company=company, name="viewer-doc").exists())
+        upload(up_client, "kra-cert")
+        doc = Document.objects.filter(company=company, name="kra-cert").first()
+        if not self.expect("an employee can", doc is not None):
+            return
+        path = doc.file.path
+        for label, client in (("a viewer", view_client), ("an auditor", aud_client),
+                              ("a colleague who did not upload it", col_client)):
+            client.post(reverse("documents:document_delete", args=[doc.pk]), {})
+            self.expect(f"{label} cannot delete it",
+                        Document.objects.filter(pk=doc.pk).exists())
+        page = col_client.get(reverse("documents:document_detail", args=[doc.pk]))
+        self.expect("and is not offered the Delete button",
+                    page.status_code == 200 and not page.context["can_delete"])
+        up_client.post(reverse("documents:document_delete", args=[doc.pk]), {})
+        self.expect("the uploader can, and the file goes with the record",
+                    not Document.objects.filter(pk=doc.pk).exists() and not os.path.exists(path),
+                    path)
+        upload(up_client, "contract")
+        doc = Document.objects.get(company=company, name="contract")
+        path = doc.file.path
+        admin_client.post(reverse("documents:document_delete", args=[doc.pk]), {})
+        self.expect("an admin can delete anybody's, file and all",
+                    not Document.objects.filter(pk=doc.pk).exists() and not os.path.exists(path))
+
+        helper, help_client = self.member("SALES_REP", "assignee")
+        reporter, rep_client = self.member("EMPLOYEE", "reporter")
+        rep_client.post(reverse("helpdesk:ticket_create"), {
+            "reference": "TCK-1", "subject": "Printer jammed", "description": "",
+            "customer": "", "requester_name": "", "requester_email": "", "channel": "WEB",
+            "priority": "NORMAL", "assigned_to": str(helper.pk)})
+        ticket = Ticket.objects.filter(company=company, reference="TCK-1").first()
+        if not self.expect("a ticket is raised and remembers who raised it",
+                           ticket is not None and ticket.raised_by_id == reporter.pk):
+            return
+        resolve = reverse("helpdesk:ticket_resolve", args=[ticket.pk])
+        close = reverse("helpdesk:ticket_close", args=[ticket.pk])
+        for label, client in (("an auditor", aud_client), ("a bystander", col_client),
+                              ("the reporter", rep_client)):
+            resp = client.post(resolve, {})
+            ticket.refresh_from_db()
+            self.expect(f"{label} cannot mark it resolved", ticket.status == "OPEN",
+                        f"{ticket.status} HTTP {resp.status_code}")
+        resp = aud_client.post(close, {})
+        ticket.refresh_from_db()
+        self.expect("an auditor cannot close it either", ticket.status == "OPEN")
+        resp = aud_client.post(reverse("helpdesk:ticket_comment", args=[ticket.pk]),
+                               {"body": "noted", "is_internal": ""})
+        self.expect("nor comment on it", resp.status_code == 403 and not ticket.comments.exists())
+        help_client.post(resolve, {})
+        ticket.refresh_from_db()
+        self.expect("the assignee resolves it", ticket.status == "RESOLVED", ticket.status)
+        rep_client.post(close, {})
+        ticket.refresh_from_db()
+        self.expect("and the reporter closes it", ticket.status == "CLOSED", ticket.status)
+
+        note = Notification.objects.create(user=uploader, title="Claim approved")
+        other = Notification.objects.create(user=uploader, title="Leave approved")
+        resp = up_client.get(reverse("notifications:mark_read", args=[note.pk]))
+        note.refresh_from_db()
+        self.expect("following a mark-read link changes nothing",
+                    resp.status_code == 405 and not note.is_read, f"HTTP {resp.status_code}")
+        resp = up_client.get(reverse("notifications:mark_all_read"))
+        self.expect("nor does following mark-all-read",
+                    resp.status_code == 405
+                    and Notification.objects.filter(user=uploader, is_read=False).count() == 2)
+        page = up_client.get(reverse("notifications:list"))
+        body = page.content.decode()
+        self.expect("the list offers the read buttons as forms that POST",
+                    reverse("notifications:mark_all_read") in body
+                    and reverse("notifications:mark_read", args=[note.pk]) in body)
+        up_client.post(reverse("notifications:mark_read", args=[note.pk]))
+        note.refresh_from_db()
+        other.refresh_from_db()
+        self.expect("posting marks the one read", note.is_read and not other.is_read)
+        up_client.post(reverse("notifications:mark_all_read"))
+        other.refresh_from_db()
+        self.expect("and mark-all-read marks the rest", other.is_read and other.read_at)
+
+    # ──────────────────────── 12. dashboard and search ───────────────────────
+
+    def check_dashboard_rights(self):
+        from django.urls import Resolver404, resolve
+
+        from apps.core import access
+        from apps.hr.models import Employee
+
+        company, client, user = self.book("dashrights")
+        self.journal([("1200", 75000, 0), ("4100", 0, 75000)], self.today)
+        invoice = self.invoice("INV-DASH-1", self.today, "4321")
+        Employee.objects.create(company=company, employee_number="EMP-DASH",
+                                first_name="Wanjiru", last_name="Kariuki",
+                                date_hired=self.today, job_title="Clerk")
+        dash = client.get(reverse("dashboard:index")).context
+        self.expect("the admin's dashboard still carries every figure",
+                    dash.get("monthly_revenue") == D("79321.00")
+                    and dash.get("open_invoices") and dash.get("recent_journal_entries"),
+                    str(dash.get("monthly_revenue")))
+
+        for role in ("POS_CASHIER", "EMPLOYEE", "SALES_REP", "VIEWER"):
+            member, member_client = self.member(role)
+            resp = member_client.get(reverse("dashboard:index"))
+            ctx, body = resp.context, resp.content.decode()
+            self.expect(f"{role}: no month's revenue, expenses or cash on the dashboard",
+                        ctx.get("monthly_revenue") is None and ctx.get("total_cash") is None
+                        and "75,000.00" not in body and "Revenue (MTD)" not in body)
+            self.expect(f"{role}: no journal references",
+                        not ctx.get("recent_journal_entries")
+                        and not any(e.reference in body for e in dash["recent_journal_entries"]))
+            may_invoices = access.can(member, role, "sales", "invoice_list")
+            self.expect(f"{role}: open invoices only if the role may open the invoice list",
+                        bool(ctx.get("open_invoices")) == may_invoices
+                        and (invoice.reference in body) == may_invoices)
+            main = re.sub(r"<aside.*?</aside>", "", body, flags=re.S)
+            blocked = set()
+            # Static files are not pages; everything else must open for them.
+            for href in re.findall(r'href="(/(?!static/|media/)[^"#?]*)', main):
+                try:
+                    match = resolve(href)
+                except Resolver404:
+                    continue
+                if not access.can(member, role, match.namespace, match.url_name, "GET"):
+                    blocked.add(href)
+            self.expect(f"{role}: every link on the dashboard opens for them",
+                        not blocked, str(sorted(blocked)[:5]))
+
+            found = member_client.get(reverse("dashboard:search") + "?q=DASH").context
+            labels = {g["label"] for g in found["groups"]}
+            self.expect(f"{role}: search finds no journals or employees",
+                        not labels & {"Journal entries", "Employees", "Bills",
+                                      "Bank transactions"}, str(sorted(labels)))
+            self.expect(f"{role}: and invoices only where they may open them",
+                        ("Invoices" in labels) == may_invoices, str(sorted(labels)))
+        found = client.get(reverse("dashboard:search") + "?q=DASH").context
+        self.expect("the admin's search still finds the invoice and the employee",
+                    {"Invoices", "Employees"} <= {g["label"] for g in found["groups"]})
+
+    # ─────────────────────────── 13. numbering ───────────────────────────────
+
+    def check_numbering(self):
+        from apps.core.models import SequenceCounter
+        from apps.crm.models import Supplier
+        from apps.fixed_assets.models import FixedAsset
+        from apps.procurement.models import PurchaseOrder
+
+        company, client, user = self.book("numbers")
+        counter = lambda prefix: SequenceCounter.objects.filter(  # noqa: E731
+            company=company, prefix=prefix).values_list("last_number", flat=True).first() or 0
+        supplier = Supplier.objects.create(company=company, name="Numbers Supplies")
+        shown = [client.get(reverse("procurement:po_create")).context["form"]["reference"].value()
+                 for _ in range(3)]
+        self.expect("opening the PO form three times takes no number",
+                    counter("PO-") == 0 and shown == ["PO-00001"] * 3, f"{shown}, {counter('PO-')}")
+        client.post(reverse("procurement:po_create"), {
+            "reference": shown[0], "supplier": supplier.pk, "order_date": str(self.today),
+            "expected_delivery_date": "", "warehouse": "", "notes": ""})
+        self.expect("saving it takes the number that was shown",
+                    PurchaseOrder.objects.filter(company=company, reference="PO-00001").exists()
+                    and counter("PO-") == 1, str(counter("PO-")))
+        stale = shown[0]
+        client.post(reverse("procurement:po_create"), {
+            "reference": stale, "supplier": supplier.pk, "order_date": str(self.today),
+            "expected_delivery_date": "", "warehouse": "", "notes": ""})
+        self.expect("a form left open while somebody else used its number gets the next one",
+                    PurchaseOrder.objects.filter(company=company, reference="PO-00002").exists()
+                    and PurchaseOrder.objects.filter(company=company, reference=stale).count() == 1)
+        client.post(reverse("procurement:po_create"), {
+            "reference": "SUP-REF-77", "supplier": supplier.pk, "order_date": str(self.today),
+            "expected_delivery_date": "", "warehouse": "", "notes": ""})
+        self.expect("a reference typed by hand is kept and leaves the series alone",
+                    PurchaseOrder.objects.filter(company=company, reference="SUP-REF-77").exists()
+                    and counter("PO-") == 2)
+
+        for _ in range(2):
+            form = client.get(reverse("fixed_assets:asset_create")).context["form"]
+        code = form["code"].value()
+        self.expect("opening the asset form takes no number either",
+                    counter("FA-") == 0 and code == "FA-00001", f"{code}, {counter('FA-')}")
+        client.post(reverse("fixed_assets:asset_create"),
+                    self.asset_data(code, "50000"))
+        self.expect("and the asset is saved under the code it showed",
+                    FixedAsset.objects.filter(company=company, code=code).exists()
+                    and counter("FA-") == 1)
+        data = self.asset_data(code, "60000")
+        data["name"] = "Second asset"
+        client.post(reverse("fixed_assets:asset_create"), data)
+        self.expect("a stale asset preview takes the next free code instead of an error",
+                    FixedAsset.objects.filter(company=company, code="FA-00002",
+                                              name="Second asset").exists()
+                    and counter("FA-") == 2, str(counter("FA-")))
+        for target, prefix in (("hr:employee_create", "EMP-"),
+                               ("manufacturing:work_order_create", "WO-"),
+                               ("payroll:run_create", "PR-"),
+                               ("projects:project_create", "PRJ-")):
+            client.get(reverse(target))
+            client.get(reverse(target))
+            self.expect(f"opening {target} takes no {prefix} number", counter(prefix) == 0,
+                        str(counter(prefix)))
+
+    # ──────────────────────── 14. figures and limits ─────────────────────────
+
+    def check_figures(self):
+        from apps.accounting.models import Account, BudgetLine, Currency, period_for
+        from apps.organizations.models import FiscalYear
+
+        company, client, user = self.book("figures")
+        client.post(reverse("accounting:opening_balances"), {
+            "posting_date": str(self.day(1, 1)), f"dr_{self.account('1200').pk}": "500000",
+            f"cr_{self.account('3100').pk}": "500000"})
+        future = self.today + datetime.timedelta(days=5)
+        self.journal([("1200", 4444, 0), ("3100", 0, 4444)], future)
+        idx = client.get(reverse("accounting:index")).context
+        self.expect("the accounting tiles are as at today, leaving a future posting out",
+                    idx["asset_balance"] == self.bal("1200", upto=self.today)
+                    + self.bal("1100", upto=self.today) + self.bal("1110", upto=self.today)
+                    and idx["equity_balance"] == -self.bal("3100", upto=self.today),
+                    f"assets {idx['asset_balance']}, equity {idx['equity_balance']}")
+
+        start = self.today.replace(day=1)
+        self.journal([("1100", 36000, 0), ("1200", 0, 36000)], start)          # bank to till
+        self.journal([("6200", 7000, 0), ("1110", 0, 7000)], start)            # petty cash
+        self.journal([("1110", 7000, 0), ("1100", 0, 7000)], start)            # till tops it up
+        self.journal([("1200", 20000, 0), ("4100", 0, 20000)], start)          # a receipt
+        url = (reverse("reporting:cash_flow")
+               + f"?date_from={start:%Y-%m-%d}&date_to={self.today:%Y-%m-%d}")
+        flow = client.get(url).context
+        self.expect("moving money between the bank and the till is neither in nor out",
+                    flow["total_in"] == D("20000.00") and flow["total_out"] == D("7000.00"),
+                    f"in {flow['total_in']}, out {flow['total_out']}")
+        self.expect("and the net is the change in the cash pool",
+                    flow["net_cash_flow"] == D("13000.00"), str(flow["net_cash_flow"]))
+        Account.objects.filter(company=company, code="1110").update(is_active=False)
+        flow = client.get(url).context
+        self.expect("a retired petty-cash account still counts for the window it moved in",
+                    flow["net_cash_flow"] == D("13000.00") and flow["total_out"] == D("7000.00"),
+                    f"net {flow['net_cash_flow']}, out {flow['total_out']}")
+        Account.objects.filter(company=company, code="1110").update(is_active=True)
+
+        fy = FiscalYear.objects.get(company=company)
+        jan = period_for(company, self.day(1))
+        self.journal([("1200", 90000, 0), ("4100", 0, 90000)], self.day(1, 10))
+        budget = BudgetLine.objects.create(company=company, fiscal_year=fy,
+                                           account=self.account("4100"), period=jan,
+                                           budgeted_amount=D("100000"))
+        before = budget.actual_amount
+        if fy.end_date < self.today:
+            client.post(reverse("accounting:fiscal_year_close", args=[fy.pk]), {})
+        else:
+            from apps.accounting import gl_service  # noqa: F401
+            from apps.accounting.models import JournalEntry
+            entry, _ = self.draft([("4100", 90000, 0), ("3200", 0, 90000)], self.day(1, 31))
+            JournalEntry.objects.filter(pk=entry.pk).update(entry_type="CLOSING")
+            entry.refresh_from_db()
+            entry.post(user=user)
+        self.expect("a budget's actual is unchanged by the closing entry",
+                    before == D("90000.00") and budget.actual_amount == before,
+                    f"{before} then {budget.actual_amount}")
+
+        before = Currency.objects.count()
+        resp = client.post(reverse("accounting:currency_create"),
+                           {"code": "ZZQ", "name": "Mystery", "symbol": "", "minor_units": "2"})
+        self.expect("a company admin cannot add to the shared currency register",
+                    Currency.objects.count() == before
+                    and self.said(client, resp, "platform administrator"), str(self.heard[-1:]))
+        page = client.get(reverse("accounting:currency_create"))
+        self.expect("the form tells them whom to ask",
+                    page.status_code == 200 and not page.context["may_register"])
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        resp = client.post(reverse("accounting:currency_create"),
+                           {"code": "ZZQ", "name": "Mystery", "symbol": "", "minor_units": "99999"})
+        self.expect("a platform admin may, but not with 99,999 decimal places",
+                    resp.status_code == 200 and not Currency.objects.filter(code="ZZQ").exists())
+        client.post(reverse("accounting:currency_create"),
+                    {"code": "ZZQ", "name": "Mystery", "symbol": "", "minor_units": "3"})
+        self.expect("three places is a currency", Currency.objects.filter(code="ZZQ",
+                                                                           minor_units=3).exists())
+        self.user.is_superuser = False
+        self.user.save(update_fields=["is_superuser"])
+
+        from apps.fixed_assets.models import AssetCategory, FixedAsset
+        resp = client.post(reverse("fixed_assets:asset_create"),
+                           self.asset_data("LONG", "1000", life="99999999999"))
+        self.expect("a life of 99,999,999,999 years is refused without a server error",
+                    resp.status_code == 200
+                    and not FixedAsset.objects.filter(company=company, code="LONG").exists())
+        resp = client.post(reverse("fixed_assets:asset_create"),
+                           self.asset_data("LONG", "1000", life="101"))
+        self.expect("and so is 101", resp.status_code == 200
+                    and not FixedAsset.objects.filter(company=company, code="LONG").exists())
+        client.post(reverse("fixed_assets:asset_create"),
+                    self.asset_data("LONG", "1000", life="100"))
+        self.expect("a hundred years is allowed",
+                    FixedAsset.objects.filter(company=company, code="LONG").exists())
+        resp = client.post(reverse("fixed_assets:category_create"), {
+            "name": "Forever", "default_useful_life": "500", "default_depreciation_method": "SLM",
+            "gl_asset_account": "", "gl_depreciation_account": "", "gl_accumulated_account": ""})
+        self.expect("a category's default life is capped the same way",
+                    not AssetCategory.objects.filter(company=company, name="Forever").exists())
+
+    # ────────────────── 15. revaluation released in proportion ───────────────
+
+    def check_revaluation_shares(self):
+        from apps.accounting import revaluation
+        from apps.accounting.models import Currency, JournalEntry
+
+        company, client, user = self.book("fxshare")
+        usd = Currency.objects.filter(code="USD").first() or Currency.objects.create(
+            code="USD", name="US Dollar", symbol="$")
+        if self.today < self.day(10, 20):
+            self.expect("this section needs a run date after 20 October", True,
+                        "skipped: the dates below would lie in the future")
+            return
+        for on_date, rate in ((self.day(9, 1), "130"), (self.day(9, 30), "135"),
+                              (self.day(10, 15), "128")):
+            client.post(reverse("accounting:exchange_rate_create"), {
+                "currency": usd.pk, "effective_date": str(on_date), "rate": rate,
+                "source": "MANUAL", "note": ""})
+        part = self.invoice("USD-PART", self.day(9, 1), "1000", "USD", D("130"))
+        gone = self.invoice("USD-GONE", self.day(9, 1), "400", "USD", D("130"))
+        late = self.invoice("USD-LATE", self.day(9, 1), "500", "USD", D("130"))
+        client.post(reverse("accounting:revaluation_post"), {"date": str(self.day(9, 30))})
+        self.expect("the revaluation carries 5 shillings a dollar on 1,900 dollars",
+                    self.bal("1350") == D("9500.00"), str(self.bal("1350")))
+
+        def receipt(ref, invoice, amount, on_date):
+            client.post(reverse("sales:payment_create"), {
+                "reference": ref, "customer": invoice.customer.pk,
+                "payment_date": str(on_date), "amount": amount, "currency": "USD",
+                "payment_method": "BANK_TRANSFER", "bank_account": "",
+                "transaction_reference": ref, "notes": "", f"allocate_{invoice.pk}": amount})
+
+        receipt("PAY-PART-1", part, "400", self.day(10, 15))
+        part.refresh_from_db()
+        self.expect("a 400-dollar part payment leaves 600 owed",
+                    part.outstanding_amount == D("600.00"), str(part.outstanding_amount))
+        self.expect("and releases 40% of the invoice's 5,000 share",
+                    self.bal("1350") == D("7500.00"), str(self.bal("1350")))
+        releases = revaluation.live_releases(company).count()
+        revaluation.sync_releases(company)
+        self.expect("checking again releases nothing more",
+                    revaluation.live_releases(company).count() == releases
+                    and self.bal("1350") == D("7500.00"), str(self.bal("1350")))
+        receipt("PAY-PART-2", part, "600", self.day(10, 16))
+        self.expect("paying the rest releases the rest of its share",
+                    self.bal("1350") == D("4500.00"), str(self.bal("1350")))
+
+        client.post(reverse("sales:invoice_cancel", args=[gone.pk]), {})
+        gone.refresh_from_db()
+        self.expect("cancelling a revalued invoice releases its whole share",
+                    gone.status == "CANCELLED" and self.bal("1350") == D("2500.00"),
+                    f"{gone.status}, 1350 {self.bal('1350')}")
+        release = JournalEntry.objects.filter(
+            company=company, source_document_type=revaluation.RELEASE,
+            source_document_id=f"Invoice:{gone.pk}").first()
+        self.expect("dated no earlier than the revaluation",
+                    release is not None and release.posting_date == self.day(9, 30),
+                    str(release and release.posting_date))
+
+        receipt("PAY-LATE", late, "500", self.day(9, 20))
+        self.expect("a receipt keyed in late but dated before the revaluation releases its share",
+                    self.bal("1350") == Z, str(self.bal("1350")))
+        self.expect("on the revaluation's own day",
+                    self.bal("1350", upto=self.day(9, 30)) == D("9500.00") - D("2500.00")
+                    - D("2000.00"), str(self.bal("1350", upto=self.day(9, 30))))
+        self.expect("every unrealised figure has come back off the profit and loss",
+                    self.bal("4320") + self.bal("7310") == Z,
+                    f"{self.bal('4320')} / {self.bal('7310')}")
+
+        from apps.sales.models import CustomerPayment
+        payment = CustomerPayment.objects.get(company=company, reference="PAY-PART-2")
+        client.post(reverse("sales:payment_reverse", args=[payment.pk]), {"reason": "bounced"})
+        self.expect("giving the second receipt back carries its 60% again",
+                    self.bal("1350") == D("3000.00"), str(self.bal("1350")))
+        client.post(reverse("accounting:revaluation_reverse"), {"date": str(self.day(10, 20))})
+        self.expect("taking the revaluation off clears 1350 and every release with it",
+                    self.bal("1350") == Z and not revaluation.live_releases(company).exists(),
+                    str(self.bal("1350")))

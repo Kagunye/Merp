@@ -1,6 +1,12 @@
 {% extends "base/base.html" %}
 {% block content %}
 <div class="max-w-2xl">
+  {% if has_unread %}
+  <form method="post" action="{% url 'notifications:mark_all_read' %}" class="flex justify-end mb-3">
+    {% csrf_token %}
+    <button type="submit" class="btn-outline text-sm">Mark all as read</button>
+  </form>
+  {% endif %}
   <div class="card bg-white rounded-xl border border-gray-200 shadow-card">
     {% if notifications %}
     <div class="divide-y divide-gray-100">
@@ -21,7 +27,12 @@
           <p class="text-xs text-gray-400 mt-1">{{ n.created_at|timesince }} ago</p>
         </div>
         {% if not n.is_read %}
-        <div class="w-2 h-2 rounded-full mt-2 shrink-0" style="background: var(--primary)"></div>
+        <form method="post" action="{% url 'notifications:mark_read' n.pk %}" class="shrink-0">
+          {% csrf_token %}
+          <button type="submit" class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1.5" title="Mark as read">
+            <span class="w-2 h-2 rounded-full" style="background: var(--primary)"></span> Mark read
+          </button>
+        </form>
         {% endif %}
       </div>
       {% endfor %}

@@ -35,6 +35,13 @@ class Ticket(BaseModel, NotesMixin):
         "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="assigned_tickets",
     )
+    # Who opened the ticket in the app. The requester above may be a customer
+    # with no login; this is the colleague who logged it, and the one who may
+    # close it once they are satisfied.
+    raised_by = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="raised_tickets",
+    )
     opened_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)

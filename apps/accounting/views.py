@@ -814,9 +814,20 @@ class AccountingIndexView(LoginRequiredMixin, TemplateView):
             return ctx
         accs = Account.objects.filter(company=company, is_active=True)
         ctx["account_count"] = accs.count()
-        ctx["asset_balance"] = sum((a.current_balance for a in accs.filter(account_type__in=["ASSET", "CASH", "BANK"])), Decimal(0))
-        ctx["liability_balance"] = sum((a.current_balance for a in accs.filter(account_type="LIABILITY")), Decimal(0))
-        ctx["equity_balance"] = sum((a.current_balance for a in accs.filter(account_type="EQUITY")), Decimal(0))
+        # The tiles are balances as at today, the same as the trial balance and
+        # the balance sheet opened today: a supplier payment dated next week,
+        # or an accrual keyed in ahead for month end, has not happened yet,
+        # and a tile that counts it disagrees with every report beside it.
+        today = date.today()
+        ctx["as_at"] = today
+
+        def total(types):
+            return sum((a.balance_as_at(today) for a in accs.filter(account_type__in=types)),
+                       Decimal(0))
+
+        ctx["asset_balance"] = total(["ASSET", "CASH", "BANK"])
+        ctx["liability_balance"] = total(["LIABILITY"])
+        ctx["equity_balance"] = total(["EQUITY"])
         ctx["recent_entries"] = JournalEntry.objects.filter(company=company).order_by("-posting_date", "-created_at")[:8]
         ctx["draft_count"] = JournalEntry.objects.filter(company=company, status="DRAFT").count()
         return ctx
@@ -838,6 +849,8 @@ class CurrencyListView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         company = self.request.active_company
         ctx["page_title"] = "Currencies & Exchange Rates"
+        from apps.core.access import is_platform_admin
+        ctx["may_register"] = is_platform_admin(self.request.user)
         if not company:
             return ctx
         book = (company.currency or "KES").upper()
@@ -874,10 +887,32 @@ class CurrencyListView(LoginRequiredMixin, TemplateView):
 
 
 class CurrencyCreateView(LoginRequiredMixin, CreateView):
+    """Register a currency in the shared register.
+
+    The register is one list for the whole platform: every company's
+    documents, rate forms and pickers read it. A code added by one company's
+    accountant appears in every other company's book, so adding to it is the
+    platform administrator's job. Anybody else who opens the form is told
+    whom to ask; a company's own rates are still filed by its accountants.
+    """
     model = Currency
     form_class = CurrencyForm
     template_name = "accounting/currency_form.html"
     success_url = reverse_lazy("accounting:currency_list")
+
+    def may_register(self):
+        from apps.core.access import is_platform_admin
+        return is_platform_admin(self.request.user)
+
+    def post(self, request, *args, **kwargs):
+        if not self.may_register():
+            messages.error(
+                request,
+                "The currency register is shared by every company on Mofisi, so only "
+                "a platform administrator can add to it. Ask them to register the "
+                "code; you can then file your own rates for it.")
+            return redirect("accounting:currency_list")
+        return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
         messages.success(
@@ -889,6 +924,7 @@ class CurrencyCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Register a Currency"
+        ctx["may_register"] = self.may_register()
         return ctx
 
 

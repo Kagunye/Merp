@@ -8,7 +8,7 @@
       <p class="text-sm text-gray-500 mt-0.5">The ledger is kept in {{ book }}. A document in another currency is worth whatever you filed for it on its own date — rates are history, not a live feed.</p>
     </div>
     <div class="flex gap-2">
-      <a href="{% url 'accounting:currency_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Register a Currency</a>
+      {% if may_register %}<a href="{% url 'accounting:currency_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Register a Currency</a>{% endif %}
       <a href="{% url 'accounting:exchange_rate_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         File a Rate

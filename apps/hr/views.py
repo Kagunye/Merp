@@ -106,12 +106,19 @@ class EmployeeCreateView(LoginRequiredMixin, CreateView):
             form.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
             form.fields["reports_to"].queryset = Employee.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
-            form.fields["employee_number"].initial = SequenceCounter.next_number(company, "EMP-")
+            # A preview: the number is taken at save time (claim_number), so
+            # opening this form and leaving does not leave a gap in the series.
+            form.fields["employee_number"].initial = SequenceCounter.peek_number(company, "EMP-")
         form.fields["date_hired"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
+        from apps.core.models import SequenceCounter
+        company = self.request.active_company
+        form.instance.company = company
+        form.instance.employee_number = SequenceCounter.claim_number(
+            company, "EMP-", form.instance.employee_number,
+            taken=lambda ref: Employee.objects.filter(company=company, employee_number=ref).exists())
         messages.success(self.request, f"Employee '{form.instance.full_name}' created.")
         return super().form_valid(form)
 

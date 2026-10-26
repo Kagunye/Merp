@@ -193,12 +193,19 @@ class PurchaseOrderCreateView(LoginRequiredMixin, CreateView):
             form.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
             form.fields["warehouse"].queryset = Warehouse.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
-            form.fields["reference"].initial = SequenceCounter.next_number(company, "PO-")
+            # A preview: the number is taken at save time (claim_number), so
+            # opening this form and leaving does not leave a gap in the series.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "PO-")
         form.fields["order_date"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
+        from apps.core.models import SequenceCounter
+        company = self.request.active_company
+        form.instance.company = company
+        form.instance.reference = SequenceCounter.claim_number(
+            company, "PO-", form.instance.reference,
+            taken=lambda ref: PurchaseOrder.objects.filter(company=company, reference=ref).exists())
         messages.success(self.request, f"Purchase Order '{form.instance.reference}' created.")
         return super().form_valid(form)
 

@@ -30,6 +30,13 @@ HR = frozenset({"HR_MANAGER"})
 PAYROLL = frozenset({"PAYROLL_OFFICER"})
 AUDIT = frozenset({"AUDITOR"})
 TILL = SALES | {"POS_CASHIER"}
+# Everybody who works in the book rather than only reads it: a VIEWER is a
+# read-only seat and an AUDITOR examines the records, so neither may add to
+# or alter them -- an auditor who could edit what they audit is no check.
+WORKERS = EVERYONE - {"VIEWER", "AUDITOR"}
+# Who raises purchase paperwork: a requisition is asked for by whoever runs
+# the purchasing or the stores, and finance may raise one too.
+PURCHASERS = frozenset({"FINANCE_MANAGER", "PROCUREMENT", "WAREHOUSE_MANAGER"})
 
 # (namespace, url-name glob, roles that may view, roles that may change)
 RULES: list[tuple[str, str, frozenset, frozenset]] = [
@@ -44,19 +51,36 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("sales", "invoice_post", NOBODY, FINANCE),
     ("sales", "invoice_cancel", NOBODY, FINANCE | {"SALES_MANAGER"}),
     ("sales", "invoice_credit_note", NOBODY, FINANCE | {"SALES_MANAGER"}),
+    # Confirming an order commits stock and a price to the customer; cancelling
+    # one walks that back. Both are a manager's or finance's call, not the rep
+    # who is paid on the order.
+    ("sales", "order_confirm", NOBODY, FINANCE | {"SALES_MANAGER"}),
+    ("sales", "order_cancel", NOBODY, FINANCE | {"SALES_MANAGER"}),
     ("sales", "payment_reverse", NOBODY, FM),
+    # Applying money the customer left on account to an invoice is a cash
+    # posting: finance only, like the receipt it came from.
+    ("sales", "payment_apply*", FINANCE | SALES | AUDIT, FINANCE),
     ("sales", "payment_*", FINANCE | SALES | AUDIT, FINANCE),
     ("sales", "ar_aging", FINANCE | SALES | AUDIT, NOBODY),
     ("sales", "customer_statement", FINANCE | SALES | AUDIT, NOBODY),
     ("procurement", "requisition_approve", NOBODY, FM),
     ("procurement", "requisition_reject", NOBODY, FM),
+    ("procurement", "requisition_submit", NOBODY, PURCHASERS),
+    # A purchase order is a promise to pay a supplier: the buyers raise and
+    # cancel it. The stores receive against it (grn*), and must not also be
+    # able to order what they will then say arrived.
+    ("procurement", "po_create", frozenset({"PROCUREMENT"}), frozenset({"PROCUREMENT"})),
+    ("procurement", "po_cancel", NOBODY, frozenset({"PROCUREMENT"})),
+    ("procurement", "po_close_short", NOBODY, frozenset({"PROCUREMENT", "FINANCE_MANAGER"})),
     ("procurement", "bill_pay", NOBODY, FINANCE),
     ("procurement", "bill_post", NOBODY, FINANCE),
     ("procurement", "bill_cancel", NOBODY, FINANCE),
     ("procurement", "bill_debit_note", NOBODY, FINANCE),
     ("procurement", "bill_*", FINANCE | STOCK | AUDIT | {"VIEWER"}, FINANCE | {"PROCUREMENT"}),
     ("procurement", "po_to_bill", NOBODY, FINANCE | {"PROCUREMENT"}),
-    ("procurement", "grn*", FINANCE | STOCK | AUDIT | {"VIEWER"}, STOCK),
+    # Receiving goods is the stores' word that they arrived; the buyer who
+    # placed the order may not also sign for it.
+    ("procurement", "grn*", FINANCE | STOCK | AUDIT | {"VIEWER"}, frozenset({"WAREHOUSE_MANAGER"})),
     ("procurement", "ap_aging", FINANCE | STOCK | AUDIT, NOBODY),
     ("procurement", "supplier_statement", FINANCE | STOCK | AUDIT, NOBODY),
     ("pos", "terminal", TILL, TILL),
@@ -66,18 +90,26 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("payroll", "run_approve", NOBODY, FM),
     ("payroll", "run_post", NOBODY, FM),
     ("payroll", "run_cancel", NOBODY, FM),
+    # Everybody may see their own payslips; the view only ever lists the
+    # signed-in person's own.
+    ("payroll", "my_payslips", EVERYONE, NOBODY),
     ("payroll", "band_*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("payroll", "rule*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("payroll", "component_*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("hr", "leave_approve", NOBODY, HR),
     ("hr", "leave_*", EVERYONE, EVERYONE),
     ("hr", "contract_*", HR | PAYROLL | AUDIT, HR),
-    ("expenses", "claim_approve", NOBODY, FM),
-    ("expenses", "claim_reject", NOBODY, FM),
+    # Approving a claim is saying the company owes the money: the finance
+    # manager or the HR manager decides; paying it is finance's work. Whose
+    # claim it is (nobody approves their own) is checked by the view.
+    ("expenses", "claim_approve", NOBODY, FM | HR),
+    ("expenses", "claim_reject", NOBODY, FM | HR),
     ("expenses", "claim_pay", NOBODY, FINANCE),
     ("expenses", "category_*", FINANCE | AUDIT, FINANCE),
     ("timesheets", "entry_approve", NOBODY, frozenset({"PROJECT_MANAGER", "HR_MANAGER"})),
-    ("fixed_assets", "asset_dispose", NOBODY, FM),
+    # The finance manager who disposes of an asset has to be able to open
+    # the disposal form first.
+    ("fixed_assets", "asset_dispose", FM, FM),
     ("fixed_assets", "*_reverse", NOBODY, FM),
     ("inventory", "adjustment_create", FINANCE | STOCK | AUDIT, frozenset({"WAREHOUSE_MANAGER"})),
     ("inventory", "stock_transfer", FINANCE | STOCK | AUDIT, frozenset({"WAREHOUSE_MANAGER"})),
@@ -90,14 +122,15 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
 
     # --- Whole modules.
     ("accounting", "*", FINANCE | AUDIT, FINANCE),
+    # Moving money between the company's own bank and cash accounts.
+    ("banking", "transfer*", FINANCE | AUDIT, FINANCE),
     ("banking", "*", FINANCE | AUDIT, FINANCE),
     ("fixed_assets", "*", FINANCE | AUDIT, FINANCE),
     ("reporting", "aged_*", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
     ("reporting", "*", FINANCE | AUDIT, NOBODY),
     ("sales", "*", FINANCE | SALES | AUDIT | {"VIEWER"}, SALES | {"FINANCE_MANAGER"}),
     ("pos", "*", FINANCE | TILL | AUDIT, TILL),
-    ("procurement", "*", FINANCE | STOCK | AUDIT | {"VIEWER"},
-     frozenset({"FINANCE_MANAGER", "PROCUREMENT", "WAREHOUSE_MANAGER"})),
+    ("procurement", "*", FINANCE | STOCK | AUDIT | {"VIEWER"}, PURCHASERS),
     ("inventory", "*", FINANCE | SALES | STOCK | AUDIT | {"POS_CASHIER", "VIEWER"}, STOCK),
     ("warehousing", "*", FINANCE | SALES | STOCK | AUDIT | {"POS_CASHIER", "VIEWER"}, STOCK),
     ("manufacturing", "*", STOCK | AUDIT | {"FINANCE_MANAGER", "PROJECT_MANAGER", "VIEWER"},
@@ -106,14 +139,27 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
      frozenset({"WAREHOUSE_MANAGER", "PROJECT_MANAGER"})),
     ("hr", "*", HR | PAYROLL | AUDIT, HR),
     ("recruitment", "*", HR | AUDIT, HR),
-    ("payroll", "*", HR | PAYROLL | FM | AUDIT, PAYROLL | HR),
+    # HR keeps the people and their contracts (the hr module); the runs, the
+    # calculation and the statutory tables are the payroll officer's, and
+    # approving and posting stay with finance (above). HR may look, not touch.
+    ("payroll", "*", HR | PAYROLL | FM | AUDIT, PAYROLL),
     ("projects", "*", EVERYONE - {"POS_CASHIER"}, frozenset({"PROJECT_MANAGER"})),
     ("sms", "*", FINANCE | SALES | {"VIEWER"}, frozenset({"SALES_MANAGER"})),
     ("business_mgmt", "*", EVERYONE, NOBODY),
-    ("expenses", "*", EVERYONE, EVERYONE),
+    # Anyone who works here raises, edits and submits their own claim; the
+    # view keeps them to their own and to claims still in draft.
+    ("expenses", "*", EVERYONE, WORKERS),
     ("timesheets", "*", EVERYONE, EVERYONE),
-    ("helpdesk", "*", EVERYONE, EVERYONE),
-    ("documents", "*", EVERYONE, EVERYONE),
+    # Anybody may raise a ticket. Resolving and closing are open here because
+    # the assignee may hold any role; the view lets only the assignee, the
+    # reporter (close only) and an admin do it.
+    ("helpdesk", "ticket_create", EVERYONE, EVERYONE),
+    ("helpdesk", "ticket_resolve", NOBODY, EVERYONE),
+    ("helpdesk", "ticket_close", NOBODY, EVERYONE),
+    ("helpdesk", "*", EVERYONE, WORKERS),
+    # Deleting a document is for an admin or whoever uploaded it, which the
+    # view checks; read-only seats may not upload or delete at all.
+    ("documents", "*", EVERYONE, WORKERS),
     ("notifications", "*", EVERYONE, EVERYONE),
     ("dashboard", "kpi_widgets", FINANCE | AUDIT, NOBODY),
     ("dashboard", "recent_transactions", FINANCE | AUDIT, NOBODY),

@@ -27,20 +27,37 @@ Two rules keep the unrealised figure honest:
   rate is *realised* and booked on the payment; the unrealised share the
   revaluation was still carrying for that document would otherwise sit on
   1350/2150 and in the profit and loss beside it, counting the same rate
-  move twice. So when a document the live revaluation counted is settled in
-  full, a release entry takes exactly its share back off, dated the day it
-  was settled. If the settlement is later undone (a receipt given back), the
-  release is reversed and the share is carried again. The release entries
-  belong to the revaluation they answer: taking that revaluation off, or
-  replacing it with a newer one, takes its releases off with it.
+  move twice. So each document's share is written down when the revaluation
+  is posted (RevaluationShare), and as the document is settled the share
+  comes back off in step with it, dated the day of the settlement:
+
+  - a part-payment releases its proportional slice -- 400 of a 1,000 dollar
+    invoice releases 40% of the invoice's share, and the rest stays carried
+    against the 600 still open;
+  - settling the rest, or cancelling the document, releases whatever of the
+    share is left. A cancelled document never existed as far as the balance
+    sheet is concerned, so all of its share comes off;
+  - a settlement keyed in late but dated before the revaluation is caught
+    the same way: the share on file is what the revaluation booked, so its
+    release is dated the revaluation's own day rather than lost;
+  - a settlement undone (a receipt given back) reverses the releases it
+    caused, and the share is carried again.
+
+  Only the difference between what should be off and what the standing
+  releases already took off is ever posted, so running the check again --
+  it runs on every save of a foreign invoice or bill -- changes nothing. The
+  release entries belong to the revaluation they answer: taking that
+  revaluation off, or replacing it with a newer one, takes its releases off
+  with it.
 
   The other common answer — auto-reversing every revaluation on the first day
   of the next period — was not used because this book keeps one *live*
   revaluation that the next one replaces, and the screens, the "one at a
   time" rule and the redraw of a period end are all built on that.
 
-  A part-payment releases nothing: the remaining balance is still open and
-  the next revaluation reads it afresh.
+  The next revaluation still reads every open balance afresh: what is left
+  of a part-paid invoice is valued again at the new rate, and the new
+  revaluation's shares replace the old ones.
 """
 import datetime
 from decimal import Decimal
@@ -392,6 +409,7 @@ def post_revaluation(company, as_of, user=None):
         _cr(entry, gain, -payable, "Unrealised exchange gain")
 
     entry.post(user=user)
+    _record_shares(entry, position)
     # A document open on the day but settled since then was valued above
     # because it was owed on the day; its share comes straight back off on
     # the day it was settled.
@@ -401,41 +419,136 @@ def post_revaluation(company, as_of, user=None):
 
 # ─────────────────────────── settling releases ──────────────────────────────
 
+CENT = Decimal("0.01")
+
+
 def _document_key(document):
     return f"{type(document).__name__}:{document.pk}"
 
 
-def _post_release(company, live, item, user=None):
-    """Take one settled document's share of the live revaluation back off."""
+def _record_shares(entry, position):
+    """Write down each document's share of a revaluation as it was booked."""
+    from apps.accounting.models import RevaluationShare
+
+    RevaluationShare.objects.bulk_create([
+        RevaluationShare(
+            revaluation=entry, document_key=_document_key(item["document"]),
+            side=item["side"], currency=item["code"], foreign=item["foreign"],
+            difference=item["difference"])
+        for item in position.get("documents", []) if item["difference"]
+    ])
+
+
+def _shares(live, position=None):
+    """[(share, document)] for every document with a part in the live revaluation.
+
+    Read from the shares written down when it was posted. A revaluation
+    posted before shares were kept has none on file; for that one the
+    documents are read again as at its day, which is what this module did
+    before and is right unless a settlement was backdated behind it.
+    """
+    from types import SimpleNamespace
+
+    from apps.accounting.models import RevaluationShare
+    from apps.procurement.models import Bill
+    from apps.sales.models import Invoice
+
+    stored = list(RevaluationShare.objects.filter(revaluation=live))
+    if stored:
+        models = {"Invoice": Invoice, "Bill": Bill}
+        out = []
+        for share in stored:
+            kind, _, pk = share.document_key.partition(":")
+            model = models.get(kind)
+            document = model.objects.filter(pk=pk).first() if model else None
+            if document is not None:
+                out.append((share, document))
+        return out
+    if position is None or position.get("as_of") != live.posting_date:
+        position = positions(live.company, live.posting_date)
+    return [
+        (SimpleNamespace(document_key=_document_key(item["document"]), side=item["side"],
+                         foreign=item["foreign"], difference=item["difference"]),
+         item["document"])
+        for item in position.get("documents", []) if item["difference"]
+    ]
+
+
+def _released_by(entry, side):
+    """How much of a document's share one release entry took back off.
+
+    Signed the same way as the share: a release of a gain on a receivable
+    credits 1350, a release of a loss on it debits 1350, and the payable side
+    is the mirror on 2150. Read from the entry's own lines, so nothing about a
+    release has to be remembered anywhere but the ledger.
+    """
+    code = RECEIVABLE_ACCOUNT if side == "ar" else PAYABLE_ACCOUNT
+    total = Z
+    for line in entry.lines.filter(account__code=code):
+        if side == "ar":
+            total += line.credit_amount - line.debit_amount
+        else:
+            total += line.debit_amount - line.credit_amount
+    return total
+
+
+def _still_owed(share, document):
+    """What of the share's foreign amount the document still owes now.
+
+    A cancelled document owes nothing: cancelling it reversed its entry, so
+    the receivable or payable the revaluation was measuring is gone in full.
+    Otherwise it is the document's own outstanding figure, never read as more
+    than it owed on the revaluation's day (an invoice owed again after a
+    receipt is given back carries its whole share again, not more).
+    """
+    if document.status == "CANCELLED":
+        return Z
+    owed = Decimal(str(document.outstanding_amount or 0))
+    return min(max(owed, Z), share.foreign)
+
+
+def _release_date(live, document):
+    """The day a release is dated: when the document was settled or cancelled,
+    never before the revaluation whose share it takes back."""
+    on_date = None
+    if document.status == "CANCELLED":
+        undone = getattr(document.journal_entry, "reversed_by", None) \
+            if document.journal_entry_id else None
+        on_date = undone.posting_date if undone else datetime.date.today()
+    else:
+        on_date = settled_on(document) or datetime.date.today()
+    return max(on_date, live.posting_date)
+
+
+def _post_release(company, live, document, side, amount, on_date, user=None, why="settled"):
+    """Take `amount` of one document's share of the live revaluation back off."""
     from apps.accounting.gl_service import _cr, _dr, _new_je
 
-    document, difference = item["document"], item["difference"]
-    on_date = max(settled_on(document) or datetime.date.today(), live.posting_date)
     accounts = _accounts(company)
     entry = _new_je(
         company, "JE-FXR-", "REVALUATION", on_date,
-        f"{document.reference} settled — release its share of {live.reference}",
+        f"{document.reference} {why} — release its share of {live.reference}",
     )
     entry.source_document_type = RELEASE
     entry.source_document_id = _document_key(document)
     entry.save(update_fields=["source_document_type", "source_document_id", "updated_at"])
-    label = f"{document.reference} settled: unrealised exchange released"
-    if item["side"] == "ar":
+    label = f"{document.reference} {why}: unrealised exchange released"
+    if side == "ar":
         # Booked as Dr 1350 / Cr gain when the paper was worth more, and the
         # other way round when it was worth less; the release is the mirror.
-        if difference > 0:
-            _dr(entry, accounts["gain"], difference, label)
-            _cr(entry, accounts["ar"], difference, label)
+        if amount > 0:
+            _dr(entry, accounts["gain"], amount, label)
+            _cr(entry, accounts["ar"], amount, label)
         else:
-            _dr(entry, accounts["ar"], -difference, label)
-            _cr(entry, accounts["loss"], -difference, label)
+            _dr(entry, accounts["ar"], -amount, label)
+            _cr(entry, accounts["loss"], -amount, label)
     else:
-        if difference > 0:
-            _dr(entry, accounts["ap"], difference, label)
-            _cr(entry, accounts["loss"], difference, label)
+        if amount > 0:
+            _dr(entry, accounts["ap"], amount, label)
+            _cr(entry, accounts["loss"], amount, label)
         else:
-            _dr(entry, accounts["gain"], -difference, label)
-            _cr(entry, accounts["ap"], -difference, label)
+            _dr(entry, accounts["gain"], -amount, label)
+            _cr(entry, accounts["ap"], -amount, label)
     entry.post(user=user)
     return entry
 
@@ -443,26 +556,52 @@ def _post_release(company, live, item, user=None):
 def sync_releases(company, user=None, position=None):
     """Bring the release entries into line with what has been settled since.
 
-    Every document the live revaluation counted that is now settled in full
-    gets its share released; every release whose document is owed again (a
-    receipt given back) is reversed so the share is carried once more.
+    For every document with a share in the live revaluation, the part of the
+    share that should have come off is the part of the document that has been
+    settled since: all of it once the document is paid in full or cancelled,
+    and a proportional slice for a part-payment -- 400 of a 1,000 dollar
+    invoice settles 40% of it, so 40% of its unrealised difference is now
+    realised on the receipt and comes off 1350. What has already come off is
+    read from the standing release entries. Only the gap is posted, so
+    running this twice changes nothing, and a later receipt releases only its
+    own slice.
+
+    When less should be off than is (a receipt given back, an invoice owed
+    again), the latest releases are reversed until no more is off than
+    should be, and any small remainder is released afresh -- the share is
+    carried again from the day the settlement was undone, while the months it
+    was settled keep showing it settled.
     """
     live = live_revaluation(company)
     if live is None:
         return []
-    if position is None or position.get("as_of") != live.posting_date:
-        position = positions(company, live.posting_date)
-    standing = {release.source_document_id: release for release in live_releases(company)}
+    standing = {}
+    for release in live_releases(company).order_by("posting_date", "created_at"):
+        standing.setdefault(release.source_document_id, []).append(release)
     touched = []
-    for item in position.get("documents", []):
-        document = item["document"]
+    for share, document in _shares(live, position):
         document.refresh_from_db()
-        key = _document_key(document)
-        settled = document.outstanding_amount <= Z and document.status not in NOT_OPEN
-        if settled and key not in standing and item["difference"]:
-            touched.append(_post_release(company, live, item, user=user))
-        elif not settled and key in standing:
-            touched.append(standing[key].reverse(user=user))
+        if not share.difference or not share.foreign:
+            continue
+        owed = _still_owed(share, document)
+        if owed <= Z:
+            target = share.difference
+        else:
+            target = (share.difference * (share.foreign - owed) / share.foreign).quantize(CENT)
+        releases = standing.get(share.document_key, [])
+        released = sum((_released_by(r, share.side) for r in releases), Z)
+        # Too much is off: give back the latest releases first.
+        while releases and abs(released) > abs(target):
+            last = releases.pop()
+            touched.append(last.reverse(user=user))
+            released -= _released_by(last, share.side)
+        gap = target - released
+        if gap:
+            why = "cancelled" if document.status == "CANCELLED" else (
+                "settled" if owed <= Z else "part-settled")
+            touched.append(_post_release(
+                company, live, document, share.side, gap,
+                _release_date(live, document), user=user, why=why))
     return touched
 
 

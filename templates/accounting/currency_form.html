@@ -2,5 +2,14 @@
 {% block content %}
 {% url 'accounting:currency_list' as back_url %}
 {% url 'accounting:currency_list' as cancel_url %}
+{% if may_register %}
 {% include "_includes/model_form.html" with title=page_title subtitle="Registering a code makes it visible; filing a rate for it makes it usable on a document" section_label="Currency Details" back_url=back_url cancel_url=cancel_url submit_label=action|default:"Register" %}
+{% else %}
+{% include "_includes/page_header.html" with title=page_title back_url=back_url %}
+<div class="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+  The currency register is shared by every company on Mofisi, so only a platform administrator can add a currency to it.
+  Ask them to register the code you need; once it is there, you can file this company's own rates for it under
+  <a href="{% url 'accounting:exchange_rate_create' %}" class="underline">File a Rate</a>.
+</div>
+{% endif %}
 {% endblock %}
