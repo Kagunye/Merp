@@ -27,6 +27,18 @@ def money(value):
 # the slips it produced say something the table no longer says.
 SETTLED_RUNS = ["APPROVED", "POSTED", "CANCELLED"]
 
+# The staff a month's pay is worked out for. Somebody on leave is still on the
+# payroll — annual, sick and maternity leave are paid — and leaving them off
+# because their status says ON_LEAVE is how a person on maternity leave goes a
+# month without pay and nobody notices. Unpaid leave is a pay element (a
+# deduction), not a reason to drop the payslip.
+PAYABLE_STATUSES = ["ACTIVE", "PROBATION", "ON_LEAVE"]
+
+
+def normalise_code(code):
+    """A statutory code as the payslip prints it: trimmed, in capitals."""
+    return (code or "").strip().upper()
+
 
 class StatutoryRule(BaseModel):
     """One deduction or contribution, as the law describes it that month.
@@ -94,7 +106,16 @@ class StatutoryRule(BaseModel):
     def __str__(self):
         return f"{self.code} from {self.effective_from}"
 
+    def save(self, *args, **kwargs):
+        # A code is a key the run groups by, so 'nssf' and 'NSSF' are the same
+        # table. Stored in one case, a lower-case row typed by hand is a dated
+        # change to the table it names instead of a second pension charged on
+        # top of the first.
+        self.code = normalise_code(self.code)
+        super().save(*args, **kwargs)
+
     def clean(self):
+        self.code = normalise_code(self.code)
         super().clean()
         if self.method == "PERCENT" and self.employee_percent == 0 \
                 and self.employer_percent == 0 and self.employee_flat == 0 \
@@ -112,13 +133,38 @@ class StatutoryRule(BaseModel):
                 "The employer pays a share, so the share needs an expense account to "
                 "land in. Choose one, or set the employer percentage to zero.")
         if self.method == "BANDS":
+            # A new row for the same code with its own start date is the table
+            # changing on that date — the August run keeps reading the old
+            # steps and the October run reads the new ones, which is exactly
+            # how a rate change is meant to be written. A tiered table under a
+            # different code is a second income tax: no row of a table ever
+            # stops being in force except by being superseded under its own
+            # code, so the two would both be read on the same pay day and each
+            # tax the same pay.
             clash = StatutoryRule.objects.filter(
                 company_id=self.company_id, method="BANDS", is_active=True,
-            ).exclude(pk=self.pk).first()
+            ).exclude(pk=self.pk).exclude(code__iexact=self.code).first()
             if clash:
                 raise ValidationError(
                     f"'{clash.code}' is already this company's tiered table. Two of "
-                    "them would each tax the same pay, so one must be retired first.")
+                    "them would each tax the same pay. To change the rates, add a "
+                    f"new {clash.code} row with the date the new steps start; to "
+                    f"replace the table with a different one, retire {clash.code} "
+                    "first.")
+
+    @property
+    def is_settled(self):
+        """Has this table paid a run somebody signed off?
+
+        Its rates — and the steps of a tiered table are rates — are then a
+        record of what those payslips were worked out from. Changing them
+        afterwards, even by taking a band out or adding one, would leave a
+        posted slip saying 30% on a step the table no longer has.
+        """
+        if not self.pk:
+            return False
+        return PayslipLine.objects.filter(
+            rule_id=self.pk, payslip__payroll_run__status__in=SETTLED_RUNS).exists()
 
     def bands(self):
         """The table's steps, lowest first."""

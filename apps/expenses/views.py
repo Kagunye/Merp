@@ -1,3 +1,6 @@
+import datetime
+import uuid
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -12,9 +15,48 @@ from django.views.generic import (
 
 from apps.banking.models import BankAccount
 from apps.core.mixins import CompanyRequiredMixin
+from apps.hr.access import manages_claims, own_employee
 
 from .forms import ExpenseCategoryForm, ExpenseClaimForm, ExpenseClaimLineForm
 from .models import ExpenseCategory, ExpenseClaim, ExpenseClaimLine
+
+
+# A claim can be changed while it is still the claimant's own paper. Once it is
+# submitted somebody else is looking at it; once approved or paid, the figures,
+# the person and the date are what was agreed and what left the bank.
+EDITABLE_STATUSES = ("DRAFT",)
+
+
+def visible_claims(request):
+    """The claims this login may see and act on in the active company.
+
+    Finance and HR see every claim, because paying them is their work. Anybody
+    else sees the claims raised in their own name and nobody else's — and a
+    login with no employee record has no claims of its own at all.
+    """
+    company = getattr(request, "active_company", None)
+    if not company:
+        return ExpenseClaim.objects.none()
+    claims = ExpenseClaim.objects.filter(company=company)
+    if manages_claims(request.user, company):
+        return claims
+    mine = own_employee(request.user, company)
+    return claims.filter(employee=mine) if mine else ExpenseClaim.objects.none()
+
+
+def is_own_claim(request, claim):
+    """Is the person acting the person being paid?"""
+    return claim.employee.user_id is not None and claim.employee.user_id == request.user.pk
+
+
+def refuse_own_claim(request, claim, verb):
+    """Nobody approves or pays money back to themselves — the same rule leave
+    and timesheets keep. A second person has to agree the money is owed."""
+    messages.error(
+        request,
+        f"{claim.reference} is your own claim, so you cannot {verb} it. Somebody else "
+        "in finance has to.")
+    return redirect("expenses:claim_detail", pk=claim.pk)
 
 
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
@@ -25,7 +67,7 @@ class ModuleHomeView(LoginRequiredMixin, TemplateView):
         ctx["page_title"] = "Expenses"
         company = getattr(self.request, "active_company", None)
         if company:
-            claims = ExpenseClaim.objects.filter(company=company)
+            claims = visible_claims(self.request)
             ctx["recent_claims"] = claims[:10]
             ctx["pending_count"] = claims.filter(status="SUBMITTED").count()
             ctx["approved_count"] = claims.filter(status="APPROVED").count()
@@ -40,10 +82,7 @@ class ExpenseClaimListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        company = self.request.active_company
-        if not company:
-            return ExpenseClaim.objects.none()
-        return ExpenseClaim.objects.filter(company=company).select_related("employee")
+        return visible_claims(self.request).select_related("employee")
 
 
 class ExpenseClaimCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
@@ -54,6 +93,7 @@ class ExpenseClaimCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVie
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["company"] = self.request.active_company
+        kwargs["user"] = self.request.user
         return kwargs
 
     def form_valid(self, form):
@@ -72,16 +112,37 @@ class ExpenseClaimCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVie
 
 
 class ExpenseClaimUpdateView(LoginRequiredMixin, UpdateView):
+    """Correct a claim that is still a draft.
+
+    A submitted claim is in somebody else's hands, and an approved or paid one
+    is a decision and a payment: changing the claimant, the date or the
+    reference afterwards would make the approval and the bank entry describe a
+    claim that no longer exists.
+    """
     model = ExpenseClaim
     form_class = ExpenseClaimForm
     template_name = "expenses/claim_form.html"
 
     def get_queryset(self):
-        return ExpenseClaim.objects.filter(company=self.request.active_company)
+        return visible_claims(self.request)
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
+        claim = self.get_object()
+        if claim.status not in EDITABLE_STATUSES:
+            messages.error(
+                request,
+                f"{claim.reference} is {claim.get_status_display().lower()}, so it can no "
+                "longer be changed — only a draft claim can be edited. If it is wrong, "
+                "have it rejected and raise a new claim.")
+            return redirect("expenses:claim_detail", pk=claim.pk)
+        return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["company"] = self.request.active_company
+        kwargs["user"] = self.request.user
         return kwargs
 
     def get_success_url(self):
@@ -94,11 +155,13 @@ class ExpenseClaimDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "claim"
 
     def get_queryset(self):
-        return ExpenseClaim.objects.filter(company=self.request.active_company)
+        return visible_claims(self.request)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["line_form"] = ExpenseClaimLineForm(company=self.request.active_company)
+        ctx["is_own_claim"] = is_own_claim(self.request, self.object)
+        ctx["today"] = timezone.localdate()
         ctx["payment_accounts"] = BankAccount.objects.filter(
             company=self.request.active_company, is_active=True
         ).select_related("gl_account")
@@ -108,8 +171,8 @@ class ExpenseClaimDetailView(LoginRequiredMixin, DetailView):
 @login_required
 @require_POST
 def claim_add_line(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk, company=request.active_company)
-    if claim.status != "DRAFT":
+    claim = get_object_or_404(visible_claims(request), pk=pk)
+    if claim.status not in EDITABLE_STATUSES:
         messages.error(request, f"Claim {claim.reference} is {claim.get_status_display()}; lines are locked.")
         return redirect("expenses:claim_detail", pk=pk)
     form = ExpenseClaimLineForm(request.POST, request.FILES, company=request.active_company)
@@ -128,7 +191,7 @@ def claim_add_line(request, pk):
 @login_required
 @require_POST
 def claim_submit(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk, company=request.active_company)
+    claim = get_object_or_404(visible_claims(request), pk=pk)
     if claim.status == "DRAFT":
         if not claim.lines.exists():
             messages.error(request, "Add at least one line item before submitting.")
@@ -142,7 +205,12 @@ def claim_submit(request, pk):
 @login_required
 @require_POST
 def claim_approve(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk, company=request.active_company)
+    claim = get_object_or_404(visible_claims(request), pk=pk)
+    if is_own_claim(request, claim):
+        return refuse_own_claim(request, claim, "approve")
+    if not manages_claims(request.user, request.active_company):
+        messages.error(request, "Only finance or HR can approve an expense claim.")
+        return redirect("expenses:claim_detail", pk=pk)
     if claim.status == "SUBMITTED":
         claim.status = "APPROVED"
         claim.approved_by = request.user
@@ -157,7 +225,12 @@ def claim_approve(request, pk):
 @login_required
 @require_POST
 def claim_reject(request, pk):
-    claim = get_object_or_404(ExpenseClaim, pk=pk, company=request.active_company)
+    claim = get_object_or_404(visible_claims(request), pk=pk)
+    if is_own_claim(request, claim):
+        return refuse_own_claim(request, claim, "reject")
+    if not manages_claims(request.user, request.active_company):
+        messages.error(request, "Only finance or HR can reject an expense claim.")
+        return redirect("expenses:claim_detail", pk=pk)
     if claim.status == "SUBMITTED":
         claim.status = "REJECTED"
         claim.save(update_fields=["status"])
@@ -170,8 +243,17 @@ def claim_reject(request, pk):
 @login_required
 @require_POST
 def claim_pay(request, pk):
-    """Pay an approved claim: DR expense accounts, CR bank/cash, then mark PAID."""
-    claim = get_object_or_404(ExpenseClaim, pk=pk, company=request.active_company)
+    """Pay an approved claim: DR expense accounts, CR bank/cash, then mark PAID.
+
+    The entry is dated the day the money leaves — the date posted with the form,
+    or today — not the day the claim was written.
+    """
+    claim = get_object_or_404(visible_claims(request), pk=pk)
+    if is_own_claim(request, claim):
+        return refuse_own_claim(request, claim, "pay")
+    if not manages_claims(request.user, request.active_company):
+        messages.error(request, "Only finance can pay an expense claim.")
+        return redirect("expenses:claim_detail", pk=pk)
     if claim.status != "APPROVED":
         messages.error(request, f"Only approved claims can be paid ({claim.get_status_display()}).")
         return redirect("expenses:claim_detail", pk=pk)
@@ -180,16 +262,40 @@ def claim_pay(request, pk):
         return redirect("expenses:claim_detail", pk=pk)
 
     bank_account = None
-    account_id = request.POST.get("bank_account")
+    account_id = (request.POST.get("bank_account") or "").strip()
     if account_id:
-        bank_account = get_object_or_404(
-            BankAccount, pk=account_id, company=request.active_company
-        )
+        # A mangled choice is the user's problem to fix, not a server error.
+        try:
+            uuid.UUID(account_id)
+        except ValueError:
+            bank_account = None
+        else:
+            bank_account = BankAccount.objects.filter(
+                pk=account_id, company=request.active_company, is_active=True).first()
+        if bank_account is None:
+            messages.error(
+                request,
+                "The account to pay from is not one of this company's bank accounts. "
+                "Choose it from the list and try again.")
+            return redirect("expenses:claim_detail", pk=pk)
+
+    payment_date = timezone.localdate()
+    raw_date = (request.POST.get("payment_date") or "").strip()
+    if raw_date:
+        try:
+            payment_date = datetime.date.fromisoformat(raw_date)
+        except ValueError:
+            messages.error(
+                request,
+                f"'{raw_date}' is not a date. Enter the day the money was paid as "
+                "YYYY-MM-DD, or leave it blank for today.")
+            return redirect("expenses:claim_detail", pk=pk)
 
     from apps.accounting.gl_service import post_expense_claim
     try:
         with transaction.atomic():
-            post_expense_claim(claim, bank_account=bank_account, user=request.user)
+            post_expense_claim(claim, bank_account=bank_account, user=request.user,
+                               payment_date=payment_date)
     except Exception as exc:
         messages.error(request, f"GL posting failed: {exc}")
     else:

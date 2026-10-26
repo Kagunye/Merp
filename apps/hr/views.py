@@ -1,6 +1,7 @@
 """HR views."""
 import datetime
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
@@ -9,7 +10,8 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.core.mixins import CompanyRequiredMixin
-from .forms import ContractForm
+from .access import manages_people, own_employee
+from .forms import ContractForm, LeaveRequestForm
 from .models import Contract, Employee, LeaveRequest, LeaveType
 from apps.core.forms import ISO_DATE
 
@@ -222,26 +224,31 @@ class ContractUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("hr:employee_detail", kwargs={"pk": self.object.employee_id})
 
 
+def visible_leave(request):
+    """The leave requests this login may see in the active company.
+
+    Whoever runs the staff sees everybody's; anybody else sees their own and
+    nothing more. A login with no employee record has no leave of its own, so
+    it sees none — falling through to everybody's would show a sales clerk the
+    whole company's sick notes.
+    """
+    company = getattr(request, "active_company", None)
+    if not company:
+        return LeaveRequest.objects.none()
+    qs = LeaveRequest.objects.filter(employee__company=company)
+    if manages_people(request.user, company):
+        return qs
+    mine = own_employee(request.user, company)
+    return qs.filter(employee=mine) if mine else LeaveRequest.objects.none()
+
+
 class LeaveRequestListView(LoginRequiredMixin, ListView):
     template_name = "hr/leave_list.html"
     context_object_name = "leaves"
     paginate_by = 25
 
     def get_queryset(self):
-        company = self.request.active_company
-        if not company:
-            return LeaveRequest.objects.none()
-        qs = LeaveRequest.objects.filter(
-            employee__company=company
-        ).select_related("employee", "leave_type")
-        # Non-staff see only their own
-        if hasattr(self.request.user, "employee"):
-            emp = self.request.user.employee
-            if emp.company == company:
-                status = self.request.GET.get("status")
-                if status:
-                    qs = qs.filter(status=status)
-                return qs.filter(employee=emp)
+        qs = visible_leave(self.request).select_related("employee", "leave_type")
         status = self.request.GET.get("status")
         if status:
             qs = qs.filter(status=status)
@@ -255,10 +262,16 @@ class LeaveRequestListView(LoginRequiredMixin, ListView):
         return ctx
 
 
-class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
+class LeaveRequestCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = LeaveRequest
     template_name = "hr/leave_form.html"
-    fields = ["employee", "leave_type", "start_date", "end_date", "notes"]
+    form_class = LeaveRequestForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        kwargs["user"] = self.request.user
+        return kwargs
 
     def get_success_url(self):
         from django.urls import reverse
@@ -280,9 +293,6 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
                 field.widget.format = ISO_DATE
             else:
                 field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        if company:
-            form.fields["employee"].queryset = Employee.objects.filter(company=company, is_active=True, status="ACTIVE")
-            form.fields["leave_type"].queryset = LeaveType.objects.filter(company=company, is_active=True)
         form.fields["start_date"].initial = datetime.date.today()
         form.fields["end_date"].initial = datetime.date.today()
         return form
@@ -297,12 +307,36 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
+@login_required
 def leave_approve(request, pk):
-    """POST — approve or reject a leave request."""
-    from django.contrib.auth.decorators import login_required
-    leave = get_object_or_404(LeaveRequest, pk=pk, employee__company=request.active_company)
+    """POST — approve or reject a leave request.
+
+    Deciding leave is the staff side's job, and never the job of the person
+    who is going on it: days granted to yourself are days nobody else agreed
+    to cover.
+    """
+    company = request.active_company
+    leave = get_object_or_404(visible_leave(request), pk=pk)
     if request.method == "POST":
         action = request.POST.get("action")
+        if action in ("approve", "reject") and not manages_people(request.user, company):
+            messages.error(
+                request,
+                "Only HR or an administrator can approve or reject leave. Ask them to "
+                "look at this request.")
+            return redirect("hr:leave_list")
+        if action in ("approve", "reject") and leave.employee.user_id == request.user.pk:
+            messages.error(
+                request,
+                "You cannot decide your own leave request — somebody else has to "
+                "approve or reject it.")
+            return redirect("hr:leave_list")
+        if action in ("approve", "reject") and leave.status != "PENDING":
+            messages.error(
+                request,
+                f"This request is already {leave.get_status_display().lower()}, so there "
+                "is nothing left to decide.")
+            return redirect("hr:leave_list")
         if action == "approve":
             leave.status = "APPROVED"
             leave.approved_by = request.user
@@ -314,7 +348,9 @@ def leave_approve(request, pk):
             leave.rejection_reason = request.POST.get("reason", "")
             leave.save(update_fields=["status", "rejection_reason", "updated_at"])
             messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
-    from django.urls import reverse
+        else:
+            messages.error(
+                request, "Choose whether to approve or reject the request.")
     return redirect(reverse("hr:leave_list"))
 
 
@@ -333,7 +369,9 @@ class HRIndexView(LoginRequiredMixin, TemplateView):
             ctx["leaves_pending"] = lr.filter(status="PENDING").count()
             ctx["leaves_approved"] = lr.filter(status="APPROVED").count()
             ctx["recent_employees"] = emps.order_by("-created_at")[:6]
-            ctx["recent_leaves"] = lr.select_related("employee").order_by("-created_at")[:6]
+            # The list of names is the same privacy as the leave list itself.
+            ctx["recent_leaves"] = visible_leave(self.request).select_related(
+                "employee").order_by("-created_at")[:6]
         return ctx
 
 
@@ -343,8 +381,5 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "leave"
 
     def get_queryset(self):
-        company = self.request.active_company
-        if not company:
-            return LeaveRequest.objects.none()
-        return LeaveRequest.objects.filter(employee__company=company)
+        return visible_leave(self.request)
 

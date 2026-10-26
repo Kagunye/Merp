@@ -916,7 +916,7 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
 # ──────────────────────── Expense Claim GL ───────────────────────────────────
 
 @transaction.atomic
-def post_expense_claim(claim, bank_account=None, user=None) -> JournalEntry:
+def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -> JournalEntry:
     """
     Post an approved expense claim payment to the GL.
 
@@ -928,10 +928,20 @@ def post_expense_claim(claim, bank_account=None, user=None) -> JournalEntry:
     claim        : expenses.ExpenseClaim
     bank_account : banking.BankAccount  (the petty cash / bank account used to pay)
     user         : accounts.User
+    payment_date : the day the money leaves (defaults to today)
+
+    The entry is dated the day the claim is paid, not the day it was claimed.
+    Nothing moves in the ledger when an employee hands in receipts: the bank
+    balance changes on the day the money leaves it, and that is the day the bank
+    statement will show. Dating the entry on the claim date puts a September
+    payment into August — into a month that may already be reconciled or
+    closed — and the bank never agrees with the book. The claim date stays on
+    the claim, and on the entry's narrative, as the date of the document.
 
     Returns the JournalEntry.
     """
     company = claim.company
+    paid_on = payment_date or timezone.localdate()
 
     if bank_account and getattr(bank_account, "gl_account_id", None):
         cash_acct = bank_account.gl_account
@@ -956,8 +966,9 @@ def post_expense_claim(claim, bank_account=None, user=None) -> JournalEntry:
         )
 
     je = _new_je(
-        company, "JE-EXP-", "MANUAL", claim.claim_date,
-        f"Expense Claim {claim.reference}",
+        company, "JE-EXP-", "MANUAL", paid_on,
+        f"Expense Claim {claim.reference} (claimed {claim.claim_date:%d %b %Y}, "
+        f"paid {paid_on:%d %b %Y})",
     )
 
     for line in claim.lines.select_related("category", "category__gl_account"):
@@ -974,8 +985,10 @@ def post_expense_claim(claim, bank_account=None, user=None) -> JournalEntry:
     type(claim).objects.filter(pk=claim.pk).update(
         journal_entry=je,
         status="PAID",
-        paid_at=timezone.now().date(),
+        paid_at=paid_on,
     )
+    claim.status = "PAID"
+    claim.paid_at = paid_on
     return je
 
 
@@ -1021,6 +1034,23 @@ def post_payroll_run(run, user=None) -> JournalEntry:
     if not net_acct:
         raise ValueError(
             "GL posting failed: no bank or cash account to pay the net salary out of.")
+    # The form only offers the right kinds of account, but a run can be saved
+    # by other means, and the ledger is where a wrong choice does its damage: a
+    # month charged to the bank debits the bank with the whole gross and
+    # credits it with the net, so the bank looks richer by the deductions and
+    # no salary cost is ever reported.
+    if salary_acct.account_type != "EXPENSE":
+        raise ValueError(
+            f"GL posting failed: '{run.reference}' charges its pay to {salary_acct.code} "
+            f"{salary_acct.name}, which is a {salary_acct.get_account_type_display()} "
+            "account. Pay is a cost — choose an expense account on the run, or leave "
+            "it blank for 6100 Salaries & Wages.")
+    if net_acct.account_type not in ("BANK", "CASH"):
+        raise ValueError(
+            f"GL posting failed: '{run.reference}' pays the net out of {net_acct.code} "
+            f"{net_acct.name}, which is a {net_acct.get_account_type_display()} account. "
+            "Take-home pay leaves a bank or cash account — choose one on the run, or "
+            "leave it blank for the bank.")
 
     def charge(bucket, account, amount, label):
         if not amount:

@@ -29,10 +29,22 @@ class ExpenseClaimForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 2}),
         }
 
-    def __init__(self, *args, company=None, **kwargs):
+    def __init__(self, *args, company=None, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        from apps.hr.access import manages_claims, own_employee
         from apps.hr.models import Employee
-        self.fields["employee"].queryset = Employee.objects.filter(company=company, is_active=True)
+        staff = Employee.objects.filter(company=company, is_active=True)
+        # A claim is money paid back to the person named on it. Anybody whose
+        # job is not finance or HR may only name themselves: a clerk who can
+        # raise a claim in a colleague's name can draw cash the colleague never
+        # spent. A hand-made post naming somebody else fails as an invalid
+        # choice, the same as a name off the list.
+        if company is not None and not manages_claims(user, company):
+            mine = own_employee(user, company)
+            staff = staff.filter(pk=mine.pk) if mine else Employee.objects.none()
+            if mine and is_new(self):
+                self.fields["employee"].initial = mine.pk
+        self.fields["employee"].queryset = staff
         if is_new(self):
             self.fields["claim_date"].initial = datetime.date.today()
 

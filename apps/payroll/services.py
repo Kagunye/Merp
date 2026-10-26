@@ -13,7 +13,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from .models import (
-    Payslip, PayslipLine, SalaryComponent, StatutoryRule, money,
+    PAYABLE_STATUSES, Payslip, PayslipLine, SalaryComponent, StatutoryRule, money,
 )
 
 Z = Decimal("0")
@@ -63,10 +63,51 @@ def rules_as_at(company, on_date):
         company=company, is_active=True, effective_from__lte=on_date)
     latest = {}
     for rule in rules.order_by("code", "-effective_from"):
-        latest.setdefault(rule.code, rule)
+        # Grouped without regard to case: a row saved as 'nssf' before codes
+        # were stored in capitals is a version of NSSF, not a second pension.
+        latest.setdefault(rule.code.upper(), rule)
     # A tiered table is worked out last: it taxes what is left after the
     # allowable deductions have come off.
     return sorted(latest.values(), key=lambda r: (r.method == "BANDS", r.code))
+
+
+def untaxed_reason(company, on_date):
+    """Why a run on this day would withhold no income tax, or "" when that is fine.
+
+    A book that has never kept a tiered table simply does not run income tax
+    through payroll, and that is its business. But a book that has one — even
+    retired, even only starting later — and has none in force on the period end
+    has lost its tax table, usually by retiring the old row before the new one
+    starts. Working the month out anyway hands everybody their pay with no PAYE
+    taken off and calls it a success; the authority is still owed the tax, and
+    the company now has to find it from the staff after they have spent it.
+    """
+    tables = StatutoryRule.objects.filter(company=company, method="BANDS")
+    if not tables.exists():
+        return ""
+    retired = tables.filter(is_active=False, effective_from__lte=on_date).order_by(
+        "-effective_from").first()
+    later = tables.filter(is_active=True, effective_from__gt=on_date).order_by(
+        "effective_from").first()
+    if retired:
+        detail = (f"the {retired.code} table from {retired.effective_from:%d %b %Y} "
+                  "has been retired")
+        if later:
+            detail += (f" and the next one only starts on "
+                       f"{later.effective_from:%d %b %Y}")
+        fix = (f"Re-activate {retired.code} ({retired.effective_from:%d %b %Y}) — a "
+               "dated change only needs the new row, not the old one retired — or "
+               "date a table to start on or before the period end.")
+    elif later:
+        detail = (f"the only {later.code} table starts on "
+                  f"{later.effective_from:%d %b %Y}")
+        fix = ("Add a table that starts on or before the period end, or move the run "
+               "to a month the table covers.")
+    else:
+        detail = "no tiered table is active"
+        fix = "Re-activate the income-tax table before the run is worked out."
+    return (f"No income-tax table is in force on {on_date:%d %b %Y}: {detail}. A run "
+            f"worked out now would pay everybody with no PAYE withheld. {fix}")
 
 
 def ensure_default_table(company, effective_from):
@@ -85,7 +126,7 @@ def ensure_default_table(company, effective_from):
     created = []
     for (code, name, method, basis, employee_percent, employer_percent, cap,
          relief, allowable, payable_code, expense_code, bands) in DEFAULT_TABLE:
-        if StatutoryRule.objects.filter(company=company, code=code).exists():
+        if StatutoryRule.objects.filter(company=company, code__iexact=code).exists():
             continue
         payable = active(payable_code) or ensure_account(
             company, payable_code, f"{name} Payable", "LIABILITY", "2000")
@@ -264,6 +305,10 @@ def calculate(run):
             f"{' and '.join(tiered)} are both tiered tables in force on "
             f"{run.period_end}. Two of them would each tax the same pay, so retire "
             "one before the run is worked out.")
+    if not tiered:
+        missing_tax = untaxed_reason(run.company, run.period_end)
+        if missing_tax:
+            raise ValidationError(missing_tax)
     for rule in rules:
         if rule.method == "BANDS" and not rule.tax_bands.exists():
             raise ValidationError(
@@ -271,7 +316,7 @@ def calculate(run):
                 "would tax nobody. Add the steps to the table before the run is "
                 "calculated.")
     unpaid = list(Employee.objects.filter(
-        company=run.company, status__in=["ACTIVE", "PROBATION"],
+        company=run.company, status__in=PAYABLE_STATUSES,
         is_active=True).order_by("last_name", "first_name"))
 
     with transaction.atomic():
