@@ -22,10 +22,51 @@
   </div>
   {% endfor %}
 </div>
-<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex justify-between items-center">
-  <span class="text-sm font-semibold text-amber-900">Total Outstanding</span>
-  <span class="text-xl font-bold text-amber-900">{{ grand_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 space-y-1">
+  <div class="flex justify-between items-center">
+    <span class="text-sm font-semibold text-amber-900">Open invoices</span>
+    <span class="text-lg font-bold text-amber-900">{{ grand_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
+  </div>
+  <div class="flex justify-between items-center">
+    <span class="text-sm text-amber-900">Less unapplied credit (money received, not yet matched to an invoice)</span>
+    <span class="text-lg font-semibold text-sky-700">-{{ unapplied_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
+  </div>
+  <div class="flex justify-between items-center border-t border-amber-200 pt-1">
+    <span class="text-sm font-semibold text-amber-900">Net receivable — agrees with Accounts Receivable 1300</span>
+    <span class="text-xl font-bold text-amber-900">{{ net_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
+  </div>
 </div>
+
+{% if unapplied %}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+  <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+    <h3 class="text-sm font-semibold text-gray-700">Unapplied credit — money on account</h3>
+    <span class="font-mono font-semibold text-sky-700">-{{ unapplied_total|floatformat:2 }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Receipt</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Customer</th>
+        <th class="px-4 py-2 text-left font-semibold text-gray-700">Received</th>
+        <th class="px-4 py-2 text-right font-semibold text-gray-700">Unapplied</th>
+        <th class="px-4 py-2 text-right font-semibold text-gray-700">In {{ book }}</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for row in unapplied %}
+      <tr>
+        <td class="px-4 py-2 text-gray-900">{{ row.payment.reference }}</td>
+        <td class="px-4 py-2 text-gray-900">{{ row.customer.name }}</td>
+        <td class="px-4 py-2 text-gray-600">{{ row.payment.payment_date }}</td>
+        <td class="px-4 py-2 text-right font-mono text-gray-500">{{ row.amount|floatformat:2 }} <span class="text-xs">{{ row.currency }}</span></td>
+        <td class="px-4 py-2 text-right font-mono text-sky-700">-{{ row.base|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 {% for bucket, invoices in buckets.items %}
 {% if invoices %}
@@ -62,7 +103,7 @@
 {% endif %}
 {% endfor %}
 
-{% if not grand_total %}
+{% if not grand_total and not unapplied %}
 <div class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">No outstanding invoices.</div>
 {% endif %}
 {% endblock %}

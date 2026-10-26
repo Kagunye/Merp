@@ -214,6 +214,21 @@ class Invoice(BaseModel, NotesMixin):
     credited_amount = models.DecimalField(
         max_digits=15, decimal_places=2, default=Decimal("0"))
     branch = models.ForeignKey("organizations.Branch", on_delete=models.SET_NULL, null=True, blank=True)
+    # Where the goods on a direct invoice leave from. An invoice raised from an
+    # order never issues stock — the order's delivery already took the goods
+    # off the shelf — but a counter-style invoice for stocked products is the
+    # only document that says they left, so it has to say from where. Left
+    # blank, the company's default warehouse is used.
+    warehouse = models.ForeignKey(
+        "organizations.Warehouse", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+        help_text="Where stocked goods on this invoice are issued from. Blank "
+                  "uses the company's default warehouse.")
+    # On a credit note only: whether the goods physically came back. A return
+    # puts the units back on the shelf at what they cost when they went out; a
+    # price-only credit (overcharged, a discount agreed afterwards) moves no
+    # stock and leaves cost of sales alone.
+    goods_returned = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-invoice_date", "-created_at"]
@@ -370,9 +385,41 @@ class PaymentAllocation(models.Model):
     # loss on settlement can be proved line by line.
     base_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     created_at = models.DateTimeField(auto_now_add=True)
+    # Money taken in on account and applied to an invoice afterwards has its
+    # own date — the day the credit was matched, never earlier than the paper
+    # it settles — and, when the rate moved between the receipt and the
+    # invoice, its own entry for the realised exchange. A slice settled the day
+    # the money came in carries neither: the receipt's own date and entry say it.
+    allocation_date = models.DateField(null=True, blank=True)
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
 
     def __str__(self):
         return f"{self.payment.reference} → {self.invoice.reference}: {self.allocated_amount}"
+
+
+class SubmissionToken(models.Model):
+    """A one-time ticket printed into a form, spent when the form is sent.
+
+    A double click, a refresh after a slow save, a browser that re-posts on
+    "back": each sends the same form twice, and for a receipt with a blank
+    number or a partial credit note both copies are perfectly valid on their
+    own — two receipts for one payment, two notes for one return. Only the
+    form itself can tell the second copy from a genuine second document, so
+    every create form carries a ticket and the server refuses one it has
+    already seen. Spending is one UPDATE on an unspent row, so two requests
+    racing each other cannot both win.
+    """
+    token = models.CharField(max_length=64, unique=True)
+    purpose = models.CharField(max_length=40)
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.purpose} {self.token[:8]}"
 
 
 @receiver(post_delete, sender=Invoice)

@@ -291,10 +291,24 @@ class AgedDebtorsView(LoginRequiredMixin, TemplateView):
             buckets[bucket].append(inv)
             totals[bucket] += outstanding
 
+        # Money customers paid that no invoice has taken yet is a credit in AR.
+        # It is not owed by anyone, so it is not aged, but leaving it out made
+        # this report total more than the control account by exactly that
+        # money. It is listed on its own line and taken off for the net.
+        from apps.sales.receivables import unapplied_receipts
+        on_account = unapplied_receipts(company)
+        grand_total = sum(totals.values())
+        unapplied_total = sum((row["base"] for row in on_account), Decimal("0"))
+
         ctx.update({
             "buckets": buckets,
             "totals": totals,
-            "grand_total": sum(totals.values()),
+            # The open invoices, aged. `net_total` is the receivable the
+            # ledger carries: invoices less money on account, equal to 1300.
+            "grand_total": grand_total,
+            "unapplied": on_account,
+            "unapplied_total": unapplied_total,
+            "net_total": grand_total - unapplied_total,
             "book": (company.currency or "").upper(),
             "today": today,
         })

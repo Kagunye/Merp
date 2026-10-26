@@ -17,12 +17,25 @@ a bookkeeper would, and checks the ledger says what the paper says:
     7. a draft raised from an order keeps the order's billed quantities honest
     8. converting an order bills exactly the order's total
     9. the same receipt or invoice number cannot be used twice
+   10. a direct invoice issues its stocked goods at average cost; a credit note
+       for returned goods brings them back at the cost they left at
+   11. money on account is shown in, and netted by, every receivables report
+   12. money on account can be applied to an invoice later
+   13. an invoice takes its own day's rate; a statement closes at what is owed
+       however the rate moved; applying credit books the realised exchange
+   14. the dashboard's sales chart is net revenue
+   15. a credit note, receipt or invoice form sent twice books once
+   16. a due date or a settlement before the invoice date is refused
+   17. messages print money to the cent
+   18. an order nothing has come of can be cancelled
+   19. a sales rep's invoice waits as a draft for finance to post
 """
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Sum
 from django.test import Client
 from django.test.utils import setup_test_environment, teardown_test_environment
 from django.urls import reverse
@@ -208,6 +221,26 @@ class Command(BaseCommand):
         self.check_order_total(client)
         self.section("9. One number, one receipt; one number, one invoice")
         self.check_duplicate_references(client)
+        self.section("10. A direct invoice issues its stock; a return brings it back at cost")
+        self.check_direct_invoice_stock(client)
+        self.section("11. Money on account is in every receivables report")
+        self.check_on_account_reports(client)
+        self.section("12. Credit on account can be applied to an invoice")
+        self.check_apply_credit(client)
+        self.section("13. Exchange: invoice-day rates, statements and applied credit")
+        self.check_fx_settlements(client)
+        self.section("14. The dashboard charts net revenue")
+        self.check_sales_chart(client)
+        self.section("15. A form sent twice books one document")
+        self.check_double_submits(client)
+        self.section("16. Dates that cannot be")
+        self.check_dates(client)
+        self.section("17. Messages print money to the cent and name what they refuse")
+        self.check_messages(client)
+        self.section("18. An order nothing has come of can be cancelled")
+        self.check_order_cancel(client)
+        self.section("19. Who may post an invoice")
+        self.check_separation_of_duties(client)
 
     def setup_company(self, client, stamp):
         from apps.accounting.models import Account, Currency, ExchangeRate, TaxRate
@@ -681,3 +714,457 @@ class Command(BaseCommand):
         self.expect("only one invoice carries the number",
                     Invoice.objects.filter(company=self.company,
                                            reference__iexact="FIX-9-INV").count() == 1)
+
+    # ─────────────────────── second round of fixes ───────────────────────────
+
+    def ar_control(self):
+        """AR 1300 as the ledger carries it, debit-normal."""
+        from apps.accounting.models import JournalEntryLine
+        agg = JournalEntryLine.objects.filter(
+            journal_entry__company=self.company, journal_entry__status="POSTED",
+            account__code="1300").aggregate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        return (agg["dr"] or Z) - (agg["cr"] or Z)
+
+    def account_moved(self, code, since_ids, side):
+        """Debits or credits on an account from entries not in `since_ids`."""
+        from apps.accounting.models import JournalEntryLine
+        field = "debit_amount" if side == "debit" else "credit_amount"
+        qs = JournalEntryLine.objects.filter(
+            journal_entry__company=self.company, journal_entry__status="POSTED",
+            account__code=code).exclude(journal_entry_id__in=since_ids)
+        return qs.aggregate(t=Sum(field))["t"] or Z
+
+    def entry_ids(self):
+        from apps.accounting.models import JournalEntry
+        return set(JournalEntry.objects.filter(company=self.company).values_list("pk", flat=True))
+
+    def credit(self, client, invoice, quantities, returned=False, token=None, reason="cn"):
+        data = {f"credit_qty_{line.pk}": qty for line, qty in quantities}
+        data["reason"] = reason
+        if returned:
+            data["goods_returned"] = "1"
+        if token:
+            data["form_token"] = token
+        return self.send(client, f"credit note on {invoice.reference}",
+                         reverse("sales:invoice_credit_note", args=[invoice.pk]), data)
+
+    def check_direct_invoice_stock(self, client):
+        from apps.inventory.models import Product, StockLevel, StockMovement
+        from apps.sales.models import Invoice
+        self.drill = Product.objects.create(
+            company=self.company, sku="DRL-01", name="Hammer drill", product_type="GOODS",
+            unit_of_measure=self.cement.unit_of_measure, selling_price=D("6500"),
+            track_inventory=True)
+        StockMovement.objects.create(
+            product=self.drill, warehouse=self.warehouse, movement_type="OPENING",
+            quantity=D("10"), unit_cost=D("4000"), movement_date=self.today,
+            reference="OPEN-DRL")
+        shelf = lambda: StockLevel.objects.get(product=self.drill, warehouse=self.warehouse).quantity
+
+        before = self.entry_ids()
+        inv = self.make_invoice(client, "FIX-10-DIRECT", [self.line(self.drill, "3", "6500")])
+        if not self.expect("a direct invoice for 3 drills posted", inv and inv.journal_entry_id):
+            return
+        issue = StockMovement.objects.filter(product=self.drill, movement_type="DELIVERY",
+                                             reference=inv.reference)
+        self.expect("posting the direct invoice issued the 3 drills",
+                    issue.count() == 1 and issue.first().quantity == D("3") and shelf() == D("7"),
+                    f"{issue.count()} issue(s), shelf {shelf()}")
+        self.expect("at average cost: Dr COGS 12,000 / Cr Inventory 12,000",
+                    self.account_moved("5000", before, "debit") == D("12000.00")
+                    and self.account_moved("1400", before, "credit") == D("12000.00"),
+                    f"COGS {self.account_moved('5000', before, 'debit')} "
+                    f"inventory {self.account_moved('1400', before, 'credit')}")
+
+        count = Invoice.objects.filter(company=self.company).count()
+        header = {"reference": "FIX-10-SHORT", "customer": self.customer.pk,
+                  "invoice_date": str(self.today),
+                  "due_date": str(self.today + datetime.timedelta(days=30)),
+                  "currency": "KES", "notes": ""}
+        self.refused(client, "a direct invoice for 50 drills with 7 on the shelf",
+                     reverse("sales:invoice_create"),
+                     merge(header, formset("lines", [self.line(self.drill, "50", "6500")])),
+                     needle="not enough stock")
+        self.expect("nothing was saved or issued for the short invoice",
+                    Invoice.objects.filter(company=self.company).count() == count
+                    and shelf() == D("7"), f"shelf {shelf()}")
+
+        # The shelf's average moves before the return: 10 more at 5,000.
+        StockMovement.objects.create(
+            product=self.drill, warehouse=self.warehouse, movement_type="OPENING",
+            quantity=D("7"), unit_cost=D("5000"), movement_date=self.today,
+            reference="OPEN-DRL-2")
+        saved = inv.lines.first()
+        before = self.entry_ids()
+        self.credit(client, inv, [(saved, "1")], returned=True, reason="one drill came back")
+        note = Invoice.objects.filter(original_invoice=inv, status="CREDIT_NOTE").first()
+        back = StockMovement.objects.filter(product=self.drill, movement_type="RETURN_IN")
+        self.expect("a 'goods returned' note puts the drill back on the shelf",
+                    note is not None and note.goods_returned and back.count() == 1
+                    and shelf() == D("15"), f"{back.count()} return(s), shelf {shelf()}")
+        self.expect("at its original issue cost: Dr Inventory 4,000 / Cr COGS 4,000",
+                    back.exists() and back.first().unit_cost == D("4000")
+                    and self.account_moved("1400", before, "debit") == D("4000.00")
+                    and self.account_moved("5000", before, "credit") == D("4000.00"),
+                    f"{back.first().unit_cost if back.exists() else '-'} / "
+                    f"{self.account_moved('1400', before, 'debit')}")
+
+        before = self.entry_ids()
+        self.credit(client, inv, [(saved, "1")], returned=False, reason="price agreed down")
+        self.expect("a price-only credit moves no stock and no cost",
+                    back.count() == 1 and shelf() == D("15")
+                    and self.account_moved("5000", before, "credit") == Z
+                    and self.account_moved("1400", before, "debit") == Z,
+                    f"shelf {shelf()}")
+        self.expect("the credit-note form offers 'goods returned' on a stocked invoice",
+                    'name="goods_returned"' in client.get(
+                        reverse("sales:invoice_detail", args=[inv.pk])).content.decode())
+
+        # An order's invoice: the delivery issued the goods, the invoice must not.
+        order = self.make_order(client, "FIX-10-SO", [self.line(self.drill, "2", "6500")])
+        if not order:
+            return
+        ol = order.lines.first()
+        self.send(client, "deliver 2 drills", reverse("sales:order_deliver_record", args=[order.pk]),
+                  {"warehouse": self.warehouse.pk, f"deliver_qty_{ol.pk}": "2"})
+        level = shelf()
+        draft = self.convert(client, order)
+        if not self.expect("the delivered order converted", draft is not None):
+            return
+        client.post(reverse("sales:invoice_post", args=[draft.pk]), {})
+        draft.refresh_from_db()
+        self.expect("posting an invoice for delivered goods issues nothing more",
+                    draft.journal_entry_id and shelf() == level
+                    and not StockMovement.objects.filter(reference=draft.reference).exists(),
+                    f"shelf {level} -> {shelf()}")
+        before = self.entry_ids()
+        self.credit(client, draft, [(draft.lines.first(), "1")], returned=True)
+        self.expect("a return against the order's invoice comes back at the delivery's cost",
+                    shelf() == level + 1
+                    and self.account_moved("5000", before, "credit")
+                    == q2(StockMovement.objects.filter(sales_order=order).first().unit_cost),
+                    f"shelf {shelf()} COGS back {self.account_moved('5000', before, 'credit')}")
+
+    def check_on_account_reports(self, client):
+        from apps.crm.models import Customer
+        self.kilimo = Customer.objects.create(company=self.company, name="Kilimo Supplies")
+        response = self.pay(client, "FIX-11-ON-ACCT", "5000", customer=self.kilimo)
+        self.expect("a receipt from a customer with nothing owed is taken on account",
+                    response is not None and response.status_code == 302)
+        control = self.ar_control()
+        debtors = client.get(reverse("reporting:aged_debtors")).context
+        self.expect("Aged Debtors shows the 5,000 on account on its own line",
+                    debtors["unapplied_total"] == D("5000.00"), str(debtors["unapplied_total"]))
+        self.expect("Aged Debtors' net total equals AR 1300",
+                    debtors["net_total"] == control,
+                    f"net {debtors['net_total']} vs 1300 {control}")
+        ageing = client.get(reverse("sales:ar_aging")).context
+        self.expect("the sales AR ageing nets to AR 1300 as well",
+                    ageing["net_total"] == control and ageing["unapplied_total"] == D("5000.00"),
+                    f"net {ageing['net_total']} vs 1300 {control}")
+        home = client.get(reverse("sales:index")).context
+        self.expect("the receivables home shows the net receivable",
+                    home["net_receivable"] == control and home["unapplied_credit"] == D("5000.00"),
+                    f"{home['net_receivable']} vs {control}")
+        board = client.get(reverse("dashboard:index")).context
+        self.expect("the dashboard's receivables equal AR 1300",
+                    board["accounts_receivable"] == control,
+                    f"{board['accounts_receivable']} vs {control}")
+        statement = client.get(reverse("sales:customer_statement", args=[self.kilimo.pk])).context
+        self.expect("Kilimo's statement shows 5,000 in its favour",
+                    statement["closing_balance"] == D("-5000.00")
+                    and statement["on_account"] == D("5000.00"),
+                    f"{statement['closing_balance']} / {statement['on_account']}")
+
+    def check_apply_credit(self, client):
+        from apps.sales.models import CustomerPayment, Invoice
+        payment = CustomerPayment.objects.get(company=self.company, reference="FIX-11-ON-ACCT")
+        inv = self.make_invoice(client, "FIX-12-INV", [self.line(self.service, "1", "2500")],
+                                customer=self.kilimo)
+        url = reverse("sales:payment_apply", args=[payment.pk])
+        page = client.get(url)
+        self.expect("the apply-credit screen lists Kilimo's open invoice",
+                    page.status_code == 200
+                    and any(r["invoice"].pk == inv.pk for r in page.context["rows"])
+                    and page.context["unapplied"] == D("5000.00"))
+        other = self.make_invoice(client, "FIX-12-OTHER", [self.line(self.service, "1", "100")])
+        for label, data, needle in (
+                ("more than the invoice owes", {f"allocate_{inv.pk}": "3000"}, "only owed"),
+                ("another customer's invoice", {f"allocate_{other.pk}": "100"}, "not one of"),
+                ("an application dated before the invoice",
+                 {f"allocate_{inv.pk}": "100",
+                  "allocation_date": str(self.today - datetime.timedelta(days=3))}, "cannot")):
+            response = self.send(client, f"apply credit: {label}", url, data)
+            self.expect(f"applying {label} is refused",
+                        response is not None and response.status_code == 200
+                        and needle in (response.context.get("error") or ""),
+                        "" if response is None else str(response.context.get("error")))
+        inv.refresh_from_db()
+        self.expect("the refusals applied nothing", inv.paid_amount == Z, str(inv.paid_amount))
+        before = self.entry_ids()
+        response = self.send(client, "apply 2,900 of credit", url, {
+            f"allocate_{inv.pk}": "2900", "form_token": page.context["form_token"]})
+        inv.refresh_from_db()
+        payment.refresh_from_db()
+        from apps.sales.receivables import unapplied_amount
+        self.expect("the credit settles the invoice and 2,100 stays on account",
+                    inv.status == "PAID" and unapplied_amount(payment) == D("2100.00"),
+                    f"{inv.status} unapplied {unapplied_amount(payment)}")
+        self.expect("at one rate nothing more is booked", self.entry_ids() == before)
+        response = self.send(client, "the same apply form sent again", url, {
+            f"allocate_{inv.pk}": "1", "form_token": page.context["form_token"]})
+        self.expect("a second post of the same apply form is turned away",
+                    response is not None and response.status_code == 302
+                    and unapplied_amount(payment) == D("2100.00"))
+        self.expect("Aged Debtors still nets to AR 1300 after applying",
+                    client.get(reverse("reporting:aged_debtors")).context["net_total"]
+                    == self.ar_control())
+
+    def check_fx_settlements(self, client):
+        """A second rate from today: 135.00, against 131.25 up to yesterday."""
+        from apps.accounting.models import Currency, ExchangeRate
+        from apps.crm.models import Customer
+        from apps.sales.models import CustomerPayment, Invoice
+        usd = Currency.objects.get(code="USD")
+        new_rate = D("135.00")
+        ExchangeRate.objects.create(company=self.company, currency=usd,
+                                    effective_date=self.today, rate=new_rate, source="MANUAL")
+        earlier = self.today - datetime.timedelta(days=3)
+
+        # 11. an order taken at the old rate is invoiced at the invoice day's.
+        from apps.sales.models import SalesOrder
+        header = {"reference": "FIX-13-USD-SO", "customer": self.customer.pk,
+                  "order_date": str(earlier), "delivery_date": "",
+                  "warehouse": self.warehouse.pk, "sales_rep": "", "currency": "USD",
+                  "discount_percent": "0", "branch": "", "notes": ""}
+        self.accepted(client, "USD order dated three days ago", reverse("sales:order_create"),
+                      merge(header, formset("lines", [self.line(self.service, "1", "100", tax=False)])))
+        order = SalesOrder.objects.get(company=self.company, reference="FIX-13-USD-SO")
+        client.post(reverse("sales:order_confirm", args=[order.pk]), {})
+        order.refresh_from_db()
+        draft = self.convert(client, order)
+        self.expect("the order carries its own day's rate",
+                    order.exchange_rate == USD_RATE, str(order.exchange_rate))
+        self.expect("the invoice raised today takes today's rate, not the order's",
+                    draft is not None and draft.exchange_rate == new_rate
+                    and draft.total_amount_base == D("13500.00"),
+                    f"{draft and draft.exchange_rate} {draft and draft.total_amount_base}")
+
+        # 4. paid at a different rate: the statement closes at nil.
+        delta = Customer.objects.create(company=self.company, name="Delta Exporters")
+        data = {"reference": "FIX-13-USD-INV", "customer": delta.pk,
+                "invoice_date": str(earlier), "due_date": str(self.today),
+                "currency": "USD", "notes": ""}
+        self.accepted(client, "USD invoice at 131.25", reverse("sales:invoice_create"),
+                      merge(data, formset("lines", [self.line(self.service, "1", "100", tax=False)])))
+        inv = Invoice.objects.get(company=self.company, reference="FIX-13-USD-INV")
+        self.pay(client, "FIX-13-USD-PAY", "100", currency="USD", customer=delta,
+                 allocations={f"allocate_{inv.pk}": "100"})
+        inv.refresh_from_db()
+        statement = client.get(reverse("sales:customer_statement", args=[delta.pk])).context
+        self.expect("USD 100 raised at 131.25 and paid at 135.00 is PAID",
+                    inv.status == "PAID", inv.status)
+        self.expect("and the statement closes at nil, the gain being the company's",
+                    statement["closing_balance"] == Z
+                    and statement["closing_balance"] == statement["opening_balance"]
+                    + statement["total_debit"] - statement["total_credit"],
+                    str(statement["closing_balance"]))
+
+        # 3 with FX: money on account at 131.25 applied to an invoice at 135.00.
+        echo = Customer.objects.create(company=self.company, name="Echo Imports")
+        data = {"reference": "FIX-13-USD-DEP", "customer": echo.pk,
+                "payment_date": str(earlier), "amount": "100", "currency": "USD",
+                "payment_method": "BANK_TRANSFER", "bank_account": "",
+                "transaction_reference": "", "notes": "deposit"}
+        self.accepted(client, "USD 100 deposit at 131.25", reverse("sales:payment_create"), data)
+        deposit = CustomerPayment.objects.get(company=self.company, reference="FIX-13-USD-DEP")
+        later = self.make_invoice(client, "FIX-13-USD-LATER",
+                                  [self.line(self.service, "1", "100", tax=False)],
+                                  currency="USD", customer=echo)
+        self.expect("the deposit did not settle an invoice raised after it",
+                    later is not None and later.paid_amount == Z
+                    and not deposit.allocations.exists())
+        before = self.entry_ids()
+        self.send(client, "apply the USD deposit", reverse("sales:payment_apply", args=[deposit.pk]),
+                  {f"allocate_{later.pk}": "100", "allocation_date": str(self.today)})
+        later.refresh_from_db()
+        self.expect("the deposit settles the later invoice",
+                    later.status == "PAID", later.status)
+        self.expect("the rate gap is realised: Dr 7300 375.00",
+                    self.account_moved("7300", before, "debit") == D("375.00")
+                    and self.account_moved("1300", before, "credit")
+                    - self.account_moved("1300", before, "debit") == D("375.00"),
+                    f"7300 {self.account_moved('7300', before, 'debit')}")
+        statement = client.get(reverse("sales:customer_statement", args=[echo.pk])).context
+        self.expect("Echo's statement closes at nil", statement["closing_balance"] == Z,
+                    str(statement["closing_balance"]))
+        self.expect("Aged Debtors nets to AR 1300 after FX settlements",
+                    client.get(reverse("reporting:aged_debtors")).context["net_total"]
+                    == self.ar_control(),
+                    f"{client.get(reverse('reporting:aged_debtors')).context['net_total']} "
+                    f"vs {self.ar_control()}")
+
+        # The deposit given back: the application's exchange entry goes too.
+        client.post(reverse("sales:payment_reverse", args=[deposit.pk]), {"reason": "bounced"})
+        later.refresh_from_db()
+        self.expect("reversing the deposit reopens the invoice and undoes the exchange",
+                    later.status == "SENT"
+                    and self.account_moved("7300", before, "debit")
+                    == self.account_moved("7300", before, "credit"),
+                    f"{later.status}")
+
+    def check_sales_chart(self, client):
+        from apps.accounting.models import JournalEntryLine
+        month = self.today.replace(day=1)
+        lines = JournalEntryLine.objects.filter(
+            journal_entry__company=self.company, journal_entry__status="POSTED",
+            account__account_type="REVENUE", journal_entry__posting_date__gte=month,
+            journal_entry__posting_date__lte=self.today).exclude(
+            journal_entry__entry_type="CLOSING")
+        agg = lines.aggregate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        net = (agg["cr"] or Z) - (agg["dr"] or Z)
+        data = client.get(reverse("dashboard:sales_chart")).json()["datasets"][0]["data"]
+        self.expect("this month's chart bar is net revenue, credit notes taken off",
+                    agg["dr"] and D(str(data[-1])) == net,
+                    f"chart {data[-1]} vs net {net} (gross {agg['cr']})")
+
+    def check_double_submits(self, client):
+        from apps.sales.models import CustomerPayment, Invoice
+        five = self.make_invoice(client, "FIX-14-FIVE", [self.line(self.cement, "5", "850")])
+        saved = five.lines.first()
+        token = client.get(reverse("sales:invoice_detail", args=[five.pk])).context["credit_token"]
+        self.credit(client, five, [(saved, "2")], token=token)
+        response = self.credit(client, five, [(saved, "2")], token=token)
+        notes = Invoice.objects.filter(original_invoice=five).count()
+        self.expect("2 of 5 sent twice with the same form makes one credit note",
+                    notes == 1, f"{notes} notes")
+        self.expect("the second copy is told it was already sent",
+                    any("already sent" in m for m in self.flashes(client, response)))
+        self.credit(client, five, [(saved, "2")], token="made-up")
+        self.expect("an unknown ticket is refused too",
+                    Invoice.objects.filter(original_invoice=five).count() == 1)
+
+        form = client.get(reverse("sales:payment_create")).context
+        self.expect("the receipt form carries a ticket",
+                    bool(form.get("form_token")))
+        receipts = CustomerPayment.objects.filter(company=self.company).count()
+        data = {"reference": "", "customer": self.customer.pk,
+                "payment_date": str(self.today), "amount": "100", "currency": "KES",
+                "payment_method": "CASH", "bank_account": "", "transaction_reference": "",
+                "notes": "", "form_token": form["form_token"]}
+        self.accepted(client, "receipt with blank number", reverse("sales:payment_create"), data)
+        self.send(client, "the same receipt again", reverse("sales:payment_create"), data)
+        self.expect("a blank-numbered receipt sent twice books once",
+                    CustomerPayment.objects.filter(company=self.company).count() == receipts + 1,
+                    str(CustomerPayment.objects.filter(company=self.company).count() - receipts))
+
+        form = client.get(reverse("sales:invoice_create")).context
+        count = Invoice.objects.filter(company=self.company).count()
+        header = {"reference": "", "customer": self.customer.pk,
+                  "invoice_date": str(self.today),
+                  "due_date": str(self.today + datetime.timedelta(days=30)),
+                  "currency": "KES", "notes": "", "form_token": form["form_token"]}
+        data = merge(header, formset("lines", [self.line(self.service, "1", "100")]))
+        self.accepted(client, "invoice with blank number", reverse("sales:invoice_create"), data)
+        self.send(client, "the same invoice again", reverse("sales:invoice_create"), data)
+        self.expect("an invoice form sent twice makes one invoice",
+                    Invoice.objects.filter(company=self.company).count() == count + 1)
+
+    def check_dates(self, client):
+        from apps.sales.models import Invoice
+        header = {"reference": "FIX-15-DUE", "customer": self.customer.pk,
+                  "invoice_date": str(self.today),
+                  "due_date": str(self.today - datetime.timedelta(days=5)),
+                  "currency": "KES", "notes": ""}
+        self.refused(client, "a due date before the invoice date", reverse("sales:invoice_create"),
+                     merge(header, formset("lines", [self.line(self.service)])), needle="due date")
+        inv = self.make_invoice(client, "FIX-15-INV", [self.line(self.service, "1", "1000")])
+        data = {"reference": "FIX-15-EARLY", "customer": self.customer.pk,
+                "payment_date": str(self.today - datetime.timedelta(days=19)), "amount": "100",
+                "currency": "KES", "payment_method": "CASH", "bank_account": "",
+                "transaction_reference": "", "notes": "", f"allocate_{inv.pk}": "100"}
+        response = self.send(client, "payment dated before its invoice",
+                             reverse("sales:payment_create"), data)
+        inv.refresh_from_db()
+        self.expect("a payment dated before the invoice it settles is refused",
+                    response is not None and response.status_code == 200
+                    and any("raised after" in e for e in self.errors(response))
+                    and inv.paid_amount == Z, str(self.errors(response) if response else ""))
+
+    def check_messages(self, client):
+        from apps.sales.models import SalesOrder
+        header = {"reference": "FIX-16-SO", "customer": self.customer.pk,
+                  "order_date": str(self.today), "delivery_date": "",
+                  "warehouse": self.warehouse.pk, "sales_rep": "", "currency": "KES",
+                  "discount_percent": "2.5", "branch": "", "notes": ""}
+        response = self.send(client, "order with a discount", reverse("sales:order_create"),
+                             merge(header, formset("lines", [self.line(self.cement, "100", "850", "5")])))
+        shown = self.flashes(client, response)
+        import re
+        self.expect("the order's total is printed to the cent",
+                    any("created" in m and re.search(r"total \d+\.\d{2} KES", m) for m in shown),
+                    str(shown))
+        inv = self.make_invoice(client, "FIX-16-CANCEL", [self.line(self.service, "1", "100")])
+        client.post(reverse("sales:invoice_cancel", args=[inv.pk]), {})
+        response = self.credit(client, inv, [(inv.lines.first(), "1")])
+        shown = self.flashes(client, response)
+        self.expect("crediting a cancelled invoice says what it is",
+                    any("cancelled invoice" in m for m in shown), str(shown))
+
+    def check_order_cancel(self, client):
+        order = self.make_order(client, "FIX-17-SO", [self.line(self.service, "2", "100")])
+        if not order:
+            return
+        self.send(client, "cancel the order", reverse("sales:order_cancel", args=[order.pk]), {})
+        order.refresh_from_db()
+        self.expect("an untouched order can be cancelled", order.status == "CANCELLED", order.status)
+        before = order.invoices.count()
+        response = client.post(reverse("sales:order_invoice", args=[order.pk]), {})
+        self.expect("a cancelled order cannot be invoiced", order.invoices.count() == before)
+        client.post(reverse("sales:order_confirm", args=[order.pk]), {})
+        order.refresh_from_db()
+        self.expect("nor confirmed again", order.status == "CANCELLED", order.status)
+
+        billed = self.make_order(client, "FIX-17-SO-B", [self.line(self.service, "2", "100")])
+        draft = self.convert(client, billed)
+        response = self.send(client, "cancel an invoiced order",
+                             reverse("sales:order_cancel", args=[billed.pk]), {})
+        billed.refresh_from_db()
+        self.expect("an order with a live invoice is not cancelled",
+                    billed.status != "CANCELLED"
+                    and any("invoiced" in m for m in self.flashes(client, response)),
+                    billed.status)
+        client.post(reverse("sales:invoice_cancel", args=[draft.pk]), {})
+        self.send(client, "cancel once the invoice is cancelled",
+                  reverse("sales:order_cancel", args=[billed.pk]), {})
+        billed.refresh_from_db()
+        self.expect("once its invoice is cancelled the order can be", billed.status == "CANCELLED")
+
+        shipped = self.make_order(client, "FIX-17-SO-C", [self.line(self.service, "2", "100")])
+        line = shipped.lines.first()
+        self.send(client, "deliver one", reverse("sales:order_deliver_record", args=[shipped.pk]),
+                  {"warehouse": self.warehouse.pk, f"deliver_qty_{line.pk}": "1"})
+        self.send(client, "cancel a delivered order",
+                  reverse("sales:order_cancel", args=[shipped.pk]), {})
+        shipped.refresh_from_db()
+        self.expect("an order with goods delivered is not cancelled",
+                    shipped.status == "PARTIALLY_DELIVERED", shipped.status)
+
+    def check_separation_of_duties(self, client):
+        from apps.organizations.models import CompanyMembership
+        membership = CompanyMembership.objects.get(company=self.company, user=self.user)
+        try:
+            membership.role = "SALES_REP"
+            membership.save(update_fields=["role"])
+            inv = self.make_invoice(client, "FIX-18-REP", [self.line(self.service, "1", "100")])
+            self.expect("a sales rep's invoice is left as a draft for finance",
+                        inv is not None and inv.status == "DRAFT" and not inv.journal_entry_id,
+                        inv and inv.status)
+            membership.role = "FINANCE_MANAGER"
+            membership.save(update_fields=["role"])
+            inv = self.make_invoice(client, "FIX-18-FM", [self.line(self.service, "1", "100")])
+            self.expect("a finance manager's invoice posts on create",
+                        inv is not None and inv.journal_entry_id, inv and inv.status)
+        finally:
+            membership.role = "ADMIN"
+            membership.save(update_fields=["role"])

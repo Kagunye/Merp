@@ -11,6 +11,7 @@ urlpatterns = [
     path("orders/new/", views.SalesOrderCreateView.as_view(), name="order_create"),
     path("orders/<uuid:pk>/", views.SalesOrderDetailView.as_view(), name="order_detail"),
     path("orders/<uuid:pk>/confirm/", views.order_confirm, name="order_confirm"),
+    path("orders/<uuid:pk>/cancel/", views.order_cancel, name="order_cancel"),
     path("orders/<uuid:pk>/deliver/", views.SalesDeliveryView.as_view(), name="order_deliver"),
     path("orders/<uuid:pk>/deliver/record/", views.order_deliver, name="order_deliver_record"),
     path("orders/<uuid:pk>/invoice/", views.order_to_invoice, name="order_invoice"),
@@ -23,6 +24,7 @@ urlpatterns = [
     path("payments/", views.CustomerPaymentListView.as_view(), name="payment_list"),
     path("payments/new/", views.CustomerPaymentCreateView.as_view(), name="payment_create"),
     path("payments/<uuid:pk>/reverse/", views.payment_reverse, name="payment_reverse"),
+    path("payments/<uuid:pk>/apply/", views.PaymentApplyView.as_view(), name="payment_apply"),
     path("statements/<uuid:pk>/", views.CustomerStatementView.as_view(), name="customer_statement"),
     path("aging/", views.ARAgingView.as_view(), name="ar_aging"),
 ]

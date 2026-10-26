@@ -13,14 +13,21 @@
 
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-right">Current</th><th class="px-4 py-3 text-right">1-30</th><th class="px-4 py-3 text-right">31-60</th><th class="px-4 py-3 text-right">61-90</th><th class="px-4 py-3 text-right">>90</th><th class="px-4 py-3 text-right">Total</th></tr></thead>
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-right">Current</th><th class="px-4 py-3 text-right">1-30</th><th class="px-4 py-3 text-right">31-60</th><th class="px-4 py-3 text-right">61-90</th><th class="px-4 py-3 text-right">>90</th><th class="px-4 py-3 text-right">Invoices</th><th class="px-4 py-3 text-right">On account</th><th class="px-4 py-3 text-right">Net</th></tr></thead>
     <tbody class="divide-y divide-gray-100">
       {% for r in rows %}
-      <tr><td class="px-4 py-2"><a href="{% url 'sales:customer_statement' r.customer.pk %}" style="color: var(--primary);">{{ r.customer.name }}</a></td><td class="px-4 py-2 text-right">{{ r.current|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.d30|floatformat:2 }}</td><td class="px-4 py-2 text-right text-amber-600">{{ r.d60|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-600">{{ r.d90|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-700">{{ r.d120|floatformat:2 }}</td><td class="px-4 py-2 text-right font-bold">{{ r.total|floatformat:2 }}</td></tr>
+      <tr><td class="px-4 py-2"><a href="{% url 'sales:customer_statement' r.customer.pk %}" style="color: var(--primary);">{{ r.customer.name }}</a></td><td class="px-4 py-2 text-right">{{ r.current|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.d30|floatformat:2 }}</td><td class="px-4 py-2 text-right text-amber-600">{{ r.d60|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-600">{{ r.d90|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-700">{{ r.d120|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.total|floatformat:2 }}</td><td class="px-4 py-2 text-right text-sky-700">{% if r.unapplied %}-{{ r.unapplied|floatformat:2 }}{% else %}—{% endif %}</td><td class="px-4 py-2 text-right font-bold">{{ r.net|floatformat:2 }}</td></tr>
       {% empty %}
-      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No outstanding receivables.</td></tr>
+      <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">No outstanding receivables.</td></tr>
       {% endfor %}
     </tbody>
+    {% if rows %}
+    <tfoot class="bg-gray-50 font-semibold">
+      <tr><td class="px-4 py-2" colspan="6">Open invoices</td><td class="px-4 py-2 text-right">{{ invoice_total|floatformat:2 }}</td><td></td><td></td></tr>
+      <tr><td class="px-4 py-2" colspan="7">Unapplied credit (money received, not yet matched to an invoice)</td><td class="px-4 py-2 text-right text-sky-700">-{{ unapplied_total|floatformat:2 }}</td><td></td></tr>
+      <tr><td class="px-4 py-2" colspan="8">Net receivable — agrees with Accounts Receivable 1300</td><td class="px-4 py-2 text-right">{{ net_total|floatformat:2 }}</td></tr>
+    </tfoot>
+    {% endif %}
   </table>
 </div>
 {% endblock %}

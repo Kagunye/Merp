@@ -1,0 +1,53 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'sales:payment_list' as back %}
+{% include "_includes/page_header.html" with title=page_title subtitle=payment.customer.name back_url=back %}
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Received</div><div class="font-semibold">{{ payment.payment_date|date:"d M Y" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Receipt</div><div class="font-semibold font-mono">{{ payment.amount|floatformat:2 }} {{ payment.currency }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Still on account</div><div class="font-bold text-lg" style="color: var(--primary);">{{ unapplied|floatformat:2 }} {{ payment.currency }}</div></div>
+</div>
+
+{% if error %}
+<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ error }}</div>
+{% endif %}
+
+<form method="post" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  {% csrf_token %}
+  <input type="hidden" name="form_token" value="{{ form_token }}">
+  <div class="px-4 py-3 border-b border-gray-100">
+    <h3 class="font-semibold text-gray-800 text-sm">Apply to open {{ payment.currency }} invoices</h3>
+    <p class="text-xs text-gray-500 mt-1">Only this customer's open invoices in {{ payment.currency }} are listed. An invoice cannot take more than it is owed, the amounts together cannot exceed what is still on account, and an invoice dated after the application date cannot be settled by it. If the rate moved between the receipt and the invoice, the realised exchange is booked on the application date.</p>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-2 text-left">Invoice</th><th class="px-4 py-2 text-left">Date</th><th class="px-4 py-2 text-right">Owed</th><th class="px-4 py-2 text-right">Apply</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for row in rows %}
+      <tr>
+        <td class="px-4 py-2 font-mono">{{ row.invoice.reference }}</td>
+        <td class="px-4 py-2 text-gray-600">{{ row.invoice.invoice_date|date:"d M Y" }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ row.invoice.outstanding_amount|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right">
+          <input type="text" inputmode="decimal" name="allocate_{{ row.invoice.pk }}" value="{{ row.value }}"
+            class="w-32 px-2 py-1 text-right text-sm border border-gray-300 rounded-lg font-mono" placeholder="0.00">
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">{{ payment.customer.name }} has no open {{ payment.currency }} invoices to apply this credit to.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between gap-4 flex-wrap">
+    <label class="text-xs text-gray-500">
+      Application date
+      <input type="date" name="allocation_date" value="{{ on_date|date:'Y-m-d' }}" class="mt-1 block px-3 py-2 text-sm border border-gray-300 rounded-lg">
+    </label>
+    {% if rows %}
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Apply Credit</button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

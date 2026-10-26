@@ -106,6 +106,7 @@
   {% else %}
   Debit, credit and balance are in {{ book }}, the currency the ledger keeps.
   {% endif %}
-  {% if not currency %}Still owed on every open invoice today: <span class="font-semibold">{{ still_owed|floatformat:2 }} {{ book }}</span> — the unpaid part of this customer's paper, one slice of the receivables control account.{% endif %}
+  {% if not currency %}Still owed on every open invoice today: <span class="font-semibold">{{ still_owed|floatformat:2 }} {{ book }}</span> — the unpaid part of this customer's paper, one slice of the receivables control account.{% if on_account %} Money on account, not yet applied to an invoice: <span class="font-semibold">{{ on_account|floatformat:2 }} {{ book }}</span>.{% endif %}{% endif %}
+  Receipts count at what they cleared from the account — each settled invoice at the rate it was raised at — so an exchange gain or loss on settlement is the company's, not a balance the customer owes or is owed.
 </p>
 {% endblock %}
