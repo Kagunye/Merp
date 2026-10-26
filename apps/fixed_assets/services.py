@@ -139,8 +139,12 @@ def post_acquisition(asset, user=None):
     _cr(je, cash_account, cost, label)
     je.post(user=user)
 
-    FixedAsset.objects.filter(pk=asset.pk).update(journal_entry=je)
+    # A purchase booked again after being stood down brings the asset back
+    # into use: it is carried, so it can be worn down and disposed of again.
+    status = "ACTIVE" if asset.status == "CANCELLED" else asset.status
+    FixedAsset.objects.filter(pk=asset.pk).update(journal_entry=je, status=status)
     asset.journal_entry = je
+    asset.status = status
     return je
 
 
@@ -177,6 +181,11 @@ def reverse_acquisition(asset, user=None, reason=""):
     if reason:
         reversal.notes = f"{reversal.notes} — {reason}"
         reversal.save(update_fields=["notes", "updated_at"])
+    # With its cost gone from the ledger the asset must stop being treated as
+    # in use: a charge would credit accumulated depreciation against a cost the
+    # book no longer holds, and a disposal would credit that cost away twice.
+    asset.status = "CANCELLED"
+    asset.save(update_fields=["status", "book_value", "updated_at"])
     return reversal
 
 
@@ -201,6 +210,31 @@ def next_month(day):
 def next_charge_amount(asset):
     """What the next month would be charged, capped at what is left to charge."""
     return money(min(asset.monthly_charge, asset.remaining_depreciable))
+
+
+def charge_for_months(asset, months):
+    """What `months` consecutive charges from where the asset stands add up to.
+
+    Worked month by month, exactly as charging them one at a time would: the
+    straight-line figure is rounded each month, a written-down charge falls on
+    what each month leaves, and the residual floor stops it wherever it bites.
+    """
+    total = Z
+    book_value = money(asset.purchase_cost) - money(asset.accumulated_depreciation)
+    remaining = asset.remaining_depreciable
+    for _month in range(max(months, 0)):
+        if asset.depreciation_method == "WDV":
+            if asset.useful_life_years <= 0:
+                break
+            monthly = book_value / (Decimal(asset.useful_life_years) * Decimal("12"))
+        else:
+            monthly = asset.monthly_depreciation_slm
+        charge = money(min(monthly, remaining - total))
+        if charge <= Z:
+            break
+        total += charge
+        book_value -= charge
+    return total
 
 
 def charge_preview(asset):
@@ -256,12 +290,19 @@ def depreciate(asset, period_date, user=None):
             f"cannot have worn down in {period_date:%b %Y}. Charge from the "
             "month it joined the register.")
 
+    if not asset.acquisition_is_live:
+        raise ValidationError(
+            f"The ledger does not carry {asset.code}'s purchase, so there is no cost "
+            "to wear down. Save the asset again to book the purchase first.")
+
     live = _live_periods(asset)
-    if period_date in live:
+    # A month is a calendar month, whatever day of it was typed: the 1st and
+    # the 15th of October are the same month's wear.
+    if month_start(period_date) in {month_start(day) for day in live}:
         raise ValidationError(
             f"{asset.code} has already been charged for {period_date:%b %Y}. "
             "Two entries for one month would take the same wear twice.")
-    if live and period_date < max(live):
+    if live and month_start(period_date) < month_start(max(live)):
         raise ValidationError(
             f"The last month charged for {asset.code} was {max(live):%b %Y}. "
             "Depreciation runs forward through the calendar — go back to the "
@@ -273,7 +314,18 @@ def depreciate(asset, period_date, user=None):
             f"{money(asset.residual_value)}, which is where it stays. There is "
             "nothing left to charge.")
 
-    amount = next_charge_amount(asset)
+    # Once an asset is being charged, its months run on without a gap. A month
+    # typed further ahead brings the months missed in between with it, in one
+    # charge, because a month skipped could never be charged afterwards — the
+    # register only runs forward. (Where the first charge starts is the
+    # bookkeeper's choice: an asset brought onto the register late starts
+    # where the book starts.)
+    months = 1
+    if live:
+        first_due = next_month(month_start(max(live)))
+        target = month_start(period_date)
+        months = (target.year - first_due.year) * 12 + target.month - first_due.month + 1
+    amount = charge_for_months(asset, months)
     if amount <= Z:
         raise ValidationError(
             f"{asset.code}'s charge for {period_date:%b %Y} works out at nothing. "
@@ -281,9 +333,10 @@ def depreciate(asset, period_date, user=None):
 
     company = asset.company
     _cost, expense_account, accumulated_account = asset_accounts(asset)
+    span = (f"{first_due:%b %Y} to {period_date:%b %Y} ({months} months, catching "
+            "up the months missed)" if months > 1 else f"{period_date:%b %Y}")
     je = _new_je(company, "JE-DEP-", "DEPRECIATION", period_date,
-                 f"Depreciation {asset.code} — {asset.name} for "
-                 f"{period_date:%b %Y}")
+                 f"Depreciation {asset.code} — {asset.name} for {span}")
     je.source_document_type = "FixedAsset"
     je.source_document_id = str(asset.pk)
     je.save(update_fields=["source_document_type", "source_document_id", "updated_at"])
@@ -387,6 +440,13 @@ def post_disposal(disposal, user=None):
     asset = disposal.asset
     if disposal.journal_entry_id and not disposal.journal_entry.reversed_by_id:
         return disposal.journal_entry
+    if asset.status != "ACTIVE" or not asset.acquisition_is_live:
+        # Disposing clears the cost off the asset account; with the purchase
+        # stood down there is no cost there to clear, and the credit would
+        # drive the account below nothing.
+        raise ValidationError(
+            f"{asset.code} is {asset.get_status_display().lower()} and the ledger does "
+            "not carry it as an asset in use, so there is nothing to dispose of.")
 
     company = asset.company
     cost = money(asset.purchase_cost)

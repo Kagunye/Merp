@@ -4,6 +4,7 @@ from decimal import Decimal
 from django import forms
 from apps.core.forms import date_input, is_new
 from django.forms import inlineformset_factory
+from apps.organizations.models import FiscalYear
 from .models import (
     Account, Currency, ExchangeRate, JournalEntry, JournalEntryLine,
 )
@@ -59,6 +60,22 @@ class AccountForm(forms.ModelForm):
                 )
         return code
 
+    def clean_account_type(self):
+        kind = self.cleaned_data.get("account_type")
+        original = self.instance.account_type if self.instance.pk else None
+        if original and kind != original and self.instance.has_postings:
+            # The type decides which statement an account reports on and which
+            # side its balance is read from. Changing it under postings already
+            # made would move them — a revenue account turned liability takes
+            # its sales out of the profit and loss without a single entry to
+            # say so.
+            raise forms.ValidationError(
+                f"{self.instance.code} already has entries as "
+                f"{self.instance.get_account_type_display().lower()}, so its type is "
+                "fixed. Open a new account of the type you need and move the balance "
+                "across with a journal.")
+        return kind
+
     def clean_is_reconcilable(self):
         if self.cleaned_data.get("account_type") in self.RECONCILABLE_TYPES:
             return True
@@ -104,6 +121,18 @@ class JournalEntryForm(forms.ModelForm):
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.company = company
+        # Only the kinds of entry a person types are offered. A hand-made
+        # journal typed CLOSING would be left out of the profit and loss and out
+        # of every close; typed REVALUATION or DEPRECIATION it would be taken
+        # for machinery a module owns. The model's own validation then refuses
+        # any other value a tampered form sends.
+        self.fields["entry_type"].choices = [
+            (code, label) for code, label in JournalEntry.ENTRY_TYPES
+            if code in JournalEntry.USER_ENTRY_TYPES
+        ]
+        self.fields["entry_type"].help_text = (
+            "Manual for an ordinary journal. Invoices, bills, payroll, depreciation, "
+            "closes and revaluations write their own entries.")
         # JournalEntry.pk is a UUID with a default, so a brand new instance
         # already carries one; _state.adding is what says it has never been saved.
         if self.instance._state.adding:
@@ -144,6 +173,13 @@ class JournalEntryLineForm(forms.ModelForm):
         credit = cleaned.get("credit_amount") or Decimal("0")
         if debit > 0 and credit > 0:
             self.add_error("credit_amount", "A line is either a debit or a credit, not both.")
+        elif cleaned.get("account") and debit == 0 and credit == 0 \
+                and not cleaned.get("DELETE"):
+            # A line of nothing is noise in the ledger, and a journal made only
+            # of them would post as an entry that moved nothing at all.
+            self.add_error(
+                "debit_amount",
+                "Enter a debit or a credit for this line, or clear the account to drop it.")
         return cleaned
 
 
@@ -156,6 +192,66 @@ JournalEntryLineFormSet = inlineformset_factory(
     validate_min=True,
     can_delete=True,
 )
+
+
+class FiscalYearForm(forms.ModelForm):
+    """A new year on the calendar, refused when it cannot be a year of this book.
+
+    Every posting date has to fall in exactly one period: two years over the
+    same months would give a date two periods, and close the same months twice
+    into retained earnings. A year that ends before it starts has no months to
+    cut into periods, and used to be saved with none.
+    """
+
+    class Meta:
+        model = FiscalYear
+        fields = ["name", "start_date", "end_date", "is_current"]
+        widgets = {"start_date": date_input(), "end_date": date_input()}
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        for name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs["class"] = "form-checkbox"
+            else:
+                field.widget.attrs["class"] = FIELD_CLASS
+
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if name and self.company:
+            clash = FiscalYear.objects.filter(company=self.company, name__iexact=name)
+            if self.instance.pk:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise forms.ValidationError(f"There is already a fiscal year called {name}.")
+        return name
+
+    def clean(self):
+        cleaned = super().clean()
+        start, end = cleaned.get("start_date"), cleaned.get("end_date")
+        if not (start and end):
+            return cleaned
+        if end <= start:
+            self.add_error(
+                "end_date",
+                f"The year ends on {end:%d %b %Y}, which is not after it starts on "
+                f"{start:%d %b %Y}. Check the two dates — a fiscal year runs forward.")
+            return cleaned
+        if self.company:
+            overlap = FiscalYear.objects.filter(
+                company=self.company, start_date__lte=end, end_date__gte=start)
+            if self.instance.pk:
+                overlap = overlap.exclude(pk=self.instance.pk)
+            other = overlap.order_by("start_date").first()
+            if other:
+                self.add_error(
+                    "start_date",
+                    f"{start:%d %b %Y} – {end:%d %b %Y} overlaps {other.name} "
+                    f"({other.start_date:%d %b %Y} – {other.end_date:%d %b %Y}). A date "
+                    "can only belong to one year; start this one the day after the "
+                    "other ends.")
+        return cleaned
 
 
 class CurrencyForm(forms.ModelForm):

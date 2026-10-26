@@ -19,7 +19,7 @@ from apps.core.mixins import CompanyRequiredMixin
 from . import gl_service
 from .currency import book_currency
 from .forms import (
-    AccountForm, CurrencyForm, ExchangeRateForm,
+    AccountForm, CurrencyForm, ExchangeRateForm, FiscalYearForm,
     JournalEntryForm, JournalEntryLineFormSet,
 )
 from .models import (
@@ -135,6 +135,17 @@ def account_deactivate(request, pk):
             request,
             f"{account.code} is the ledger account behind "
             f"{', '.join(a.name for a in mapped)} — remap those before retiring it.",
+        )
+        return redirect("accounting:account_edit", pk=account.pk)
+    balance = account.current_balance
+    if balance:
+        # A retired account drops off the entry forms and the ledger index, so
+        # money left on it could no longer be moved off it or even be seen
+        # from the screens a bookkeeper works in.
+        messages.error(
+            request,
+            f"{account.code} still holds {balance:,.2f}. Move the balance to another "
+            "account with a journal first; only an empty account can be retired.",
         )
         return redirect("accounting:account_edit", pk=account.pk)
     account.soft_delete()
@@ -298,6 +309,13 @@ class JournalEntryDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"Journal Entry: {self.object.reference}"
         ctx["lines"] = self.object.lines.select_related("account")
+        # The Reverse button is only offered where it would be honoured; any
+        # other posted entry says where it is answered instead.
+        refusal = (self.object.generic_reversal_refusal()
+                   if self.object.status == "POSTED" and not self.object.reversed_by_id else "")
+        ctx["can_reverse"] = self.object.status == "POSTED" and not refusal \
+            and not self.object.reversed_by_id
+        ctx["reverse_elsewhere"] = refusal
         return ctx
 
 
@@ -310,6 +328,8 @@ def journal_entry_post(request, pk):
         messages.success(request, f"Entry {entry.reference} posted successfully.")
         if entry.calendar_warning:
             messages.warning(request, entry.calendar_warning)
+    except ValidationError as e:
+        messages.error(request, " ".join(e.messages))
     except Exception as e:
         messages.error(request, str(e))
     return redirect("accounting:journal_entry_detail", pk=pk)
@@ -318,14 +338,26 @@ def journal_entry_post(request, pk):
 @login_required
 @require_POST
 def journal_entry_reverse(request, pk):
+    """Offset a journal a person typed, with a second entry on the same date.
+
+    Only hand-made journals are reversed here. An entry written by an invoice,
+    a payroll run, a depreciation charge, a revaluation or a close belongs to
+    that document, and its own screen reverses the entry and the document
+    together; offsetting it from here would leave the two telling different
+    stories. The refusal names the screen to use instead.
+    """
     entry = get_object_or_404(JournalEntry, pk=pk, company=request.active_company)
+    refusal = entry.generic_reversal_refusal()
+    if refusal:
+        messages.error(request, f"{entry.reference} was not reversed. {refusal}")
+        return redirect("accounting:journal_entry_detail", pk=pk)
     try:
         reversal = entry.reverse(user=request.user)
-        messages.success(request, f"Reversal entry {reversal.reference} created and posted.")
-        return redirect("accounting:journal_entry_detail", pk=reversal.pk)
-    except Exception as e:
-        messages.error(request, str(e))
-    return redirect("accounting:journal_entry_detail", pk=pk)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("accounting:journal_entry_detail", pk=pk)
+    messages.success(request, f"Reversal entry {reversal.reference} created and posted.")
+    return redirect("accounting:journal_entry_detail", pk=reversal.pk)
 
 
 @login_required
@@ -348,6 +380,12 @@ def journal_entry_cancel(request, pk):
 
 
 class TrialBalanceView(LoginRequiredMixin, TemplateView):
+    """Every posted debit and credit, per account, up to and including a day.
+
+    Read as at a date — today unless another is asked for — because a receipt
+    dated next week has not happened yet; counting it would print a forecast
+    under a heading that promises the books as they stand.
+    """
     template_name = "accounting/trial_balance.html"
 
     def get_context_data(self, **kwargs):
@@ -356,6 +394,14 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
+        as_at = datetime.date.today()
+        raw = self.request.GET.get("date") or ""
+        if raw:
+            try:
+                as_at = datetime.date.fromisoformat(raw)
+            except ValueError:
+                messages.error(self.request, f"'{raw}' is not a date; showing today instead.")
+        ctx["as_at"] = as_at
         # Every account with a balance belongs on the trial balance, retired or
         # not. Skipping a retired account that still holds money unbalances the
         # books and hides the mistake from the only report that would show it.
@@ -364,7 +410,8 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
         total_dr = Decimal("0")
         total_cr = Decimal("0")
         for acc in accounts:
-            lines = acc.journal_lines.filter(journal_entry__status="POSTED")
+            lines = acc.journal_lines.filter(
+                journal_entry__status="POSTED", journal_entry__posting_date__lte=as_at)
             dr = lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
             cr = lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
             if dr > 0 or cr > 0:
@@ -488,23 +535,14 @@ class FiscalYearListView(LoginRequiredMixin, ListView):
 
 class FiscalYearCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = FiscalYear
+    form_class = FiscalYearForm
     template_name = "accounting/fiscal_year_form.html"
-    fields = ["name", "start_date", "end_date", "is_current"]
     success_url = reverse_lazy("accounting:fiscal_year_list")
 
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        from django import forms as dforms
-        for fname, field in form.fields.items():
-            if isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["type"] = "date"
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.format = ISO_DATE
-            elif isinstance(field.widget, dforms.CheckboxInput):
-                field.widget.attrs["class"] = "form-checkbox"
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        return form
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
 
     def form_valid(self, form):
         import calendar
@@ -548,6 +586,9 @@ def fiscal_year_close(request, pk):
         return redirect("accounting:fiscal_year_list")
     try:
         entries = gl_service.close_fiscal_year(request.active_company, fy, user=request.user)
+    except ValidationError as e:
+        messages.error(request, f"Year end failed: {' '.join(e.messages)}")
+        return redirect("accounting:fiscal_year_list")
     except Exception as e:
         messages.error(request, f"Year end failed: {e}")
         return redirect("accounting:fiscal_year_list")
@@ -565,9 +606,13 @@ def fiscal_year_close(request, pk):
 @require_POST
 def fiscal_year_reopen(request, pk):
     fy = get_object_or_404(FiscalYear, pk=pk, company=request.active_company)
-    reversed_entries = gl_service.reopen_fiscal_year(
-        request.active_company, fy, user=request.user,
-    )
+    try:
+        reversed_entries = gl_service.reopen_fiscal_year(
+            request.active_company, fy, user=request.user,
+        )
+    except ValidationError as e:
+        messages.error(request, f"{fy.name} was not reopened. {' '.join(e.messages)}")
+        return redirect("accounting:fiscal_year_list")
     messages.success(
         request,
         f"Fiscal year {fy.name} reopened."
@@ -585,6 +630,9 @@ def period_close(request, pk):
         return redirect("accounting:fiscal_year_list")
     try:
         entry = gl_service.close_period(request.active_company, period, user=request.user)
+    except ValidationError as e:
+        messages.error(request, f"Closing {period.name} failed: {' '.join(e.messages)}")
+        return redirect("accounting:fiscal_year_list")
     except Exception as e:
         messages.error(request, f"Closing {period.name} failed: {e}")
         return redirect("accounting:fiscal_year_list")
@@ -602,13 +650,47 @@ def period_close(request, pk):
 @require_POST
 def period_reopen(request, pk):
     period = get_object_or_404(AccountingPeriod, pk=pk, fiscal_year__company=request.active_company)
-    entry = gl_service.reopen_period(request.active_company, period, user=request.user)
+    try:
+        entry = gl_service.reopen_period(request.active_company, period, user=request.user)
+    except ValidationError as e:
+        messages.error(request, f"{period.name} was not reopened. {' '.join(e.messages)}")
+        return redirect("accounting:fiscal_year_list")
     messages.success(
         request,
         f"Period {period.name} reopened."
         + (f" Closing entry {entry.reference} was reversed." if entry else ""),
     )
     return redirect("accounting:fiscal_year_list")
+
+
+def _opening_amount(raw):
+    """Read one opening-balance box. Returns (amount, problem).
+
+    The boxes are plain text in the browser, so anything can arrive: NaN and
+    Infinity parse as Decimals, 1e20 does not fit the ledger's columns, and
+    half a cent typed twice passes a sum check and then fails at the cent. A
+    figure is accepted only as a finite, non-negative amount of at most two
+    decimals that the ledger can store.
+    """
+    from decimal import InvalidOperation
+
+    text = (raw or "").strip().replace(",", "")
+    if not text:
+        return Decimal("0"), ""
+    try:
+        amount = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return Decimal("0"), f"'{raw}' is not a number."
+    if not amount.is_finite():
+        return Decimal("0"), f"'{raw}' is not an amount."
+    if amount < 0:
+        return Decimal("0"), ("amounts cannot be negative; put the figure in the "
+                              "other column instead.")
+    if amount >= Decimal("1e13"):
+        return Decimal("0"), f"{raw} is larger than the ledger can hold."
+    if amount != amount.quantize(Decimal("0.01")):
+        return Decimal("0"), f"{raw} has more than two decimals; enter whole cents."
+    return amount.quantize(Decimal("0.01")), ""
 
 
 class OpeningBalanceView(LoginRequiredMixin, TemplateView):
@@ -633,50 +715,88 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
         from apps.core.models import SequenceCounter
         company = request.active_company
         accounts = Account.objects.filter(company=company, is_active=True)
-        posting_date = request.POST.get("posting_date")
-        if not posting_date:
-            messages.error(request, "Posting date is required.")
+
+        # One live opening entry per book. A second one would add the same
+        # share capital and the same bank balance on top of the first; a wrong
+        # opening is put right by reversing it and entering it again.
+        live = JournalEntry.objects.filter(
+            company=company, entry_type="OPENING", status="POSTED",
+            reversed_by__isnull=True, reversal_of__isnull=True,
+        ).order_by("posting_date").first()
+        if live:
+            messages.error(
+                request,
+                f"This book already has its opening balances in {live.reference} "
+                f"({live.posting_date:%d %b %Y}). To change them, reverse "
+                f"{live.reference} from its journal page and enter them again here.")
             return redirect("accounting:opening_balances")
 
-        line_data = []
+        raw_date = (request.POST.get("posting_date") or "").strip()
+        if not raw_date:
+            messages.error(request, "Posting date is required.")
+            return redirect("accounting:opening_balances")
+        try:
+            posting_date = datetime.date.fromisoformat(raw_date)
+        except ValueError:
+            messages.error(
+                request, f"'{raw_date}' is not a real date. Pick the day the opening "
+                "balances are taken at, usually the first day of the fiscal year.")
+            return redirect("accounting:opening_balances")
+
+        line_data, problems = [], []
         total_dr = Decimal("0")
         total_cr = Decimal("0")
         for acc in accounts:
-            dr = request.POST.get(f"dr_{acc.pk}") or "0"
-            cr = request.POST.get(f"cr_{acc.pk}") or "0"
-            try:
-                dr_dec = Decimal(dr or "0")
-                cr_dec = Decimal(cr or "0")
-            except Exception:
+            amounts = []
+            for side in ("dr", "cr"):
+                amount, problem = _opening_amount(request.POST.get(f"{side}_{acc.pk}"))
+                if problem:
+                    problems.append(f"{acc.code} {'debit' if side == 'dr' else 'credit'}: {problem}")
+                amounts.append(amount)
+            dr_dec, cr_dec = amounts
+            if dr_dec > 0 and cr_dec > 0:
+                problems.append(
+                    f"{acc.code} has both a debit and a credit. An opening balance sits "
+                    "on one side: enter only the net figure.")
                 continue
             if dr_dec > 0 or cr_dec > 0:
                 line_data.append((acc, dr_dec, cr_dec))
                 total_dr += dr_dec
                 total_cr += cr_dec
 
-        if abs(total_dr - total_cr) > Decimal("0.01"):
-            messages.error(request, f"Opening balances must balance: Dr {total_dr} ≠ Cr {total_cr}.")
+        if problems:
+            messages.error(request, "Nothing was posted. " + " ".join(problems[:6])
+                           + (" …" if len(problems) > 6 else ""))
             return redirect("accounting:opening_balances")
         if not line_data:
             messages.error(request, "No balances were entered.")
             return redirect("accounting:opening_balances")
+        # Every figure is already in whole cents, so the two sides either agree
+        # to the cent or they do not; there is no tolerance to hide behind.
+        if total_dr != total_cr:
+            messages.error(request, f"Opening balances must balance: Dr {total_dr} ≠ Cr {total_cr}.")
+            return redirect("accounting:opening_balances")
 
-        with transaction.atomic():
-            je = JournalEntry.objects.create(
-                company=company,
-                reference=SequenceCounter.next_number(company, "OB-"),
-                entry_type="OPENING", posting_date=posting_date,
-                notes="Opening balances",
-            )
-            for acc, dr_dec, cr_dec in line_data:
-                JournalEntryLine.objects.create(
-                    journal_entry=je, account=acc,
-                    description=f"Opening balance — {acc.name}",
-                    debit_amount=dr_dec, credit_amount=cr_dec,
+        try:
+            with transaction.atomic():
+                je = JournalEntry.objects.create(
+                    company=company,
+                    reference=SequenceCounter.next_number(company, "OB-"),
+                    entry_type="OPENING", posting_date=posting_date,
+                    notes="Opening balances",
                 )
-            # Post it through the model, so an opening entry is checked and
-            # dated like every other entry instead of being stamped POSTED.
-            je.post(user=request.user)
+                for acc, dr_dec, cr_dec in line_data:
+                    JournalEntryLine.objects.create(
+                        journal_entry=je, account=acc,
+                        description=f"Opening balance — {acc.name}",
+                        debit_amount=dr_dec, credit_amount=cr_dec,
+                    )
+                # Post it through the model, so an opening entry is checked and
+                # dated like every other entry instead of being stamped POSTED.
+                je.post(user=request.user)
+        except ValidationError as exc:
+            messages.error(request, "Nothing was posted. " + " ".join(exc.messages))
+            return redirect("accounting:opening_balances")
         messages.success(request, f"Opening balance entry {je.reference} posted (Dr/Cr {total_dr}).")
         return redirect("accounting:journal_entry_detail", pk=je.pk)
 
@@ -947,7 +1067,13 @@ def revaluation_reverse(request):
             f"{entry.reference} is dated {entry.posting_date:%d %b %Y}; a reversal "
             "cannot be dated before the entry it answers.")
         return redirect("accounting:revaluation")
-    reversal = entry.reverse(user=request.user, posting_date=as_of)
+    try:
+        # The releases made against it as documents were settled come off with
+        # it; left behind, they would be undoing a revaluation no longer there.
+        reversal = revaluation.take_off(entry, user=request.user, posting_date=as_of)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("accounting:revaluation")
     messages.success(
         request,
         f"Revaluation {entry.reference} reversed by {reversal.reference}. "

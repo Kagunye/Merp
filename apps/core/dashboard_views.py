@@ -142,14 +142,15 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         try:
             from apps.accounting.models import JournalEntryLine, Account
-            # Cash/bank balances
+            # Cash/bank balances as at today: a receipt dated next week is not
+            # money in the bank yet, however surely it is expected.
             cash_accounts = Account.objects.filter(
                 company=company,
                 account_type__in=["CASH", "BANK"],
                 is_active=True,
             )
             total_cash = sum(
-                a.current_balance for a in cash_accounts
+                (a.balance_as_at(today) for a in cash_accounts), Decimal("0")
             )
 
             # Revenue and expenses month to date, netted exactly as the P&L
@@ -406,7 +407,9 @@ def cashflow_chart_widget(request):
                 account_type__in=["CASH", "BANK"],
                 is_active=True,
             )
-            balance = sum(float(a.current_balance) for a in cash_accounts)
+            # Each day's point is the balance at the close of that day, so the
+            # line moves on the days cash moved instead of repeating today.
+            balance = sum(float(a.balance_as_at(d)) for a in cash_accounts)
         except Exception:
             balance = 0
         cash_data.append(balance)

@@ -32,6 +32,17 @@ class ReportingIndexView(LoginRequiredMixin, TemplateView):
 
 
 class TrialBalanceView(LoginRequiredMixin, TemplateView):
+    """Each account's balance as at the end date, with how it got there.
+
+    A trial balance is a list of closing balances: every account, debit or
+    credit, as it stood at the close of the last day asked for. Reading only
+    the window's postings left out everything brought forward — the bank's
+    opening balance, last month's sales — so the "balance" printed for an
+    account was its turnover, not what it held. The window is still useful,
+    so each row also shows the balance brought forward to the first day and
+    the debits and credits posted inside it; opening plus movement is the
+    closing figure, and the closing columns are what must agree.
+    """
     template_name = "reporting/trial_balance.html"
 
     def get_context_data(self, **kwargs):
@@ -40,36 +51,72 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
+        from apps.accounting.models import JournalEntryLine
         from apps.accounting.models import Account
-        from django.db.models import Sum
+        from django.db.models import Q, Sum
 
         date_from, date_to = _parse_dates(self.request)
-        # A retired account that moved money inside the window still has to
-        # appear, otherwise the two sides of the trial balance disagree.
-        accounts = Account.objects.filter(company=company).order_by("code")
-        rows = []
-        total_dr = Decimal("0")
-        total_cr = Decimal("0")
-        for acc in accounts:
-            lines = acc.journal_lines.filter(
-                journal_entry__status="POSTED",
-                journal_entry__posting_date__gte=date_from,
-                journal_entry__posting_date__lte=date_to,
+        ctx.update({"date_from": date_from, "date_to": date_to})
+        if date_from > date_to:
+            ctx.update({
+                "rows": [], "error": (
+                    f"The window starts on {date_from:%d %b %Y}, after it ends on "
+                    f"{date_to:%d %b %Y}. Swap the two dates."),
+                "is_balanced": None,
+            })
+            return ctx
+
+        # One pass over the posted lines up to the end date, split into what
+        # was brought forward and what moved inside the window. A retired
+        # account that still holds money has to appear, or the two sides of
+        # the trial balance disagree.
+        posted = JournalEntryLine.objects.filter(
+            account__company=company, journal_entry__status="POSTED",
+            journal_entry__posting_date__lte=date_to,
+        )
+        before = Q(journal_entry__posting_date__lt=date_from)
+        inside = Q(journal_entry__posting_date__gte=date_from)
+        figures = {
+            row["account_id"]: row for row in posted.values("account_id").annotate(
+                open_dr=Sum("debit_amount", filter=before),
+                open_cr=Sum("credit_amount", filter=before),
+                move_dr=Sum("debit_amount", filter=inside),
+                move_cr=Sum("credit_amount", filter=inside),
             )
-            dr = lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
-            cr = lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
-            if dr > 0 or cr > 0:
-                rows.append({"account": acc, "debit": dr, "credit": cr,
-                             "retired": not acc.is_active})
-                total_dr += dr
-                total_cr += cr
+        }
+        zero = Decimal("0")
+        rows = []
+        total_dr = total_cr = zero
+        total_move_dr = total_move_cr = zero
+        for acc in Account.objects.filter(pk__in=figures).order_by("code"):
+            row = figures[acc.pk]
+            opening = (row["open_dr"] or zero) - (row["open_cr"] or zero)
+            move_dr, move_cr = row["move_dr"] or zero, row["move_cr"] or zero
+            closing = opening + move_dr - move_cr
+            if not (opening or move_dr or move_cr or closing):
+                continue
+            rows.append({
+                "account": acc, "retired": not acc.is_active,
+                # Brought forward, as a signed debit-positive figure.
+                "opening": opening,
+                "opening_debit": opening if opening > 0 else zero,
+                "opening_credit": -opening if opening < 0 else zero,
+                "period_debit": move_dr, "period_credit": move_cr,
+                # The trial balance proper: the closing balance, on its side.
+                "debit": closing if closing > 0 else zero,
+                "credit": -closing if closing < 0 else zero,
+            })
+            total_dr += closing if closing > 0 else zero
+            total_cr += -closing if closing < 0 else zero
+            total_move_dr += move_dr
+            total_move_cr += move_cr
         ctx.update({
             "rows": rows,
             "total_debit": total_dr,
             "total_credit": total_cr,
-            "is_balanced": abs(total_dr - total_cr) < Decimal("0.01"),
-            "date_from": date_from,
-            "date_to": date_to,
+            "total_period_debit": total_move_dr,
+            "total_period_credit": total_move_cr,
+            "is_balanced": total_dr == total_cr,
         })
         return ctx
 

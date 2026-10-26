@@ -67,6 +67,10 @@ class FixedAsset(BaseModel, NotesMixin):
         ("DISPOSED", "Disposed"),
         ("WRITTEN_OFF", "Written Off"),
         ("UNDER_MAINTENANCE", "Under Maintenance"),
+        # The purchase was stood down: the ledger no longer carries the cost,
+        # so there is nothing to wear down and nothing to dispose of. Saving
+        # the asset again books the purchase afresh and makes it active.
+        ("CANCELLED", "Purchase stood down"),
     ]
     DEPRECIATION_METHODS = [("SLM", "Straight Line"), ("WDV", "Written Down Value")]
 
@@ -142,6 +146,12 @@ class FixedAsset(BaseModel, NotesMixin):
     def save(self, *args, **kwargs):
         self.book_value = self.purchase_cost - self.accumulated_depreciation
         super().save(*args, **kwargs)
+
+    @property
+    def acquisition_is_live(self):
+        """Whether the ledger currently carries this asset's purchase."""
+        entry = self.journal_entry
+        return bool(entry and entry.status == "POSTED" and not entry.reversed_by_id)
 
     @property
     def depreciable_amount(self):
