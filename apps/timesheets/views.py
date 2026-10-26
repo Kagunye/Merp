@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
@@ -55,6 +56,11 @@ class EntryCreateView(LoginRequiredMixin, CreateView):
     template_name = "timesheets/entry_form.html"
     success_url = reverse_lazy("timesheets:entry_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         form.instance.user = self.request.user
@@ -67,11 +73,22 @@ class EntryDetailView(LoginRequiredMixin, DetailView):
     template_name = "timesheets/entry_detail.html"
     context_object_name = "entry"
 
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return TimesheetEntry.objects.none()
+        return TimesheetEntry.objects.filter(company=company)
+
 
 @login_required
+@require_POST
 def entry_submit(request, pk):
-    e = get_object_or_404(TimesheetEntry, pk=pk)
-    if e.status == "DRAFT":
+    e = get_object_or_404(TimesheetEntry, pk=pk, company=request.active_company)
+    if e.user_id != request.user.pk:
+        messages.error(request, "Only the person who logged these hours can submit them.")
+    elif e.status != "DRAFT":
+        messages.error(request, "This entry has already been submitted.")
+    else:
         e.status = "SUBMITTED"
         e.save(update_fields=["status"])
         messages.success(request, "Submitted for approval.")
@@ -79,19 +96,17 @@ def entry_submit(request, pk):
 
 
 @login_required
+@require_POST
 def entry_approve(request, pk):
-    e = get_object_or_404(TimesheetEntry, pk=pk)
-    if e.status == "SUBMITTED":
+    e = get_object_or_404(TimesheetEntry, pk=pk, company=request.active_company)
+    if e.user_id == request.user.pk:
+        messages.error(request, "You can't approve your own hours; another manager must.")
+    elif e.status != "SUBMITTED":
+        messages.error(request, "Only submitted hours can be approved.")
+    else:
         e.status = "APPROVED"
         e.approved_by = request.user
         e.approved_at = timezone.now()
         e.save(update_fields=["status", "approved_by", "approved_at"])
         messages.success(request, "Approved.")
     return redirect("timesheets:entry_detail", pk=pk)
-
-    def get_queryset(self):
-        company = self.request.active_company
-        if not company:
-            return TimesheetEntry.objects.none()
-        return TimesheetEntry.objects.filter(company=company)
-

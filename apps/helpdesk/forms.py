@@ -10,6 +10,13 @@ class TicketForm(forms.ModelForm):
                   "priority", "assigned_to"]
         widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from apps.core.forms import company_users
+        from apps.crm.models import Customer
+        self.fields["customer"].queryset = Customer.objects.filter(company=company) if company else Customer.objects.none()
+        self.fields["assigned_to"].queryset = company_users(company)
+
 
 class TicketCommentForm(forms.ModelForm):
     class Meta:

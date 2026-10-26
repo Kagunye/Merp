@@ -873,9 +873,12 @@ class Command(BaseCommand):
         self.expect("VAT 16% tax rate", company.tax_rates.filter(rate=D("16.0000")).exists())
 
         membership = CompanyMembership.objects.filter(company=company, user=user).first()
-        if self.expect("creator got a company membership", membership is not None):
-            membership.role = "ACCOUNTANT"
-            membership.save(update_fields=["role"])
+        # One person keeps this whole book — stock, tills, payroll as well as the
+        # ledger — which only the company's administrator is allowed to do now
+        # that every screen checks the role. Role limits are tested elsewhere.
+        self.expect("creator is the company administrator",
+                    membership is not None and membership.role == "ADMIN",
+                    membership.role if membership else "no membership")
         return company
 
     def setup_master_data(self):

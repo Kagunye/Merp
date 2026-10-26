@@ -1,6 +1,8 @@
 """HR views."""
 import datetime
 from django.contrib import messages
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
@@ -297,25 +299,32 @@ class LeaveRequestCreateView(LoginRequiredMixin, CreateView):
         return ctx
 
 
+@login_required
+@require_POST
 def leave_approve(request, pk):
-    """POST — approve or reject a leave request."""
-    from django.contrib.auth.decorators import login_required
+    """Approve or reject a pending leave request — never your own."""
     leave = get_object_or_404(LeaveRequest, pk=pk, employee__company=request.active_company)
-    if request.method == "POST":
-        action = request.POST.get("action")
-        if action == "approve":
-            leave.status = "APPROVED"
-            leave.approved_by = request.user
-            leave.approved_at = timezone.now()
-            leave.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-            messages.success(request, f"Leave approved for {leave.employee.full_name}.")
-        elif action == "reject":
-            leave.status = "REJECTED"
-            leave.rejection_reason = request.POST.get("reason", "")
-            leave.save(update_fields=["status", "rejection_reason", "updated_at"])
-            messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
-    from django.urls import reverse
-    return redirect(reverse("hr:leave_list"))
+    action = request.POST.get("action")
+    if action not in ("approve", "reject"):
+        messages.error(request, "Choose approve or reject.")
+    elif leave.status != "PENDING":
+        messages.error(request, f"This request is already {leave.get_status_display().lower()}.")
+    elif leave.employee.user_id == request.user.pk:
+        messages.error(request, "You can't decide your own leave; another HR manager or an admin must.")
+    elif action == "approve":
+        leave.status = "APPROVED"
+        leave.approved_by = request.user
+        leave.approved_at = timezone.now()
+        leave.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+        messages.success(request, f"Leave approved for {leave.employee.full_name}.")
+    else:
+        leave.status = "REJECTED"
+        leave.approved_by = request.user
+        leave.approved_at = timezone.now()
+        leave.rejection_reason = request.POST.get("reason", "")
+        leave.save(update_fields=["status", "approved_by", "approved_at", "rejection_reason", "updated_at"])
+        messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
+    return redirect("hr:leave_detail", pk=leave.pk)
 
 
 class HRIndexView(LoginRequiredMixin, TemplateView):
@@ -347,4 +356,12 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
         if not company:
             return LeaveRequest.objects.none()
         return LeaveRequest.objects.filter(employee__company=company)
+
+    def get_context_data(self, **kwargs):
+        from apps.core import access
+        ctx = super().get_context_data(**kwargs)
+        role = getattr(self.request, "company_role", None)
+        ctx["can_decide"] = (access.can(self.request.user, role, "hr", "leave_approve", "POST")
+                             and self.object.employee.user_id != self.request.user.pk)
+        return ctx
 

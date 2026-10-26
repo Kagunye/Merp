@@ -89,3 +89,13 @@ def pick_currency(form, company, field_name="currency", rated_only=True):
         widget=forms.Select(attrs=dict(old.widget.attrs)),
         help_text=f"Converted into {book} at the rate filed for the document date.",
     )
+
+
+def company_users(company):
+    """People who can be picked in a form: active members of `company` only."""
+    from apps.accounts.models import User
+    if company is None:
+        return User.objects.none()
+    return User.objects.filter(
+        memberships__company=company, memberships__is_active=True, is_active=True,
+    ).distinct().order_by("first_name", "last_name")

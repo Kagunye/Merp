@@ -9,15 +9,25 @@
     <div><div class="text-xs text-gray-500">Leave type</div><div class="font-semibold">{{ leave.leave_type|default:"—" }}</div></div>
     <div><div class="text-xs text-gray-500">From</div><div class="font-semibold">{{ leave.start_date|date:"d M Y" }}</div></div>
     <div><div class="text-xs text-gray-500">To</div><div class="font-semibold">{{ leave.end_date|date:"d M Y" }}</div></div>
-    <div><div class="text-xs text-gray-500">Days</div><div class="font-semibold">{{ leave.days_requested|default:leave.days|default:"—" }}</div></div>
+    <div><div class="text-xs text-gray-500">Days</div><div class="font-semibold">{{ leave.days_requested|default:"—" }}</div></div>
     <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ leave.get_status_display|default:leave.status }}</span></div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Reason</div><div class="text-sm mt-1">{{ leave.reason|default:leave.notes|default:"—"|linebreaks }}</div></div>
+    <div class="col-span-2"><div class="text-xs text-gray-500">Reason</div><div class="text-sm mt-1">{{ leave.notes|default:"—"|linebreaks }}</div></div>
   </div>
 
-  {% if leave.status == "PENDING" %}
-  <div class="mt-5 pt-4 border-t flex gap-3">
-    <form method="post" action="{% url 'hr:leave_approve' leave.pk %}">{% csrf_token %}<button type="submit">Approve</button></form>
-  </div>
+  {% if leave.status == "PENDING" and can_decide %}
+  <form method="post" action="{% url 'hr:leave_approve' leave.pk %}" class="no-card mt-5 pt-4 border-t flex flex-wrap items-end gap-3">
+    {% csrf_token %}
+    <div style="flex:1 1 12rem;">
+      <label class="block text-xs text-gray-500 mb-1" for="reason">Reason (if rejecting)</label>
+      <input id="reason" name="reason" type="text" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg">
+    </div>
+    <button type="submit" name="action" value="approve">Approve</button>
+    <button type="submit" name="action" value="reject" class="btn-outline">Reject</button>
+  </form>
+  {% elif leave.status == "PENDING" %}
+  <p class="mt-5 pt-4 border-t text-sm text-gray-500">Waiting for HR to decide.</p>
+  {% elif leave.approved_by %}
+  <p class="mt-5 pt-4 border-t text-sm text-gray-500">{{ leave.get_status_display }} by {{ leave.approved_by }} on {{ leave.approved_at|date:"d M Y" }}{% if leave.rejection_reason %} — {{ leave.rejection_reason }}{% endif %}.</p>
   {% endif %}
 </div>
 {% endblock %}

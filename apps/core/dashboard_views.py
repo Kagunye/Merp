@@ -295,8 +295,8 @@ def switch_company(request, company_id):
     if request.user.has_company_access(company):
         request.session["active_company_id"] = str(company.id)
         request.session.pop("active_branch_id", None)
-    next_url = request.GET.get("next", "/dashboard/")
-    return redirect(next_url)
+    from apps.accounts.views import safe_next
+    return redirect(safe_next(request, "/dashboard/"))
 
 
 @login_required
@@ -308,8 +308,8 @@ def switch_branch(request, branch_id):
         is_active=True,
     )
     request.session["active_branch_id"] = str(branch.id)
-    next_url = request.GET.get("next", "/dashboard/")
-    return redirect(next_url)
+    from apps.accounts.views import safe_next
+    return redirect(safe_next(request, "/dashboard/"))
 
 
 @login_required
