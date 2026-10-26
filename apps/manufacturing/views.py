@@ -11,6 +11,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
+from apps.inventory.numbers import money, qty
+
 from .forms import BOMForm, BOMLineFormSet, CompleteWorkOrderForm, WorkOrderForm
 from .models import BillOfMaterials, WorkOrder, WorkOrderConsumption
 
@@ -275,7 +277,7 @@ def work_order_complete(request, pk):
             unit_cost = consumed / actual_qty if consumed > 0 else Decimal("0")
             if not fits(unit_cost, UNIT_COST):
                 raise ValidationError(
-                    f"{consumed} of materials over {actual_qty} made is more per unit than "
+                    f"{money(consumed)} of materials over {qty(actual_qty)} made is more per unit than "
                     "a stock record can hold — check the quantity made")
             unit_cost = unit_cost.quantize(Decimal("0.0001"))
             output = StockMovement(
@@ -314,8 +316,8 @@ def work_order_complete(request, pk):
 
     messages.success(
         request,
-        f"Work Order {wo.reference} completed. Output: {actual_qty} {product.name} "
-        f"at {unit_cost} each ({consumed} of materials).")
+        f"Work Order {wo.reference} completed. Output: {qty(actual_qty)} {product.name} "
+        f"at {money(unit_cost)} each ({money(consumed)} of materials).")
     return redirect("manufacturing:work_order_detail", pk=pk)
 
 

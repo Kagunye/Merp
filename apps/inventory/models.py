@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db import models, transaction
 from django.core.exceptions import ValidationError
 from apps.core.models import BaseModel, NotesMixin
+from .numbers import qty
 
 
 class UnitOfMeasure(BaseModel):
@@ -308,7 +309,7 @@ class StockMovement(BaseModel, NotesMixin):
                     if level.quantity < self.quantity:
                         raise ValidationError(
                             f"Insufficient stock for {self.product}: "
-                            f"available {level.quantity}, requested {self.quantity}"
+                            f"available {qty(level.quantity)}, requested {qty(self.quantity)}"
                         )
                 level.quantity -= self.quantity
             level.save(update_fields=["quantity", "avg_cost", "updated_at"])

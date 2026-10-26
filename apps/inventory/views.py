@@ -13,6 +13,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 
 from apps.core.mixins import CompanyRequiredMixin
 
+from .numbers import money, qty
 from .forms import ProductForm, StockMovementForm, UnitOfMeasureForm
 from .models import Product, StockLevel, StockMovement, UnitOfMeasure
 
@@ -177,8 +178,8 @@ class StockAdjustmentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         messages.success(
             self.request,
             f"Stock adjustment recorded: {self.object.get_movement_type_display()} of "
-            f"{self.object.quantity.normalize():f} × {self.object.product.name} at "
-            f"{self.object.unit_cost} each.")
+            f"{qty(self.object.quantity)} × {self.object.product.name} at "
+            f"{money(self.object.unit_cost)} each.")
         return redirect(self.success_url)
 
     def get_context_data(self, **kwargs):
@@ -349,7 +350,9 @@ class StockTransferView(LoginRequiredMixin, TemplateView):
         except ValidationError as exc:
             messages.error(request, f"Could not transfer {product.name}: {exc.messages[0]}")
             return redirect("inventory:stock_transfer")
-        messages.success(request, f"Transferred {qty} × {product.name}: {from_w.name} → {to_w.name}.")
+        from apps.inventory.numbers import qty as show_qty
+        messages.success(request, f"Transferred {show_qty(qty)} × {product.name}: "
+                                  f"{from_w.name} → {to_w.name}.")
         return redirect("inventory:warehouse_detail", pk=to_w.pk)
 
 

@@ -25,6 +25,15 @@ What is covered (numbers are the bug list the testers filed):
     8. junk numbers and ids are refused with a message on every screen listed
     9. a bill cannot name another supplier's order or a cancelled one, nor fall
        due before it was issued
+   10. a typed bill with no account chosen is charged to 6000, never to stock
+   11. a service on an order is charged to its expense account, not to 5400
+   12. a role that may not post bills leaves a draft when it enters one
+   13. a dollar order is a dollar order; dollar bills and notes leave AP at
+       exactly nothing once settled
+   14. requisitions take lines, are submitted, approved or rejected, and turn
+       into an order; a reference cannot be used twice
+   15. a part-received order is closed short only once what arrived is billed
+   16. flash messages print money to two places
 """
 import datetime
 from decimal import Decimal as D
@@ -136,15 +145,18 @@ class Command(AccountingCommand):
         self.post(client, f"product {sku}", reverse("inventory:product_create"), data)
         return Product.objects.get(company=self.company, sku=sku)
 
-    def order(self, client, ref, lines, supplier=None, send=True):
+    def order(self, client, ref, lines, supplier=None, send=True, currency=None):
         """A purchase order through the order screens: header, lines, send."""
         from apps.procurement.models import PurchaseOrder
 
-        self.post(client, f"order {ref}", reverse("procurement:po_create"), {
+        header = {
             "reference": ref, "supplier": (supplier or self.supplier).pk,
             "order_date": str(self.today), "expected_delivery_date": "",
             "warehouse": self.warehouse.pk, "notes": "",
-        })
+        }
+        if currency:
+            header["currency"] = currency
+        self.post(client, f"order {ref}", reverse("procurement:po_create"), header)
         po = PurchaseOrder.objects.get(company=self.company, reference=ref)
         for product, qty, cost, taxed in lines:
             self.post(client, f"{ref} line", reverse("procurement:po_line_add", args=[po.pk]), {
@@ -235,6 +247,20 @@ class Command(AccountingCommand):
         self.check_junk(client)
         self.section("9. Bill links and dates")
         self.check_links(client)
+        self.section("10. A typed bill with no account is an expense, not stock")
+        self.check_blank_account(client)
+        self.section("11. Services on an order are charged, not a variance")
+        self.check_service_lines(client)
+        self.section("12. Entering a bill is not posting it")
+        self.check_bill_roles(client)
+        self.section("13. Dollar orders and dollar bills settle to the cent")
+        self.check_usd(client)
+        self.section("14. Requisitions: lines, submit, approve or reject, order")
+        self.check_requisitions(client)
+        self.section("15. Closing a part-delivered order short")
+        self.check_close_short(client)
+        self.section("16. Messages print money to the cent")
+        self.check_flash_rounding(client)
 
         self.section("The book at the end")
         self.stock_agrees("after the whole run")
@@ -357,18 +383,23 @@ class Command(AccountingCommand):
         avg = level.avg_cost
         before = StockMovement.objects.filter(product=self.raw).count()
         stock0 = self.net("1400")
-        resp = self.adjust(client, "DELIVERY", 5, "999")
-        issue = StockMovement.objects.filter(product=self.raw, movement_type="DELIVERY").first()
-        self.expect("an issue with a typed cost is still taken at the shelf average",
+        # The screen offers adjustments only (receipts come in on an order, issues
+        # go out on a sale), so the decrease is what carries a typed cost here.
+        resp = self.adjust(client, "ADJUSTMENT_MINUS", 5, "999")
+        issue = StockMovement.objects.filter(product=self.raw,
+                                             movement_type="ADJUSTMENT_MINUS").first()
+        self.expect("a decrease with a typed cost is still taken at the shelf average",
                     resp.status_code == 302 and issue is not None and issue.unit_cost == avg,
                     f"HTTP {resp.status_code}, {issue and issue.unit_cost} against {avg}")
         self.expect("and credits stock with quantity × average",
                     stock0 - self.net("1400") == (5 * avg).quantize(CENT),
                     f"{stock0 - self.net('1400')}")
-        self.stock_agrees("after an issue with a typed cost")
+        self.stock_agrees("after a decrease with a typed cost")
 
         refused = [
-            ("DELIVERY", 2, "-50", "an issue at a negative cost"),
+            ("ADJUSTMENT_MINUS", 2, "-50", "a decrease at a negative cost"),
+            ("RECEIPT", 2, "60", "a receipt typed on the adjustment screen"),
+            ("DELIVERY", 2, "", "an issue typed on the adjustment screen"),
             ("ADJUSTMENT_PLUS", 3, "-10", "a surplus at a negative cost"),
             ("TRANSFER_IN", 10, "50", "half a transfer, in"),
             ("TRANSFER_OUT", 4, "", "half a transfer, out"),
@@ -560,21 +591,33 @@ class Command(AccountingCommand):
                     self.bill_form("BILL-FIX-6B", expense_account=self.account("1400").pk))
         self.stock_agrees("after a service bill")
 
-        # Goods taken in by hand with no order wait on 2110; the supplier's bill,
-        # coded to that account, clears them instead of leaving them there.
+        # Goods come in from a supplier on their purchase order and nowhere else:
+        # the adjustment screen no longer takes a receipt, and a receipt with no
+        # order (stock loaded by a script) no longer credits the accrual, which
+        # is proved order by order. A typed bill cannot be coded to 2110 either.
+        from apps.inventory.models import StockMovement
         accrual0 = self.net("2110")
         resp = self.adjust(client, "RECEIPT", 2, "60")
-        self.expect("a receipt with no order accrues on 2110",
-                    resp.status_code == 302 and accrual0 - self.net("2110") == D("120.00"),
-                    f"HTTP {resp.status_code}, {accrual0 - self.net('2110')}")
-        self.post(client, "bill for the unordered goods", reverse("procurement:bill_create"),
-                  self.bill_form("BILL-FIX-6R", expense_account=self.account("2110").pk,
-                                 subtotal="120", tax_amount="19.20", total_amount="139.20"))
-        unordered = Bill.objects.get(company=self.company, reference="BILL-FIX-6R")
-        self.expect("its bill clears the accrual and says so",
-                    self.net("2110") == accrual0 and unordered.accrued_cleared == D("120.00"),
-                    f"2110 {self.net('2110')} against {accrual0}, cleared {unordered.accrued_cleared}")
-        self.stock_agrees("after an unordered receipt and its bill")
+        form = resp.context.get("form") if resp.context else None
+        self.expect("a receipt typed on the adjustment screen is refused, pointing at the order",
+                    resp.status_code == 200 and form is not None
+                    and "purchase order" in " ".join(form.errors.get("movement_type", [])),
+                    str(form.errors if form is not None else f"HTTP {resp.status_code}"))
+        equity0 = self.net("3100")
+        StockMovement.objects.create(
+            product=self.raw, warehouse=self.warehouse, movement_type="RECEIPT",
+            quantity=D("2"), unit_cost=D("60"), movement_date=self.today,
+            reference="SCRIPT-LOAD", notes="Loaded by a script, no order")
+        self.expect("a receipt with no order does not touch the accrual",
+                    self.net("2110") == accrual0, f"2110 moved {self.net('2110') - accrual0}")
+        self.expect("and is booked as stock introduced, like opening stock",
+                    equity0 - self.net("3100") == D("120.00"), str(equity0 - self.net("3100")))
+        self.reject(client, "a typed bill coded to the accrual",
+                    reverse("procurement:bill_create"),
+                    self.bill_form("BILL-FIX-6R", expense_account=self.account("2110").pk,
+                                   subtotal="120", tax_amount="19.20", total_amount="139.20"))
+        self.stock_agrees("after a receipt with no order")
+        self.accrual_agrees("after a receipt with no order")
 
         # A debit note on it gives the expense back.
         exp0 = self.net("6600")
@@ -823,3 +866,427 @@ class Command(AccountingCommand):
         self.expect("an order with goods received cannot be cancelled",
                     received.status == "PARTIALLY_RECEIVED", received.status)
         self.bill_order(client, received)
+
+    # ── helpers for the later sections ──
+    def role_client(self, role):
+        """A second person in the same company, signed in with one role."""
+        from apps.accounts.models import User
+        from apps.organizations.models import CompanyMembership
+
+        self._people = getattr(self, "_people", 0) + 1
+        tag = f"{role.lower()}{self._people}.{self.stamp}"
+        user = User.objects.create(username=tag, email=f"{tag}@smoke.local",
+                                   first_name=role.title(), last_name="Fix")
+        user.set_password("smoke-test-pw")
+        user.save()
+        CompanyMembership.objects.create(company=self.company, user=user, role=role,
+                                         is_default=True)
+        other = Client(raise_request_exception=False)
+        other.force_login(user, backend="django.contrib.auth.backends.ModelBackend")
+        return other
+
+    def messages_of(self, client, response):
+        return [str(m) for m in self.flashes(client, response)]
+
+    # ── 10 ──
+    def check_blank_account(self, client):
+        from apps.procurement.models import Bill
+
+        stock0, expense0 = self.net("1400"), self.net("6000")
+        self.post(client, "a bill with no account chosen", reverse("procurement:bill_create"),
+                  self.bill_form("BILL-FIX-10", expense_account="", subtotal="2000",
+                                 tax_amount="320", total_amount="2320"))
+        bill = Bill.objects.get(company=self.company, reference="BILL-FIX-10")
+        je = bill.journal_entry
+        self.expect("a typed bill with no account is charged to general expenses (6000)",
+                    je is not None and self.line_total(je, "6000", "debit") == D("2000.00")
+                    and self.net("6000") - expense0 == D("2000.00"),
+                    f"6000 {je and self.line_total(je, '6000', 'debit')}")
+        self.expect("and says so on the bill itself",
+                    bill.expense_account_id == self.account("6000").pk,
+                    str(bill.expense_account_id))
+        self.expect("and never reaches inventory", self.net("1400") == stock0
+                    and (je is None or self.line_total(je, "1400", "debit") == Z),
+                    f"1400 moved {self.net('1400') - stock0}")
+        self.post(client, "a debit note on it", reverse("procurement:bill_debit_note",
+                                                        args=[bill.pk]), {"amount": "1160"})
+        self.expect("a note on it gives the expense back, not stock",
+                    self.net("6000") - expense0 == D("1000.00") and self.net("1400") == stock0,
+                    f"6000 {self.net('6000') - expense0}, 1400 {self.net('1400') - stock0}")
+        self.stock_agrees("after a bill with no account")
+
+    # ── 11 ──
+    def check_service_lines(self, client):
+        from apps.accounting.gl_service import accrual_remaining
+        from apps.inventory.models import Product
+
+        # A service with no cost account of its own lands on general expenses.
+        bare = Product.objects.create(
+            company=self.company, sku=f"SVC-BARE-{self.stamp[-4:]}", name="Installation",
+            product_type="SERVICE", unit_of_measure=self.uom, track_inventory=False,
+            cost_price=D("0"), selling_price=D("0"))
+        po = self.order(client, "PO-FIX-11", [(self.raw, 4, "50", False),
+                                              (self.service, 2, "300", True),
+                                              (bare, 1, "150", False)])
+        lines = list(po.lines.order_by("id"))
+        self.receive(client, po, [(lines[0], 4), (lines[1], 2), (lines[2], 1)])
+        ppv0, cost0, expense0 = self.net("5400"), self.net("5000"), self.net("6000")
+        bill = self.bill_order(client, po)
+        je = bill.journal_entry if bill else None
+        self.expect("the order's bill is for goods and services together",
+                    bill is not None and bill.total_amount == D("1046.00"),
+                    f"{bill and bill.total_amount}")
+        self.expect("the stock part clears only what the receipt accrued",
+                    je is not None and self.line_total(je, "2110", "debit") == D("200.00"),
+                    f"2110 {je and self.line_total(je, '2110', 'debit')}")
+        self.expect("the service is charged to its own cost account",
+                    self.net("5000") - cost0 == D("600.00"), str(self.net("5000") - cost0))
+        self.expect("a service with no account of its own goes to general expenses",
+                    self.net("6000") - expense0 == D("150.00"), str(self.net("6000") - expense0))
+        self.expect("and nothing is booked as a price variance",
+                    self.net("5400") == ppv0, f"5400 moved {self.net('5400') - ppv0}")
+        po.refresh_from_db()
+        self.expect("the order is billed and its accrual closed",
+                    po.status == "BILLED" and accrual_remaining(po) == Z,
+                    f"{po.status}, {accrual_remaining(po)} left")
+
+        # An order of services only, billed above the order: the extra is still
+        # the cost of the service, not a variance on stock nobody received.
+        po = self.order(client, "PO-FIX-11S", [(self.service, 1, "500", False)])
+        self.receive(client, po, [(po.lines.first(), 1)])
+        draft = self.bill_order(client, po, post=False)
+        self.post(client, "the supplier's figure for the service",
+                  reverse("procurement:bill_edit", args=[draft.pk]),
+                  self.bill_form(draft.reference, subtotal="550", tax_amount="0",
+                                 total_amount="550", supplier_reference="SUP-11S"))
+        cost0, ppv0, accrual0 = self.net("5000"), self.net("5400"), self.net("2110")
+        self.post(client, "post the service bill",
+                  reverse("procurement:bill_post", args=[draft.pk]), {})
+        self.expect("a service-only bill charges its full figure to the service",
+                    self.net("5000") - cost0 == D("550.00") and self.net("5400") == ppv0
+                    and self.net("2110") == accrual0,
+                    f"5000 {self.net('5000') - cost0}, 5400 {self.net('5400') - ppv0}, "
+                    f"2110 {self.net('2110') - accrual0}")
+        self.stock_agrees("after services on an order")
+        self.accrual_agrees("after services on an order")
+
+    # ── 12 ──
+    def check_bill_roles(self, client):
+        from apps.procurement.models import Bill
+
+        buyer = self.role_client("PROCUREMENT")
+        finance = self.role_client("FINANCE_MANAGER")
+        ap0 = self.net("2100")
+        resp = buyer.post(reverse("procurement:bill_create"), self.bill_form("BILL-FIX-12P"))
+        bill = Bill.objects.filter(company=self.company, reference="BILL-FIX-12P").first()
+        self.expect("procurement can enter a bill",
+                    resp.status_code == 302 and bill is not None, f"HTTP {resp.status_code}")
+        if bill is None:
+            return
+        self.expect("but it waits as a draft, off the ledger",
+                    bill.status == "DRAFT" and bill.journal_entry_id is None
+                    and self.net("2100") == ap0,
+                    f"{bill.status}, JE {bill.journal_entry_id}")
+        self.expect_flash(buyer, resp, "draft", "and is told finance posts it")
+        buyer.post(reverse("procurement:bill_post", args=[bill.pk]), {})
+        bill.refresh_from_db()
+        self.expect("procurement cannot post it with the button either",
+                    bill.journal_entry_id is None, bill.status)
+        finance.post(reverse("procurement:bill_post", args=[bill.pk]), {})
+        bill.refresh_from_db()
+        self.expect("finance posts the draft",
+                    bill.status == "RECEIVED" and bill.journal_entry_id is not None, bill.status)
+
+        resp = finance.post(reverse("procurement:bill_create"), self.bill_form("BILL-FIX-12F"))
+        posted = Bill.objects.filter(company=self.company, reference="BILL-FIX-12F").first()
+        self.expect("a bill finance enters is posted as it is saved",
+                    posted is not None and posted.status == "RECEIVED"
+                    and posted.journal_entry_id is not None,
+                    f"{posted and posted.status}")
+
+        po = self.order(client, "PO-FIX-12", [(self.raw, 1, "50", False)])
+        self.receive(client, po, [(po.lines.first(), 1)])
+        buyer.post(reverse("procurement:po_to_bill", args=[po.pk]), {})
+        drawn = po.bills.first()
+        self.expect("Bill this order, pressed by procurement, leaves a draft",
+                    drawn is not None and drawn.status == "DRAFT"
+                    and drawn.journal_entry_id is None, f"{drawn and drawn.status}")
+        if drawn:
+            finance.post(reverse("procurement:bill_post", args=[drawn.pk]), {})
+        self.accrual_agrees("after bills entered by role")
+
+    # ── 13 ──
+    def check_usd(self, client):
+        from apps.accounting.gl_service import accrual_remaining
+        from apps.accounting.models import Currency, ExchangeRate, to_base
+        from apps.crm.models import Supplier
+        from apps.inventory.models import StockMovement
+        from apps.procurement.models import Bill
+
+        usd = Currency.objects.filter(code="USD").first() or Currency.objects.create(
+            code="USD", name="US Dollar", symbol="$")
+        then = self.today - datetime.timedelta(days=5)
+        ExchangeRate.objects.create(company=self.company, currency=usd,
+                                    effective_date=then, rate=D("129.555"))
+        rate = D("129.555")
+        shenzhen = Supplier.objects.create(company=self.company, name="Shenzhen Parts Co",
+                                           currency="USD")
+        chip = self.make_product(client, "CHIP-13", "1000")
+        ap0, vat0 = self.net("2100"), self.net("2210")
+
+        po = self.order(client, "PO-FIX-13", [(chip, 3, "7.77", True)], supplier=shenzhen,
+                        currency="USD")
+        self.expect("a dollar order is saved in dollars at the day's rate",
+                    po.currency == "USD" and po.exchange_rate == rate
+                    and po.total_amount == D("27.04"),
+                    f"{po.currency} at {po.exchange_rate}, total {po.total_amount}")
+        accrual0 = self.net("2110")
+        self.receive(client, po, [(po.lines.first(), 3)])
+        receipt = StockMovement.objects.filter(purchase_order=po).first()
+        self.expect("the receipt costs the goods at the dollar price times the order's rate",
+                    receipt is not None and receipt.unit_cost == D("1006.6424")
+                    and accrual0 - self.net("2110") == to_base(D("23.31"), rate),
+                    f"{receipt and receipt.unit_cost}, accrued {accrual0 - self.net('2110')}")
+        ppv0 = self.net("5400")
+        bill = self.bill_order(client, po)
+        self.expect("the bill from it is in dollars at the order's rate",
+                    bill is not None and bill.currency == "USD" and bill.exchange_rate == rate
+                    and bill.total_amount == D("27.04"),
+                    f"{bill and bill.currency} {bill and bill.exchange_rate}")
+        self.expect("and clears the accrual with no variance at all",
+                    accrual_remaining(po) == Z and self.net("5400") == ppv0,
+                    f"left {accrual_remaining(po)}, 5400 {self.net('5400') - ppv0}")
+
+        # A typed dollar bill, paid in parts at a later rate, with a note between.
+        ExchangeRate.objects.create(company=self.company, currency=usd,
+                                    effective_date=self.today, rate=D("131.0"))
+        self.post(client, "a dollar bill", reverse("procurement:bill_create"),
+                  self.bill_form("BILL-FIX-13", supplier=shenzhen.pk, currency="USD",
+                                 bill_date=str(then), subtotal="100.01", tax_amount="16.00",
+                                 total_amount="116.01", supplier_reference="SZ-13"))
+        typed = Bill.objects.get(company=self.company, reference="BILL-FIX-13")
+        self.expect("the typed dollar bill is valued once, as a whole",
+                    typed.exchange_rate == rate and typed.total_amount_base == D("15029.68"),
+                    f"{typed.exchange_rate} / {typed.total_amount_base}")
+        for amount in ("33.33", "33.33", "0.01"):
+            self.post(client, f"pay {amount} dollars", reverse("procurement:bill_pay",
+                                                              args=[typed.pk]),
+                      {"amount": amount, "gl_account": self.account("1200").pk})
+        typed.refresh_from_db()
+        gl_open = -(self.net("2100") - ap0)
+        self.expect("after part payments AP holds exactly what the bills still owe",
+                    gl_open == typed.outstanding_base + bill.outstanding_base,
+                    f"GL {gl_open} against {typed.outstanding_base} + {bill.outstanding_base}")
+        vat1 = self.net("2210")
+        self.post(client, "a dollar debit note", reverse("procurement:bill_debit_note",
+                                                         args=[typed.pk]), {"amount": "11.11"})
+        note = Bill.objects.filter(original_bill=typed).first()
+        self.expect("the note's VAT comes back at the tax it carries, at the bill's rate",
+                    note is not None and vat1 - self.net("2210") == to_base(note.tax_amount, rate),
+                    f"{vat1 - self.net('2210')} against "
+                    f"{note and to_base(note.tax_amount, rate)}")
+        dr, cr, ok = self.balanced(note.journal_entry) if note else (Z, Z, False)
+        self.expect("the dollar note balances", ok, f"Dr {dr} / Cr {cr}")
+        typed.refresh_from_db()
+        self.post(client, "pay the rest", reverse("procurement:bill_pay", args=[typed.pk]),
+                  {"amount": str(typed.outstanding_amount), "gl_account": self.account("1200").pk})
+        typed.refresh_from_db()
+        self.expect("the dollar bill is settled", typed.status == "PAID"
+                    and typed.outstanding_amount == Z, typed.status)
+
+        # The order's bill as well, so every dollar paper is settled.
+        self.post(client, "pay the order's dollar bill",
+                  reverse("procurement:bill_pay", args=[bill.pk]),
+                  {"amount": "27.04", "gl_account": self.account("1200").pk})
+        self.expect("with every dollar bill settled, AP is back exactly where it was",
+                    self.net("2100") == ap0, f"AP moved {self.net('2100') - ap0}")
+        expected_vat = (to_base(D("3.73"), rate) + to_base(D("16.00"), rate)
+                        - (to_base(note.tax_amount, rate) if note else Z))
+        self.expect("VAT input is the bills' tax less the note's, each at its rate",
+                    self.net("2210") - vat0 == expected_vat,
+                    f"{self.net('2210') - vat0} against {expected_vat}")
+        statement = client.get(reverse("procurement:supplier_statement", args=[shenzhen.pk]))
+        closing = statement.context["closing_balance"] if statement.context else None
+        self.expect("the supplier statement closes at nothing too", closing == Z, str(closing))
+        self.stock_agrees("after dollar purchasing")
+        self.accrual_agrees("after dollar purchasing")
+
+    # ── 14 ──
+    def check_requisitions(self, client):
+        from apps.procurement.models import PurchaseRequisition
+
+        buyer = self.role_client("WAREHOUSE_MANAGER")
+        create = reverse("procurement:requisition_create")
+        header = {"reference": "PR-FIX-14", "department": "",
+                  "required_date": str(self.today + datetime.timedelta(days=7)),
+                  "notes": "Steel for the next batch"}
+        self.post(buyer, "a requisition", create, header)
+        req = PurchaseRequisition.objects.filter(company=self.company,
+                                                 reference="PR-FIX-14").first()
+        if not self.expect("the requisition is saved as a draft",
+                           req is not None and req.status == "DRAFT"):
+            return
+        self.reject(buyer, "the same requisition reference twice", create, header)
+        self.expect("only one requisition carries the reference",
+                    PurchaseRequisition.objects.filter(company=self.company,
+                                                       reference__iexact="pr-fix-14").count() == 1)
+
+        resp = buyer.post(reverse("procurement:requisition_submit", args=[req.pk]), {})
+        req.refresh_from_db()
+        self.expect("an empty requisition cannot be submitted", req.status == "DRAFT", req.status)
+        self.expect_flash(buyer, resp, "at least one line", "and says what is missing")
+
+        line_url = reverse("procurement:requisition_line_add", args=[req.pk])
+        for junk in ("NaN", "-1", "abc"):
+            buyer.post(line_url, {"product": self.raw.pk, "quantity": junk,
+                                  "estimated_unit_cost": "50"})
+        self.expect("junk quantities add no line", not req.lines.exists())
+        self.post(buyer, "a product line", line_url,
+                  {"product": self.raw.pk, "description": "", "quantity": "10",
+                   "estimated_unit_cost": "52.5", "warehouse": self.warehouse.pk})
+        self.post(buyer, "a described line", line_url,
+                  {"product": "", "description": "Welding rods, 3mm", "quantity": "2",
+                   "estimated_unit_cost": "400"})
+        req.refresh_from_db()
+        self.expect("the lines and their estimate are on the requisition",
+                    req.lines.count() == 2 and req.total_amount == D("1325.00"),
+                    f"{req.lines.count()} lines, {req.total_amount}")
+
+        resp = client.post(reverse("procurement:requisition_reject", args=[req.pk]), {})
+        req.refresh_from_db()
+        self.expect("a draft cannot be rejected before it was asked", req.status == "DRAFT",
+                    req.status)
+        client.post(reverse("procurement:requisition_approve", args=[req.pk]), {})
+        req.refresh_from_db()
+        self.expect("nor approved", req.status == "DRAFT", req.status)
+
+        self.post(buyer, "submit it", reverse("procurement:requisition_submit", args=[req.pk]), {})
+        req.refresh_from_db()
+        self.expect("submitted, it waits for approval", req.status == "PENDING_APPROVAL", req.status)
+        buyer.post(reverse("procurement:requisition_line_add", args=[req.pk]),
+                   {"product": self.raw.pk, "quantity": "1", "estimated_unit_cost": "1"})
+        self.expect("a submitted requisition takes no more lines", req.lines.count() == 2,
+                    str(req.lines.count()))
+
+        finance = self.role_client("FINANCE_MANAGER")
+        self.post(finance, "approve it", reverse("procurement:requisition_approve",
+                                                 args=[req.pk]), {})
+        req.refresh_from_db()
+        self.expect("finance approves it", req.status == "APPROVED"
+                    and req.approved_at is not None, req.status)
+        resp = finance.post(reverse("procurement:requisition_reject", args=[req.pk]), {})
+        req.refresh_from_db()
+        self.expect("an approved requisition cannot then be rejected", req.status == "APPROVED",
+                    req.status)
+        self.expect_flash(finance, resp, "waiting for approval", "and the refusal says why")
+
+        to_po = reverse("procurement:requisition_to_po", args=[req.pk])
+        resp = client.post(to_po, {"supplier": self.supplier.pk})
+        req.refresh_from_db()
+        self.expect("a line with no product cannot go on an order", req.status == "APPROVED",
+                    req.status)
+        self.expect_flash(client, resp, "Welding rods", "and the refusal names it")
+
+        # A second requisition, all products, becomes an order.
+        self.post(buyer, "a product requisition", create,
+                  dict(header, reference="PR-FIX-14B"))
+        good = PurchaseRequisition.objects.get(company=self.company, reference="PR-FIX-14B")
+        self.post(buyer, "its line", reverse("procurement:requisition_line_add", args=[good.pk]),
+                  {"product": self.raw.pk, "quantity": "6", "estimated_unit_cost": "50"})
+        self.post(buyer, "submit", reverse("procurement:requisition_submit", args=[good.pk]), {})
+        self.post(finance, "approve", reverse("procurement:requisition_approve",
+                                              args=[good.pk]), {})
+        resp = self.post(client, "raise the order",
+                         reverse("procurement:requisition_to_po", args=[good.pk]),
+                         {"supplier": self.supplier.pk})
+        good.refresh_from_db()
+        po = good.purchaseorder_set.first()
+        self.expect("the approved requisition becomes a draft order with its lines",
+                    po is not None and po.status == "DRAFT" and good.status == "PO_CREATED"
+                    and po.lines.count() == 1 and po.lines.first().quantity == D("6")
+                    and po.subtotal == D("300.00"),
+                    f"{good.status}, {po and po.lines.count()} lines, {po and po.subtotal}")
+        client.post(reverse("procurement:requisition_to_po", args=[good.pk]),
+                    {"supplier": self.supplier.pk})
+        self.expect("and only once", good.purchaseorder_set.count() == 1,
+                    str(good.purchaseorder_set.count()))
+
+        # A request turned down is answered once.
+        self.post(buyer, "a third requisition", create, dict(header, reference="PR-FIX-14C"))
+        third = PurchaseRequisition.objects.get(company=self.company, reference="PR-FIX-14C")
+        self.post(buyer, "its line", reverse("procurement:requisition_line_add", args=[third.pk]),
+                  {"product": self.raw.pk, "quantity": "1", "estimated_unit_cost": "50"})
+        self.post(buyer, "submit", reverse("procurement:requisition_submit", args=[third.pk]), {})
+        self.post(finance, "reject", reverse("procurement:requisition_reject",
+                                             args=[third.pk]), {})
+        third.refresh_from_db()
+        self.expect("a submitted requisition can be rejected", third.status == "REJECTED",
+                    third.status)
+        finance.post(reverse("procurement:requisition_approve", args=[third.pk]), {})
+        third.refresh_from_db()
+        self.expect("and a rejected one cannot then be approved", third.status == "REJECTED",
+                    third.status)
+        self.get_ok(client, "the requisition page", reverse("procurement:requisition_detail",
+                                                              args=[req.pk]))
+
+    # ── 15 ──
+    def check_close_short(self, client):
+        from apps.accounting.gl_service import accrual_remaining
+
+        po = self.order(client, "PO-FIX-15", [(self.raw, 10, "50", False)])
+        line = po.lines.first()
+        close = reverse("procurement:po_close_short", args=[po.pk])
+        resp = client.post(close, {})
+        po.refresh_from_db()
+        self.expect("an order nothing has arrived on is cancelled, not closed short",
+                    po.status == "SENT", po.status)
+        self.receive(client, po, [(line, 4)])
+        resp = client.post(reverse("procurement:po_cancel", args=[po.pk]), {})
+        po.refresh_from_db()
+        self.expect("a part-received order still cannot be cancelled",
+                    po.status == "PARTIALLY_RECEIVED", po.status)
+        self.expect_flash(client, resp, "close short", "and the refusal points at Close short")
+        resp = client.post(close, {})
+        po.refresh_from_db()
+        self.expect("it cannot be closed while what arrived is unbilled",
+                    po.status == "PARTIALLY_RECEIVED", po.status)
+        self.expect_flash(client, resp, "bill this order", "and says to bill it first")
+        draft = self.bill_order(client, po, post=False)
+        resp = client.post(close, {})
+        po.refresh_from_db()
+        self.expect("nor while its bill is a draft and the accrual still open",
+                    po.status == "PARTIALLY_RECEIVED" and accrual_remaining(po) == D("200.00"),
+                    f"{po.status}, {accrual_remaining(po)}")
+        self.post(client, "post the bill", reverse("procurement:bill_post", args=[draft.pk]), {})
+        resp = self.post(client, "close it short", close, {})
+        po.refresh_from_db()
+        line.refresh_from_db()
+        self.expect("once billed, the order closes short as it stands",
+                    po.status == "CLOSED" and line.received_quantity == D("4")
+                    and line.billed_quantity == D("4") and accrual_remaining(po) == Z,
+                    f"{po.status}, received {line.received_quantity}, billed {line.billed_quantity}")
+        moves = po.stock_movements.count()
+        self.receive(client, po, [(line, 2)])
+        self.expect("a closed order takes no more goods", po.stock_movements.count() == moves)
+        client.post(reverse("procurement:po_to_bill", args=[po.pk]), {})
+        self.expect("and no more bills", po.bills.count() == 1, str(po.bills.count()))
+        self.stock_agrees("after closing an order short")
+        self.accrual_agrees("after closing an order short")
+
+    # ── 16 ──
+    def check_flash_rounding(self, client):
+        import re
+
+        long_decimals = re.compile(r"\d\.\d{3,}")
+        po = self.order(client, "PO-FIX-16", [], send=False)
+        resp = client.post(reverse("procurement:po_line_add", args=[po.pk]),
+                           {"product": self.raw.pk, "quantity": "3", "unit_cost": "33.3333",
+                            "tax_rate": self.vat.pk})
+        said = self.messages_of(client, resp)
+        self.expect("the order total prints to the cent",
+                    said and not any(long_decimals.search(m) for m in said)
+                    and any("116.00" in m for m in said), str(said))
+        resp = self.adjust(client, "ADJUSTMENT_PLUS", "2.5", "12.3456")
+        said = self.messages_of(client, resp)
+        self.expect("a stock adjustment prints its cost to the cent",
+                    said and not any(long_decimals.search(m) for m in said), str(said))

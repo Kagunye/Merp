@@ -68,6 +68,29 @@ def fits(value, shape=MONEY):
     return not value or value.adjusted() < whole
 
 
+def money(value):
+    """A sum of money as a message prints it: 5,800.00, never 5800.000000000000.
+
+    Totals worked out from four-place quantities and prices carry far more
+    places than money has, and a flash message that prints them all tells the
+    bookkeeper nothing except that the arithmetic was not rounded. The ledger
+    holds cents, so the screen says cents.
+    """
+    try:
+        return f"{Decimal(str(value or 0)).quantize(Decimal('0.01')):,.2f}"
+    except (InvalidOperation, ValueError):
+        return str(value)
+
+
+def qty(value):
+    """A counted quantity as a message prints it: 5, 2.5, never 5.0000."""
+    try:
+        text = format(Decimal(str(value or 0)).normalize(), "f")
+    except (InvalidOperation, ValueError):
+        return str(value)
+    return text
+
+
 def pick(queryset, raw):
     """The row a posted id names inside ``queryset``, or None.
 

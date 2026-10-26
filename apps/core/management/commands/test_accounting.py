@@ -141,11 +141,17 @@ RECOMMENDED = [
 ]
 
 # Expected (debit, credit) totals per account over all posted lines in this run.
+# CHANGED (fix2/procurement): BILL-SMOKE-1 is typed with no account chosen, and
+# such a bill is now a general expense rather than stock, so its 2,000 moved
+# from 1400 to 6000: 1400 debits 7,000 -> 5,000 (the goods receipt only), 6000
+# debits 300 -> 2,300 (the expense claim's 300 plus the bill). Every other
+# account, and the control total, is unchanged — the same 2,000 is debited,
+# only to a different account.
 EXPECTED = {
     "1100": ("20000.00", "3820.00"),
     "1200": ("80500.00", "0.00"),
     "1300": ("880.00", "500.00"),
-    "1400": ("7000.00", "500.00"),
+    "1400": ("5000.00", "500.00"),
     "2100": ("2320.00", "2320.00"),
     "2110": ("0.00", "5000.00"),
     "2200": ("0.00", "80.00"),
@@ -154,7 +160,7 @@ EXPECTED = {
     "4100": ("0.00", "300.00"),
     "4200": ("0.00", "500.00"),
     "5000": ("500.00", "0.00"),
-    "6000": ("300.00", "0.00"),
+    "6000": ("2300.00", "0.00"),
     "6400": ("1200.00", "0.00"),
 }
 EXPECTED_TOTAL = D("113020.00")
@@ -454,6 +460,20 @@ class Command(BaseCommand):
 
         self.section("23. The accuracy sweep: the finished book, read the way an auditor reads it")
         self.verify_transaction_accuracy(client)
+
+        # ADDED (fix2/procurement): with no bill able to charge stock on its own
+        # say-so, the inventory account is the shelf and nothing else. Proved
+        # once more on the finished book: 1400 equals quantity times average
+        # cost over every stock-tracked shelf in the company.
+        from apps.inventory.models import StockLevel
+        shelves = sum((level.quantity * level.avg_cost for level in StockLevel.objects.filter(
+            warehouse__company=self.company, product__track_inventory=True)), Z)
+        inventory = self.posted_lines().filter(account__code="1400").aggregate(
+            dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        inventory = (inventory["dr"] or Z) - (inventory["cr"] or Z)
+        self.expect("at the end of the run inventory 1400 equals the stock valuation",
+                    abs(inventory - shelves) < D("0.01"),
+                    f"GL {inventory} against shelves {shelves:.4f}")
 
 
     # ──────────────────────────── period close ───────────────────────────────
@@ -985,18 +1005,56 @@ class Command(BaseCommand):
 
     def post_stock(self, client):
         from apps.inventory.models import StockLevel, StockMovement
+        from apps.procurement.models import PurchaseOrder
+        from apps.sales.models import SalesOrder
 
         url = reverse("inventory:adjustment_create")
-        self.post(client, "stock receipt", url, {
-            "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "RECEIPT", "quantity": "100", "unit_cost": "50",
-            "movement_date": str(self.today), "reference": "GRN-1", "notes": "Stock received",
+        # CHANGED (fix2/procurement): the adjustment screen now offers adjustment
+        # types only, so the 100 @ 50 receipt and the issue of 10 that used to be
+        # typed there go through the documents that own them. Same quantities,
+        # same values, so every later figure still adds up:
+        #   receipt -> purchase order PO-SMOKE-0 sent and received in full with a
+        #              goods receipt (Dr 1400 5000 / Cr 2110 5000, exactly as the
+        #              typed receipt booked it; the order is left unbilled, so the
+        #              accrual stands on it and 2110 still ties to the orders);
+        #   issue   -> sales order SO-SMOKE-0 confirmed and 10 delivered (Dr 5000
+        #              500 / Cr 1400 500, the cost of sales the typed issue booked).
+        # Neither the order nor the delivery is invoiced, so no further entry is
+        # posted and "one journal entry per posting" still counts eight.
+        self.post(client, "stock order", reverse("procurement:po_create"), {
+            "reference": "PO-SMOKE-0", "supplier": self.supplier.pk,
+            "order_date": str(self.today), "expected_delivery_date": "",
+            "warehouse": self.warehouse.pk, "currency": "KES", "notes": "Opening purchase",
         })
-        self.post(client, "stock delivery", url, {
-            "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "DELIVERY", "quantity": "10", "unit_cost": "50",
-            "movement_date": str(self.today), "reference": "SOUT-1", "notes": "Stock issued",
-        })
+        po = PurchaseOrder.objects.filter(company=self.company, reference="PO-SMOKE-0").first()
+        if not self.expect("stock purchase order created", po is not None):
+            return
+        self.post(client, "stock order line", reverse("procurement:po_line_add", args=[po.pk]), {
+            "product": self.product.pk, "quantity": "100", "unit_cost": "50",
+            "tax_rate": "", "description": "Widgets"})
+        self.post(client, "send the stock order", reverse("procurement:po_send", args=[po.pk]), {})
+        po_line = po.lines.first()
+        self.post(client, "stock receipt", reverse("procurement:grn_record", args=[po.pk]), {
+            "warehouse": self.warehouse.pk, f"receive_qty_{po_line.pk}": "100"})
+
+        self.post(client, "issue order", reverse("sales:order_create"), merge({
+            "reference": "SO-SMOKE-0", "customer": self.customer.pk,
+            "order_date": str(self.today), "delivery_date": str(self.today),
+            "warehouse": self.warehouse.pk, "sales_rep": self.user.pk, "currency": "KES",
+            "discount_percent": "0", "branch": self.company.branches.first().pk,
+            "notes": "Stock issued"},
+            formset("lines", [
+                {"product": self.product.pk, "description": "Widgets", "quantity": "10",
+                 "unit_price": "100", "discount_percent": "0", "tax_rate": ""},
+            ], blank=BLANK_INVOICE_LINE)))
+        issue = SalesOrder.objects.filter(company=self.company, reference="SO-SMOKE-0").first()
+        if not self.expect("issue order created", issue is not None):
+            return
+        self.post(client, "confirm the issue order",
+                  reverse("sales:order_confirm", args=[issue.pk]), {})
+        so_line = issue.lines.first()
+        self.post(client, "stock delivery", reverse("sales:order_deliver_record", args=[issue.pk]),
+                  {f"deliver_qty_{so_line.pk}": "10", "warehouse": self.warehouse.pk})
 
         level = StockLevel.objects.filter(product=self.product, warehouse=self.warehouse).first()
         self.expect("stock level is 90 units", level is not None and level.quantity == D("90.0000"),
@@ -1005,9 +1063,12 @@ class Command(BaseCommand):
                    f"{level.avg_cost if level else 'no level'}")
 
         # Issuing more than the shelf holds must be refused, not posted.
+        # CHANGED (fix2/procurement): DELIVERY is no longer an adjustment type,
+        # so the oversized issue is an oversized decrease — refused for the same
+        # reason, the shelf does not hold 500.
         resp = client.post(url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "DELIVERY", "quantity": "500", "unit_cost": "50",
+            "movement_type": "ADJUSTMENT_MINUS", "quantity": "500", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "SOUT-2", "notes": "",
         })
         self.expect("oversized issue blocked", resp.status_code == 200)
@@ -1039,6 +1100,15 @@ class Command(BaseCommand):
         if not self.expect("bill created through the form", bill is not None):
             return
         self.expect("bill posted to GL on save", bill.journal_entry_id is not None)
+        # ADDED (fix2/procurement): no account was chosen on this bill, so it is
+        # a general expense (6000) and never stock — the 2,000 that used to land
+        # on 1400 is now on 6000 (see EXPECTED).
+        self.expect("a bill with no account chosen is charged to 6000, not inventory",
+                    bill.journal_entry_id is not None
+                    and self.line_total(bill.journal_entry, "6000", "debit") == D("2000.00")
+                    and self.line_total(bill.journal_entry, "1400", "debit") == Z,
+                    "no entry" if bill.journal_entry_id is None
+                    else f"6000 {self.line_total(bill.journal_entry, '6000', 'debit')}")
         self.expect("bill marked received", bill.status == "RECEIVED", bill.status)
         self.reject(client, "the same supplier invoice entered a second time",
                     reverse("procurement:bill_create"),
@@ -1452,9 +1522,12 @@ class Command(BaseCommand):
         self.expect("output VAT to 2200 and input VAT to 2210",
                    agg.get("2200", (Z, Z))[1] == D("80.00")
                    and agg.get("2210", (Z, Z))[0] == D("320.00"))
+        # CHANGED (fix2/procurement): 6000 now also carries BILL-SMOKE-1's 2,000
+        # (a bill with no account is a general expense), so the claim's 300 is
+        # what is left of it once the bill is taken off.
         self.expect("claim used the category account and the default expense account",
                    agg.get("6400", (Z, Z))[0] == D("1200.00")
-                   and agg.get("6000", (Z, Z))[0] == D("300.00"))
+                   and agg.get("6000", (Z, Z))[0] - D("2000.00") == D("300.00"))
 
         vat_out, vat_in = agg["2200"][1], agg["2210"][0]
         self.note(f"VAT position: output {vat_out} less input {vat_in} = net payable "
