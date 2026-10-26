@@ -11,6 +11,29 @@ from .forms import TicketCommentForm, TicketForm
 from .models import Ticket
 
 
+def _is_admin(request):
+    """A company ADMIN, or a platform admin working in this company."""
+    from apps.core.access import is_platform_admin
+    return (is_platform_admin(request.user)
+            or getattr(request, "company_role", None) == "ADMIN")
+
+
+def can_resolve(request, ticket):
+    """Resolving says the work is done, so it is the word of whoever was given
+    the work. An onlooker -- an auditor reading the queue, a colleague in
+    another team -- marking somebody else's ticket fixed would hide it from the
+    person still waiting on it."""
+    return _is_admin(request) or (
+        ticket.assigned_to_id is not None and ticket.assigned_to_id == request.user.pk)
+
+
+def can_close(request, ticket):
+    """Closing ends the conversation: the assignee may, and so may the person
+    who raised it, who is the one who knows whether they were helped."""
+    return can_resolve(request, ticket) or (
+        ticket.raised_by_id is not None and ticket.raised_by_id == request.user.pk)
+
+
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
     template_name = "helpdesk/home.html"
 
@@ -56,6 +79,7 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
+        form.instance.raised_by = self.request.user
         messages.success(self.request, "Ticket opened.")
         return super().form_valid(form)
 
@@ -77,6 +101,8 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["comment_form"] = TicketCommentForm()
+        ctx["can_resolve"] = can_resolve(self.request, self.object)
+        ctx["can_close"] = can_close(self.request, self.object)
         return ctx
 
 
@@ -98,6 +124,10 @@ def ticket_comment(request, pk):
 @require_POST
 def ticket_resolve(request, pk):
     t = get_object_or_404(Ticket, pk=pk, company=request.active_company)
+    if not can_resolve(request, t):
+        messages.error(request, "Only the person this ticket is assigned to, or an admin, "
+                                "can mark it resolved. Ask them, or have it assigned to you.")
+        return redirect("helpdesk:ticket_detail", pk=pk)
     t.status = "RESOLVED"
     t.resolved_at = timezone.now()
     t.save()
@@ -109,6 +139,10 @@ def ticket_resolve(request, pk):
 @require_POST
 def ticket_close(request, pk):
     t = get_object_or_404(Ticket, pk=pk, company=request.active_company)
+    if not can_close(request, t):
+        messages.error(request, "Only the assignee, the person who raised this ticket, or an "
+                                "admin can close it.")
+        return redirect("helpdesk:ticket_detail", pk=pk)
     t.status = "CLOSED"
     t.closed_at = timezone.now()
     t.save()

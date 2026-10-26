@@ -148,7 +148,9 @@ class WorkOrderCreateView(LoginRequiredMixin, CreateView):
             from apps.organizations.models import Warehouse
             form.fields["warehouse"].queryset = Warehouse.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
-            form.fields["reference"].initial = SequenceCounter.next_number(company, "WO-")
+            # A preview: the number is taken at save time (claim_number), so
+            # opening this form and leaving does not leave a gap in the series.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "WO-")
         form.fields["planned_start"].initial = datetime.date.today()
         return form
 
@@ -173,6 +175,11 @@ class WorkOrderCreateView(LoginRequiredMixin, CreateView):
                     None, f"{bom.name} — {line.component.name}: {e.messages[0]}")
                 return self.form_invalid(form)
         with transaction.atomic():
+            from apps.core.models import SequenceCounter
+            company = wo.company
+            wo.reference = SequenceCounter.claim_number(
+                company, "WO-", wo.reference,
+                taken=lambda ref: WorkOrder.objects.filter(company=company, reference=ref).exists())
             wo.save()
             self.object = wo
             for line, planned in zip(lines, planned_quantities):

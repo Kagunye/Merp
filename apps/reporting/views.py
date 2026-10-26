@@ -375,21 +375,40 @@ class CashFlowView(LoginRequiredMixin, TemplateView):
             return ctx
 
         date_from, date_to = _parse_dates(self.request)
-        from apps.accounting.models import Account
+        from apps.accounting.models import JournalEntryLine
         from django.db.models import Sum
 
-        # Cash in: payments received (credit side of cash/bank accounts from customer receipts)
-        cash_accounts = Account.objects.filter(company=company, account_type__in=["CASH", "BANK"], is_active=True)
+        # The cash pool is every cash and bank account the company has, the
+        # retired ones included: a till closed in the middle of the month still
+        # paid out what it paid out before it closed, and leaving it out would
+        # make the month's net movement disagree with the change in cash.
+        # A retired account with no lines in the window adds nothing anyway.
+        #
+        # Cash moves in or out of the *pool*, not of one account in it. Each
+        # entry is netted across the pool: a bank-to-till transfer debits the
+        # till and credits the bank by the same amount, nets to nothing, and is
+        # neither an inflow nor an outflow -- the company has exactly the money
+        # it had. Only what an entry adds to or takes from the pool as a whole
+        # (a receipt, a supplier payment, the cash part of a mixed entry) is
+        # counted.
+        pool_lines = JournalEntryLine.objects.filter(
+            journal_entry__company=company,
+            journal_entry__status="POSTED",
+            journal_entry__posting_date__gte=date_from,
+            journal_entry__posting_date__lte=date_to,
+            account__company=company,
+            account__account_type__in=["CASH", "BANK"],
+        )
+        per_entry = pool_lines.values("journal_entry_id").annotate(
+            dr=Sum("debit_amount"), cr=Sum("credit_amount"))
         total_in = Decimal("0")
         total_out = Decimal("0")
-        for acc in cash_accounts:
-            lines = acc.journal_lines.filter(
-                journal_entry__status="POSTED",
-                journal_entry__posting_date__gte=date_from,
-                journal_entry__posting_date__lte=date_to,
-            )
-            total_in += lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
-            total_out += lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
+        for row in per_entry:
+            net = (row["dr"] or Decimal("0")) - (row["cr"] or Decimal("0"))
+            if net > 0:
+                total_in += net
+            else:
+                total_out -= net
 
         ctx.update({
             "date_from": date_from,

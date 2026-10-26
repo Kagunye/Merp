@@ -2,6 +2,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -465,12 +466,19 @@ class BudgetLine(BaseModel):
 
     @property
     def actual_amount(self):
+        """What the account actually did in the period, against the budget.
+
+        The year-end closing entry is left out: it empties every revenue and
+        expense account into retained earnings on the last day, so counting it
+        would bring each P&L account's actual back to nought the moment the
+        period is closed -- the budget would read as wholly unspent.
+        """
         lines = JournalEntryLine.objects.filter(
             account=self.account,
             journal_entry__status="POSTED",
             journal_entry__posting_date__gte=self.period.start_date,
             journal_entry__posting_date__lte=self.period.end_date,
-        )
+        ).exclude(journal_entry__entry_type="CLOSING")
         if self.account.normal_balance == "DEBIT":
             return (lines.aggregate(t=models.Sum("debit_amount"))["t"] or Decimal("0")) - \
                    (lines.aggregate(t=models.Sum("credit_amount"))["t"] or Decimal("0"))
@@ -484,6 +492,9 @@ class BudgetLine(BaseModel):
 
 # ────────────────────────────── foreign currency ────────────────────────────
 
+MAX_MINOR_UNITS = 4
+
+
 class Currency(BaseModel):
     """A currency the book is allowed to transact in.
 
@@ -495,13 +506,24 @@ class Currency(BaseModel):
     name = models.CharField(max_length=60)
     symbol = models.CharField(max_length=6, blank=True, default="")
     # Digits after the decimal point: 2 for shillings and dollars, 0 for yen.
-    minor_units = models.PositiveSmallIntegerField(default=2)
+    # No currency in ISO 4217 has more than four (the Uruguayan unidad
+    # previsional); a larger figure is a typing slip that would have every
+    # amount in that currency rounded to a precision the ledger cannot hold.
+    minor_units = models.PositiveSmallIntegerField(
+        default=2, validators=[MaxValueValidator(MAX_MINOR_UNITS)])
 
     class Meta:
         ordering = ["code"]
 
     def __str__(self):
         return self.code
+
+    def clean(self):
+        super().clean()
+        if self.minor_units is not None and not 0 <= self.minor_units <= MAX_MINOR_UNITS:
+            raise ValidationError({"minor_units": (
+                f"{self.minor_units} digits after the point is not a currency. Use 0 to "
+                f"{MAX_MINOR_UNITS}: 2 for shillings and dollars, 0 for yen.")})
 
     @property
     def exponent(self):
@@ -585,3 +607,35 @@ def to_base(amount, rate):
     return (Decimal(str(amount)) * Decimal(str(rate))).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+
+
+class RevaluationShare(models.Model):
+    """One document's part in an exchange revaluation, as the revaluation saw it.
+
+    A revaluation is one journal for the whole book, but it is the sum of a
+    share per open invoice and bill. When a document is later settled, part
+    settled or cancelled, the share it contributed has to come back off -- and
+    it has to be the share as it was *booked*, not as the document would be
+    valued if the revaluation were drawn again today: a receipt keyed in late
+    but dated before the revaluation would make a fresh reading show nothing
+    owed, while the revaluation entry still carries the full share. So the
+    share is written down here when the revaluation is posted, and the
+    releases are worked from it.
+    """
+    revaluation = models.ForeignKey(
+        JournalEntry, on_delete=models.CASCADE, related_name="revaluation_shares")
+    # "Invoice:<pk>" or "Bill:<pk>", the same key the release entries carry.
+    document_key = models.CharField(max_length=80, db_index=True)
+    side = models.CharField(max_length=2, choices=[("ar", "Receivable"), ("ap", "Payable")])
+    currency = models.CharField(max_length=3)
+    # What the document still owed on the revaluation's day, in its own money.
+    foreign = models.DecimalField(max_digits=18, decimal_places=2)
+    # Revalued less carried, in the book's money: what the revaluation booked
+    # for this document on 1350 (receivables) or 2150 (payables).
+    difference = models.DecimalField(max_digits=15, decimal_places=2)
+
+    class Meta:
+        unique_together = [("revaluation", "document_key")]
+
+    def __str__(self):
+        return f"{self.document_key} in {self.revaluation.reference}: {self.difference}"

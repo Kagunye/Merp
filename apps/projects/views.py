@@ -69,14 +69,21 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
             form.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
             form.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
             from apps.core.models import SequenceCounter
-            form.fields["reference"].initial = SequenceCounter.next_number(company, "PRJ-")
+            # A preview: the number is taken at save time (claim_number), so
+            # opening this form and leaving does not leave a gap in the series.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "PRJ-")
         from apps.core.forms import company_users
         form.fields["manager"].queryset = company_users(company)
         form.fields["start_date"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
+        from apps.core.models import SequenceCounter
+        company = self.request.active_company
+        form.instance.company = company
+        form.instance.reference = SequenceCounter.claim_number(
+            company, "PRJ-", form.instance.reference,
+            taken=lambda ref: Project.objects.filter(company=company, reference=ref).exists())
         form.instance.manager = self.request.user
         messages.success(self.request, f"Project '{form.instance.name}' created.")
         return super().form_valid(form)

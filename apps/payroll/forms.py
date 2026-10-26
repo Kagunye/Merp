@@ -108,7 +108,9 @@ class PayrollRunForm(AccountChoiceForm):
         super().__init__(*args, **kwargs)
         if self.company:
             from apps.core.models import SequenceCounter
-            self.fields["reference"].initial = SequenceCounter.next_number(
+            # A preview: the number is taken at save time (claim_number), so
+            # opening this form and leaving does not leave a gap in the series.
+            self.fields["reference"].initial = SequenceCounter.peek_number(
                 self.company, "PR-")
             self.fields["salary_account"].empty_label = "6100 Salaries & Wages (default)"
             self.fields["paid_into"].empty_label = "1200 Bank (default)"
@@ -127,6 +129,17 @@ class PayrollRunForm(AccountChoiceForm):
                     f"{clash.period_end}. Two runs over the same days would pay "
                     "everybody twice — amend or cancel the first one.")
         return cleaned
+
+    def save(self, commit=True):
+        # The PR- number is taken now, not when the form was opened.
+        if is_new(self) and self.company:
+            from apps.core.models import SequenceCounter
+            company = self.company
+            self.instance.reference = SequenceCounter.claim_number(
+                company, "PR-", self.instance.reference,
+                taken=lambda ref: PayrollRun.objects.filter(
+                    company=company, reference=ref).exists())
+        return super().save(commit)
 
 
 class StatutoryRuleForm(AccountChoiceForm):

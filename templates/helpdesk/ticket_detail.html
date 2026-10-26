@@ -40,10 +40,10 @@
 
   <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
     <h3 class="text-sm font-semibold text-gray-700">Actions</h3>
-    {% if ticket.status not in 'RESOLVED,CLOSED' %}
+    {% if can_resolve and ticket.status not in 'RESOLVED,CLOSED' %}
       <form method="post" action="{% url 'helpdesk:ticket_resolve' ticket.pk %}">{% csrf_token %}<button type="submit" class="w-full">Mark resolved</button></form>
     {% endif %}
-    {% if ticket.status != 'CLOSED' %}
+    {% if can_close and ticket.status != 'CLOSED' %}
       <form method="post" action="{% url 'helpdesk:ticket_close' ticket.pk %}">{% csrf_token %}<button type="submit" class="w-full btn-outline">Close ticket</button></form>
     {% endif %}
     <div class="pt-3 border-t text-xs text-gray-500 space-y-1">

@@ -6,6 +6,28 @@ from apps.core.models import BaseModel, NotesMixin
 
 CENTS = Decimal("0.01")
 
+# The longest life the register will price an asset over. Buildings are the
+# longest-lived thing a company here depreciates (KRA's own schedule writes
+# them off over 25 to 50 years), so a century is already generous. A life of
+# 99,999,999,999 years charges nothing a month for ever: the asset sits in the
+# books at cost, and the figure is a typing slip, not an estimate.
+MAX_LIFE_YEARS = 100
+
+
+def check_life(years, what):
+    """Refuse a useful life the depreciation run could not sensibly price."""
+    if years is None or years < 1:
+        raise ValidationError(
+            f"{what} would last {years} years. A life of less than a year has no "
+            "monthly charge to work out: something consumed inside the year is an "
+            "expense, not an asset.")
+    if years > MAX_LIFE_YEARS:
+        raise ValidationError(
+            f"{what} would last {years:,} years. The register prices an asset over "
+            f"at most {MAX_LIFE_YEARS} years; a longer life charges next to nothing "
+            "a month and leaves the asset at cost for ever. Enter the years it is "
+            "really expected to serve.")
+
 
 def money(value):
     """A figure rounded the way the ledger rounds it: half a cent goes up."""
@@ -46,11 +68,7 @@ class AssetCategory(BaseModel):
 
     def clean(self):
         super().clean()
-        if self.default_useful_life is None or self.default_useful_life < 1:
-            raise ValidationError(
-                f"'{self.name}' would last {self.default_useful_life} years. A life of "
-                "zero or less has no monthly charge to work out — a category is priced "
-                "over the years it is expected to serve.")
+        check_life(self.default_useful_life, f"'{self.name}'")
         for field in ("gl_asset_account", "gl_depreciation_account",
                       "gl_accumulated_account"):
             account = getattr(self, field)
@@ -126,11 +144,7 @@ class FixedAsset(BaseModel, NotesMixin):
                 f"{self.code or 'This asset'} is expected to be worth {residual} at the "
                 f"end of a life it cost {cost} to buy, so there is nothing here to write "
                 "off. Lower the residual, or leave the asset out of the register.")
-        if self.useful_life_years is None or self.useful_life_years < 1:
-            raise ValidationError(
-                "A useful life of less than a year has no monthly charge to work out. "
-                "Something bought to be consumed inside the year is an expense, not an "
-                "asset.")
+        check_life(self.useful_life_years, self.code or "This asset")
         for field in ("category", "supplier", "paid_into"):
             related = getattr(self, field)
             if related and related.company_id != self.company_id:

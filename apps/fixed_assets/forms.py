@@ -119,8 +119,10 @@ class FixedAssetForm(BookScopedForm):
             account_type__in=["BANK", "CASH"]).order_by("code")
         self.fields["paid_into"].empty_label = "— 1200 Bank (default)"
         if is_new(self):
+            # A preview only: the number is taken when the asset is saved, so
+            # opening the form and walking away leaves no gap in the FA- series.
             from apps.core.models import SequenceCounter
-            self.fields["code"].initial = SequenceCounter.next_number(company, "FA-")
+            self.fields["code"].initial = SequenceCounter.peek_number(company, "FA-")
             return
 
         asset = self.instance
@@ -150,11 +152,36 @@ class FixedAssetForm(BookScopedForm):
                                               code__iexact=cleaned["code"])
             if not is_new(self):
                 clash = clash.exclude(pk=self.instance.pk)
-            if clash.exists():
+            from apps.core.models import SequenceCounter
+            preview = SequenceCounter.peek_number(self.company, "FA-")
+            if clash.exists() and is_new(self) and self._is_series(cleaned["code"]):
+                # The form was opened with a preview a colleague has since used:
+                # that is not the user's mistake, so the asset simply takes the
+                # next free number instead of being sent back.
+                cleaned["code"] = preview
+            elif clash.exists():
                 self.add_error(
                     "code", f"{cleaned['code']} is already on the register. Two "
                     "assets under one code cannot be told apart in the ledger.")
         return cleaned
+
+    @staticmethod
+    def _is_series(code):
+        rest = code[3:] if code.upper().startswith("FA-") else ""
+        return rest.isdigit()
+
+    def save(self, commit=True):
+        # The FA- number is taken now, not when the form was opened. The code
+        # shown is kept if it is still free; if a colleague saved an asset under
+        # it in the meantime, the next free number is used instead.
+        if is_new(self) and self.company:
+            from apps.core.models import SequenceCounter
+            company = self.company
+            self.instance.code = SequenceCounter.claim_number(
+                company, "FA-", self.instance.code,
+                taken=lambda ref: FixedAsset.objects.filter(
+                    company=company, code__iexact=ref).exists())
+        return super().save(commit)
 
 
 class AssetDisposalForm(BookScopedForm):
