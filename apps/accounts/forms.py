@@ -47,14 +47,26 @@ class PasswordResetConfirmForm(forms.Form):
 
 
 class UserCreateForm(forms.ModelForm):
+    """A company admin adds a colleague to the company they're working in.
+
+    `is_system_admin` (platform-wide access) is only offered to platform admins.
+    """
     password = forms.CharField(
         min_length=8,
         widget=forms.PasswordInput(attrs={"placeholder": "Set a password"}),
     )
+    company_role = forms.ChoiceField(label="Role in this company", initial="EMPLOYEE")
 
     class Meta:
         model = User
         fields = ["first_name", "last_name", "email", "username", "phone", "job_title", "is_system_admin"]
+
+    def __init__(self, *args, platform_admin=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        from apps.organizations.models import CompanyMembership
+        self.fields["company_role"].choices = CompanyMembership.ROLE_CHOICES
+        if not platform_admin:
+            del self.fields["is_system_admin"]
 
     def save(self, commit=True):
         user = super().save(commit=False)

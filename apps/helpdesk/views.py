@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -48,6 +49,11 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
     form_class = TicketForm
     template_name = "helpdesk/ticket_form.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         messages.success(self.request, "Ticket opened.")
@@ -75,8 +81,9 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
 
 
 @login_required
+@require_POST
 def ticket_comment(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = get_object_or_404(Ticket, pk=pk, company=request.active_company)
     form = TicketCommentForm(request.POST)
     if form.is_valid():
         c = form.save(commit=False)
@@ -88,8 +95,9 @@ def ticket_comment(request, pk):
 
 
 @login_required
+@require_POST
 def ticket_resolve(request, pk):
-    t = get_object_or_404(Ticket, pk=pk)
+    t = get_object_or_404(Ticket, pk=pk, company=request.active_company)
     t.status = "RESOLVED"
     t.resolved_at = timezone.now()
     t.save()
@@ -98,8 +106,9 @@ def ticket_resolve(request, pk):
 
 
 @login_required
+@require_POST
 def ticket_close(request, pk):
-    t = get_object_or_404(Ticket, pk=pk)
+    t = get_object_or_404(Ticket, pk=pk, company=request.active_company)
     t.status = "CLOSED"
     t.closed_at = timezone.now()
     t.save()

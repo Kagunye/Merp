@@ -8,6 +8,7 @@ class CompanyContextMiddleware(MiddlewareMixin):
     def process_request(self, request):
         request.active_company = None
         request.active_branch = None
+        request.company_role = None
 
         if not request.user.is_authenticated:
             return
@@ -39,6 +40,13 @@ class CompanyContextMiddleware(MiddlewareMixin):
                 except Exception:
                     pass
 
+        # The user's role in the company they're working in: drives access.
+        if request.active_company:
+            try:
+                request.company_role = request.user.get_company_role(request.active_company)
+            except Exception:
+                request.company_role = None
+
         # Active branch
         branch_id = request.session.get("active_branch_id")
         if branch_id and request.active_company:
@@ -50,3 +58,43 @@ class CompanyContextMiddleware(MiddlewareMixin):
                 request.active_branch = branch
             except Exception:
                 pass
+
+
+class RoleAccessMiddleware:
+    """Enforce apps.core.access on every routed request.
+
+    Runs after CompanyContextMiddleware, so `request.company_role` is the
+    user's role in the company they are currently working in.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        from django.contrib.auth.views import redirect_to_login
+        from django.http import HttpResponseForbidden
+        from django.shortcuts import render
+
+        from . import access
+
+        match = request.resolver_match
+        if match is None or match.namespace == "admin":
+            return None
+        ns, name = match.namespace or "", match.url_name or ""
+        role = getattr(request, "company_role", None)
+        if access.can(request.user, role, ns, name, request.method):
+            return None
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if request.headers.get("HX-Request") or request.headers.get("Accept", "").startswith("application/json"):
+            return HttpResponseForbidden("You don't have access to this.")
+        context = {
+            "module_label": access.MODULE_LABELS.get(ns, (ns or "this page").replace("_", " ").title()),
+            "role_label": (role or "").replace("_", " ").title(),
+            "is_write": request.method.upper() not in access.SAFE_METHODS,
+            "no_company": not getattr(request, "active_company", None),
+        }
+        return render(request, "errors/403.html", context, status=403)

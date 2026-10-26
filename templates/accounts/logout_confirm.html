@@ -1,0 +1,14 @@
+{% extends "base/base.html" %}
+{% block content %}
+<div style="min-height:50vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;">
+  <div style="max-width:380px;width:100%;background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:28px;text-align:center;">
+    <h1 style="font-size:19px;font-weight:700;color:#0F172A;margin:0 0 8px;">Sign out of mofisi?</h1>
+    <p style="font-size:14px;color:#64748B;margin:0 0 20px;">You'll need your email and password to sign back in.</p>
+    <form method="post" action="{% url 'accounts:logout' %}" class="no-card">
+      {% csrf_token %}
+      <button type="submit" style="width:100%;">Sign out</button>
+    </form>
+    <a href="{% url 'dashboard:index' %}" style="display:inline-block;margin-top:12px;font-size:14px;color:#64748B;">Stay signed in</a>
+  </div>
+</div>
+{% endblock %}

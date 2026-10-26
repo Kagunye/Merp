@@ -21,7 +21,7 @@
             <p class="text-sm text-gray-500">{{ profile_user.job_title|default:"No job title" }}</p>
           </div>
         </div>
-        {% if profile_user.is_active %}<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-50 text-green-700">Active</span>
+        {% if member_active %}<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-50 text-green-700">Active</span>
         {% else %}<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-600">Disabled</span>{% endif %}
       </div>
 
@@ -74,7 +74,7 @@
       <form method="post" action="{% url 'accounts:user_toggle' profile_user.pk %}">
         {% csrf_token %}
         <button type="submit" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-red-50 text-red-600">
-          {% if profile_user.is_active %}Disable sign-in{% else %}Enable sign-in{% endif %}
+          {% if member_active %}Disable access to this company{% else %}Enable access to this company{% endif %}
         </button>
       </form>
     </div>
