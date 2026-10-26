@@ -92,8 +92,9 @@ class PurchaseOrder(BaseModel, NotesMixin):
         """Roll the lines up into the header, in the order's own currency."""
         from apps.accounting.currency import to_base
         lines = self.lines.all()
-        self.subtotal = sum((l.line_total for l in lines), Decimal("0"))
-        self.tax_amount = sum((l.tax_amount for l in lines), Decimal("0"))
+        cent = Decimal("0.01")
+        self.subtotal = sum((l.line_total for l in lines), Decimal("0")).quantize(cent)
+        self.tax_amount = sum((l.tax_amount for l in lines), Decimal("0")).quantize(cent)
         self.total_amount = self.subtotal + self.tax_amount
         self.total_amount_base = to_base(
             self.total_amount, self.exchange_rate or Decimal("1"))
@@ -192,6 +193,20 @@ class Bill(BaseModel, NotesMixin):
     # so the order's accrual can be worked out from what is left.
     accrued_cleared = models.DecimalField(
         max_digits=15, decimal_places=2, default=Decimal("0"))
+    # What the goods receipt accrued, in book money, for the quantities this
+    # bill was raised for. "Bill this order" fills it in from the order's own
+    # lines; posting clears exactly this much of the accrual, and whatever the
+    # supplier asks above or below it is a purchase price variance.
+    accrual_to_clear = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal("0"))
+    # Where a bill with no purchase order behind it is charged: a service, a
+    # utility, an asset. Goods only reach stock through a receipt, so a bill
+    # nobody ordered against never debits inventory on its own say-so.
+    expense_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="+", verbose_name="Charge to account",
+        help_text="The expense or asset account this bill is for. "
+                  "Bills for ordered goods are raised from the purchase order instead.")
 
     class Meta:
         ordering = ["-bill_date", "-created_at"]

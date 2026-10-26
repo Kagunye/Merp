@@ -168,11 +168,18 @@ class StockAdjustmentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         form.instance.performed_by = self.request.user
         try:
             self.object = form.save()
-            messages.success(self.request, "Stock adjustment recorded.")
-            return redirect(self.success_url)
         except ValidationError as e:
-            messages.error(self.request, str(e))
+            # The shelf (or the ledger behind it) refused the movement, and the
+            # whole event was rolled back; say why in the shelf's own words.
+            form.add_error(None, e.messages[0])
+            messages.error(self.request, f"Stock adjustment not recorded: {e.messages[0]}")
             return self.form_invalid(form)
+        messages.success(
+            self.request,
+            f"Stock adjustment recorded: {self.object.get_movement_type_display()} of "
+            f"{self.object.quantity.normalize():f} × {self.object.product.name} at "
+            f"{self.object.unit_cost} each.")
+        return redirect(self.success_url)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -185,23 +192,19 @@ class InventoryIndexView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         from decimal import Decimal
-        from django.db.models import F, Sum, ExpressionWrapper, DecimalField
+        from django.db.models import F
         ctx = super().get_context_data(**kwargs)
         company = self.request.active_company
         if not company:
             return ctx
         ctx["product_count"] = Product.objects.filter(company=company, is_active=True).count()
-        try:
-            ctx["inventory_value"] = StockLevel.objects.filter(
-                warehouse__company=company,
-            ).aggregate(
-                v=Sum(ExpressionWrapper(
-                    F("quantity") * F("product__cost_price"),
-                    output_field=DecimalField(),
-                ))
-            )["v"] or Decimal(0)
-        except Exception:
-            ctx["inventory_value"] = Decimal(0)
+        # Stock is worth what each shelf carries it at — its quantity times its
+        # moving average — which is the figure the inventory account is kept
+        # at. The price on the product card is only a guess at the next buy.
+        ctx["inventory_value"] = sum(
+            (sl.quantity * sl.avg_cost for sl in StockLevel.objects.filter(
+                warehouse__company=company, product__track_inventory=True)),
+            Decimal(0)).quantize(Decimal("0.01"))
         try:
             ctx["low_stock_count"] = StockLevel.objects.filter(
                 warehouse__company=company,
@@ -254,7 +257,9 @@ class WarehouseDetailView(LoginRequiredMixin, TemplateView):
             warehouse=warehouse
         ).select_related("product", "performed_by").order_by("-movement_date", "-created_at")[:30]
         ctx["low_stock"] = [sl for sl in ctx["stock_levels"] if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level]
-        ctx["total_value"] = sum((sl.quantity * (sl.product.cost_price or Decimal(0)) for sl in ctx["stock_levels"]), Decimal(0))
+        # Valued as the ledger values it: each shelf at its own moving average.
+        ctx["total_value"] = sum((sl.quantity * sl.avg_cost for sl in ctx["stock_levels"]),
+                                 Decimal(0)).quantize(Decimal("0.01"))
         return ctx
 
 
@@ -275,49 +280,68 @@ class StockTransferView(LoginRequiredMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         from apps.organizations.models import Warehouse
+        from apps.inventory.numbers import QUANTITY, pick, typed_number
         company = request.active_company
-        from_pk = request.POST.get("from_warehouse")
-        to_pk = request.POST.get("to_warehouse")
-        product_pk = request.POST.get("product")
-        qty_s = request.POST.get("quantity") or "0"
-        movement_date = request.POST.get("movement_date") or datetime.date.today()
+        from_pk = request.POST.get("from_warehouse") or ""
+        to_pk = request.POST.get("to_warehouse") or ""
         reference = request.POST.get("reference") or ""
 
-        if from_pk == to_pk:
+        warehouses = Warehouse.objects.filter(company=company)
+        from_w = pick(warehouses, from_pk)
+        to_w = pick(warehouses, to_pk)
+        if not from_w or not to_w:
+            messages.error(
+                request,
+                f"Choose the warehouse the stock leaves and the one it goes to — "
+                f"{'the sending' if not from_w else 'the receiving'} warehouse is "
+                "missing or not one of this company's.")
+            return redirect("inventory:stock_transfer")
+        if from_w.pk == to_w.pk:
             messages.error(request, "From and To warehouses must differ.")
             return redirect("inventory:stock_transfer")
-
-        try:
-            qty = Decimal(qty_s)
-        except Exception:
-            qty = Decimal(0)
-        if qty <= 0:
-            messages.error(request, "Quantity must be positive.")
+        product = pick(Product.objects.filter(company=company), request.POST.get("product"))
+        if not product:
+            messages.error(request, "Choose a product from this company to transfer.")
+            return redirect("inventory:stock_transfer")
+        if not product.track_inventory:
+            messages.error(request, f"{product.name} is not stock-tracked, so there is no stock to move.")
             return redirect("inventory:stock_transfer")
 
-        from_w = get_object_or_404(Warehouse, pk=from_pk, company=company)
-        to_w = get_object_or_404(Warehouse, pk=to_pk, company=company)
-        product = get_object_or_404(Product, pk=product_pk, company=company)
+        try:
+            qty = typed_number(request.POST.get("quantity"), "Quantity", QUANTITY)
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+            return redirect("inventory:stock_transfer")
+        if qty is None:
+            messages.error(request, "Enter the quantity to transfer, a number greater than zero.")
+            return redirect("inventory:stock_transfer")
 
-        # The goods move at what they are carried for on the shelf they leave,
-        # not at the supplier price last recorded on the product: two warehouses
-        # holding the same item bought at different costs should end up agreeing,
-        # and the only defensible figure is the one the sending shelf holds.
-        source = StockLevel.objects.filter(product=product, warehouse=from_w).first()
-        cost = ((source.avg_cost if source and source.avg_cost else Decimal(0))
-                or product.cost_price or Decimal(0))
+        raw_date = request.POST.get("movement_date") or ""
+        movement_date = datetime.date.today()
+        if raw_date:
+            try:
+                movement_date = datetime.date.fromisoformat(raw_date)
+            except ValueError:
+                messages.error(request, f"'{raw_date}' is not a date. Use the date picker (YYYY-MM-DD).")
+                return redirect("inventory:stock_transfer")
+
         try:
             with transaction.atomic():
-                StockMovement.objects.create(
+                # The goods move at what they are carried for on the shelf they
+                # leave — the stock model prices the outgoing half at that
+                # shelf's average — and arrive at exactly that figure. Nothing
+                # is bought or sold, so no entry is booked, and the value that
+                # left one shelf is the value that lands on the other.
+                out = StockMovement.objects.create(
                     product=product, warehouse=from_w, movement_type="TRANSFER_OUT",
-                    quantity=qty, unit_cost=cost,
+                    quantity=qty,
                     reference=reference or f"TRF-{to_w.code}",
                     movement_date=movement_date, performed_by=request.user,
                     notes=f"Transfer to {to_w.name}",
                 )
                 StockMovement.objects.create(
                     product=product, warehouse=to_w, movement_type="TRANSFER_IN",
-                    quantity=qty, unit_cost=cost,
+                    quantity=qty, unit_cost=out.unit_cost,
                     reference=reference or f"TRF-{from_w.code}",
                     movement_date=movement_date, performed_by=request.user,
                     notes=f"Transfer from {from_w.name}",
@@ -346,19 +370,47 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         from apps.organizations.models import Warehouse
         company = request.active_company
+        from apps.inventory.numbers import MONEY, QUANTITY, fits, typed_number
         warehouse = get_object_or_404(Warehouse, pk=kwargs["pk"], company=company)
-        movement_date = request.POST.get("movement_date") or datetime.date.today()
+        raw_date = request.POST.get("movement_date") or ""
+        movement_date = datetime.date.today()
+        if raw_date:
+            try:
+                movement_date = datetime.date.fromisoformat(raw_date)
+            except ValueError:
+                messages.error(request, f"Count not posted: '{raw_date}' is not a date (YYYY-MM-DD).")
+                return redirect("inventory:inventory_count", pk=warehouse.pk)
+        levels = list(StockLevel.objects.filter(warehouse=warehouse).select_related("product"))
+        # Every box is read before anything is posted. A count is one event: a
+        # sheet with one unreadable figure on it is handed back whole, rather
+        # than half posted with the bad line quietly left out.
+        counted = []
+        problems = []
+        for sl in levels:
+            try:
+                value = typed_number(request.POST.get(f"count_{sl.pk}"),
+                                     f"Count for {sl.product.name}", QUANTITY,
+                                     allow_zero=True)
+            except ValidationError as exc:
+                problems.append(exc.messages[0])
+                continue
+            if value is None:
+                continue
+            if not fits(abs(value - sl.quantity) * (sl.avg_cost or sl.product.cost_price
+                                                      or Decimal(0)), MONEY):
+                problems.append(
+                    f"Count for {sl.product.name} ({value.normalize():f}) is so far from the "
+                    f"{sl.quantity.normalize():f} on record that the difference is worth more "
+                    "than the ledger can hold. Check the figure.")
+                continue
+            counted.append((sl, value))
+        if problems:
+            messages.error(request, "Count not posted. " + " ".join(problems))
+            return redirect("inventory:inventory_count", pk=warehouse.pk)
         count = 0
         try:
             with transaction.atomic():
-                for sl in StockLevel.objects.filter(warehouse=warehouse).select_related("product"):
-                    counted = request.POST.get(f"count_{sl.pk}")
-                    if counted is None or counted == "":
-                        continue
-                    try:
-                        counted_dec = Decimal(counted)
-                    except Exception:
-                        continue
+                for sl, counted_dec in counted:
                     variance = counted_dec - sl.quantity
                     if variance == 0:
                         continue

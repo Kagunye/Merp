@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from apps.core.forms import date_input
 from django.forms import inlineformset_factory
@@ -74,8 +76,12 @@ class WorkOrderForm(forms.ModelForm):
 
 
 class CompleteWorkOrderForm(forms.Form):
+    # The finished goods carry the materials' cost divided by how many came
+    # out, so a run that made nothing has no unit cost to put on the shelf.
     actual_quantity = forms.DecimalField(
-        max_digits=12, decimal_places=4,
+        max_digits=12, decimal_places=4, min_value=Decimal("0.0001"),
+        error_messages={"min_value": "Enter how many were made — more than zero. "
+                                     "A run that made nothing should be cancelled instead."},
         widget=forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
     )
     actual_end = forms.DateField(

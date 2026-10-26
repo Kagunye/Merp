@@ -362,21 +362,50 @@ def _debit_note_targets(note, inventory_acct, vat_input_acct):
     """
     original = note.original_bill
     entry = getattr(original, "journal_entry", None) if original else None
+    charge = (original.expense_account
+              if original and original.expense_account_id else inventory_acct)
     if entry is None or entry.status != "POSTED":
-        return _bill_targets(note, inventory_acct, vat_input_acct), note.rate
+        return _bill_targets(note, charge, vat_input_acct), note.rate
 
-    lines = list(entry.lines.filter(debit_amount__gt=Decimal("0"))
+    # Every line of the bill except the payable it raised, netted per account:
+    # a bill billed below its order credits price variance, and a note against
+    # it has to give back its share of that credit too, or the tax it returns
+    # would no longer be the tax the bill charged.
+    lines = list(entry.lines.exclude(account__account_type="PAYABLE")
                  .select_related("account").order_by("account__code", "id"))
+    charged = {}
+    for line in lines:
+        row = charged.setdefault(line.account_id, [line.account, Decimal("0"), line.description])
+        row[1] += (line.debit_amount or Decimal("0")) - (line.credit_amount or Decimal("0"))
+    rows = [row for row in charged.values() if row[1]]
     note_base = note.total_amount_base or to_base(note.total_amount, note.rate)
-    billed = sum((line.debit_amount for line in lines), Decimal("0"))
-    if not lines or billed <= 0 or note_base <= 0:
-        return _bill_targets(note, inventory_acct, vat_input_acct), note.rate
+    billed = sum((row[1] for row in rows), Decimal("0"))
+    if not rows or billed <= 0 or note_base <= 0:
+        return _bill_targets(note, charge, vat_input_acct), note.rate
 
-    share = note_base / billed
-    targets = [(line.account,
-                (line.debit_amount * share).quantize(Decimal("0.01")),
-                f"Debit note {note.reference}: {line.description or line.account.name}")
-               for line in lines]
+    # The tax comes back at exactly the tax the note carries, converted the way
+    # the note itself is: scaling the bill's VAT line instead rounds twice (once
+    # in the bill's currency, once in ours) and leaves VAT input a few cents
+    # away from the tax the paper says was reversed. The rest of the note is
+    # shared across the other lines in the bill's own proportions.
+    Z = Decimal("0")
+    vat_base = Z
+    if vat_input_acct is not None and note.tax_amount:
+        if any(account.pk == vat_input_acct.pk for account, _a, _d in rows):
+            vat_base = min(to_base(note.tax_amount, note.rate), note_base)
+    others = sum((amount for account, amount, _d in rows
+                  if not (vat_base and account.pk == vat_input_acct.pk)), Z)
+    rest = note_base - vat_base
+    targets = []
+    for account, amount, description in rows:
+        if vat_base and account.pk == vat_input_acct.pk:
+            value = vat_base
+        elif others:
+            value = (amount * rest / others).quantize(Decimal("0.01"))
+        else:
+            continue
+        targets.append((account, value,
+                        f"Debit note {note.reference}: {description or account.name}"))
     return targets, Decimal("1")
 
 
@@ -391,6 +420,20 @@ def post_debit_note(note, user=None) -> JournalEntry:
     the goods-received accrual, or VAT input — otherwise the pair of entries
     leaves a residue nobody can explain. So the note is mirrored off the
     original bill's own debit lines, shrunk to the note's share of it.
+
+    The accrual is the exception. A bill that cleared the received-not-invoiced
+    accrual closed it: the receipt put the goods on the shelf at the order's
+    price and the bill answered that receipt in full. A note against it is the
+    supplier lowering what those goods cost, not a receipt being undone — no
+    quantity comes off the shelf, because a header-level note does not say
+    which goods or how many. Crediting the accrual would re-open it on an order
+    that is finished, with nothing ever coming to clear it. So the accrual's
+    share is shown as the bill charged it and then handed straight on to
+    purchase price variance, the same account a bill above or below the order
+    price lands its difference on. Stock is held at the price it came in at
+    throughout, and the inventory account keeps agreeing with the shelf. Goods
+    that physically go back are taken off the shelf with a stock movement of
+    their own.
     """
     if note.journal_entry_id:
         return note.journal_entry
@@ -415,8 +458,28 @@ def post_debit_note(note, user=None) -> JournalEntry:
     targets, spread_rate = _debit_note_targets(note, inventory_acct, vat_input_acct)
     bases = spread([t[1] for t in targets], spread_rate, total_base)
     _dr(je, ap_account, total_base, f"AP debit: {note.reference}")
+    original = note.original_bill
+    matched = bool(original and original.purchase_order_id)
+    variance = None
     for (account, _amount, desc), base in zip(targets, bases):
-        _cr(je, account, base, desc)
+        if base < 0:
+            # The bill credited this account (it was billed below the order
+            # price), so the note's share of that credit is given back.
+            _dr(je, account, -base, desc)
+            continue
+        if account.code == NOT_BILLED[0]:
+            variance = variance or ensure_account(company, *PRICE_VARIANCE)
+            _cr(je, account, base, desc)
+            _dr(je, account, base,
+                f"Accrual stays closed — {note.reference} lowers the price, not the receipt")
+            _cr(je, variance, base, f"Price reduced on {note.reference}")
+        elif matched and account.account_type == "ASSET":
+            # An order-matched bill never brings stock in (the receipt did), so a
+            # stock line here is old paper; the reduction is a price variance too.
+            variance = variance or ensure_account(company, *PRICE_VARIANCE)
+            _cr(je, variance, base, f"Price reduced on {note.reference}")
+        else:
+            _cr(je, account, base, desc)
 
     je.post(user=user)
 
@@ -784,17 +847,34 @@ def post_bill(bill, user=None) -> JournalEntry:
     """
     Post a supplier bill to the general ledger.
 
-    Entries created
-    ---------------
-    DR  Stock Received Not Invoiced (2110) the goods value already received
-    DR  Inventory account                  (1400) whatever was not received first
+    Entries created, for a bill raised from a purchase order
+    --------------------------------------------------------
+    DR  Stock Received Not Invoiced (2110) what the receipt accrued for the
+                                           quantities this bill answers
+    DR/CR Purchase Price Variance (5400)   the bill's goods value less that
     DR  VAT Input (code 2210, if exists)   bill.tax_amount
     CR  Accounts Payable (2100)            bill.total_amount
 
     A bill for goods that are already in the warehouse does not add them to
-    stock again — it releases the accrual the receipt put up. A bill for goods
-    nobody received (or a service) charges stock or expense directly, as it
-    always has.
+    stock again — it releases the accrual the receipt put up, and exactly that
+    accrual: the receipt valued the goods at the order's price, so that is what
+    sits in 2110 for them. When the supplier's invoice asks for more or less
+    than the order agreed, the difference is a price variance and is booked as
+    one. Stock stays at the price it was received at, so the inventory account
+    keeps agreeing with the shelf, the accrual closes to the cent on an order
+    that is fully billed, and the variance account shows in one place how far
+    suppliers' invoices strayed from the orders they answer.
+
+    Entries created, for a bill with no order
+    -----------------------------------------
+    DR  the account the bill was coded to  bill.subtotal (bill.expense_account)
+    DR  VAT Input (code 2210, if exists)   bill.tax_amount
+    CR  Accounts Payable (2100)            bill.total_amount
+
+    A bill with no order behind it brings nothing onto the shelf — goods only
+    arrive through a receipt — so it is charged to the expense or asset account
+    the bookkeeper chose. Coded to Stock Received Not Invoiced, it answers goods
+    that were received without an order, and records the accrual it released.
 
     Returns the JournalEntry.
     """
@@ -832,31 +912,53 @@ def post_bill(bill, user=None) -> JournalEntry:
         source_currency=bill.currency, exchange_rate=rate,
     )
 
-    targets = _bill_targets(bill, inventory_acct, vat_input_acct)
+    # A bill with no order is charged where the bookkeeper coded it. Older
+    # bills, entered before bills carried an account, keep the stock account
+    # they were always posted to.
+    charge_acct = (bill.expense_account
+                   if not bill.purchase_order_id and bill.expense_account_id
+                   else inventory_acct)
+    targets = _bill_targets(bill, charge_acct, vat_input_acct)
 
     _cr(je, ap_account, total_base, f"AP: {bill.reference}")
     bases = spread([t[1] for t in targets], rate, total_base)
-    # Goods that arrived before this bill were put into stock on the day they
-    # came in, against the received-not-invoiced accrual. This bill is the
-    # supplier asking to be paid for that same stock, so it clears the accrual
-    # instead of charging the cost to stock a second time; only what the
-    # accrual does not cover — a price above the order, or goods billed without
-    # a receipt — is new cost, and it reaches stock as it always has.
-    remaining = (accrual_remaining(bill.purchase_order)
-                 if bill.purchase_order_id else Decimal("0"))
-    clearing = ensure_account(company, *NOT_BILLED) if remaining > 0 else None
     cleared = Decimal("0")
-    for (account, _foreign, desc), base in zip(targets, bases):
-        move = Decimal("0")
-        if clearing and account is not vat_input_acct and remaining > 0:
-            move = min(remaining, base)
-            remaining -= move
-            cleared += move
-        if base - move > 0:
-            _dr(je, account, base - move, desc)
-    if cleared > 0:
-        _dr(je, clearing, cleared,
-            f"Goods received and now billed: {bill.reference}")
+    if bill.purchase_order_id:
+        # Goods that arrived before this bill were put into stock on the day
+        # they came in, against the received-not-invoiced accrual. This bill is
+        # the supplier asking to be paid for that same stock, so it clears the
+        # accrual instead of charging the cost to stock a second time.
+        goods = Decimal("0")
+        for (account, _foreign, desc), base in zip(targets, bases):
+            if account is vat_input_acct:
+                _dr(je, account, base, desc)
+            else:
+                goods += base
+        remaining = max(accrual_remaining(bill.purchase_order), Decimal("0"))
+        # What the receipt accrued for the quantities this bill was raised
+        # for. A bill from before that figure was kept falls back on whatever
+        # the order still has standing, as it always did.
+        due = bill.accrual_to_clear if bill.accrual_to_clear else min(goods, remaining)
+        cleared = min(due, remaining)
+        if cleared > 0:
+            _dr(je, ensure_account(company, *NOT_BILLED), cleared,
+                f"Goods received and now billed: {bill.reference}")
+        variance = goods - cleared
+        if variance:
+            ppv = ensure_account(company, *PRICE_VARIANCE)
+            if variance > 0:
+                _dr(je, ppv, variance,
+                    f"Billed above the order price: {bill.reference}")
+            else:
+                _cr(je, ppv, -variance,
+                    f"Billed below the order price: {bill.reference}")
+    else:
+        for (account, _foreign, desc), base in zip(targets, bases):
+            _dr(je, account, base, desc)
+            if account.code == NOT_BILLED[0] and account is not vat_input_acct:
+                # Goods taken in without an order and billed now: the bill
+                # releases the accrual their receipt put up.
+                cleared += base
     je.post(user=user)
 
     from apps.procurement.models import Bill as _Bill
@@ -884,6 +986,11 @@ NOT_BILLED = ("2110", "Stock Received Not Invoiced", "LIABILITY", "2000")
 WIP = ("1450", "Work In Progress", "ASSET", "1000")
 STOCK_ADJUSTMENTS = ("5300", "Stock Adjustments & Shrinkage", "COST_OF_GOODS", "5000")
 OPENING_EQUITY = ("3100", "Share Capital", "EQUITY", "3000")
+# Where the gap between an order's price and the supplier's invoice goes. Stock
+# is carried at the price it was received at; a supplier who bills more (or
+# less) than the order agreed changes what the purchase cost, not what the
+# goods on the shelf are worth, so the difference is a cost of its own.
+PRICE_VARIANCE = ("5400", "Purchase Price Variance", "COST_OF_GOODS", "5000")
 
 
 def goods_accrued(purchase_order) -> Decimal:
@@ -1034,6 +1141,36 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
     _dr(je, inventory, value,
         f"Inventory in: {product.name} × {count}")
     _cr(je, credit, value, f"{reason}: {product.name} × {count}")
+    je.post(user=user)
+    return je
+
+
+@transaction.atomic
+def post_production_rounding(company, difference, date, reference, user=None) -> Optional[JournalEntry]:
+    """Empty work in progress of the cents a finished batch could not carry.
+
+    A work order's output is valued at what its materials cost, divided into a
+    unit cost held to four places. Multiplied back out, that unit cost can miss
+    the materials by a cent or two, and the miss would sit in 1450 for ever. A
+    positive difference is materials that went in and did not come out; a
+    negative one is the reverse. Either way it is a stock adjustment, booked so
+    work in progress closes to nothing once the order is complete.
+    """
+    difference = to_base(difference or Decimal("0"), Decimal("1"))
+    if not difference:
+        return None
+    wip = ensure_account(company, *WIP)
+    adjust = ensure_account(company, *STOCK_ADJUSTMENTS)
+    je = _new_je(
+        company, "JE-WIP-", "STOCK_ADJUSTMENT", date,
+        f"Rounding on completion of {reference}",
+    )
+    if difference > 0:
+        _dr(je, adjust, difference, f"Rounding on {reference}")
+        _cr(je, wip, difference, f"Work in progress cleared: {reference}")
+    else:
+        _dr(je, wip, -difference, f"Work in progress cleared: {reference}")
+        _cr(je, adjust, -difference, f"Rounding on {reference}")
     je.post(user=user)
     return je
 

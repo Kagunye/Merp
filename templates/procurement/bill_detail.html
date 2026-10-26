@@ -12,7 +12,7 @@
     <span class="badge {% if bill.status == 'PAID' %}bg-green-50 text-green-700{% elif bill.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif bill.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif bill.status == 'PARTIAL' %}bg-amber-50 text-amber-700{% elif bill.status == 'CANCELLED' %}bg-gray-100 text-gray-500 line-through{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
       {{ bill.get_status_display }}
     </span>
-    {% if bill.status != 'PAID' and bill.status != 'CANCELLED' and bill.status != 'DEBIT_NOTE' %}
+    {% if bill.status == 'DRAFT' and not bill.journal_entry_id %}
     <a href="{% url 'procurement:bill_edit' bill.pk %}" class="no-print px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
     <form method="post" action="{% url 'procurement:bill_cancel' bill.pk %}" onsubmit="return confirm('Cancel this bill?');">
       {% csrf_token %}
@@ -65,6 +65,7 @@
       <div><dt class="text-gray-500">Exchange rate</dt><dd class="font-mono text-gray-900">1 {{ bill.currency }} = {{ bill.rate|trim_qty }} {{ active_company.currency }}</dd></div>
       {% endif %}
       {% if bill.original_bill %}<div class="col-span-2"><dt class="text-gray-500">Answers bill</dt><dd><a href="{% url 'procurement:bill_detail' bill.original_bill.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.original_bill.reference }}</a></dd></div>{% endif %}
+      {% if bill.expense_account %}<div class="col-span-2"><dt class="text-gray-500">Charged to</dt><dd class="text-gray-900">{{ bill.expense_account }}</dd></div>{% endif %}
       {% if bill.purchase_order %}<div class="col-span-2"><dt class="text-gray-500">Purchase Order</dt><dd><a href="{% url 'procurement:po_detail' bill.purchase_order.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.purchase_order.reference }}</a></dd></div>{% endif %}
       {% if bill.journal_entry %}<div class="col-span-2"><dt class="text-gray-500">Journal Entry</dt><dd><a href="{% url 'accounting:journal_entry_detail' bill.journal_entry.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.journal_entry.reference }}</a></dd></div>{% endif %}
     </dl>

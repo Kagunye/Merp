@@ -14,6 +14,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.core.mixins import CompanyRequiredMixin
+from apps.inventory.numbers import MONEY, QUANTITY, UNIT_COST, fits, pick, typed_number
 
 from .forms import BillForm
 from .models import (
@@ -476,17 +477,6 @@ class GRNView(LoginRequiredMixin, DetailView):
 # ------------------------- PO lines, goods receipt -------------------------
 
 
-def _decimal(raw, default=None):
-    """A posted number, or None when it is blank, nonsense or negative."""
-    if raw in (None, ""):
-        return default
-    try:
-        value = Decimal(str(raw))
-    except Exception:
-        return None
-    return value if value >= 0 else None
-
-
 @login_required
 @require_POST
 def po_line_add(request, pk):
@@ -503,29 +493,38 @@ def po_line_add(request, pk):
         messages.error(request, f"PO {po.reference} is {po.get_status_display()}, cannot add lines.")
         return redirect("procurement:po_detail", pk=pk)
 
-    raw_product = request.POST.get("product") or ""
-    try:
-        product = Product.objects.filter(pk=raw_product, company=po.company, is_active=True).first()
-    except ValueError:
-        product = None
+    product = pick(Product.objects.filter(company=po.company, is_active=True),
+                   request.POST.get("product"))
     if not product:
         messages.error(request, "Choose a product from this company.")
         return redirect("procurement:po_detail", pk=pk)
 
-    quantity = _decimal(request.POST.get("quantity"))
-    if quantity is None or quantity <= 0:
-        messages.error(request, "Quantity must be a number greater than zero.")
+    try:
+        quantity = typed_number(request.POST.get("quantity"), "Quantity", QUANTITY)
+        unit_cost = typed_number(request.POST.get("unit_cost"), "Unit cost", UNIT_COST,
+                                 allow_zero=True)
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0])
         return redirect("procurement:po_detail", pk=pk)
-    unit_cost = _decimal(request.POST.get("unit_cost"))
+    if quantity is None:
+        messages.error(request, "Enter the quantity ordered, a number greater than zero.")
+        return redirect("procurement:po_detail", pk=pk)
     if unit_cost is None:
-        messages.error(request, "Unit cost must be a number of zero or more.")
+        messages.error(request, "Enter the unit cost agreed with the supplier (0 or more).")
+        return redirect("procurement:po_detail", pk=pk)
+    if not fits(quantity * unit_cost * Decimal("1.5"), MONEY):
+        # Leaves room for the tax on top: the order's totals are money columns.
+        messages.error(
+            request,
+            f"{quantity} × {unit_cost} is more than an order line can hold. "
+            "Check the quantity and the unit cost.")
         return redirect("procurement:po_detail", pk=pk)
 
     from apps.accounting.models import TaxRate
     raw_tax = request.POST.get("tax_rate") or ""
     tax_rate = None
     if raw_tax:
-        tax_rate = TaxRate.objects.filter(pk=raw_tax, company=po.company).first()
+        tax_rate = pick(TaxRate.objects.filter(company=po.company), raw_tax)
         if not tax_rate:
             messages.error(request, "That tax rate does not belong to this company.")
             return redirect("procurement:po_detail", pk=pk)
@@ -586,7 +585,7 @@ def grn_record(request, pk):
     warehouse = po.warehouse
     raw_wh = request.POST.get("warehouse") or ""
     if raw_wh:
-        warehouse = Warehouse.objects.filter(pk=raw_wh, company=po.company).first()
+        warehouse = pick(Warehouse.objects.filter(company=po.company), raw_wh)
         if not warehouse:
             messages.error(request, "That warehouse does not belong to this company.")
             return redirect("procurement:grn", pk=pk)
@@ -599,17 +598,15 @@ def grn_record(request, pk):
 
     wanted = []
     for line in po.lines.select_related("product"):
-        raw = request.POST.get(f"receive_qty_{line.pk}")
-        if raw in (None, ""):
-            continue  # an empty box means nothing arrived for that line
         try:
-            qty = Decimal(str(raw))
-        except Exception:
-            messages.error(request, f"'{raw}' is not a quantity.")
+            qty = typed_number(request.POST.get(f"receive_qty_{line.pk}"),
+                               f"Quantity received of {line.product.name}", QUANTITY,
+                               allow_zero=True)
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
             return redirect("procurement:grn", pk=pk)
-        if qty < 0:
-            messages.error(request, "Received quantities cannot be negative.")
-            return redirect("procurement:grn", pk=pk)
+        if qty is None:
+            continue  # an empty box means nothing arrived for that line
         if qty > line.to_receive:
             messages.error(
                 request,
@@ -664,12 +661,17 @@ def po_to_bill(request, pk):
     arrives from outside, and the person who enters it should see the order,
     the receipt and the amount they are about to owe all on one screen first.
     """
-    from apps.accounting.currency import book_currency, stamp_document
+    from apps.accounting.currency import book_currency, stamp_document, to_base
     from apps.core.models import SequenceCounter
-    from django.core.exceptions import ValidationError
 
     po = get_object_or_404(
         PurchaseOrder.objects.filter(company=request.active_company).select_related("supplier"), pk=pk)
+    if po.status == "BILLED":
+        messages.error(
+            request,
+            f"Nothing left to bill on {po.reference}: everything on it has been "
+            "received and billed already.")
+        return redirect("procurement:po_detail", pk=pk)
     if po.status not in ("SENT", "PARTIALLY_RECEIVED", "FULLY_RECEIVED"):
         messages.error(
             request,
@@ -693,9 +695,19 @@ def po_to_bill(request, pk):
                    if received == 0 else "Everything received has already been billed."))
             return redirect("procurement:po_detail", pk=pk)
 
-        subtotal = sum((l.unit_cost * q for l, q in outstanding), Decimal("0"))
+        # Rounded to the cent here, once, so the total on the bill is exactly
+        # its subtotal plus its tax — the bill's columns hold cents and nothing finer.
+        subtotal = sum((l.unit_cost * q for l, q in outstanding), Decimal("0")).quantize(
+            Decimal("0.01"))
         tax = sum((l.unit_cost * q * ((l.tax_rate.rate if l.tax_rate else Decimal("0")) / 100)
-                   for l, q in outstanding), Decimal("0"))
+                   for l, q in outstanding), Decimal("0")).quantize(Decimal("0.01"))
+        # What the receipt put on the accrual for exactly these quantities,
+        # worked out the way the receipt costed them: the order's price in book
+        # money, per unit, times what arrived. Posting the bill clears this much
+        # and no more, whatever the supplier's invoice finally says.
+        rate = po.rate
+        accrual = sum((to_base(q * to_base(l.unit_cost, rate), Decimal("1"))
+                       for l, q in outstanding if l.product.track_inventory), Decimal("0"))
 
         bill = Bill(
             company=po.company, supplier=po.supplier, purchase_order=po,
@@ -703,6 +715,7 @@ def po_to_bill(request, pk):
             bill_date=today, due_date=today + datetime.timedelta(days=30),
             currency=po.currency, exchange_rate=po.exchange_rate,
             subtotal=subtotal, tax_amount=tax, total_amount=subtotal + tax,
+            accrual_to_clear=accrual,
             status="DRAFT", notes=f"Raised from PO {po.reference}",
         )
         if bill.currency != book_currency(po.company) and not bill.exchange_rate:
@@ -715,6 +728,20 @@ def po_to_bill(request, pk):
         for line, qty in outstanding:
             line.billed_quantity = (line.billed_quantity or Decimal("0")) + qty
             line.save(update_fields=["billed_quantity"])
+        if all(l.to_bill <= 0 for l in po.lines.all()):
+            # The last of what arrived is on this bill, so it answers whatever
+            # the order still has standing on the accrual — to the cent, after
+            # the drafts already raised take theirs. Rounding each receipt and
+            # each bill separately cannot then leave a cent behind on an order
+            # that is finished.
+            from apps.accounting.gl_service import accrual_remaining
+            pending = sum((b.accrual_to_clear for b in po.bills.filter(
+                status="DRAFT", journal_entry__isnull=True, original_bill__isnull=True,
+            ).exclude(pk=bill.pk)), Decimal("0"))
+            standing = accrual_remaining(po) - pending
+            if standing > 0 and standing != bill.accrual_to_clear:
+                bill.accrual_to_clear = standing
+                bill.save(update_fields=["accrual_to_clear"])
         # Only an order that has both arrived and been billed is finished: a
         # line nobody has received yet has nothing to bill, and must not let
         # the order close itself before the rest of the goods turn up.
@@ -754,8 +781,13 @@ def bill_debit_note(request, pk):
         messages.error(request, f"Cannot debit a {bill.get_status_display().lower()}.")
         return redirect("procurement:bill_detail", pk=pk)
 
-    amount = _decimal(request.POST.get("amount"))
-    if amount is None or amount <= 0:
+    try:
+        amount = typed_number(request.POST.get("amount"), "Debit note amount", MONEY)
+    except ValidationError as exc:
+        messages.error(request, f"{exc.messages[0]} Enter the amount to debit, in the "
+                                "bill's own currency.")
+        return redirect("procurement:bill_detail", pk=pk)
+    if amount is None:
         messages.error(request, "Enter the amount to debit, in the bill's own currency.")
         return redirect("procurement:bill_detail", pk=pk)
     if amount > bill.outstanding_amount:
@@ -807,7 +839,16 @@ def bill_debit_note(request, pk):
 # ------------------------- AP actions -------------------------
 
 class BillUpdateView(LoginRequiredMixin, UpdateView):
-    """Edit a bill. Blocks edits once fully paid or cancelled."""
+    """Edit a bill while it is still a draft the ledger has not seen.
+
+    Once a bill is posted its figures are in the general ledger, and payments
+    and debit notes are measured against them. Changing the paper after that
+    leaves the bill, the payable it raised and the VAT it claimed telling three
+    different stories — a part-paid bill cut below what was already paid shows
+    a negative balance while the ledger still owes the old total. A posted bill
+    is put right the way the ledger is: a debit note for the part that is
+    wrong, or cancellation (which posts its own reversal) and a fresh bill.
+    """
     model = Bill
     form_class = BillForm
     template_name = "procurement/bill_form.html"
@@ -817,8 +858,14 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
 
     def dispatch(self, request, *args, **kwargs):
         obj = self.get_object()
-        if obj.status in ("PAID", "CANCELLED"):
-            messages.error(request, f"Bill {obj.reference} cannot be edited ({obj.get_status_display()}).")
+        if obj.status != "DRAFT" or obj.journal_entry_id:
+            messages.error(
+                request,
+                f"Bill {obj.reference} cannot be edited: it is "
+                f"{obj.get_status_display().lower()}"
+                + (" and already posted to the GL" if obj.journal_entry_id else "")
+                + ". Only a draft can change. Raise a debit note for the part that is "
+                "wrong, or cancel the bill and enter it again.")
             return redirect("procurement:bill_detail", pk=obj.pk)
         return super().dispatch(request, *args, **kwargs)
 
@@ -832,17 +879,18 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
 
     def form_valid(self, form):
-        previous_total = self.object.total_amount
-        was_posted = bool(self.object.journal_entry_id)
-        response = super().form_valid(form)
+        with transaction.atomic():
+            # Re-checked under a lock: a draft posted or paid in another tab
+            # while this form was open is no longer a draft to overwrite.
+            current = Bill.objects.select_for_update().get(pk=self.object.pk)
+            if current.status != "DRAFT" or current.journal_entry_id:
+                messages.error(
+                    self.request,
+                    f"Bill {current.reference} was posted while you were editing it, so "
+                    "the changes were not saved. Raise a debit note instead.")
+                return redirect("procurement:bill_detail", pk=current.pk)
+            response = super().form_valid(form)
         messages.success(self.request, f"Bill {form.instance.reference} updated.")
-        if was_posted and self.object.total_amount != previous_total:
-            messages.warning(
-                self.request,
-                f"This bill is already posted to the GL for {previous_total}, but the saved "
-                f"bill total is {self.object.total_amount}. Reverse that entry or post a "
-                "correction before the ledger and the bill agree again.",
-            )
         return response
 
     def get_context_data(self, **kwargs):
@@ -983,21 +1031,14 @@ def bill_pay(request, pk):
         return redirect("procurement:bill_detail", pk=pk)
 
     company = request.active_company
-    if not bill.journal_entry_id:
-        # Paying an unposted bill would debit AP with no matching credit.
-        with transaction.atomic():
-            if not _post_bill_to_gl(request, bill, request.user):
-                return redirect("procurement:bill_detail", pk=pk)
-        messages.info(request, f"Bill {bill.reference} was posted to the GL first.")
     ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).order_by("code").first()
 
     # The cash side is chosen, not guessed: money leaves a specific account.
     bank = None
     raw_bank = request.POST.get("gl_account") or ""
     if raw_bank:
-        bank = Account.objects.filter(
-            pk=raw_bank, company=company, account_type__in=["BANK", "CASH"], is_active=True
-        ).first()
+        bank = pick(Account.objects.filter(
+            company=company, account_type__in=["BANK", "CASH"], is_active=True), raw_bank)
         if not bank:
             messages.error(request, "That payment account does not belong to this company.")
             return redirect("procurement:bill_detail", pk=pk)
@@ -1033,6 +1074,15 @@ def bill_pay(request, pk):
         return redirect("procurement:bill_detail", pk=pk)
     ap_base = to_base(amount, bill_rate)
     bank_base = to_base(amount, payment_rate)
+
+    if not bill.journal_entry_id:
+        # Paying an unposted bill would debit AP with no matching credit. It is
+        # posted only once everything about the payment itself has checked out,
+        # so a mistyped account or date does not post a draft by accident.
+        with transaction.atomic():
+            if not _post_bill_to_gl(request, bill, request.user):
+                return redirect("procurement:bill_detail", pk=pk)
+        messages.info(request, f"Bill {bill.reference} was posted to the GL first.")
 
     with transaction.atomic():
         # Re-read the bill under a lock: two payments sent together must not
@@ -1104,6 +1154,14 @@ def po_cancel(request, pk):
             request,
             f"Cannot cancel {po.reference}: bills have been raised against it. "
             "Cancel those first — they are the money side of the order.")
+    elif po.lines.filter(received_quantity__gt=0).exists():
+        # Goods that arrived are on the shelf and on the accrual; a cancelled
+        # order can no longer be billed, so that accrual would never clear.
+        messages.error(
+            request,
+            f"Cannot cancel {po.reference}: goods have already been received against "
+            "it. Bill what arrived with \"Bill this order\" first; the rest of the "
+            "order simply stays unreceived.")
     else:
         po.status = "CANCELLED"
         po.save(update_fields=["status", "updated_at"])
