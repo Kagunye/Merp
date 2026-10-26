@@ -16,6 +16,7 @@ Conventions
 from decimal import Decimal
 from typing import Optional
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
@@ -603,9 +604,15 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
     if not default_revenue:
         raise ValueError("GL posting failed: no sales revenue account (4100) on file.")
 
+    # The day the ticket was rung is the day in Nairobi, not in UTC: a ticket
+    # rung at 01:30 belongs to today's takings, the same day its goods left the
+    # shelf on (stock movements are dated with localdate too). Reading the date
+    # off the stored UTC timestamp would put everything rung between midnight
+    # and 03:00 into the previous day's revenue — and, at a month end, into the
+    # previous month.
     je = _new_je(
         company, "JE-RFND-" if refund else "JE-POS-",
-        "PAYMENT" if refund else "RECEIPT", sale.created_at.date(),
+        "PAYMENT" if refund else "RECEIPT", _pos_day(sale.created_at),
         f"{'Refund' if refund else 'Till sale'} {sale.reference} — "
         f"{sale.session.cashier.get_full_name() or sale.session.cashier.username}",
     )
@@ -633,7 +640,9 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
 
     total = sale.total_amount or Decimal("0")
     if total <= 0:
-        raise ValidationError("A ticket with nothing on it books nothing.")
+        raise ValidationError(
+            "A ticket worth nothing books nothing — every line has to be worth at "
+            "least a cent.")
     if refund:
         _cr(je, counter, total, f"Money back over the counter: {sale.reference}")
     else:
@@ -643,6 +652,76 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
     from apps.pos.models import POSSale as _Sale
     _Sale.objects.filter(pk=sale.pk).update(journal_entry=je)
     sale.journal_entry = je
+    return je
+
+
+def _pos_day(moment):
+    """The business day a till event belongs to: its date in the book's own
+    time zone (Africa/Nairobi), never the UTC date it is stored under."""
+    return timezone.localdate(moment) if moment else timezone.localdate()
+
+
+# Where a drawer that does not count out to its tickets is written off. An
+# expense rather than a loss on any one sale: nobody can say which ticket the
+# missing notes went with, only that the shift as a whole is short or over.
+CASH_OVER_SHORT = ("6750", "Cash Over and Short", "EXPENSE", "6000")
+
+
+@transaction.atomic
+def post_till_variance(session, user=None) -> Optional[JournalEntry]:
+    """Book the gap between what a drawer held and what its tickets said.
+
+    A drawer counted short                   A drawer counted over
+    DR  cash over and short (6750)           DR  the till (1100)
+    CR  the till (1100)                      CR  cash over and short (6750)
+
+    Every cash ticket debited the till with the bill, so until the count is
+    booked the ledger still shows the missing notes as cash on hand — the
+    balance sheet would claim money the drawer does not have. The count is the
+    fact; the entry brings the till account down (or up) to it, against an
+    expense account the owner can read as "what the counter lost this month".
+
+    Booked once per session: a session that already carries its variance entry
+    hands that entry back, so a repeated close or a late count can never write
+    the same shortage off twice. A drawer that counted out exactly, or was
+    never counted, books nothing.
+    """
+    from apps.pos.models import POSSession
+
+    session = POSSession.objects.select_for_update().select_related(
+        "company", "cashier", "variance_entry").get(pk=session.pk)
+    if session.variance_entry_id:
+        return session.variance_entry
+    variance = session.variance
+    if variance is None:
+        return None
+    variance = Decimal(variance).quantize(Decimal("0.01"))
+    if variance == 0:
+        return None
+
+    company = session.company
+    # The same account a cash ticket debits, so the write-off lands on the
+    # money it is correcting.
+    drawer = _get_account_safe(company, "1100") or _get_account_by_type(company, "CASH")
+    if not drawer:
+        raise ValueError(
+            "GL posting failed: no till account (1100) to write the drawer's variance off.")
+    over_short = ensure_account(company, *CASH_OVER_SHORT)
+    who = session.cashier.get_full_name() or session.cashier.username
+    je = _new_je(
+        company, "JE-TILL-", "MANUAL", _pos_day(session.closed_at),
+        f"Till {'short' if variance < 0 else 'over'} by {abs(variance)} at close — {who}, "
+        f"{session.branch.name}: counted {session.closing_cash} against "
+        f"{session.expected_cash} expected",
+    )
+    if variance < 0:
+        _dr(je, over_short, -variance, f"Drawer short at cash-up — {who}")
+        _cr(je, drawer, -variance, f"Notes missing from the drawer — {who}")
+    else:
+        _dr(je, drawer, variance, f"Notes over in the drawer — {who}")
+        _cr(je, over_short, variance, f"Drawer over at cash-up — {who}")
+    je.post(user=user)
+    POSSession.objects.filter(pk=session.pk).update(variance_entry=je)
     return je
 
 

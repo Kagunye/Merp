@@ -15,6 +15,7 @@ from django.views.generic import (
     CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView,
 )
 
+from apps.accounting.currency import book_currency
 from apps.core.mixins import CompanyRequiredMixin
 
 from . import services
@@ -58,7 +59,13 @@ class BankAccountListView(LoginRequiredMixin, ListView):
         company = self.request.active_company
         if not company:
             return BankAccount.objects.none()
-        return BankAccount.objects.filter(company=company).select_related("gl_account")
+        return BankAccount.objects.filter(company=company).select_related("gl_account", "company")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # The ledger balance is in the book's currency whatever the account's.
+        ctx["book"] = book_currency(self.request.active_company)
+        return ctx
 
 
 class BankAccountCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
@@ -110,6 +117,7 @@ class BankAccountDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["transactions"] = self.object.transactions.select_related("reconciliation")[:50]
+        ctx["book"] = book_currency(self.request.active_company)
         ctx["reconciliations"] = self.object.reconciliations.all()[:10]
         ctx["unreconciled"] = self.object.transactions.filter(is_reconciled=False).count()
         return ctx
@@ -186,9 +194,33 @@ class BankTransactionCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
 
 
 class BankTransactionUpdateView(LoginRequiredMixin, UpdateView):
+    """Correct a transaction that has not been cleared on a statement yet.
+
+    A cleared transaction is evidence for the statement it sits on: changing its
+    amount, date, direction or account would leave a posted statement that no
+    longer adds up to the balance the bank printed, while still marked
+    reconciled. Like delete, an edit is refused until it is released — untick
+    it on a draft statement, or reverse the posted one.
+    """
     model = BankTransaction
     form_class = BankTransactionForm
     template_name = "banking/transaction_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            txn = self.get_object()
+            if txn.is_reconciled or txn.reconciliation_id:
+                recon = txn.reconciliation
+                statement = recon.reference if recon else "a posted statement"
+                how = ("untick it on that draft statement" if recon and recon.status == "DRAFT"
+                       else "reverse the statement")
+                messages.error(
+                    request,
+                    f"That transaction is cleared on statement {statement}; "
+                    f"{how} before changing it.",
+                )
+                return redirect("banking:transaction_detail", pk=txn.pk)
+        return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
         company = self.request.active_company
@@ -384,6 +416,8 @@ class ReconciliationDetailView(LoginRequiredMixin, DetailView):
         ctx["is_balanced"] = recon.is_balanced
         ctx["books_balance"] = services.gl_balance_at(bank.gl_account, recon.statement_date)
         ctx["currency"] = bank.currency
+        # The ledger figure is always in the book's own currency.
+        ctx["book"] = book_currency(self.request.active_company)
         ctx["statement_label"] = (
             f"{bank.name} · statement to {recon.statement_date:%d %b %Y}"
         )

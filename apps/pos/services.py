@@ -17,7 +17,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from .models import POSSale, POSSaleLine, POSSession
@@ -67,6 +67,56 @@ def _counted(value, label):
     return amount
 
 
+# The roles that may act on a till that is not their own: close it for a
+# cashier who walked off, refund a ticket by a method other than the one it was
+# paid by. Kept deliberately narrow — a cashier's drawer is that cashier's
+# responsibility, and every override is something the cash-up has to explain.
+SUPERVISOR_ROLES = ("ADMIN",)
+
+# What a refund can be paid by. A split tender is never taken, so it is never
+# handed back either.
+REFUND_METHODS = tuple(value for value, _ in POSSale.PAYMENT_METHODS if value != "SPLIT")
+
+
+def by_pk(queryset, pk):
+    """One row of the queryset by primary key, or None — never a crash.
+
+    A posted id is whatever the browser sent. A word where a UUID belongs makes
+    the database lookup raise rather than miss, and a till screen that answers a
+    mistyped or tampered field with a server error is a till nobody can use.
+    """
+    text = "" if pk is None else str(pk).strip()
+    if not text:
+        return None
+    try:
+        return queryset.filter(pk=text).first()
+    except (ValidationError, ValueError, TypeError):
+        return None
+
+
+def membership(company, user):
+    """The user's active place in this company, or None."""
+    if not company or not getattr(user, "pk", None):
+        return None
+    from apps.organizations.models import CompanyMembership
+    return CompanyMembership.objects.filter(
+        company=company, user=user, is_active=True).select_related("branch").first()
+
+
+def is_supervisor(company, user):
+    """May this user act on someone else's till? Superusers and company admins."""
+    if getattr(user, "is_superuser", False):
+        return True
+    found = membership(company, user)
+    return bool(found and found.role in SUPERVISOR_ROLES)
+
+
+def may_handle(session, user):
+    """The till's own cashier, or a supervisor standing in for them."""
+    return (session.cashier_id == getattr(user, "pk", None)
+            or is_supervisor(session.company, user))
+
+
 def active_session(company, user):
     """The one till this cashier is standing at, or None."""
     if not company:
@@ -75,19 +125,54 @@ def active_session(company, user):
         company=company, cashier=user, status="OPEN").select_related("branch", "cashier").first()
 
 
+def home_branch(company, user):
+    """The branch a till should open at when nobody picked one.
+
+    The cashier's own branch on their membership comes first: a Mombasa cashier
+    opening a till without thinking about it is trading in Mombasa. Without one,
+    a company with a single branch has only one answer. A company with several
+    has no safe default — guessing would put the day's takings and the goods
+    they emptied on the wrong branch — so None is returned and the cashier is
+    asked to choose.
+    """
+    found = membership(company, user)
+    if (found and found.branch_id and found.branch.is_active
+            and found.branch.company_id == company.pk):
+        return found.branch
+    branches = list(company.branches.filter(is_active=True)[:2])
+    return branches[0] if len(branches) == 1 else None
+
+
 def open_session(company, user, branch=None, opening_cash=Z):
     """Start the day's trading; an already-open till is simply handed back.
 
     The float is what is in the drawer before the first customer, so the cash-up
     at night can say whether the drawer is short or over.
+
+    A cashier whose membership names a branch trades from that branch: opening
+    a till at another branch would let them sell off that branch's shelves and
+    put its takings in their own drawer. A supervisor may open a till anywhere.
     """
     existing = active_session(company, user)
     if existing:
         return existing
-    branch = branch or company.branches.first()
-    if not branch:
+    if branch is not None and branch.company_id != company.pk:
+        raise ValidationError("That branch does not belong to this company.")
+    own = membership(company, user)
+    if branch is None:
+        branch = home_branch(company, user)
+        if branch is None:
+            if not company.branches.filter(is_active=True).exists():
+                raise ValidationError(
+                    "This company has no branch to trade from — add one under Organization.")
+            raise ValidationError(
+                "Choose the branch this till trades from — the company has more than one, "
+                "and the takings and the goods they empty belong to a branch.")
+    elif (own and own.branch_id and own.branch_id != branch.pk
+          and not is_supervisor(company, user)):
         raise ValidationError(
-            "This company has no branch to trade from — add one under Organization.")
+            f"You are set up to trade from {own.branch.name}, so your till opens there. "
+            f"Ask an administrator to change your branch if you are working at {branch.name}.")
     session = POSSession.objects.create(
         company=company, branch=branch, cashier=user,
         opened_at=timezone.now(), status="OPEN",
@@ -96,16 +181,80 @@ def open_session(company, user, branch=None, opening_cash=Z):
     return session
 
 
-def close_session(session, closing_cash=None):
-    """Stop the till. Counted cash is optional; the variance needs it."""
+def _refuse_stranger(session, user, doing):
+    """Only the till's cashier — or a supervisor — may close or count it."""
+    if not may_handle(session, user):
+        who = session.cashier.get_full_name() or session.cashier.username
+        raise ValidationError(
+            f"This till is {who}'s — only they can {doing} it. A company administrator "
+            "can do it on their behalf if they cannot.")
+
+
+@transaction.atomic
+def close_session(session, closing_cash=None, *, user):
+    """Stop the till. Counted cash is optional; the variance needs it.
+
+    Only the cashier whose drawer it is may close it, or a supervisor standing
+    in for them: closing a till records the count that proves the drawer, and a
+    colleague closing it would both stop the cashier trading and put a count
+    on their shift that they never made. Whoever closes it is recorded.
+
+    When a count is given and it differs from what the tickets say the drawer
+    should hold, the difference is booked to cash over and short at once, so the
+    till account in the ledger holds what was actually counted.
+    """
+    session = POSSession.objects.select_for_update().select_related(
+        "cashier", "company", "branch").get(pk=session.pk)
+    _refuse_stranger(session, user, "close")
     if session.status == "CLOSED":
         raise ValidationError("This till is already closed.")
     if closing_cash is not None and str(closing_cash).strip() != "":
         session.closing_cash = _counted(closing_cash, "Cash counted")
+    retotal(session)
     session.status = "CLOSED"
     session.closed_at = timezone.now()
+    session.closed_by = user
     session.save()
+    _book_variance(session, user)
     return session
+
+
+@transaction.atomic
+def record_count(session, closing_cash, *, user):
+    """Put the count on a till that was closed without one.
+
+    A shift is sometimes shut before anyone has counted the drawer (the cashier
+    is called away, the safe is locked). The count still has to be recorded —
+    until it is, the drawer is unproved and any shortage sits in the ledger as
+    cash on hand. A count is recorded once: a counted drawer is evidence, and
+    re-counting it would rewrite a figure the variance was already booked on.
+    """
+    session = POSSession.objects.select_for_update().select_related(
+        "cashier", "company", "branch").get(pk=session.pk)
+    _refuse_stranger(session, user, "count")
+    if session.status != "CLOSED":
+        raise ValidationError(
+            "This till is still open — record the count when you close it from the "
+            "session page.")
+    if session.closing_cash is not None:
+        raise ValidationError(
+            f"This drawer was already counted at {session.closing_cash} and cannot be "
+            "counted again.")
+    if closing_cash is None or str(closing_cash).strip() == "":
+        raise ValidationError("Type the cash counted in the drawer.")
+    session.closing_cash = _counted(closing_cash, "Cash counted")
+    if not session.closed_by_id:
+        session.closed_by = user
+    session.save(update_fields=["closing_cash", "closed_by", "updated_at"])
+    _book_variance(session, user)
+    return session
+
+
+def _book_variance(session, user):
+    """Write a counted drawer's difference off to cash over and short (once)."""
+    from apps.accounting import gl_service
+    gl_service.post_till_variance(session, user=user)
+    session.refresh_from_db()
 
 
 def retotal(session):
@@ -142,6 +291,13 @@ def ticket_row(product, quantity):
     unit = D(str(product.selling_price))
     net = money(unit * quantity)
     tax = money(net * (product.tax_rate.rate / D("100"))) if product.tax_rate_id else Z
+    if net + tax <= 0:
+        # A sliver of a cheap item rounds to nothing at the cent. Ringing it
+        # would move goods off the shelf for no money and leave a ticket the
+        # ledger cannot book, so it is refused here with the reason.
+        raise ValidationError(
+            f"{quantity} at {money(unit)} each comes to less than a cent — "
+            "sell a larger quantity.")
     return {
         "product": product, "tax_rate": product.tax_rate if product.tax_rate_id else None,
         "quantity": quantity, "unit_price": unit,
@@ -177,23 +333,49 @@ def build_ticket(company, quantities):
     return rows, subtotal, tax, money(subtotal + tax)
 
 
+def till_warehouses(company, session):
+    """The shelves a till may sell from: its own branch's, and any shared store.
+
+    A warehouse that belongs to another branch is that branch's stock. A Head
+    Office till selling off the Mombasa store would empty a shelf nobody at Head
+    Office can see, while the takings land in a Nairobi drawer — the two
+    branches' stock counts and cash-ups would both be wrong. A warehouse with no
+    branch is a company-wide store any till may draw on.
+    """
+    from apps.organizations.models import Warehouse
+
+    shelves = Warehouse.objects.filter(company=company, is_active=True)
+    if session is not None and session.branch_id:
+        shelves = shelves.filter(Q(branch=session.branch) | Q(branch__isnull=True))
+    return shelves.order_by("-is_default", "name")
+
+
 def issue_warehouse(company, session, wanted=None):
-    """The shelf the goods come off: the one asked for, the till's own, or the default."""
+    """The shelf the goods come off: the one asked for, the till's own, or the default.
+
+    Whatever is asked for has to be one of the till's own shelves (see
+    till_warehouses); the default prefers the branch's own warehouse over a
+    shared store.
+    """
     from apps.organizations.models import Warehouse
 
     if wanted:
-        found = Warehouse.objects.filter(pk=wanted, company=company).first()
+        found = by_pk(Warehouse.objects.filter(company=company), wanted)
         if not found:
             raise ValidationError("That warehouse does not belong to this company.")
+        if not found.is_active:
+            raise ValidationError(f"{found.name} is no longer in use — pick another shelf.")
+        if not till_warehouses(company, session).filter(pk=found.pk).exists():
+            where = found.branch.name if found.branch_id else "another branch"
+            raise ValidationError(
+                f"{found.name} is {where}'s stock and this till trades from "
+                f"{session.branch.name} — sell from one of this branch's own shelves.")
         return found
-    if session.branch_id:
-        found = Warehouse.objects.filter(
-            branch=session.branch, company=company, is_active=True).order_by(
-            "-is_default", "name").first()
+    if session is not None and session.branch_id:
+        found = till_warehouses(company, session).filter(branch=session.branch).first()
         if found:
             return found
-    return Warehouse.objects.filter(company=company, is_active=True).order_by(
-        "-is_default", "name").first()
+    return till_warehouses(company, session).first()
 
 
 def issue_stock(sale, rows, warehouse, movement_type, note, user=None):
@@ -226,12 +408,46 @@ def issue_stock(sale, rows, warehouse, movement_type, note, user=None):
             raise ValidationError(exc.messages[0])
 
 
+def new_token():
+    """A one-time token for a terminal or refund form, rendered as a hidden field."""
+    import uuid
+    return uuid.uuid4().hex
+
+
+def clean_token(token):
+    """What the browser sent back as the form token, trimmed to what is stored."""
+    return ("" if token is None else str(token)).strip()[:64]
+
+
+def submitted_ticket(session, token, refund_of=None):
+    """The ticket this form token already made on this till, if any.
+
+    A double click or a reload of a slow POST sends the same form — and the
+    same token — twice. The first submission rang the ticket; the second must
+    hand that ticket back rather than take the money, move the goods and book
+    the entry again. A form posted without a token (an older page, a script) is
+    not guarded, which is why the terminal and refund forms always render one.
+    """
+    token = clean_token(token)
+    if not token or session is None:
+        return None
+    found = POSSale.objects.filter(session=session, submission_token=token)
+    found = found.filter(refund_of=refund_of) if refund_of is not None else found.filter(
+        refund_of__isnull=True)
+    return found.first()
+
+
 @transaction.atomic
 def checkout(company, user, quantities, *, session=None, payment_method="CASH",
-             tendered=Z, customer=None, warehouse=None, notes=""):
+             tendered=Z, customer=None, warehouse=None, notes="", token=""):
     """Ring up a ticket: count the money, move the goods, book the entry.
 
     Returns the sale, with the change already worked out on its own row.
+
+    `token` is the one-time token the terminal form was rendered with. It is
+    stored on the ticket, and the database refuses a second ticket on the same
+    till with the same token — so the same form submitted twice can only ever
+    take the money once (see submitted_ticket).
     """
     from apps.core.models import SequenceCounter
 
@@ -275,7 +491,7 @@ def checkout(company, user, quantities, *, session=None, payment_method="CASH",
         subtotal=subtotal, discount_amount=Z, tax_amount=tax, total_amount=total,
         payment_method=payment_method,
         amount_tendered=handed, change_given=change,
-        status="COMPLETED", notes=notes,
+        status="COMPLETED", notes=notes, submission_token=clean_token(token),
     )
     for row in rows:
         POSSaleLine.objects.create(
@@ -293,13 +509,33 @@ def checkout(company, user, quantities, *, session=None, payment_method="CASH",
 
 
 @transaction.atomic
-def refund(sale, user, quantities, *, reason="", payment_method=None):
+def refund(sale, user, quantities, *, reason="", payment_method=None, token=""):
     """Take goods back and hand the money over the counter again.
 
     The refund is a ticket of its own rather than an edit of the sale: the money
     that came in and the money that went back are two events, and the till has to
-    show both. It is priced at the unit price the customer actually paid, never at
-    today's shelf price, and can never give back more than the ticket took.
+    show both. It is priced at what the customer actually paid on the line, never
+    at today's shelf price, and can never give back more than the ticket took.
+
+    The money comes out of the drawer of the person handing it back. A refund is
+    booked on the refunder's own open till — never on the till that rang the
+    sale, which may belong to another cashier or already be counted and closed.
+    Any cashier may take back goods sold at another till (a customer returns to
+    whichever counter is open), but the notes they pay out are theirs to account
+    for at their own cash-up. Without an open till of their own there is no
+    drawer to pay from, so the refund is refused.
+
+    The money goes back the way it came in: a card or M-Pesa sale was paid into
+    the bank, so paying it back in notes would take cash out of a drawer that
+    never received it. Only a company administrator may refund by another
+    method.
+
+    Each line's refunds are worked out on the running total rather than one by
+    one: the money returned so far on a line is always the line's own figure
+    times the share of its quantity that has come back, rounded once. Rounding
+    each partial refund on its own would let three refunds of a third each pay
+    back a cent or two more than the line took; on the running total, the last
+    refund is exactly the remainder.
     """
     from apps.core.models import SequenceCounter
 
@@ -309,9 +545,36 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
     if sale.status == "REFUNDED":
         raise ValidationError(f"{sale.reference} has already been refunded in full.")
 
-    already = {}
+    till = active_session(company, user)
+    if not till:
+        raise ValidationError(
+            "You have no open till to pay this refund from — open your own session first. "
+            "The money comes out of the drawer of the person handing it back.")
+    if till.status != "OPEN":
+        raise ValidationError(f"Your till is {till.get_status_display()} and cannot pay out.")
+
+    original = sale.payment_method
+    method = (str(payment_method).strip().upper() if payment_method else "") or original
+    if method not in REFUND_METHODS:
+        raise ValidationError(
+            f"“{payment_method}” is not a way this till pays money back — choose one of "
+            + ", ".join(label for value, label in POSSale.PAYMENT_METHODS
+                        if value in REFUND_METHODS) + ".")
+    if method != original and not is_supervisor(company, user):
+        raise ValidationError(
+            f"{sale.reference} was paid by {sale.get_payment_method_display()}, so it is "
+            f"refunded by {sale.get_payment_method_display()}: the money goes back the way "
+            "it came in. Only a company administrator can refund it another way.")
+
+    # Lock the ticket so two refunds of it at two counters are worked out one
+    # after the other, each seeing what the other already gave back.
+    sale = POSSale.objects.select_for_update().get(pk=sale.pk)
+    done_qty, done_net, done_tax = {}, {}, {}
     for line in POSSaleLine.objects.filter(sale__refund_of=sale):
-        already[line.product_id] = already.get(line.product_id, Z) + line.quantity
+        key = line.product_id
+        done_qty[key] = done_qty.get(key, Z) + line.quantity
+        done_net[key] = done_net.get(key, Z) + line.net_total
+        done_tax[key] = done_tax.get(key, Z) + (line.tax_amount or Z)
 
     rows = []
     for line in sale.lines.select_related("product"):
@@ -321,14 +584,25 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
         quantity = number(raw, f"Refund quantity for {line.product.name}", limit=QUANTITY_LIMIT)
         if quantity <= 0:
             continue
-        left = line.quantity - already.get(line.product_id, Z)
+        key = line.product_id
+        left = line.quantity - done_qty.get(key, Z)
         if quantity > left:
             raise ValidationError(
                 f"Only {left} of {line.product.name} on {sale.reference} is still returnable.")
-        net = money(line.unit_price * quantity)
-        # The tax a customer paid comes back with the goods: it was charged on
-        # this line at this price, so it is repaid on the same basis.
-        tax = money(line.tax_amount * (quantity / line.quantity)) if line.tax_amount else Z
+        # What this line has paid back once these goods are in, worked out on
+        # the running quantity and rounded once — minus what was already paid.
+        share = (done_qty.get(key, Z) + quantity) / line.quantity
+        net = money(line.net_total * share) - done_net.get(key, Z)
+        # The tax a customer paid comes back with the goods, on the same basis.
+        tax = money((line.tax_amount or Z) * share) - done_tax.get(key, Z)
+        # Never below nothing, and never more than the line still holds — a
+        # refund rung before this rule may already have taken a cent too many.
+        net = max(Z, min(net, line.net_total - done_net.get(key, Z)))
+        tax = max(Z, min(tax, (line.tax_amount or Z) - done_tax.get(key, Z)))
+        if net + tax <= 0 and line.line_total > 0:
+            raise ValidationError(
+                f"{quantity} of {line.product.name} is worth less than a cent back — "
+                "refund a larger quantity.")
         rows.append({
             "product": line.product, "tax_rate": line.tax_rate,
             "quantity": quantity, "unit_price": line.unit_price,
@@ -340,18 +614,29 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
     subtotal = money(sum((r["net"] for r in rows), Z))
     tax = money(sum((r["tax"] for r in rows), Z))
     total = money(subtotal + tax)
-    method = payment_method or sale.payment_method
-    if method == "CASH" and money(sale.session.expected_cash) < total:
+    if money((sale.refunded_amount or Z) + total) > money(sale.total_amount):
         raise ValidationError(
-            f"The drawer holds {money(sale.session.expected_cash)} and cannot pay back {total}.")
+            f"{sale.reference} took {sale.total_amount} and {sale.refunded_amount} has "
+            f"already gone back — {total} more would repay more than the ticket took.")
+    if method == "CASH" and money(till.expected_cash) < total:
+        raise ValidationError(
+            f"Your drawer holds {money(till.expected_cash)} and cannot pay back {total}.")
+
+    # The goods go back on the shelf they came off when the refunding till may
+    # stock it; a ticket brought back to another branch's counter is shelved
+    # there, where the goods physically are.
+    shelf = sale.warehouse
+    if not shelf or not till_warehouses(company, till).filter(pk=shelf.pk).exists():
+        shelf = issue_warehouse(company, till)
 
     ticket = POSSale.objects.create(
-        session=sale.session,
+        session=till,
         reference=SequenceCounter.next_number(company, "POS-R"),
-        customer=sale.customer, warehouse=sale.warehouse,
+        customer=sale.customer, warehouse=shelf,
         subtotal=subtotal, discount_amount=Z, tax_amount=tax, total_amount=total,
         payment_method=method, amount_tendered=total, change_given=Z,
         status="REFUNDED", refund_of=sale, notes=reason,
+        submission_token=clean_token(token),
     )
     for row in rows:
         POSSaleLine.objects.create(
@@ -359,9 +644,9 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
             quantity=row["quantity"], unit_price=row["unit_price"],
             discount_amount=Z, tax_amount=row["tax"], line_total=money(row["net"] + row["tax"]),
         )
-    # The goods go back on the shelf they came off, at what the shelf counts one
-    # as worth now — the same rule the sale was issued under.
-    issue_stock(ticket, rows, sale.warehouse, "RETURN_IN", "Returned to stock on", user=user)
+    # Back on the shelf at what the shelf counts one as worth now — the same
+    # rule the sale was issued under.
+    issue_stock(ticket, rows, shelf, "RETURN_IN", "Returned to stock on", user=user)
 
     from apps.accounting import gl_service
     gl_service.post_pos_sale(ticket, user=user, refund=True)
@@ -370,7 +655,7 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
     sale.refunded_amount = returned
     sale.status = "REFUNDED" if returned >= sale.total_amount else "PARTIAL_REFUND"
     sale.save(update_fields=["refunded_amount", "status", "updated_at"])
-    retotal(sale.session)
+    retotal(till)
     ticket.refresh_from_db()
     return ticket
 

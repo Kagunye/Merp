@@ -37,7 +37,7 @@
             <span class="text-xs text-gray-500">{{ a.gl_account.name }}</span>
           {% else %}<span class="text-xs text-red-600">unmapped</span>{% endif %}
         </td>
-        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ a.currency }} {{ a.current_balance|floatformat:2 }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{% if a.is_foreign %}{{ a.currency }} {{ a.statement_balance|floatformat:2 }}<div class="text-xs text-gray-500 font-normal">ledger {{ book }} {{ a.current_balance|floatformat:2 }}</div>{% else %}{{ book }} {{ a.current_balance|floatformat:2 }}{% endif %}</td>
         <td class="px-4 py-3 text-right whitespace-nowrap">
           <a href="{% url 'banking:reconciliation_create' %}?account={{ a.pk }}" class="text-sm font-medium" style="color: var(--primary);">Reconcile</a>
           <a href="{% url 'banking:account_edit' a.pk %}" class="text-xs text-gray-500 hover:text-gray-800 ml-3">Edit</a>

@@ -7,8 +7,14 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
   <div class="rounded-xl border border-gray-200 p-5" style="{% account_row account %}">
+    {% if account.is_foreign %}
+    <div class="text-xs text-gray-500 mb-1">Balance in {{ account.currency }}, from its transactions</div>
+    <div class="text-2xl font-bold">{{ account.currency }} {{ account.statement_balance|floatformat:2 }}</div>
+    <div class="text-xs text-gray-500 mt-1">Per ledger, in the book's money: {{ book }} {{ account.current_balance|floatformat:2 }}</div>
+    {% else %}
     <div class="text-xs text-gray-500 mb-1">Balance per ledger</div>
-    <div class="text-2xl font-bold">{{ account.currency }} {{ account.current_balance|floatformat:2 }}</div>
+    <div class="text-2xl font-bold">{{ book }} {{ account.current_balance|floatformat:2 }}</div>
+    {% endif %}
     <div class="text-xs text-gray-500 mt-2">{{ unreconciled }} transaction(s) still outstanding</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5">

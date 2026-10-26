@@ -2,8 +2,12 @@
 {% load ui_extras %}
 {% block content %}
 {% url 'banking:transaction_list' as back %}
+{% if txn.is_reconciled %}
+{% include "_includes/page_header.html" with title=txn.description|default:txn.reference subtitle="Bank transaction" back_url=back %}
+{% else %}
 {% url 'banking:transaction_edit' txn.pk as edit_url %}
 {% include "_includes/page_header.html" with title=txn.description|default:txn.reference subtitle="Bank transaction" back_url=back action_label="Edit" action_url=edit_url %}
+{% endif %}
 
 <div class="bg-white rounded-xl border border-gray-200 p-6 max-w-2xl mb-4" style="{% account_row txn.bank_account %}">
   <div class="grid grid-cols-2 gap-5">
@@ -47,8 +51,8 @@
 </div>
 
 <div class="no-print flex flex-wrap gap-2 max-w-2xl">
-  <a href="{% url 'banking:transaction_edit' txn.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Edit transaction</a>
   {% if not txn.is_reconciled %}
+  <a href="{% url 'banking:transaction_edit' txn.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Edit transaction</a>
   <a href="{% url 'banking:transaction_delete' txn.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-red-200 text-red-700 bg-white hover:bg-red-50">Delete</a>
   {% endif %}
 </div>

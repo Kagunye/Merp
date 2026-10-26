@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, ListView, TemplateView, View
@@ -76,9 +76,12 @@ def session_open(request):
     if request.method == "POST":
         from apps.organizations.models import Branch
         branch = None
-        if request.POST.get("branch"):
-            branch = Branch.objects.filter(
-                pk=request.POST.get("branch"), company=company).first()
+        if (request.POST.get("branch") or "").strip():
+            # A branch id that is not a UUID, or not this company's, is the same
+            # refusal: there is no such branch to trade from.
+            branch = services.by_pk(
+                Branch.objects.filter(company=company, is_active=True),
+                request.POST.get("branch"))
             if not branch:
                 messages.error(request, "That branch does not belong to this company.")
                 return redirect("pos:session_open")
@@ -96,6 +99,7 @@ def session_open(request):
     return render(request, "pos/session_open.html", {
         "page_title": "Open Till",
         "branches": company.branches.filter(is_active=True).order_by("name"),
+        "default_branch": services.home_branch(company, request.user),
         "book": book_currency(company),
     })
 
@@ -147,8 +151,13 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             "q": q,
             "customers": customers,
             "methods": methods,
-            "warehouses": (list(company.warehouses.filter(is_active=True))
-                           if company else []),
+            # Only the shelves this till may sell from: its own branch's and
+            # any shared store, never another branch's stock.
+            "warehouses": (list(services.till_warehouses(company, cashier_session))
+                           if company and cashier_session else []),
+            # A fresh one-time token per rendering of the form; see
+            # services.submitted_ticket for why.
+            "ticket_token": services.new_token(),
             "shelf": shelf,
             "report": report,
             "branches": company.branches.all() if company else [],
@@ -172,12 +181,20 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             return redirect("pos:session_open")
         quantities = {key[4:]: value for key, value in request.POST.items()
                       if key.startswith("qty_")}
-        customer = None
-        if request.POST.get("customer"):
-            from apps.crm.models import Customer
-            customer = Customer.objects.filter(
-                pk=request.POST.get("customer"), company=company).first()
+        token = request.POST.get("ticket_token")
+        already = services.submitted_ticket(cashier_session, token)
+        if already:
+            return self.already_rung(request, already)
         try:
+            customer = None
+            if (request.POST.get("customer") or "").strip():
+                from apps.crm.models import Customer
+                customer = services.by_pk(
+                    Customer.objects.filter(company=company), request.POST.get("customer"))
+                if customer is None:
+                    raise ValidationError(
+                        "That customer is not on this company's list — pick one from the "
+                        "box or leave it as a counter sale.")
             with transaction.atomic():
                 sale = services.checkout(
                     company, request.user, quantities,
@@ -186,7 +203,15 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
                     tendered=request.POST.get("amount_tendered"),
                     customer=customer,
                     warehouse=request.POST.get("warehouse") or None,
-                    notes=request.POST.get("notes") or "")
+                    notes=request.POST.get("notes") or "",
+                    token=token)
+        except IntegrityError:
+            # Two copies of the same form raced each other; the database let
+            # one through and refused the other. Hand back the one that won.
+            already = services.submitted_ticket(cashier_session, token)
+            if already:
+                return self.already_rung(request, already)
+            raise
         except ValidationError as exc:
             messages.error(request, f"Could not ring that ticket: {exc.messages[0]}")
             return render(request, self.template_name,
@@ -194,6 +219,14 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
         messages.success(
             request,
             f"{sale.reference}: {sale.total_amount} taken, {sale.change_given} change given.")
+        return redirect("pos:sale_detail", pk=sale.pk)
+
+    @staticmethod
+    def already_rung(request, sale):
+        """The same form came back twice: show the ticket it already made."""
+        messages.info(
+            request,
+            f"{sale.reference} was already rung from this form — it was not taken twice.")
         return redirect("pos:sale_detail", pk=sale.pk)
 
 
@@ -213,17 +246,23 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["report"] = services.till_report(self.object)
         ctx["sales"] = self.object.sales.select_related(
             "customer", "warehouse").order_by("-created_at")[:50]
+        ctx["can_close"] = services.may_handle(self.object, self.request.user)
         return ctx
 
 
 @login_required
 @require_POST
 def session_close(request, pk):
-    """Stop trading on this till. Counted cash comes from the cash-up screen."""
+    """Stop trading on this till, with the count of the drawer if there is one.
+
+    Only the till's own cashier — or a company administrator standing in for
+    them — may close it; the service refuses anyone else.
+    """
     company = request.active_company
     session = get_object_or_404(POSSession, pk=pk, company=company)
     try:
-        services.close_session(session, closing_cash=request.POST.get("closing_cash"))
+        session = services.close_session(
+            session, closing_cash=request.POST.get("closing_cash"), user=request.user)
     except ValidationError as exc:
         messages.error(request, exc.messages[0])
         return redirect("pos:session_detail", pk=session.pk)
@@ -237,7 +276,9 @@ def session_close(request, pk):
         messages.success(
             request,
             f"Session closed: counted {report['counted_cash']} against expected "
-            f"{report['expected_cash']}, variance {report['variance']}.")
+            f"{report['expected_cash']}, variance {report['variance']}"
+            + (f" — written off to cash over and short in {session.variance_entry.reference}."
+               if session.variance_entry_id else "."))
     return redirect("pos:session_detail", pk=session.pk)
 
 
@@ -279,32 +320,71 @@ class SaleDetailView(LoginRequiredMixin, DetailView):
         ctx["page_title"] = f"Ticket {sale.reference}"
         ctx["lines"] = sale.lines.select_related("product", "tax_rate")
         ctx["refunds"] = POSSale.objects.filter(refund_of=sale).select_related("warehouse")
-        ctx["refunded_so_far"] = {
-            line.product_id: line.quantity for line in
-            POSSaleLine.objects.filter(sale__refund_of=sale)}
+        # Summed, not overwritten: a line refunded in three goes has three
+        # refund lines, and what is still returnable is what all of them left.
+        refunded = {}
+        for line in POSSaleLine.objects.filter(sale__refund_of=sale):
+            refunded[line.product_id] = refunded.get(line.product_id, Decimal("0")) + line.quantity
+        ctx["refunded_so_far"] = refunded
         ctx["refundable"] = [
             {"line": line,
-             "left": line.quantity - ctx["refunded_so_far"].get(line.product_id, Decimal("0"))}
+             "left": line.quantity - refunded.get(line.product_id, Decimal("0"))}
             for line in sale.lines.select_related("product")]
-        ctx["can_refund"] = (sale.status in ("COMPLETED", "PARTIAL_REFUND")
-                             and sale.session.status == "OPEN")
+        # A refund is paid from the refunder's own open till, so the form is
+        # offered to anyone standing at one — whichever till rang the sale.
+        company = self.request.active_company
+        refund_till = services.active_session(company, self.request.user)
+        ctx["refund_till"] = refund_till
+        ctx["can_refund"] = (not sale.refund_of_id
+                             and sale.status in ("COMPLETED", "PARTIAL_REFUND")
+                             and refund_till is not None)
+        ctx["refund_needs_till"] = (not sale.refund_of_id
+                                    and sale.status in ("COMPLETED", "PARTIAL_REFUND")
+                                    and refund_till is None)
+        # Only a supervisor may refund by a method other than the sale's own.
+        ctx["refund_methods"] = (
+            [(v, label) for v, label in POSSale.PAYMENT_METHODS if v in services.REFUND_METHODS]
+            if services.is_supervisor(company, self.request.user) else [])
+        ctx["refund_token"] = services.new_token()
         return ctx
 
 
 @login_required
 @require_POST
 def sale_refund(request, pk):
-    """Take goods back and hand the money over the counter again."""
+    """Take goods back and hand the money over the counter again.
+
+    Booked on the refunder's own open till; the same refund form submitted twice
+    hands back the refund it already made.
+    """
     company = request.active_company
     sale = get_object_or_404(POSSale, pk=pk, session__company=company)
     quantities = {key[len("refund_qty_"):]: value
                   for key, value in request.POST.items() if key.startswith("refund_qty_")}
+    token = request.POST.get("refund_token")
+    till = services.active_session(company, request.user)
+    already = services.submitted_ticket(till, token, refund_of=sale)
+    if already:
+        messages.info(
+            request,
+            f"{already.reference} was already refunded from this form — it was not paid twice.")
+        return redirect("pos:sale_detail", pk=already.pk)
     try:
         with transaction.atomic():
             ticket = services.refund(
                 sale, request.user, quantities,
                 reason=request.POST.get("reason") or "",
-                payment_method=request.POST.get("payment_method") or None)
+                payment_method=request.POST.get("payment_method") or None,
+                token=token)
+    except IntegrityError:
+        already = services.submitted_ticket(till, token, refund_of=sale)
+        if already:
+            messages.info(
+                request,
+                f"{already.reference} was already refunded from this form — it was not "
+                "paid twice.")
+            return redirect("pos:sale_detail", pk=already.pk)
+        raise
     except ValidationError as exc:
         messages.error(request, f"Could not refund {sale.reference}: {exc.messages[0]}")
         return redirect("pos:sale_detail", pk=pk)
@@ -316,7 +396,12 @@ def sale_refund(request, pk):
 
 
 class CashUpView(LoginRequiredMixin, DetailView):
-    """Count the drawer against the tickets, by how the money was taken."""
+    """Count the drawer against the tickets, by how the money was taken.
+
+    A till closed without a count can have its count recorded here afterwards
+    (POST closing_cash) — by its cashier or a company administrator, once — and
+    the variance is then booked the same way a counted close books it.
+    """
     model = POSSession
     template_name = "pos/cash_up.html"
     context_object_name = "session"
@@ -331,4 +416,24 @@ class CashUpView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["report"] = services.till_report(self.object)
         ctx["page_title"] = "Cash Up"
+        ctx["can_count"] = (self.object.status == "CLOSED"
+                            and self.object.closing_cash is None
+                            and services.may_handle(self.object, self.request.user))
         return ctx
+
+    def post(self, request, *args, **kwargs):
+        session = self.get_object()
+        try:
+            session = services.record_count(
+                session, request.POST.get("closing_cash"), user=request.user)
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+            return redirect("pos:cash_up", pk=session.pk)
+        report = services.till_report(session)
+        messages.success(
+            request,
+            f"Count recorded: {report['counted_cash']} against expected "
+            f"{report['expected_cash']}, variance {report['variance']}"
+            + (f" — written off to cash over and short in {session.variance_entry.reference}."
+               if session.variance_entry_id else "."))
+        return redirect("pos:cash_up", pk=session.pk)
