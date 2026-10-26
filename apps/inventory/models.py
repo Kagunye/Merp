@@ -221,6 +221,14 @@ class StockMovement(BaseModel, NotesMixin):
         "accounts.User", on_delete=models.SET_NULL, null=True, blank=True
     )
 
+    # Which movements add to the shelf; everything else takes from it.
+    INCOMING = (
+        "RECEIPT", "TRANSFER_IN", "ADJUSTMENT_PLUS",
+        "RETURN_IN", "OPENING", "PRODUCTION_IN",
+    )
+    # Incoming movements that, left unpriced, take the shelf's own average.
+    PRICED_BY_SHELF = ("ADJUSTMENT_PLUS", "RETURN_IN")
+
     class Meta:
         ordering = ["-movement_date", "-created_at"]
 
@@ -252,24 +260,46 @@ class StockMovement(BaseModel, NotesMixin):
             unit_cost=self.unit_cost, total_cost=self.total_cost)
 
     def _update_stock_level(self):
+        if self.quantity is None or self.quantity <= 0:
+            raise ValidationError(
+                "A stock movement has to move something: the quantity must be more than zero.")
+        if self.unit_cost is not None and self.unit_cost < 0:
+            # A negative price would take value off the book while putting
+            # goods on the shelf (or the reverse); the posting refuses to book a
+            # negative figure, so the shelf would move with no entry at all.
+            raise ValidationError(
+                f"A unit cost cannot be negative ({self.unit_cost}). Enter what one "
+                f"{self.product.name} cost, or leave it blank to use the shelf's average.")
         with transaction.atomic():
             level, _ = StockLevel.objects.select_for_update().get_or_create(
                 product=self.product, warehouse=self.warehouse,
                 defaults={"quantity": Decimal("0"), "avg_cost": Decimal("0")},
             )
-            incoming = self.movement_type in (
-                "RECEIPT", "TRANSFER_IN", "ADJUSTMENT_PLUS",
-                "RETURN_IN", "OPENING", "PRODUCTION_IN",
-            )
-            # A movement nobody priced is worth what the shelf already holds the
-            # goods at: a sale, a write-off or a surplus found on a count all
-            # cost or gain the book the average the same items were bought in at.
-            # Without this the ledger would credit nothing while stock went out,
-            # and stock on the shelf would stop agreeing with stock in the book.
-            if not self.unit_cost and level.avg_cost:
+            incoming = self.movement_type in self.INCOMING
+            if not incoming:
+                # Goods leave the shelf at what the shelf carries them for, and
+                # never at a figure somebody typed. The shelf's value is its
+                # quantity times its average; taking goods off at any other price
+                # would leave the inventory account and the stock valuation
+                # disagreeing by the difference for ever, with nothing on either
+                # side to say why.
+                if self.unit_cost != level.avg_cost:
+                    self._cost_it_at(level.avg_cost)
+            elif (not self.unit_cost and level.avg_cost
+                  and self.movement_type in self.PRICED_BY_SHELF):
+                # A movement in that nobody priced is worth what the shelf already
+                # holds the goods at: a surplus found on a count, or a customer's
+                # return, gains the book the average the same items stand at.
+                # Goods that arrive from somewhere with a value of their own — a
+                # supplier, another shelf, the production line — are not given
+                # this shelf's average: a free delivery is free, and inventing a
+                # value for it would put stock in the book that nobody paid for.
                 self._cost_it_at(level.avg_cost)
             if incoming:
-                if level.quantity + self.quantity > 0 and self.unit_cost > 0:
+                # The new average is the value on the shelf divided by what is
+                # now on it — including goods that came in at no cost, which
+                # dilute the average rather than being carried at the old price.
+                if level.quantity + self.quantity > 0:
                     total_value = (level.quantity * level.avg_cost) + (self.quantity * self.unit_cost)
                     level.avg_cost = total_value / (level.quantity + self.quantity)
                 level.quantity += self.quantity

@@ -3,10 +3,12 @@ import datetime
 from decimal import Decimal
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
 from .forms import BOMForm, BOMLineFormSet, CompleteWorkOrderForm, WorkOrderForm
@@ -203,21 +205,37 @@ class WorkOrderDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+@login_required
+@require_POST
 def work_order_complete(request, pk):
-    """POST — complete a work order, record stock movements."""
-    from django.contrib.auth.decorators import login_required
+    """Complete a work order: draw the materials, put the finished goods away.
+
+    Materials leave the shelf at the average the shelf carries them for — the
+    stock model prices every outgoing movement that way — and are charged to
+    work in progress. The finished goods then come out of work in progress at
+    exactly what went into it, so 1450 is empty again once the order is done
+    and the finished item's shelf value is what it actually cost to make. The
+    price typed on the product card is a guess about the future; using it for
+    either side would leave the inventory account and the stock valuation
+    disagreeing by the difference, with work in progress carrying the rest.
+
+    A shelf that cannot cover the recipe stops the whole order: nothing is
+    drawn, nothing is made, and the screen says which component is short.
+    """
+    from apps.accounting.gl_service import post_production_rounding
+    from apps.accounting.models import to_base
     from apps.inventory.models import StockMovement
+    from apps.inventory.numbers import UNIT_COST, fits
 
     wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
-    if request.method != "POST":
-        return redirect("manufacturing:work_order_detail", pk=pk)
     if wo.status not in ("RELEASED", "IN_PROGRESS", "DRAFT"):
         messages.error(request, "Work order cannot be completed in its current state.")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
     form = CompleteWorkOrderForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Invalid form data.")
+        problems = " ".join(" ".join(errs) for errs in form.errors.values())
+        messages.error(request, f"Work order {wo.reference} was not completed. {problems}")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
     actual_qty = form.cleaned_data["actual_quantity"]
@@ -227,54 +245,78 @@ def work_order_complete(request, pk):
         messages.error(request, "Work order must have a warehouse assigned.")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
-    with transaction.atomic():
-        # Record material consumption (PRODUCTION_OUT)
-        for consumption in wo.consumptions.select_related("product"):
-            if consumption.planned_quantity > 0:
-                try:
-                    StockMovement.objects.create(
-                        product=consumption.product,
-                        warehouse=wo.warehouse,
-                        movement_type="PRODUCTION_OUT",
-                        quantity=consumption.planned_quantity,
-                        unit_cost=consumption.product.cost_price,
-                        reference=wo.reference,
-                        movement_date=actual_end,
-                        performed_by=request.user,
-                    )
-                    consumption.actual_quantity = consumption.planned_quantity
-                    consumption.save(update_fields=["actual_quantity"])
-                except Exception as e:
-                    messages.error(request, f"Stock error for {consumption.product}: {e}")
-                    raise
+    product = wo.bom.product
+    current = None
+    try:
+        with transaction.atomic():
+            consumed = Decimal("0")
+            for consumption in wo.consumptions.select_related("product"):
+                if consumption.planned_quantity <= 0:
+                    continue
+                current = consumption.product
+                # No cost is given: the shelf prices what it gives up.
+                issue = StockMovement.objects.create(
+                    product=consumption.product,
+                    warehouse=wo.warehouse,
+                    movement_type="PRODUCTION_OUT",
+                    quantity=consumption.planned_quantity,
+                    reference=wo.reference,
+                    movement_date=actual_end,
+                    performed_by=request.user,
+                    notes=f"Issued to {wo.reference}",
+                )
+                if consumption.product.track_inventory:
+                    # The figure work in progress was actually debited with.
+                    consumed += to_base(issue.quantity * issue.unit_cost, Decimal("1"))
+                consumption.actual_quantity = consumption.planned_quantity
+                consumption.save(update_fields=["actual_quantity"])
 
-        # Record production output (PRODUCTION_IN)
-        try:
-            StockMovement.objects.create(
-                product=wo.bom.product,
+            current = product
+            unit_cost = consumed / actual_qty if consumed > 0 else Decimal("0")
+            if not fits(unit_cost, UNIT_COST):
+                raise ValidationError(
+                    f"{consumed} of materials over {actual_qty} made is more per unit than "
+                    "a stock record can hold — check the quantity made")
+            unit_cost = unit_cost.quantize(Decimal("0.0001"))
+            output = StockMovement(
+                product=product,
                 warehouse=wo.warehouse,
                 movement_type="PRODUCTION_IN",
                 quantity=actual_qty,
-                unit_cost=wo.bom.product.cost_price,
+                unit_cost=unit_cost,
                 reference=wo.reference,
                 movement_date=actual_end,
                 performed_by=request.user,
+                notes=f"Made on {wo.reference}",
             )
-        except Exception as e:
-            messages.error(request, f"Output stock error: {e}")
-            raise
+            output.save()
+            if product.track_inventory and consumed > 0:
+                # The output's unit cost is held to four places, so its value can
+                # miss what went in by a cent or so. That residue is cleared to
+                # stock adjustments rather than left sitting in 1450.
+                made = to_base(actual_qty * unit_cost, Decimal("1"))
+                post_production_rounding(
+                    wo.company, consumed - made, actual_end, wo.reference, user=request.user)
 
-        wo.actual_quantity = actual_qty
-        wo.actual_end = actual_end
-        wo.status = "COMPLETED"
-        wo.save(update_fields=["actual_quantity", "actual_end", "status", "updated_at"])
+            wo.actual_quantity = actual_qty
+            wo.actual_end = actual_end
+            wo.cost = consumed
+            wo.status = "COMPLETED"
+            wo.save(update_fields=["actual_quantity", "actual_end", "cost", "status", "updated_at"])
+    except ValidationError as exc:
+        what = f" ({current.name})" if current else ""
+        messages.error(
+            request,
+            f"Work order {wo.reference} was not completed{what}: {exc.messages[0]}. "
+            "Nothing was drawn from stock — receive the missing materials, or lower "
+            "the quantity, and complete it again.")
+        return redirect("manufacturing:work_order_detail", pk=pk)
 
-    messages.success(request, f"Work Order {wo.reference} completed. Output: {actual_qty} {wo.bom.product.name}")
+    messages.success(
+        request,
+        f"Work Order {wo.reference} completed. Output: {actual_qty} {product.name} "
+        f"at {unit_cost} each ({consumed} of materials).")
     return redirect("manufacturing:work_order_detail", pk=pk)
-
-
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST
 
 
 @login_required

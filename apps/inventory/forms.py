@@ -1,4 +1,6 @@
 """Inventory forms."""
+from decimal import Decimal
+
 from django import forms
 from apps.core.forms import date_input
 from .models import Product, StockMovement, ProductCategory, UnitOfMeasure
@@ -47,6 +49,33 @@ class ProductForm(forms.ModelForm):
 
 
 class StockMovementForm(forms.ModelForm):
+    """A stock movement typed in by hand, outside any order.
+
+    Only movements that make sense on their own are offered. A transfer has two
+    ends and is made on the transfer screen, which writes both; one end typed
+    here would put stock on a shelf that nothing left, or take it off with
+    nowhere for it to go. Returns, production and opening balances each belong
+    to the document that explains them.
+
+    Stock going out is always valued at the shelf's own average, whatever is
+    typed in the cost box: the shelf's value is its quantity times that
+    average, and taking goods off at any other price would leave the inventory
+    account and the stock valuation apart for good. Stock coming in needs a
+    real, positive cost — or, for a surplus found on a count, the shelf's
+    average when the box is left empty.
+    """
+    # What the hand-entry screen offers. Receipts and issues without an order
+    # are kept for the shop with no purchasing or sales paperwork: a receipt
+    # accrues on 2110 Stock Received Not Invoiced, and the supplier's bill for
+    # it is entered against that account to clear it.
+    CHOICES = [
+        ("ADJUSTMENT_PLUS", "Adjustment increase — stock found or added on a count"),
+        ("ADJUSTMENT_MINUS", "Adjustment decrease — stock lost, damaged or written off"),
+        ("RECEIPT", "Goods received without a purchase order"),
+        ("DELIVERY", "Goods issued without a sales order"),
+    ]
+    OUTGOING = ("ADJUSTMENT_MINUS", "DELIVERY")
+
     class Meta:
         model = StockMovement
         fields = ["product", "warehouse", "movement_type", "quantity", "unit_cost", "movement_date", "notes", "reference"]
@@ -57,6 +86,11 @@ class StockMovementForm(forms.ModelForm):
 
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["movement_type"].choices = self.CHOICES
+        self.fields["unit_cost"].required = False
+        self.fields["unit_cost"].help_text = (
+            "Cost of one unit coming in. Stock going out is always taken off at "
+            "the shelf's average cost, so this is ignored for a decrease or an issue.")
         if not company:
             return
         from apps.organizations.models import Warehouse
@@ -70,6 +104,67 @@ class StockMovementForm(forms.ModelForm):
         if quantity is not None and quantity <= 0:
             raise forms.ValidationError("A movement has to move something — use a positive quantity.")
         return quantity
+
+    def clean_unit_cost(self):
+        cost = self.cleaned_data.get("unit_cost")
+        if cost is not None and cost < 0:
+            raise forms.ValidationError(
+                "A unit cost cannot be negative. Enter what one unit cost, or leave "
+                "it empty for a count surplus to take the shelf's average.")
+        return cost if cost is not None else Decimal("0")
+
+    def clean(self):
+        from apps.inventory.numbers import MONEY, QUANTITY, fits
+        from .models import StockLevel
+
+        cleaned = super().clean()
+        product = cleaned.get("product")
+        warehouse = cleaned.get("warehouse")
+        kind = cleaned.get("movement_type")
+        quantity = cleaned.get("quantity")
+        cost = cleaned.get("unit_cost") or Decimal("0")
+        if not (product and warehouse and kind and quantity):
+            return cleaned
+        if not product.track_inventory:
+            self.add_error(
+                "product",
+                f"{product.name} is not stock-tracked, so it has no shelf to adjust. "
+                "Turn on stock tracking on the product first.")
+            return cleaned
+        level = StockLevel.objects.filter(product=product, warehouse=warehouse).first()
+        on_hand = level.quantity if level else Decimal("0")
+        average = level.avg_cost if level else Decimal("0")
+        if kind in self.OUTGOING:
+            # The shelf prices it; what was typed plays no part.
+            cleaned["unit_cost"] = Decimal("0")
+            if quantity > on_hand and not product.allow_negative_stock:
+                self.add_error(
+                    "quantity",
+                    f"Only {on_hand.normalize():f} of {product.name} is on hand in "
+                    f"{warehouse.name}, so {quantity.normalize():f} cannot go out.")
+            value = quantity * average
+        else:
+            if kind == "RECEIPT" and cost <= 0:
+                self.add_error(
+                    "unit_cost",
+                    "Goods received need the cost they were bought at — a figure greater than zero.")
+            elif kind == "ADJUSTMENT_PLUS" and cost <= 0 and average <= 0:
+                self.add_error(
+                    "unit_cost",
+                    f"{product.name} has never been costed in {warehouse.name}, so there is "
+                    "no shelf average to value the surplus at. Enter a unit cost greater than zero.")
+            if not fits(on_hand + quantity, QUANTITY):
+                self.add_error(
+                    "quantity",
+                    f"{quantity.normalize():f} more would put more on the shelf than the "
+                    "stock record can hold. Check the quantity.")
+            value = quantity * (cost if cost > 0 else average)
+        if not fits(value, MONEY):
+            self.add_error(
+                None,
+                f"{quantity.normalize():f} × {(cost or average).normalize():f} is worth more "
+                "than the ledger can record in one line. Check the quantity and the unit cost.")
+        return cleaned
 
 
 class UnitOfMeasureForm(forms.ModelForm):
