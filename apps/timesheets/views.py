@@ -8,6 +8,7 @@ from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
+from apps.core.mixins import CompanyRequiredMixin
 from .forms import TimesheetEntryForm
 from .models import TimesheetEntry
 
@@ -49,11 +50,19 @@ class EntryListView(LoginRequiredMixin, ListView):
         return qs
 
 
-class EntryCreateView(LoginRequiredMixin, CreateView):
+class EntryCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     model = TimesheetEntry
     form_class = TimesheetEntryForm
     template_name = "timesheets/entry_form.html"
     success_url = reverse_lazy("timesheets:entry_list")
+
+    def get_form_kwargs(self):
+        # The form checks the day's total against this person's other entries,
+        # so it has to know whose day it is before it validates.
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        kwargs["user"] = self.request.user
+        return kwargs
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
@@ -62,15 +71,27 @@ class EntryCreateView(LoginRequiredMixin, CreateView):
         return super().form_valid(form)
 
 
+def company_entries(request):
+    """Timesheet entries in the active company only — a pk from another book
+    is a 404 here, not a page of somebody else's hours."""
+    company = getattr(request, "active_company", None)
+    if not company:
+        return TimesheetEntry.objects.none()
+    return TimesheetEntry.objects.filter(company=company)
+
+
 class EntryDetailView(LoginRequiredMixin, DetailView):
     model = TimesheetEntry
     template_name = "timesheets/entry_detail.html"
     context_object_name = "entry"
 
+    def get_queryset(self):
+        return company_entries(self.request)
+
 
 @login_required
 def entry_submit(request, pk):
-    e = get_object_or_404(TimesheetEntry, pk=pk)
+    e = get_object_or_404(company_entries(request), pk=pk)
     if e.status == "DRAFT":
         e.status = "SUBMITTED"
         e.save(update_fields=["status"])
@@ -80,7 +101,11 @@ def entry_submit(request, pk):
 
 @login_required
 def entry_approve(request, pk):
-    e = get_object_or_404(TimesheetEntry, pk=pk)
+    e = get_object_or_404(company_entries(request), pk=pk)
+    if e.user_id == request.user.pk:
+        # Hours you approve for yourself are hours nobody else agreed you worked.
+        messages.error(request, "You cannot approve your own hours — somebody else has to.")
+        return redirect("timesheets:entry_detail", pk=pk)
     if e.status == "SUBMITTED":
         e.status = "APPROVED"
         e.approved_by = request.user
@@ -88,10 +113,4 @@ def entry_approve(request, pk):
         e.save(update_fields=["status", "approved_by", "approved_at"])
         messages.success(request, "Approved.")
     return redirect("timesheets:entry_detail", pk=pk)
-
-    def get_queryset(self):
-        company = self.request.active_company
-        if not company:
-            return TimesheetEntry.objects.none()
-        return TimesheetEntry.objects.filter(company=company)
 

@@ -22,7 +22,7 @@
       {% else %}
         <a href="{% url 'payroll:rule_create' %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">New version</a>
       {% endif %}
-      {% if rule.method == 'BANDS' %}
+      {% if rule.method == 'BANDS' and can_edit %}
         <a href="{% url 'payroll:band_create' rule.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Add band</a>
       {% endif %}
       <form method="post" action="{% url 'payroll:rule_toggle' rule.pk %}">
@@ -87,10 +87,12 @@
           <td class="px-4 py-3 text-right font-mono text-gray-700">{% if band.upper is None %}<span class="text-gray-400">and above</span>{% else %}{{ band.upper|floatformat:2 }}{% endif %}</td>
           <td class="px-4 py-3 text-right font-mono font-semibold text-red-600">{{ band.percent|floatformat:2 }}%</td>
           <td class="px-4 py-3 text-right no-print">
+            {% if can_edit %}
             <form method="post" action="{% url 'payroll:band_delete' band.pk %}" onsubmit="return confirm('Remove this band? The table would tax a slice of pay that no longer has a rate on it.');">
               {% csrf_token %}
               <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Remove</button>
             </form>
+            {% endif %}
           </td>
         </tr>
         {% empty %}

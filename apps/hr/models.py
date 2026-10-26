@@ -77,9 +77,14 @@ class Contract(BaseModel):
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError(
                 "A contract cannot end before the day it started.")
+        # The row is validated even when the form could not read the employee
+        # (an empty or partial post), so the message cannot lean on a person
+        # who is not attached yet — asking for the name would crash the page
+        # instead of telling the user what is missing.
+        who = self.employee.full_name if self.employee_id else "This employee"
         if self.basic_salary is None or self.basic_salary <= 0:
             raise ValidationError(
-                f"{self.employee.full_name} has no basic pay on this contract. "
+                f"{who} has no basic pay on this contract. "
                 "Payroll works the month out of this figure, so a contract that "
                 "pays nothing is a contract that has not been priced yet.")
         if self.end_date and self.is_current and self.end_date < timezone.localdate():
@@ -138,5 +143,51 @@ class LeaveRequest(BaseModel, NotesMixin):
 
     @property
     def days_requested(self):
+        if not (self.start_date and self.end_date):
+            return 0
         delta = self.end_date - self.start_date
         return delta.days + 1
+
+    # Leave that is still a claim on the year's entitlement: granted, or asked
+    # for and not yet answered. A refused or withdrawn request has given the
+    # days back.
+    COUNTED_STATUSES = ["PENDING", "APPROVED"]
+
+    def entitlement(self):
+        """The days this request may draw on in its leave year: the type's
+        allowance, plus whatever the type lets a person carry over."""
+        days = self.leave_type.days_per_year
+        if self.leave_type.carry_forward:
+            days += self.leave_type.max_carry_forward_days
+        return days
+
+    def days_already_taken(self):
+        """Days of the same leave, in the same calendar year, already granted or
+        waiting — everything this request has to fit beside."""
+        others = LeaveRequest.objects.filter(
+            employee_id=self.employee_id, leave_type_id=self.leave_type_id,
+            status__in=self.COUNTED_STATUSES,
+            start_date__year=self.start_date.year,
+        ).exclude(pk=self.pk)
+        return sum((r.days_requested for r in others), 0)
+
+    def clean(self):
+        super().clean()
+        if not (self.start_date and self.end_date):
+            return
+        if self.end_date < self.start_date:
+            raise ValidationError(
+                "Leave cannot end before it starts. Check the dates — the last day of "
+                "leave is the day before the person is back at work.")
+        if not (self.leave_type_id and self.employee_id):
+            return
+        allowed = self.entitlement()
+        taken = self.days_already_taken()
+        if taken + self.days_requested > allowed:
+            left = max(allowed - taken, 0)
+            raise ValidationError(
+                f"This asks for {self.days_requested} day(s) of {self.leave_type.name}, "
+                f"but {self.employee.full_name} has {left} of {allowed} left for "
+                f"{self.start_date.year} ({taken} already granted or waiting). Shorten "
+                "the request, split it across leave years, or use a different kind of "
+                "leave.")

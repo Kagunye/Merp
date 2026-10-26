@@ -3,11 +3,41 @@
 A run's figures are never typed: only the period, the accounts it moves between
 and the tables it is calculated from are editable here.
 """
+from decimal import Decimal
+
 from django import forms
 
 from apps.core.forms import date_input, is_new
-from .models import PayrollRun, SalaryComponent, StatutoryRule
+from .models import PayrollRun, PayrollTaxBand, SalaryComponent, StatutoryRule, normalise_code
 from .services import overlapping_run
+
+HUNDRED = Decimal("100")
+
+
+def refuse_negative(form, name, what):
+    """A figure that only makes sense at nought or above.
+
+    A negative pension rate or a negative flat levy does not fail loudly: it is
+    worked out, it adds money to somebody's pay, and it books a liability with
+    the wrong sign — which is far harder to find afterwards than a form error
+    is to fix now.
+    """
+    value = form.cleaned_data.get(name)
+    if value is not None and value < 0:
+        raise forms.ValidationError(
+            f"{what} cannot be negative. Enter it as a positive figure — whether it "
+            "is added to pay or taken off is decided by the kind of row, not the sign.")
+    return value
+
+
+def refuse_beyond_whole(form, name, what):
+    """A percentage of pay: between nought and the whole of it."""
+    value = refuse_negative(form, name, what)
+    if value is not None and value > HUNDRED:
+        raise forms.ValidationError(
+            f"{what} of {value}% is more than the whole of the pay it is taken from. "
+            "A share of pay is between 0 and 100 — check for a misplaced decimal point.")
+    return value
 
 FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 TEXTAREA_CLASS = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -41,13 +71,27 @@ class AccountChoiceForm(forms.ModelForm):
         available = Account.objects.filter(company=company, is_active=True).order_by("code")
         for name in self.account_fields:
             if name in self.fields:
-                self.fields[name].queryset = available
+                kinds = self.account_types.get(name)
+                self.fields[name].queryset = (
+                    available.filter(account_type__in=kinds) if kinds else available)
                 if not self.fields[name].required:
                     self.fields[name].empty_label = "— Choose an account"
+
+    # Which kinds of account each picker may offer, by field. A ModelChoiceField
+    # validates against its queryset, so restricting the list is also what
+    # refuses a hand-made POST naming an account the list would never show.
+    account_types = {}
 
 
 class PayrollRunForm(AccountChoiceForm):
     account_fields = ("salary_account", "paid_into")
+    # Pay is charged to a cost and paid out of money. Offering the bank as the
+    # salary account books the gross as a debit to the bank: the bank looks
+    # richer by everything withheld, and the month reports no salary cost.
+    account_types = {
+        "salary_account": ["EXPENSE"],
+        "paid_into": ["BANK", "CASH"],
+    }
 
     class Meta:
         model = PayrollRun
@@ -68,8 +112,6 @@ class PayrollRunForm(AccountChoiceForm):
                 self.company, "PR-")
             self.fields["salary_account"].empty_label = "6100 Salaries & Wages (default)"
             self.fields["paid_into"].empty_label = "1200 Bank (default)"
-            self.fields["paid_into"].queryset = self.fields["paid_into"].queryset.filter(
-                account_type__in=["BANK", "CASH"])
 
     def clean(self):
         cleaned = super().clean()
@@ -108,6 +150,37 @@ class StatutoryRuleForm(AccountChoiceForm):
             "payable_account"].queryset.filter(
             account_type__in=["LIABILITY", "TAX", "PAYABLE"])
 
+    def clean_code(self):
+        # Codes are keys the run groups by: 'nssf' typed beside 'NSSF' must be
+        # the same table, or both are charged and the employee pays twice.
+        code = normalise_code(self.cleaned_data.get("code"))
+        if not code:
+            raise forms.ValidationError("Give the table a short code, e.g. PAYE or NSSF.")
+        return code
+
+    def clean_employee_percent(self):
+        return refuse_beyond_whole(self, "employee_percent", "The employee's share")
+
+    def clean_employer_percent(self):
+        return refuse_beyond_whole(self, "employer_percent", "The employer's share")
+
+    def clean_employee_flat(self):
+        return refuse_negative(self, "employee_flat", "The employee's fixed figure")
+
+    def clean_employer_flat(self):
+        return refuse_negative(self, "employer_flat", "The employer's fixed figure")
+
+    def clean_basis_cap(self):
+        value = self.cleaned_data.get("basis_cap")
+        if value is not None and value <= 0:
+            raise forms.ValidationError(
+                "A pay ceiling has to be above nought — a ceiling of nothing would "
+                "charge the rate on no pay at all. Leave it blank for no ceiling.")
+        return value
+
+    def clean_monthly_relief(self):
+        return refuse_negative(self, "monthly_relief", "The monthly relief")
+
     def clean(self):
         cleaned = super().clean()
         if self.company and cleaned.get("code"):
@@ -144,6 +217,12 @@ class SalaryComponentForm(AccountChoiceForm):
             self.fields["gl_account"].empty_label = "— Salaries & wages (6100)"
             self.fields["is_active"].initial = True
 
+    def clean_amount(self):
+        return refuse_negative(self, "amount", "The amount")
+
+    def clean_percent(self):
+        return refuse_beyond_whole(self, "percent", "The percentage")
+
     def clean(self):
         cleaned = super().clean()
         if cleaned.get("component_type") == "DEDUCTION" and not cleaned.get("gl_account"):
@@ -152,3 +231,24 @@ class SalaryComponentForm(AccountChoiceForm):
                 "Money taken out of pay is held for somebody else — a union, a bank, a "
                 "scheme — so it has to be credited to an account they can be paid from.")
         return cleaned
+
+
+class PayrollTaxBandForm(forms.ModelForm):
+    """One step of a tiered table.
+
+    The steps are measured in pay, so they start at nought or above, and the
+    rate on a step is a share of the pay inside it.
+    """
+
+    class Meta:
+        model = PayrollTaxBand
+        fields = ["lower", "upper", "percent"]
+
+    def clean_lower(self):
+        return refuse_negative(self, "lower", "Where a band starts")
+
+    def clean_upper(self):
+        return refuse_negative(self, "upper", "Where a band ends")
+
+    def clean_percent(self):
+        return refuse_beyond_whole(self, "percent", "The rate on a band")

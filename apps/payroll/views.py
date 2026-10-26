@@ -22,10 +22,12 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 from apps.accounting.currency import book_currency
 from apps.core.mixins import CompanyRequiredMixin
 from . import services
-from .forms import PayrollRunForm, SalaryComponentForm, StatutoryRuleForm
+from .forms import (
+    PayrollRunForm, PayrollTaxBandForm, SalaryComponentForm, StatutoryRuleForm,
+)
 from .models import (
-    SETTLED_RUNS, PayrollRun, PayrollTaxBand, Payslip, SalaryComponent,
-    StatutoryRule,
+    PAYABLE_STATUSES, SETTLED_RUNS, PayrollRun, PayrollTaxBand, Payslip,
+    SalaryComponent, StatutoryRule,
 )
 
 
@@ -92,8 +94,10 @@ class PayrollIndexView(LoginRequiredMixin, TemplateView):
         ctx["draft_count"] = runs.filter(status__in=["DRAFT", "REVIEW"]).count()
         ctx["approved_count"] = runs.filter(status="APPROVED").count()
         ctx["recent_runs"] = runs.order_by("-period_end")[:8]
+        # The same staff list the run pays from, so the count on this page and
+        # the payslips on the run never disagree about who is owed this month.
         staff = Employee.objects.filter(
-            company=company, status__in=["ACTIVE", "PROBATION"],
+            company=company, status__in=PAYABLE_STATUSES,
             is_active=True).prefetch_related("contracts")
         ctx["staff_count"] = staff.count()
         # Measured against today: a lapsed contract is the same hole in next
@@ -325,21 +329,45 @@ def run_cancel(request, pk):
         messages.warning(request, f"'{run.reference}' is already cancelled.")
         return redirect("payroll:run_detail", pk=run.pk)
     reason = (request.POST.get("reason") or "").strip()
-    with transaction.atomic():
-        entry = run.journal_entry
-        reversal = None
-        if entry and entry.status == "POSTED":
-            reversal = entry.reverse(user=request.user)
-            if reason:
-                reversal.notes = f"{reversal.notes} — {reason}".strip(" —")
-                reversal.save(update_fields=["notes", "updated_at"])
-        run.status = "CANCELLED"
-        run.save(update_fields=["status", "updated_at"])
+    entry = run.journal_entry
+    reversal = None
+    # The month's entry may already have been answered — reversed from the
+    # journal screen, say. The ledger is then already back where it was, so the
+    # run only has to be stood down to match it: reversing a second time would
+    # be refused (rightly), and leaving the run POSTED would block the month
+    # from ever being paid again.
+    earlier = entry.reversed_by if entry and entry.reversed_by_id else None
+    try:
+        with transaction.atomic():
+            if entry and entry.status == "POSTED" and earlier is None:
+                reversal = entry.reverse(user=request.user)
+                if reason:
+                    reversal.notes = f"{reversal.notes} — {reason}".strip(" —")
+                    reversal.save(update_fields=["notes", "updated_at"])
+            run.status = "CANCELLED"
+            run.save(update_fields=["status", "updated_at"])
+    except ValidationError as exc:
+        messages.error(
+            request,
+            f"'{run.reference}' could not be cancelled: {exc.messages[0]} The run is "
+            "unchanged.")
+        return redirect("payroll:run_detail", pk=run.pk)
     if reversal:
         messages.success(
             request,
             f"'{run.reference}' cancelled: {entry.reference} reversed through "
             f"{reversal.reference}, so the ledger no longer owes this month's pay.")
+        # The reversal is dated in the pay month it unwinds. If that month has
+        # been closed since, the book has to say so out loud, the way posting
+        # the month did.
+        if reversal.calendar_warning:
+            messages.warning(request, reversal.calendar_warning)
+    elif earlier is not None:
+        messages.success(
+            request,
+            f"'{run.reference}' cancelled. {entry.reference} had already been reversed "
+            f"by {earlier.reference}, so the ledger was already square and nothing "
+            "was reversed again. The month can be run afresh.")
     else:
         messages.success(
             request,
@@ -523,9 +551,7 @@ class StatutoryRuleDetailView(LoginRequiredMixin, DetailView):
         ctx["bands"] = self.object.bands()
         # The same test the edit view's queryset applies: a table that has already
         # paid a run somebody signed off is history, not a draft.
-        ctx["can_edit"] = StatutoryRule.objects.filter(pk=self.object.pk).exclude(
-            payslip_lines__payslip__payroll_run__status__in=SETTLED_RUNS,
-        ).exists()
+        ctx["can_edit"] = not self.object.is_settled
         ctx["history"] = StatutoryRule.objects.filter(
             company=self.object.company, code=self.object.code,
         ).order_by("-effective_from")
@@ -545,15 +571,36 @@ def rule_deactivate(request, pk):
     return redirect("payroll:rule_detail", pk=rule.pk)
 
 
+def settled_table_refusal(request, rule):
+    """Turn a change to a settled table's steps away, saying why and what to do.
+
+    The steps of a tiered table are its rates. The edit screen already refuses
+    a table that paid a run somebody signed off; a band added or removed is the
+    same edit by a side door, and would leave a posted payslip showing tax
+    worked out from a table that no longer says that.
+    """
+    messages.error(
+        request,
+        f"{rule.code} from {rule.effective_from:%d %b %Y} has paid a run that is "
+        "approved, posted or cancelled, so its steps are a record of what those "
+        "payslips were worked out from and cannot be changed. To change the rates, "
+        f"add a new {rule.code} table with the date the new steps start.")
+    return redirect("payroll:rule_detail", pk=rule.pk)
+
+
 class BandCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     """One step of a tiered table, added to a rule that is already saved."""
     model = PayrollTaxBand
-    fields = ["lower", "upper", "percent"]
+    form_class = PayrollTaxBandForm
     template_name = "payroll/band_form.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if not getattr(request, "active_company", None):
+            return super().dispatch(request, *args, **kwargs)
         self.rule = get_object_or_404(
             StatutoryRule, pk=kwargs["rule_pk"], company=request.active_company)
+        if self.rule.is_settled:
+            return settled_table_refusal(request, self.rule)
         return super().dispatch(request, *args, **kwargs)
 
     def get_form(self, form_class=None):
@@ -584,6 +631,8 @@ def band_delete(request, pk):
     band = get_object_or_404(
         PayrollTaxBand, rule__company=request.active_company, pk=pk)
     rule = band.rule
+    if rule.is_settled:
+        return settled_table_refusal(request, rule)
     band.delete()
     messages.success(request, f"Band removed from {rule.code}.")
     return redirect("payroll:rule_detail", pk=rule.pk)
