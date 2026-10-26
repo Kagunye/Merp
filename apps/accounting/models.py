@@ -265,13 +265,12 @@ class JournalEntry(BaseModel, NotesMixin):
                 "This entry adds up to nothing, so there is nothing to post. Enter the "
                 "amounts it should move, or cancel the draft.")
         period = self.period if self.period_id else period_for(self.company, self.posting_date)
-        if period is None:
-            # A date the calendar does not cover belongs to no year, so no close
-            # would ever sweep it and no report bounded by a year would show it.
-            raise ValidationError(
-                f"No fiscal year covers {self.posting_date:%d %b %Y}. Create that year "
-                "under Accounting → Fiscal Years before posting into it, or check the date.")
-        if period.status == "LOCKED" or period.fiscal_year.is_closed:
+        # A date no fiscal year covers is still posted, with the calendar warning
+        # the caller shows: refusing it would stop every invoice, till and payroll
+        # in a book whose bookkeeper has not yet opened this year. The year close
+        # sweeps it once the year is created around it.
+        if period is not None and (
+                period.status == "LOCKED" or period.fiscal_year.is_closed):
             # A closed year has been swept into retained earnings. Anything
             # posted into it now would sit in the profit and loss accounts of
             # a year whose result has already been carried forward.

@@ -362,11 +362,10 @@ class Command(BaseCommand):
         if self.expect("a journal for a year with no calendar can be drafted", entry is not None):
             resp = client.post(reverse("accounting:journal_entry_post", args=[entry.pk]), {})
             entry.refresh_from_db()
-            self.expect("but posting into a date no fiscal year covers is refused",
-                        entry.status == "DRAFT", entry.status)
-            self.expect("and says to create the year first",
-                        self.said(client, resp, "No fiscal year covers"),
-                        str(self.heard[-2:]))
+            # Refusing it would stop every posting in a book whose bookkeeper
+            # has not opened the year yet; it posts, with the calendar warning.
+            self.expect("a date no fiscal year covers still posts, with a warning",
+                        entry.status == "POSTED" and entry.period_id is None, entry.status)
 
     # ─────────────────────────────── 3. closes ───────────────────────────────
 
@@ -638,8 +637,6 @@ class Command(BaseCommand):
                                    f"cr_{cash}": "-100", f"cr_{capital}": "200"}),
             ("a debit and a credit on one line", {"posting_date": on, f"dr_{cash}": "50",
                                                   f"cr_{cash}": "50"}),
-            ("a date no fiscal year covers", {"posting_date": f"{self.year + 4}-01-01",
-                                              f"dr_{bank}": "1", f"cr_{capital}": "1"}),
         ):
             before = count()
             resp = client.post(url, data)

@@ -3426,10 +3426,14 @@ class Command(BaseCommand):
         self.expect("an unpriced money is reported, not quietly dropped",
                     position["missing"] == ["EUR"], str(position["missing"]))
         rows = {row["code"]: row for row in position["rows"]}
+        # What was owed is read as at the day: the receipt and the supplier
+        # payment section 15 dated ahead have not happened yet, so INV-USD-2
+        # and BILL-USD-1 still count as owed today.
         self.expect("a balance raised at the reported day's rate needs no move",
-                    rows["USD"]["ar_foreign"] == D("100.00")
-                    and rows["USD"]["ar_carried"] == D("13500.00")
-                    and rows["USD"]["ar_revalued"] == D("13500.00")
+                    rows["USD"]["ar_foreign"] == D("300.00")
+                    and rows["USD"]["ar_carried"] == D("40500.00")
+                    and rows["USD"]["ar_revalued"] == D("40500.00")
+                    and rows["USD"]["ap_foreign"] == D("150.00")
                     and rows["USD"]["ar_difference"] == Z
                     and rows["USD"]["ap_difference"] == Z,
                     f"USD row {rows['USD']}")
