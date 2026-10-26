@@ -15,9 +15,11 @@ from django.utils.decorators import method_decorator
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView, View
 
 from apps.accounting.currency import book_currency, stamp_document
+from apps.core import access
 from apps.core.mixins import CompanyRequiredMixin
 from apps.core.models import SequenceCounter
 
+from . import receivables, tokens
 from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
 from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, cents
 
@@ -51,6 +53,35 @@ def _typed_number(raw, label, limit=QUANTITY_LIMIT):
 def _qty(value):
     """12.0000 written as 12 in a message."""
     return format(Decimal(str(value)), "f").rstrip("0").rstrip(".") or "0"
+
+
+def _money(value):
+    """A sum of money as a message prints it: to the cent, 156360.75.
+
+    A Decimal worked out in memory carries every place its arithmetic
+    produced ("156360.75000000000000000"); the person reading the message
+    was billed, and will pay, to the cent.
+    """
+    return f"{cents(value)}"
+
+
+def _first_message(exc):
+    """The sentence a ValidationError (or any failure) has for the reader."""
+    if isinstance(exc, ValidationError):
+        return exc.messages[0] if exc.messages else str(exc)
+    return str(exc)
+
+
+def _may_post_invoices(request):
+    """Whether this person may put an invoice in the ledger themselves.
+
+    Posting is finance's step (the access table's `invoice_post` rule): the
+    person who agrees a sale with the customer is not the person who books it
+    as revenue. Creating an invoice therefore only posts it when the creator
+    could also have pressed Post; everyone else leaves a draft for finance.
+    """
+    return access.can(request.user, getattr(request, "company_role", None),
+                      "sales", "invoice_post", "POST")
 
 
 def _editable(invoice):
@@ -141,42 +172,77 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         form_kwargs = {"company": self.request.active_company}
-        if self.request.POST:
+        if "line_formset" in kwargs:
+            ctx["line_formset"] = kwargs["line_formset"]
+        elif self.request.POST:
             ctx["line_formset"] = InvoiceLineFormSet(
                 self.request.POST, prefix="lines", form_kwargs=form_kwargs
             )
         else:
             ctx["line_formset"] = InvoiceLineFormSet(prefix="lines", form_kwargs=form_kwargs)
         ctx["page_title"] = "New Invoice"
+        # A fresh ticket every time the form is drawn, including when it comes
+        # back with errors: the ticket the failed post carried was never spent.
+        ctx["form_token"] = tokens.issue(self.request, "invoice_create")
+        ctx["may_post"] = _may_post_invoices(self.request)
         return ctx
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         company = self.request.active_company
-        from apps.core.models import SequenceCounter
+        form_kwargs = {"company": company}
+        formset = InvoiceLineFormSet(self.request.POST, prefix="lines", form_kwargs=form_kwargs)
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        if not tokens.spend(self.request, "invoice_create"):
+            messages.warning(self.request, tokens.ALREADY_SENT)
+            return redirect("sales:invoice_list")
         if not form.instance.reference:
             form.instance.reference = SequenceCounter.next_number(company, "INV-")
-        ctx = self.get_context_data(form=form)
-        formset = ctx["line_formset"]
-        if formset.is_valid():
-            with transaction.atomic():
-                self.object = form.save()
-                formset.instance = self.object
-                formset.save()
-                _recalculate_invoice_totals(self.object)
-                # Reload so totals are fresh
-                self.object.refresh_from_db()
-                # Post to GL
-                posted = self._post_to_gl(self.object)
-            if posted:
-                messages.success(self.request, f"Invoice '{self.object.reference}' created and posted to the GL.")
-            else:
-                messages.info(
-                    self.request,
-                    f"Invoice '{self.object.reference}' is still DRAFT. Use Post to GL once the issue above is fixed.",
-                )
-            return redirect("sales:invoice_detail", pk=self.object.pk)
-        return self.render_to_response(ctx)
+        may_post = _may_post_invoices(self.request)
+        short = []
+        with transaction.atomic():
+            self.object = form.save()
+            formset.instance = self.object
+            formset.save()
+            _recalculate_invoice_totals(self.object)
+            # Reload so totals are fresh
+            self.object.refresh_from_db()
+            if may_post:
+                # Goods that are not on the shelf cannot be sold off it. Checked
+                # before anything is kept, so the form comes back with the
+                # shortage named rather than a draft nobody can post.
+                from apps.accounting.gl_service import stock_shortages
+                short = stock_shortages(self.object)
+                if short:
+                    transaction.set_rollback(True)
+                else:
+                    posted = self._post_to_gl(self.object)
+        if short:
+            # Drawn outside the rolled-back block, so the new form ticket the
+            # page carries is kept.
+            form.add_error(None, (
+                "Not enough stock to invoice: " + "; ".join(short) + ". Receive the "
+                "goods first, choose a warehouse that holds them, or raise a sales "
+                "order and deliver when the stock arrives."))
+            form.instance.pk = None
+            form.instance._state.adding = True
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        if not may_post:
+            messages.info(
+                self.request,
+                f"Invoice '{self.object.reference}' saved as a draft for "
+                f"{_money(self.object.total_amount)} {self.object.currency}. Posting it "
+                "to the ledger is a finance step: an accountant or finance manager "
+                "checks it and presses Post to GL.")
+        elif posted:
+            messages.success(self.request, f"Invoice '{self.object.reference}' created and posted to the GL.")
+        else:
+            messages.info(
+                self.request,
+                f"Invoice '{self.object.reference}' is still DRAFT. Use Post to GL once the issue above is fixed.",
+            )
+        return redirect("sales:invoice_detail", pk=self.object.pk)
 
     def _post_to_gl(self, invoice):
         """Post to GL, surfacing failures: a silent skip would leave an
@@ -188,7 +254,7 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         except Exception as exc:
             messages.error(
                 self.request,
-                f"Invoice '{invoice.reference}' saved, but GL posting failed: {exc}",
+                f"Invoice '{invoice.reference}' saved, but GL posting failed: {_first_message(exc)}",
             )
             return False
 
@@ -206,6 +272,9 @@ class InvoiceDetailView(LoginRequiredMixin, DetailView):
         ctx["page_title"] = f"Invoice: {self.object.reference}"
         ctx["lines"] = self.object.lines.select_related("product", "tax_rate")
         ctx["payments"] = self.object.allocations.select_related("payment")
+        ctx["credit_token"] = tokens.issue(self.request, "credit_note")
+        ctx["has_stock_lines"] = any(
+            line.product_id and line.product.track_inventory for line in ctx["lines"])
         return ctx
 
 
@@ -230,7 +299,7 @@ class InvoicePostView(LoginRequiredMixin, View):
                 post_invoice(invoice, user=request.user)
             messages.success(request, f"Invoice '{invoice.reference}' posted to GL.")
         except Exception as exc:
-            messages.error(request, f"GL posting failed: {exc}")
+            messages.error(request, f"GL posting failed: {_first_message(exc)}")
 
         return redirect("sales:invoice_detail", pk=pk)
 
@@ -260,6 +329,8 @@ class CustomerPaymentListView(LoginRequiredMixin, ListView):
             payment.settled_amount = sum(
                 (a.allocated_amount for a in rows), Decimal("0"))
             payment.unapplied = payment.amount - payment.settled_amount
+            payment.can_apply = (payment.status == "RECEIVED" and payment.journal_entry_id
+                                 and payment.unapplied > 0)
         return ctx
 
 
@@ -360,16 +431,24 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
                               "not owe — only the invoices listed above can be settled.")
             if amount > invoice.outstanding_amount:
                 return None, (f"{invoice.reference} is only owed "
-                              f"{invoice.outstanding_amount} — it cannot take {amount}.")
+                              f"{_money(invoice.outstanding_amount)} — it cannot take "
+                              f"{_money(amount)}.")
             if invoice.currency != cleaned.get("currency"):
                 return None, (f"{invoice.reference} is billed in {invoice.currency} and "
                               f"this receipt is in {cleaned.get('currency')}: the two "
                               "only add up once one of them is converted.")
+            paid_on = cleaned.get("payment_date")
+            if paid_on and paid_on < invoice.invoice_date:
+                return None, (f"{invoice.reference} is dated {invoice.invoice_date:%d %b %Y} "
+                              f"and this receipt {paid_on:%d %b %Y}: money cannot settle an "
+                              "invoice raised after it came in. Correct the date, or leave "
+                              "the money on account and apply it once the invoice exists.")
             total += amount
             pairs.append((invoice, amount))
         if total > cleaned["amount"]:
-            return None, (f"The papers add up to {total} but only {cleaned['amount']} "
-                          "was received — the rest would be a receipt for money nobody paid.")
+            return None, (f"The papers add up to {_money(total)} but only "
+                          f"{_money(cleaned['amount'])} was received — the rest would be a "
+                          "receipt for money nobody paid.")
         return pairs, None
 
     def form_valid(self, form):
@@ -378,6 +457,12 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         if error:
             form.add_error(None, error)
             return self.form_invalid(form)
+
+        if not tokens.spend(self.request, "payment_create"):
+            # The same form sent twice: with a blank number each copy would
+            # otherwise draw its own PAY- number and book the money twice.
+            messages.warning(self.request, tokens.ALREADY_SENT)
+            return redirect(self.success_url)
 
         form.instance.company = company
         if not form.instance.reference:
@@ -406,7 +491,7 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         except Exception as exc:
             messages.error(
                 self.request,
-                f"Payment '{payment.reference}' saved, but GL posting failed: {exc}",
+                f"Payment '{payment.reference}' saved, but GL posting failed: {_first_message(exc)}",
             )
             return False
 
@@ -417,6 +502,7 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         typed = (self.request.POST if self.request.method == "POST" else {})
         ctx["page_title"] = "Record Payment"
         ctx["book"] = book_currency(company) if company else ""
+        ctx["form_token"] = tokens.issue(self.request, "payment_create")
         ctx["chosen"] = customer
         ctx["allocation_rows"] = [
             {"invoice": inv, "value": typed.get(f"allocate_{inv.pk}", "")}
@@ -467,7 +553,13 @@ def payment_reverse(request, pk):
             if reason:
                 reversal.notes = f"Reversal of {original.reference} — {reason}"
                 reversal.save(update_fields=["notes", "updated_at"])
-            settled = payment.allocations.select_related("invoice")
+            settled = payment.allocations.select_related("invoice", "journal_entry")
+            # Credit applied after the receipt booked its own exchange entry;
+            # with the money gone, that difference never happened either.
+            applied = {a.journal_entry for a in settled if a.journal_entry_id}
+            for entry in applied:
+                if entry.status == "POSTED" and not entry.reversed_by_id:
+                    entry.reverse(user=request.user)
             for allocation in settled:
                 invoice = allocation.invoice
                 invoice.paid_amount = max(
@@ -490,6 +582,111 @@ def payment_reverse(request, pk):
     return redirect("sales:payment_list")
 
 
+class PaymentApplyView(LoginRequiredMixin, CompanyRequiredMixin, View):
+    """Apply money a customer already has on account to invoices they owe.
+
+    An over-payment, a deposit, a receipt nobody allocated: the money sits in
+    AR as a credit until somebody says which invoice it pays. This screen is
+    that somebody. It lists the customer's open invoices in the receipt's own
+    money and takes a figure against each, under the same rules as the receipt
+    form — same customer, same currency, no more than an invoice is owed, no
+    more in total than the receipt still has unapplied — plus one more: the
+    credit is applied on a date, and an invoice dated after it cannot be
+    settled by it. When the rate moved between receipt and invoice the realised
+    exchange is booked that day (gl_service.apply_customer_credit).
+    """
+    template_name = "sales/payment_apply.html"
+
+    def get_payment(self, request, pk):
+        return get_object_or_404(
+            CustomerPayment.objects.filter(company=request.active_company)
+            .select_related("customer"), pk=pk)
+
+    def open_invoices(self, payment):
+        return Invoice.objects.filter(
+            company=payment.company, customer=payment.customer,
+            currency__iexact=payment.currency,
+            status__in=CustomerPaymentCreateView.ON_ACCOUNT,
+            outstanding_amount__gt=Decimal("0"),
+        ).order_by("invoice_date", "reference")
+
+    def render_page(self, request, payment, typed=None, on_date=None, error=None):
+        typed = typed or {}
+        ctx = {
+            "page_title": f"Apply credit from {payment.reference}",
+            "payment": payment,
+            "unapplied": receivables.unapplied_amount(payment),
+            "rows": [{"invoice": inv, "value": typed.get(f"allocate_{inv.pk}", "")}
+                     for inv in self.open_invoices(payment)],
+            "on_date": on_date or datetime.date.today(),
+            "error": error,
+            "book": book_currency(payment.company),
+            "form_token": tokens.issue(request, "payment_apply"),
+        }
+        return render(request, self.template_name, ctx, status=200)
+
+    def get(self, request, pk):
+        payment = self.get_payment(request, pk)
+        if payment.status != "RECEIVED" or not payment.journal_entry_id:
+            messages.error(request, f"{payment.reference} is not a live posted receipt; "
+                           "it has no credit to apply.")
+            return redirect("sales:payment_list")
+        return self.render_page(request, payment)
+
+    def post(self, request, pk):
+        from apps.accounting.gl_service import apply_customer_credit
+        payment = self.get_payment(request, pk)
+        # Spent first: a copy of a form that already went through is turned
+        # away before its figures are even read. A post that is then refused
+        # for its figures comes back with a fresh ticket.
+        if not tokens.spend(request, "payment_apply"):
+            messages.warning(request, tokens.ALREADY_SENT)
+            return redirect("sales:payment_list")
+        raw_date = (request.POST.get("allocation_date") or "").strip()
+        try:
+            on_date = datetime.date.fromisoformat(raw_date) if raw_date else datetime.date.today()
+        except ValueError:
+            return self.render_page(request, payment, request.POST, None,
+                                    f"'{raw_date}' is not a date; use the date picker.")
+        wanted = {str(inv.pk): inv for inv in self.open_invoices(payment)}
+        pairs = []
+        for key, text in request.POST.items():
+            if not key.startswith("allocate_"):
+                continue
+            text = str(text).strip()
+            if not text:
+                continue
+            try:
+                amount = _typed_number(text, "Amount", MONEY_LIMIT)
+            except ValidationError:
+                return self.render_page(request, payment, request.POST, on_date,
+                                        f"'{text}' is not an amount.")
+            if amount != amount.quantize(Decimal("0.01")) or amount < 0:
+                return self.render_page(request, payment, request.POST, on_date,
+                                        f"{text} is not an amount of money to the cent.")
+            if amount == 0:
+                continue
+            invoice = wanted.get(key[len("allocate_"):])
+            if invoice is None:
+                return self.render_page(
+                    request, payment, request.POST, on_date,
+                    f"{_money(amount)} was typed against an invoice that is not one of "
+                    f"{payment.customer.name}'s open {payment.currency} invoices.")
+            pairs.append((invoice, amount))
+        try:
+            je, rows = apply_customer_credit(payment, pairs, on_date, user=request.user)
+        except ValidationError as exc:
+            return self.render_page(request, payment, request.POST, on_date,
+                                    _first_message(exc))
+        applied = sum((amount for _inv, amount, _b in rows), Decimal("0"))
+        messages.success(
+            request,
+            f"{_money(applied)} {payment.currency} of {payment.reference} applied to "
+            f"{', '.join(inv.reference for inv, _a, _b in rows)}."
+            + (f" Realised exchange booked in {je.reference}." if je else ""))
+        return redirect("sales:payment_list")
+
+
 class CustomerStatementView(LoginRequiredMixin, TemplateView):
     """Full AR statement for a single customer — opening balance,
     invoices, credit notes, payments, closing balance within a date range.
@@ -509,6 +706,7 @@ class CustomerStatementView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         from decimal import Decimal
         from apps.accounting.currency import book_currency, book_value
+        from apps.accounting.models import to_base
         from apps.crm.models import Customer
         from .models import CustomerPayment, Invoice
         ctx = super().get_context_data(**kwargs)
@@ -580,7 +778,22 @@ class CustomerStatementView(LoginRequiredMixin, TemplateView):
                 reverse("sales:invoice_detail", args=[invoice.pk]))
 
         def payment_base(payment):
-            return book_value(payment, "amount", "amount_base")
+            """What the receipt took off the customer's account, in the book.
+
+            Not the cash at the bank's rate: the slices that settled invoices
+            cleared them at the rate each invoice was raised at, and only the
+            money still on account stands at the receipt's own rate. The gap
+            between the bank figure and this is the realised exchange gain or
+            loss — the company's, booked to 4310 / 7300, never something the
+            customer owes or is owed. Counting it here left a fully paid
+            customer's statement closing at -175.00 for a USD 100 invoice raised
+            at 129.50 and paid at 131.25.
+            """
+            settled = Decimal("0")
+            for allocation in payment.allocations.select_related("invoice"):
+                settled += (allocation.base_amount
+                            or to_base(allocation.allocated_amount, allocation.invoice.rate))
+            return settled + receivables.unapplied_base(payment)
 
         window = [invoice_row(i) for i in
                   in_window(invoices(), "invoice_date")]
@@ -617,6 +830,11 @@ class CustomerStatementView(LoginRequiredMixin, TemplateView):
         ctx["opening_balance"] = opening
         ctx["closing_balance"] = running
         ctx["still_owed"] = still_owed
+        # Money on account, so the reader can see why the balance is below what
+        # the open invoices add up to.
+        ctx["on_account_rows"] = receivables.unapplied_receipts(
+            company, customer=customer, currency=currency or None)
+        ctx["on_account"] = sum((r["base"] for r in ctx["on_account_rows"]), Decimal("0"))
         seen = {r["currency"] for r in window}
         ctx["currencies"] = sorted(
             seen | set(Invoice.objects.filter(customer=customer)
@@ -662,10 +880,18 @@ class ARAgingView(LoginRequiredMixin, TemplateView):
                 per[key] += out
                 per["total"] += out
                 buckets[key] += out
-            if per["total"] > 0:
+            # Money the customer paid that no invoice has taken yet is still
+            # in AR as a credit. It is not aged — it is not owed by anybody —
+            # but it is shown beside the invoices so the net agrees with 1300.
+            per["unapplied"] = receivables.unapplied_total(company, customer=cust)
+            per["net"] = per["total"] - per["unapplied"]
+            if per["total"] > 0 or per["unapplied"] > 0:
                 rows.append(per)
         ctx["rows"] = rows
         ctx["buckets"] = buckets
+        ctx["invoice_total"] = sum(buckets.values(), Decimal(0))
+        ctx["unapplied_total"] = sum((r["unapplied"] for r in rows), Decimal(0))
+        ctx["net_total"] = ctx["invoice_total"] - ctx["unapplied_total"]
         ctx["book"] = (company.currency or "").upper()
         return ctx
 
@@ -721,7 +947,8 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
             self.object.calculate_totals()
         messages.success(
             self.request,
-            f"Sales order '{self.object.reference}' created — total {self.object.total_amount}.",
+            f"Sales order '{self.object.reference}' created — total "
+            f"{_money(self.object.total_amount)} {self.object.currency}.",
         )
         return redirect(self.get_success_url())
 
@@ -744,6 +971,7 @@ class SalesOrderDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["invoices"] = self.object.invoices.select_related("customer")
+        ctx["can_cancel"] = _order_cancel_refusal(self.object) is None
         return ctx
 
 
@@ -787,6 +1015,11 @@ class SalesIndexView(LoginRequiredMixin, TemplateView):
                                     outstanding_amount__gt=Decimal(0))
         ctx["total_outstanding"] = sum(
             (i.outstanding_base for i in open_invoices), Decimal(0))
+        # The open invoices are only half of AR: money paid in and not yet
+        # matched to an invoice sits there as a credit. Net of it, the figure
+        # is what the receivables control account says.
+        ctx["unapplied_credit"] = receivables.unapplied_total(company)
+        ctx["net_receivable"] = ctx["total_outstanding"] - ctx["unapplied_credit"]
         ctx["total_overdue"] = sum(
             (i.outstanding_base for i in open_invoices if i.due_date < today),
             Decimal(0))
@@ -906,8 +1139,8 @@ def invoice_cancel(request, pk):
     if inv.paid_amount > 0 or inv.credited_amount > 0:
         messages.error(
             request,
-            f"Cannot cancel {inv.reference}: {inv.paid_amount} paid and "
-            f"{inv.credited_amount} credited against it. Reverse the payment or "
+            f"Cannot cancel {inv.reference}: {_money(inv.paid_amount)} paid and "
+            f"{_money(inv.credited_amount)} credited against it. Reverse the payment or "
             "issue a credit note for the part that is wrong.",
         )
         return redirect("sales:invoice_detail", pk=pk)
@@ -950,6 +1183,55 @@ def order_confirm(request, pk):
         order.status = "CONFIRMED"
         order.save(update_fields=["status", "updated_at"])
         messages.success(request, f"Order {order.reference} confirmed.")
+    return redirect("sales:order_detail", pk=pk)
+
+
+def _order_cancel_refusal(order):
+    """Why this order can no longer be called off, or None when it can.
+
+    An order is only a promise while nothing has come of it. Goods that left
+    the warehouse are a sale, answered by a return; an invoice that is still
+    live is a receivable, answered by cancelling or crediting it first. A
+    cancelled draft invoice is no obstacle — it bills nothing.
+    """
+    if order.status == "CANCELLED":
+        return f"Order {order.reference} is already cancelled."
+    if any((line.delivered_quantity or Decimal("0")) > 0 for line in order.lines.all()):
+        return (f"Order {order.reference} cannot be cancelled: goods have already been "
+                "delivered against it. Take the goods back as a return instead.")
+    live = order.invoices.exclude(status="CANCELLED").exclude(
+        original_invoice__isnull=False).values_list("reference", flat=True)
+    if live:
+        return (f"Order {order.reference} cannot be cancelled: it has been invoiced "
+                f"({', '.join(live)}). Cancel or credit those invoices first.")
+    return None
+
+
+@login_required
+@require_POST
+def order_cancel(request, pk):
+    """Call off an order nothing has come of yet.
+
+    The order stays in the book as CANCELLED — a promise that was withdrawn is
+    still a fact about the customer — and from then on it can be neither
+    confirmed, delivered nor invoiced.
+    """
+    with transaction.atomic():
+        order = get_object_or_404(
+            SalesOrder.objects.select_for_update().filter(company=request.active_company), pk=pk)
+        refusal = _order_cancel_refusal(order)
+        if refusal:
+            messages.error(request, refusal)
+            return redirect("sales:order_detail", pk=pk)
+        order.status = "CANCELLED"
+        reason = (request.POST.get("reason") or "").strip()
+        if reason:
+            order.notes = ((order.notes or "") + f"\nCancelled: {reason}").strip()
+            order.save(update_fields=["status", "notes", "updated_at"])
+        else:
+            order.save(update_fields=["status", "updated_at"])
+    messages.success(
+        request, f"Order {order.reference} cancelled. It can no longer be delivered or invoiced.")
     return redirect("sales:order_detail", pk=pk)
 
 
@@ -1113,17 +1395,19 @@ def order_to_invoice(request, pk):
             company=order.company, customer=order.customer, sales_order=order,
             reference=SequenceCounter.next_number(order.company, "INV-"),
             invoice_date=today, due_date=today + datetime.timedelta(days=30),
-            currency=order.currency, exchange_rate=order.exchange_rate,
+            currency=order.currency, exchange_rate=None,
             status="DRAFT", notes=f"Raised from order {order.reference}",
         )
-        if invoice.currency != book_currency(order.company):
-            # Carry the order's rate forward; if the order never had one, book
-            # today's, so the invoice is never a document of unknown value.
-            try:
-                stamp_document(invoice, today)
-            except ValidationError as exc:
-                messages.error(request, exc.messages[0])
-                return redirect("sales:order_detail", pk=pk)
+        # The invoice is worth its own day's rate. The order's rate was only
+        # ever an estimate of the sale; the receivable comes into being on the
+        # invoice date, and a USD order taken on 2 Oct and billed on 26 Oct is a
+        # 26 Oct receivable. The gap is ordinary exchange movement between
+        # promise and bill, not something the invoice should hide.
+        try:
+            stamp_document(invoice, today)
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+            return redirect("sales:order_detail", pk=pk)
         invoice.save()
         for line, qty in outstanding:
             InvoiceLine.objects.create(
@@ -1171,9 +1455,20 @@ def invoice_credit_note(request, pk):
             f"{original.reference} has not been posted to the GL, so there is "
             "nothing to credit. Edit or cancel the draft instead.")
         return redirect("sales:invoice_detail", pk=pk)
-    if original.status in ("CANCELLED", "CREDIT_NOTE"):
-        messages.error(request, f"Cannot credit a {original.get_status_display().lower()}.")
+    if original.status == "CANCELLED":
+        messages.error(
+            request, f"Cannot credit {original.reference}: it is a cancelled invoice, "
+            "and its offsetting entry has already taken it out of the ledger.")
         return redirect("sales:invoice_detail", pk=pk)
+    if original.status == "CREDIT_NOTE":
+        messages.error(
+            request, f"Cannot credit {original.reference}: it is itself a credit note. "
+            "Credit the invoice it answers instead.")
+        return redirect("sales:invoice_detail", pk=pk)
+
+    # Did the goods physically come back, or is this a price correction only?
+    goods_returned = (request.POST.get("goods_returned") or "").lower() in (
+        "1", "on", "true", "yes")
 
     typed = {}
     for line in original.lines.all():
@@ -1199,6 +1494,12 @@ def invoice_credit_note(request, pk):
         # Locked, then read again: a second submit of the same form waits here
         # and then sees the first note's quantities as already credited.
         original = Invoice.objects.select_for_update().select_related("customer").get(pk=original.pk)
+        # The lock stops over-crediting, but "2 of 5" sent twice is two valid
+        # notes for one return. Only the form's ticket tells them apart; spent
+        # inside the block, so a note that is then refused gives it back.
+        if not tokens.spend(request, "credit_note"):
+            messages.warning(request, tokens.ALREADY_SENT)
+            return redirect("sales:invoice_detail", pk=pk)
         if not original.journal_entry_id or original.status in ("CANCELLED", "CREDIT_NOTE"):
             messages.error(
                 request, f"{original.reference} is {original.get_status_display()}: "
@@ -1228,7 +1529,7 @@ def invoice_credit_note(request, pk):
             reference=SequenceCounter.next_number(original.company, "CN-"),
             invoice_date=today, due_date=today,
             currency=original.currency, exchange_rate=original.exchange_rate,
-            status="CREDIT_NOTE",
+            status="CREDIT_NOTE", goods_returned=goods_returned,
             notes=request.POST.get("reason", "").strip() or f"Credit note against {original.reference}",
         )
         note.save()
@@ -1248,8 +1549,8 @@ def invoice_credit_note(request, pk):
             transaction.set_rollback(True)
             messages.error(
                 request,
-                f"Credit ({note.total_amount} {note.currency}) is more than "
-                f"{original.reference} still owes ({original.outstanding_amount} "
+                f"Credit ({_money(note.total_amount)} {note.currency}) is more than "
+                f"{original.reference} still owes ({_money(original.outstanding_amount)} "
                 f"{original.currency}). Refund the payment instead.")
             return redirect("sales:invoice_detail", pk=pk)
 
@@ -1258,7 +1559,7 @@ def invoice_credit_note(request, pk):
             post_credit_note(note, user=request.user)
         except Exception as exc:
             transaction.set_rollback(True)
-            messages.error(request, f"Credit note could not be posted: {exc}")
+            messages.error(request, f"Credit note could not be posted: {_first_message(exc)}")
             return redirect("sales:invoice_detail", pk=pk)
 
         # The note settles the invoice it answers, and says so on both sides:
@@ -1270,8 +1571,10 @@ def invoice_credit_note(request, pk):
 
     messages.success(
         request,
-        f"Credit note {note.reference} for {note.total_amount} {note.currency} posted "
-        f"against {original.reference}.")
+        f"Credit note {note.reference} for {_money(note.total_amount)} {note.currency} posted "
+        f"against {original.reference}."
+        + (" The returned goods are back in stock at their original cost."
+           if goods_returned else ""))
     return redirect("sales:invoice_detail", pk=original.pk)
 
 

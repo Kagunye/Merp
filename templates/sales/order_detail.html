@@ -27,6 +27,13 @@
       <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Convert to Invoice</button>
     </form>
     {% endif %}
+    {% if can_cancel %}
+    <form method="post" action="{% url 'sales:order_cancel' order.pk %}"
+          onsubmit="return confirm('Cancel this order? It stays on file as cancelled and can no longer be delivered or invoiced.');">
+      {% csrf_token %}
+      <button type="submit" class="px-3 py-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100">Cancel Order</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 

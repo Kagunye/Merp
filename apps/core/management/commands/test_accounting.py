@@ -141,11 +141,19 @@ RECOMMENDED = [
 ]
 
 # Expected (debit, credit) totals per account over all posted lines in this run.
+#
+# Changed with the sales fix that issues stock on a direct invoice: INV-SMOKE-1
+# sells 5 tracked widgets straight off an invoice (no order), and a direct
+# invoice is now also the issue note. Those 5 units leave the shelf at their
+# average cost of 50.00, so 250.00 more is charged Dr 5000 / Cr 1400 in one
+# extra entry: 1400 credit 500 -> 750, 5000 debit 500 -> 750, the control
+# total 113,020.00 -> 113,270.00, and 8 entries -> 9. Before the fix the
+# invoice booked the revenue and left the cost and the stock where they were.
 EXPECTED = {
     "1100": ("20000.00", "3820.00"),
     "1200": ("80500.00", "0.00"),
     "1300": ("880.00", "500.00"),
-    "1400": ("7000.00", "500.00"),
+    "1400": ("7000.00", "750.00"),
     "2100": ("2320.00", "2320.00"),
     "2110": ("0.00", "5000.00"),
     "2200": ("0.00", "80.00"),
@@ -153,11 +161,11 @@ EXPECTED = {
     "3100": ("0.00", "100000.00"),
     "4100": ("0.00", "300.00"),
     "4200": ("0.00", "500.00"),
-    "5000": ("500.00", "0.00"),
+    "5000": ("750.00", "0.00"),
     "6000": ("300.00", "0.00"),
     "6400": ("1200.00", "0.00"),
 }
-EXPECTED_TOTAL = D("113020.00")
+EXPECTED_TOTAL = D("113270.00")
 
 # What a browser submits for an untouched extra row: the rendered defaults make the
 # row unchanged, which is how Django decides to skip it (empty_permitted).
@@ -1272,7 +1280,9 @@ class Command(BaseCommand):
         from apps.accounting.models import JournalEntry
 
         entries = list(JournalEntry.objects.filter(company=self.company).prefetch_related("lines"))
-        self.expect("one journal entry per posting", len(entries) == 8, f"{len(entries)} entries")
+        # 9, not 8: the direct invoice of stocked widgets now issues them, which
+        # is its own cost-of-sales entry (see EXPECTED above).
+        self.expect("one journal entry per posting", len(entries) == 9, f"{len(entries)} entries")
         drafts = [e.reference for e in entries if e.status != "POSTED"]
         self.expect("every entry is POSTED", not drafts, f"draft: {drafts}")
 

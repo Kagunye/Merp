@@ -182,10 +182,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             # Added in the book's money: the papers may be in several currencies,
             # and the receivable is what the ledger carries, not the sum of the
             # figures printed on them.
-            accounts_receivable = sum(
-                (i.outstanding_base for i in Invoice.objects.filter(
-                    company=company, status__in=["SENT", "PARTIAL", "OVERDUE"],
-                    outstanding_amount__gt=Decimal("0"))), Decimal("0"))
+            # Net of money customers paid that no invoice has taken yet: that
+            # cash sits in AR as a credit, so the open invoices alone overstate
+            # the receivable the ledger carries (AR 1300) by exactly that much.
+            from apps.sales.receivables import net_receivable
+            accounts_receivable = net_receivable(company)
             accounts_payable = sum(
                 (b.outstanding_base for b in Bill.objects.filter(
                     company=company, status__in=["RECEIVED", "PARTIAL", "OVERDUE"],
@@ -362,20 +363,25 @@ def sales_chart_widget(request):
             next_m = (m.replace(day=28) + timedelta(days=4)).replace(day=1)
             try:
                 from apps.accounting.models import JournalEntryLine, Account
-                rev = JournalEntryLine.objects.filter(
+                # Netted the way the P&L nets them. Revenue is credits less
+                # debits: a credit note or a cancelled invoice's reversal debits
+                # revenue, and counting only the credits charted the sale but
+                # never the money given back (October read 255,942.17 against a
+                # P&L of 251,692.17). Expenses are debits less credits for the
+                # same reason, and year-end closing entries are left out — they
+                # empty the accounts, they are not trading.
+                month_lines = JournalEntryLine.objects.filter(
                     account__company=company,
-                    account__account_type="REVENUE",
                     journal_entry__posting_date__gte=m,
                     journal_entry__posting_date__lt=next_m,
                     journal_entry__status="POSTED",
-                ).aggregate(total=Sum("credit_amount"))["total"] or 0
-                exp = JournalEntryLine.objects.filter(
-                    account__company=company,
-                    account__account_type="EXPENSE",
-                    journal_entry__posting_date__gte=m,
-                    journal_entry__posting_date__lt=next_m,
-                    journal_entry__status="POSTED",
-                ).aggregate(total=Sum("debit_amount"))["total"] or 0
+                ).exclude(journal_entry__entry_type="CLOSING")
+                r = month_lines.filter(account__account_type="REVENUE").aggregate(
+                    dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+                rev = (r["cr"] or 0) - (r["dr"] or 0)
+                e = month_lines.filter(account__account_type="EXPENSE").aggregate(
+                    dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+                exp = (e["dr"] or 0) - (e["cr"] or 0)
             except Exception:
                 rev, exp = 0, 0
             revenue_data.append(float(rev))

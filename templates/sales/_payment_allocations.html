@@ -3,6 +3,7 @@
 
   Context: allocation_rows ([{invoice, value}]), chosen (Customer or None), payers
 {% endcomment %}
+{% if form_token %}<input type="hidden" name="form_token" value="{{ form_token }}">{% endif %}
 <div class="pa-block">
   <div class="pa-head">
     <span class="pa-title">Settle against</span>

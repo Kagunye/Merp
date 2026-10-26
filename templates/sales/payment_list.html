@@ -58,6 +58,7 @@
               <div class="text-xs text-gray-400">on account</div>
             {% endif %}
             {% if p.unapplied > 0 %}<div class="text-xs text-sky-600">{{ p.unapplied|floatformat:2 }} unapplied</div>{% endif %}
+            {% if p.can_apply %}<a href="{% url 'sales:payment_apply' p.pk %}" class="text-xs font-medium hover:underline" style="color: var(--primary);">Apply credit</a>{% endif %}
           </td>
           <td class="px-4 py-3 align-top">
             {% if p.status == 'REVERSED' %}

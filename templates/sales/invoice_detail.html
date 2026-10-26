@@ -194,6 +194,7 @@
   {% if invoice.journal_entry_id and invoice.outstanding_amount > 0 and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
   <form method="post" action="{% url 'sales:invoice_credit_note' invoice.pk %}" class="no-print bg-white rounded-xl border border-gray-200 overflow-hidden">
     {% csrf_token %}
+    <input type="hidden" name="form_token" value="{{ credit_token }}">
     <div class="px-4 py-3 border-b border-gray-100">
       <h3 class="font-semibold text-gray-800 text-sm">Issue a credit note</h3>
       <p class="text-xs text-gray-500 mt-1">Enter the quantity of each line being returned or corrected. A new document is raised with its own offsetting journal entry — this invoice and its entry stay exactly as they are.</p>
@@ -221,6 +222,13 @@
         Reason (goes on the credit note)
         <input type="text" name="reason" maxlength="500" class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="Goods returned / overcharged / price agreed down">
       </label>
+      {% if has_stock_lines %}
+      <label class="text-xs text-gray-600 flex items-center gap-2">
+        <input type="checkbox" name="goods_returned" value="1" class="rounded border-gray-300">
+        Goods returned to stock
+        <span class="text-gray-400">(tick when the units came back; leave clear for a price-only credit)</span>
+      </label>
+      {% endif %}
       <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Credit Note</button>
     </div>
     <p class="px-4 pb-3 text-xs text-gray-500">At most {{ invoice.outstanding_amount }} {{ invoice.currency }} can be credited — what is still owed on this invoice. Money already paid is settled by a refund, not by a credit note.</p>

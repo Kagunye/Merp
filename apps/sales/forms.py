@@ -74,7 +74,8 @@ def _reference_taken(model, company, reference, exclude_pk=None):
 class InvoiceForm(forms.ModelForm):
     class Meta:
         model = Invoice
-        fields = ["reference", "customer", "invoice_date", "due_date", "currency", "notes"]
+        fields = ["reference", "customer", "invoice_date", "due_date", "currency",
+                  "warehouse", "notes"]
         widgets = {
             "invoice_date": date_input(),
             "due_date": date_input(),
@@ -85,9 +86,16 @@ class InvoiceForm(forms.ModelForm):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
         self.company = company
+        self.fields["warehouse"].required = False
+        # Left blank, the next INV- number is drawn when the invoice is saved —
+        # the form says so in its placeholder.
+        self.fields["reference"].required = False
         if company:
             from apps.crm.models import Customer
+            from apps.organizations.models import Warehouse
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
+            self.fields["warehouse"].queryset = Warehouse.objects.filter(company=company).order_by("name")
+            self.fields["warehouse"].empty_label = "— Company default warehouse"
             pick_currency(self, company)
         if is_new(self):
             self.fields["invoice_date"].initial = datetime.date.today()
@@ -105,6 +113,24 @@ class InvoiceForm(forms.ModelForm):
                 f"Invoice number {reference} is already used in this company. "
                 "Leave the number to the system or pick one that is not taken.")
         return reference
+
+    def clean(self):
+        """An invoice cannot fall due before it was raised.
+
+        A due date ahead of the invoice date makes the paper overdue the day it
+        is written, so it would land in the ageing's late columns and draw a
+        reminder before the customer has even received it — almost always a
+        mistyped year or month.
+        """
+        cleaned = super().clean()
+        raised, due = cleaned.get("invoice_date"), cleaned.get("due_date")
+        if raised and due and due < raised:
+            self.add_error(
+                "due_date",
+                f"The due date ({due:%d %b %Y}) is before the invoice date "
+                f"({raised:%d %b %Y}). An invoice falls due on or after the day it "
+                "is raised — check the year and month.")
+        return cleaned
 
 
 class InvoiceLineForm(LineFiguresMixin, forms.ModelForm):
@@ -155,6 +181,11 @@ class CustomerPaymentForm(forms.ModelForm):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
         self.company = company
+        # Left blank, the next PAY- number is drawn when the receipt is saved.
+        # That is also why a double-submitted blank form needs its one-time
+        # ticket: each copy would otherwise draw a number of its own.
+        self.fields["reference"].required = False
+        self.fields["reference"].help_text = "Leave blank to use the next receipt number."
         if company:
             from apps.crm.models import Customer
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)

@@ -285,6 +285,12 @@ def post_invoice(invoice, user=None) -> JournalEntry:
 
     je.post(user=user)
 
+    # A direct invoice for stocked goods is also the issue note: nothing else
+    # will ever take those units off the shelf or charge what they cost. An
+    # invoice raised from an order issues nothing — the order's delivery did
+    # that already, and doing it again would sell the same goods twice.
+    issue_invoice_stock(invoice, user=user)
+
     # Link back to the invoice and mark it as SENT
     from apps.sales.models import Invoice as _Invoice
     _Invoice.objects.filter(pk=invoice.pk).update(
@@ -294,6 +300,162 @@ def post_invoice(invoice, user=None) -> JournalEntry:
     invoice.journal_entry = je
     invoice.status = "SENT"
     return je
+
+
+# ───────────────────────── Stock on sales documents ──────────────────────────
+
+def _issue_warehouse(invoice):
+    """The shelf a direct invoice's goods leave from: the one chosen on the
+    invoice, else the company's default, else its first warehouse by name."""
+    from apps.organizations.models import Warehouse
+    if invoice.warehouse_id:
+        return invoice.warehouse
+    warehouses = Warehouse.objects.filter(company=invoice.company)
+    return warehouses.filter(is_default=True).first() or warehouses.order_by("name").first()
+
+
+def _stocked_lines(document):
+    return [line for line in document.lines.select_related("product")
+            if line.product_id and line.product.track_inventory]
+
+
+def stock_shortages(invoice, warehouse=None):
+    """What a direct invoice wants off the shelf that the shelf does not hold.
+
+    Returned as a list of sentences, empty when everything is there. Read
+    before posting so the person invoicing is told plainly which product is
+    short and by how much, instead of meeting a half-posted invoice.
+    """
+    from apps.inventory.models import StockLevel
+    if invoice.sales_order_id or invoice.original_invoice_id:
+        return []
+    lines = _stocked_lines(invoice)
+    if not lines:
+        return []
+    warehouse = warehouse or _issue_warehouse(invoice)
+    if warehouse is None:
+        return ["this company has no warehouse to issue the goods from — set one "
+                "up under Inventory before invoicing stocked products"]
+    wanted = {}
+    for line in lines:
+        product, qty = wanted.get(line.product_id, (line.product, Decimal("0")))
+        wanted[line.product_id] = (product, qty + (line.quantity or Decimal("0")))
+    short = []
+    for product, qty in wanted.values():
+        if product.allow_negative_stock:
+            continue
+        level = StockLevel.objects.filter(product=product, warehouse=warehouse).first()
+        have = level.quantity if level else Decimal("0")
+        if have < qty:
+            short.append(
+                f"{product.name}: {_qty_text(qty)} invoiced but only {_qty_text(have)} "
+                f"in {warehouse.name}")
+    return short
+
+
+def issue_invoice_stock(invoice, user=None):
+    """Take a direct invoice's stocked goods off the shelf, at average cost.
+
+    One DELIVERY movement per stocked line, dated with the invoice and carrying
+    its number. Each movement prices itself at the shelf's moving average and
+    books Dr Cost of Goods Sold / Cr Inventory (post_stock_delivery), which is
+    exactly what an order's delivery books — so a sale costs the same whether
+    it went through an order or straight onto an invoice.
+
+    Nothing is issued for an invoice raised from an order (its delivery
+    issues the goods), for a credit note, or twice for the same invoice. Short
+    stock is refused with a ValidationError naming what is missing, and the
+    posting it is part of rolls back with it.
+    """
+    from apps.inventory.models import StockMovement
+    if invoice.sales_order_id or invoice.original_invoice_id:
+        return []
+    lines = _stocked_lines(invoice)
+    if not lines:
+        return []
+    if StockMovement.objects.filter(
+            product__company=invoice.company, movement_type="DELIVERY",
+            sales_order__isnull=True, reference=invoice.reference).exists():
+        return []
+    warehouse = _issue_warehouse(invoice)
+    short = stock_shortages(invoice, warehouse)
+    if short:
+        raise ValidationError(
+            f"Not enough stock to invoice {invoice.reference}: " + "; ".join(short)
+            + ". Receive the goods first, choose a warehouse that holds them, or "
+            "raise a sales order and deliver when the stock arrives.")
+    movements = []
+    for line in lines:
+        movements.append(StockMovement.objects.create(
+            product=line.product, warehouse=warehouse, movement_type="DELIVERY",
+            quantity=line.quantity, movement_date=invoice.invoice_date,
+            reference=invoice.reference, performed_by=user,
+            notes=f"Issued on invoice {invoice.reference}",
+        ))
+    return movements
+
+
+def _issues_for(invoice, product):
+    """The movements that took this invoice's goods of `product` off the shelf.
+
+    Goods on an order's invoice left with the order's deliveries; goods on a
+    direct invoice left on the invoice's own issue, which carries its number.
+    """
+    from apps.inventory.models import StockMovement
+    qs = StockMovement.objects.filter(movement_type="DELIVERY", product=product)
+    if invoice.sales_order_id:
+        return qs.filter(sales_order_id=invoice.sales_order_id)
+    return qs.filter(sales_order__isnull=True, reference=invoice.reference,
+                     product__company=invoice.company)
+
+
+def return_credit_note_stock(note, user=None):
+    """Put the goods a credit note takes back onto the shelf they left.
+
+    Each stocked line comes back as a RETURN_IN movement priced at the average
+    cost of the issues that sent those goods out — not at today's shelf
+    average, which may have moved since. post_stock_receipt then books
+    Dr Inventory / Cr Cost of Goods Sold for that value, reversing the cost
+    charged at the sale.
+
+    Refused (ValidationError) when the goods never left the shelf against the
+    invoice — an order invoiced before it was delivered — or when this return
+    and earlier ones would bring back more than was issued.
+    """
+    from apps.inventory.models import StockMovement
+    from apps.sales.models import Invoice as _Invoice
+    original = note.original_invoice
+    returned = []
+    for line in _stocked_lines(note):
+        product = line.product
+        issues = list(_issues_for(original, product))
+        issued_qty = sum((m.quantity for m in issues), Decimal("0"))
+        if issued_qty <= 0:
+            raise ValidationError(
+                f"No {product.name} has left the warehouse against {original.reference}, "
+                "so there is nothing to take back into stock. Untick 'goods returned' "
+                "to credit the price only, or deliver the order first.")
+        earlier_notes = list(_Invoice.objects.filter(
+            original_invoice=original, status="CREDIT_NOTE", goods_returned=True,
+        ).exclude(pk=note.pk).values_list("reference", flat=True))
+        back_already = sum((m.quantity for m in StockMovement.objects.filter(
+            movement_type="RETURN_IN", product=product, reference__in=earlier_notes,
+            product__company=original.company)), Decimal("0"))
+        if back_already + line.quantity > issued_qty:
+            raise ValidationError(
+                f"Only {_qty_text(issued_qty)} {product.name} left the warehouse against "
+                f"{original.reference} and {_qty_text(back_already)} came back already, so "
+                f"{_qty_text(line.quantity)} more cannot be returned to stock.")
+        issued_value = sum((m.total_cost or Decimal("0") for m in issues), Decimal("0"))
+        unit_cost = (issued_value / issued_qty).quantize(Decimal("0.0001"))
+        returned.append(StockMovement.objects.create(
+            product=product, warehouse=issues[0].warehouse, movement_type="RETURN_IN",
+            quantity=line.quantity, unit_cost=unit_cost,
+            movement_date=note.invoice_date, reference=note.reference,
+            performed_by=user,
+            notes=f"Returned on credit note {note.reference} against {original.reference}",
+        ))
+    return returned
 
 
 # ──────────────────────────── Credit notes ──────────────────────────────────
@@ -310,6 +472,15 @@ def post_credit_note(note, user=None) -> JournalEntry:
     document with its own date and its own entry, and the two net to nothing in
     the account — which is how a mistake is corrected in a book that is never
     rewritten.
+
+    When the note says the goods came back (`goods_returned`), the units go
+    back on the shelf they left from at the cost they were issued at:
+
+    DR  Inventory                          quantity x original issue cost
+    CR  Cost of Goods Sold                 the same
+
+    so the cost charged when they were sold is taken back exactly. A note that
+    only corrects the price moves no stock and books no cost.
     """
     if note.journal_entry_id:
         return note.journal_entry
@@ -340,6 +511,11 @@ def post_credit_note(note, user=None) -> JournalEntry:
     _cr(je, ar_account, total_base, f"AR credit: {note.reference}")
 
     je.post(user=user)
+
+    if note.goods_returned:
+        # Goods that came back are stock again, at what they cost when they
+        # left; a price-only credit moves nothing.
+        return_credit_note_stock(note, user=user)
 
     from apps.sales.models import Invoice as _Invoice
     _Invoice.objects.filter(pk=note.pk).update(journal_entry=je, status="CREDIT_NOTE")
@@ -559,6 +735,17 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
     if invoice_allocations is not None:
         for inv, alloc_amount in invoice_allocations:
             if alloc_amount and alloc_amount > 0:
+                if inv.invoice_date and payment.payment_date < inv.invoice_date:
+                    # Money cannot settle a bill that did not exist yet. A receipt
+                    # dated before its invoice is either a mistyped date or a
+                    # deposit — and a deposit is money on account until the
+                    # invoice is raised and the credit applied to it.
+                    raise ValidationError(
+                        f"Receipt {payment.reference} is dated {payment.payment_date:%d %b %Y}, "
+                        f"before invoice {inv.reference} ({inv.invoice_date:%d %b %Y}); "
+                        "a payment can only settle an invoice dated on or before it. "
+                        "Correct the date, or leave it on account and apply it once the "
+                        "invoice exists.")
                 allocations.append(
                     (inv, alloc_amount, to_base(alloc_amount, inv.rate)))
     else:
@@ -568,6 +755,9 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
                 company=company,
                 customer=payment.customer,
                 status__in=["SENT", "PARTIAL", "OVERDUE"],
+                # Only papers that existed on the day the money came in: an
+                # invoice raised later is settled by applying the credit then.
+                invoice_date__lte=payment.payment_date,
             )
             # A dollar receipt must not quietly settle a shilling invoice: the
             # amounts only mean anything when both sides count the same money.
@@ -620,6 +810,113 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
         inv.save()
 
     return je
+
+
+@transaction.atomic
+def apply_customer_credit(payment, invoice_allocations, on_date, user=None):
+    """Match money already on a customer's account to invoices they owe.
+
+    A receipt that settled nothing (or not all of itself) left its money as a
+    credit in AR at the rate it came in at. Applying it later follows the same
+    rules as allocating on the receipt form: the invoice must be this
+    customer's, open, in the receipt's own currency, dated on or before the day
+    the credit is applied, and owed no less than it is given; the slices
+    together cannot use more than is still unapplied.
+
+    In the book's money the credit is released at the receipt's rate and the
+    invoice cleared at its own. When those differ the gap is realised exchange,
+    booked in one entry dated the day of application:
+
+    DR  Accounts Receivable (1300)        the credit released, at the receipt's rate
+    CR  Accounts Receivable (1300)        the invoices cleared, at their own rates
+    CR/DR Exchange gain 4310 / loss 7300  the difference
+
+    At the same rate there is nothing to book — the credit and the invoice
+    already net to nothing in AR — and only the allocation rows are written.
+
+    Returns (journal entry or None, [(invoice, amount, base)]). Raises
+    ValidationError saying what is wrong otherwise.
+    """
+    from apps.sales.models import CustomerPayment, Invoice as _Invoice, PaymentAllocation
+    from apps.sales.receivables import unapplied_amount
+
+    payment = (CustomerPayment.objects.select_for_update()
+               .select_related("customer", "company").get(pk=payment.pk))
+    company = payment.company
+    if payment.status != "RECEIVED" or not payment.journal_entry_id:
+        raise ValidationError(
+            f"{payment.reference} is not a live posted receipt, so it has no credit to apply.")
+    if on_date < payment.payment_date:
+        raise ValidationError(
+            f"Credit from {payment.reference} cannot be applied on {on_date:%d %b %Y}: "
+            f"the money only arrived on {payment.payment_date:%d %b %Y}.")
+    before = unapplied_amount(payment)
+    wanted = [(inv, amt) for inv, amt in invoice_allocations if amt and amt > 0]
+    if not wanted:
+        raise ValidationError("Enter an amount against at least one invoice.")
+    total = sum((amt for _inv, amt in wanted), Decimal("0"))
+    if total > before:
+        raise ValidationError(
+            f"The invoices add up to {total:.2f} {payment.currency} but only "
+            f"{before:.2f} of {payment.reference} is still unapplied.")
+
+    rows = []
+    for inv, amount in wanted:
+        inv = _Invoice.objects.select_for_update().get(pk=inv.pk)
+        if inv.company_id != company.pk or inv.customer_id != payment.customer_id:
+            raise ValidationError(
+                f"{inv.reference} is not {payment.customer.name}'s invoice — credit is "
+                "only applied within the same customer's account.")
+        if inv.status not in ("SENT", "PARTIAL", "OVERDUE") or inv.outstanding_amount <= 0:
+            raise ValidationError(f"{inv.reference} is not open, so nothing on it can be settled.")
+        if (inv.currency or "").upper() != (payment.currency or "").upper():
+            raise ValidationError(
+                f"{inv.reference} is billed in {inv.currency} and {payment.reference} is "
+                f"{payment.currency}: credit only settles an invoice in the same money.")
+        if amount > inv.outstanding_amount:
+            raise ValidationError(
+                f"{inv.reference} is only owed {inv.outstanding_amount:.2f} — it cannot "
+                f"take {amount:.2f}.")
+        if on_date < inv.invoice_date:
+            raise ValidationError(
+                f"{inv.reference} is dated {inv.invoice_date:%d %b %Y}; credit cannot "
+                f"settle it on {on_date:%d %b %Y}, before it existed.")
+        rows.append((inv, amount, to_base(amount, inv.rate)))
+
+    rate = payment.rate
+    # Released as the difference of the two remainders, so whatever stays on
+    # account is still worth exactly to_base(remaining, rate) in AR — the
+    # figure every receivables report reads it at.
+    released = to_base(before, rate) - to_base(before - total, rate)
+    cleared = sum((base for _inv, _amt, base in rows), Decimal("0"))
+
+    je = None
+    if released != cleared:
+        ar_account = (_get_account_safe(company, "1300")
+                      or _get_account_by_type(company, "RECEIVABLE"))
+        if not ar_account:
+            raise ValidationError("Accounts Receivable (1300) is missing from the chart.")
+        je = _new_je(
+            company, "JE-APP-", "PAYMENT", on_date,
+            f"Credit from {payment.reference} applied — {payment.customer.name}",
+            source_currency=payment.currency, exchange_rate=rate,
+        )
+        refs = ", ".join(inv.reference for inv, _a, _b in rows)
+        _dr(je, ar_account, released, f"On-account credit released: {payment.reference}")
+        _cr(je, ar_account, cleared, f"AR clear: {refs}")
+        _book_exchange_difference(
+            je, company, released - cleared,
+            f"Realised exchange on applying {payment.reference}")
+        je.post(user=user)
+
+    for inv, amount, base in rows:
+        PaymentAllocation.objects.create(
+            payment=payment, invoice=inv, allocated_amount=amount, base_amount=base,
+            allocation_date=on_date, journal_entry=je,
+        )
+        inv.paid_amount = (inv.paid_amount or Decimal("0")) + amount
+        inv.save()
+    return je, rows
 
 
 # ─────────────────────────── Point of sale ──────────────────────────────────
