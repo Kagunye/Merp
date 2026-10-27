@@ -2,6 +2,37 @@
 
 from django.conf import settings
 from django.db import migrations, models
+from django.db.models import Count
+
+
+def renumber_duplicate_references(apps, schema_editor):
+    """Give every journal a reference unique within its company.
+
+    Earlier versions let two journals share a reference, and a single pair is
+    enough to make the constraint below fail — which stops every later
+    migration too, so pages that read the newer columns crash. The oldest
+    journal keeps its reference; each later one gets a "-2", "-3", ... suffix.
+    """
+    JournalEntry = apps.get_model("accounting", "JournalEntry")
+    max_len = JournalEntry._meta.get_field("reference").max_length
+    clashes = (JournalEntry.objects.values("company_id", "reference")
+               .annotate(n=Count("id")).filter(n__gt=1))
+    for clash in clashes:
+        company_id, reference = clash["company_id"], clash["reference"]
+        taken = set(JournalEntry.objects.filter(company_id=company_id)
+                    .values_list("reference", flat=True))
+        entries = (JournalEntry.objects.filter(company_id=company_id, reference=reference)
+                   .order_by("created_at", "id"))
+        for entry in list(entries)[1:]:
+            n = 2
+            while True:
+                suffix = f"-{n}"
+                candidate = reference[:max_len - len(suffix)] + suffix
+                if candidate not in taken:
+                    break
+                n += 1
+            taken.add(candidate)
+            JournalEntry.objects.filter(pk=entry.pk).update(reference=candidate)
 
 
 class Migration(migrations.Migration):
@@ -13,6 +44,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(renumber_duplicate_references, migrations.RunPython.noop),
         migrations.AddConstraint(
             model_name='journalentry',
             constraint=models.UniqueConstraint(fields=('company', 'reference'), name='unique_reference_per_company'),
