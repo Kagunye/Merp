@@ -216,12 +216,20 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         return ctx
 
 
+# Who may close somebody else's till: the people who answer for the cash.
+TILL_SUPERVISORS = ("ADMIN", "FINANCE_MANAGER", "SALES_MANAGER")
+
+
 @login_required
 @require_POST
 def session_close(request, pk):
     """Stop trading on this till. Counted cash comes from the cash-up screen."""
     company = request.active_company
     session = get_object_or_404(POSSession, pk=pk, company=company)
+    if session.cashier_id != request.user.pk and \
+            request.user.get_company_role(company) not in TILL_SUPERVISORS:
+        messages.error(request, f"This till belongs to {session.cashier}. Only they or a manager can close it.")
+        return redirect("pos:session_detail", pk=session.pk)
     try:
         services.close_session(session, closing_cash=request.POST.get("closing_cash"))
     except ValidationError as exc:

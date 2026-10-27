@@ -75,15 +75,24 @@ class PayrollRunForm(AccountChoiceForm):
         start, end = cleaned.get("period_start"), cleaned.get("period_end")
         if start and end and end < start:
             self.add_error("period_end", "A pay period cannot end before it starts.")
-        if is_new(self) and start and end:
-            clash = PayrollRun.objects.filter(
-                company=self.company, period_start=start, period_end=end,
-            ).exclude(status="CANCELLED").exists() if self.company else False
+        days = (end - start).days + 1 if start and end else None
+        if days is not None and days > 0 and not 28 <= days <= 31:
+            # Every payslip pays a month's basic salary against monthly tax bands,
+            # so two half-month runs would pay the month twice.
+            self.add_error(
+                "period_end",
+                f"A run pays a full month's salary, so it has to cover one month "
+                f"(28 to 31 days). This period is {days} day{'s' if days != 1 else ''}.")
+        elif self.company and start and end and end >= start:
+            from .services import overlapping_runs
+            clash = overlapping_runs(self.company, start, end, exclude=self.instance).first()
             if clash:
                 self.add_error(
                     "period_end",
-                    "A run already covers this period. Two runs for the same month "
-                    "would pay everybody twice — amend or cancel the first one.")
+                    f"{clash.reference} already pays {clash.period_start:%d %b} to "
+                    f"{clash.period_end:%d %b %Y} ({clash.get_status_display().lower()}). "
+                    "Two runs over the same days would pay everybody twice — amend or "
+                    "cancel that one instead.")
         return cleaned
 
 
@@ -94,7 +103,7 @@ class StatutoryRuleForm(AccountChoiceForm):
         model = StatutoryRule
         fields = ["code", "name", "method", "basis", "employee_percent",
                   "employer_percent", "employee_flat", "employer_flat", "basis_cap",
-                  "monthly_relief", "reduces_taxable_pay", "payable_account",
+                  "monthly_relief", "employee_minimum", "reduces_taxable_pay", "payable_account",
                   "expense_account", "effective_from", "is_active"]
         widgets = {"effective_from": date_input()}
 
@@ -104,9 +113,16 @@ class StatutoryRuleForm(AccountChoiceForm):
             "Short key printed on the payslip — PAYE, NSSF, SHIF. A new rate for the "
             "same code is a new row with a later start date, never an edit of the old one.")
         self.fields["expense_account"].empty_label = "— None, the employer pays no share"
+        self.fields["employee_minimum"].required = False
         self.fields["payable_account"].queryset = self.fields[
             "payable_account"].queryset.filter(
             account_type__in=["LIABILITY", "TAX", "PAYABLE"])
+
+    def clean_employee_minimum(self):
+        minimum = self.cleaned_data.get("employee_minimum")
+        if minimum is not None and minimum < 0:
+            raise forms.ValidationError("A minimum can't be negative.")
+        return minimum or 0
 
     def clean(self):
         cleaned = super().clean()

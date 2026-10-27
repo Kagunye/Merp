@@ -21,19 +21,37 @@ Z = Decimal("0")
 # The table a new employer starts from. Every row of it becomes data the
 # accountant can change — these are opening figures, not rules the program
 # enforces. (code, name, method, basis, employee %, employer %, cap, relief,
-# allowable against tax, payable account, employer expense account, bands)
+# allowable against tax, payable account, employer expense account, bands,
+# employee minimum)
+#
+# Kenya, as at 2025: NSSF 6% + 6% up to the 72,000 upper earnings limit; SHIF
+# 2.75% from the employee only, never below 300; housing levy 1.5% + 1.5%. All
+# three come off pay before PAYE (Tax Laws (Amendment) Act 2024). PAYE bands
+# from the Finance Act 2023, personal relief 2,400.
 DEFAULT_TABLE = [
-    ("NSSF", "Pension — NSSF", "PERCENT", "BASIC", "6", "6", "36000", None, True,
-     "2400", "6110", []),
-    ("SHIF", "Health insurance — SHIF", "PERCENT", "GROSS", "2.75", "2.75",
-     None, None, False, "2500", "6120", []),
+    ("NSSF", "Pension — NSSF", "PERCENT", "BASIC", "6", "6", "72000", None, True,
+     "2400", "6110", [], None),
+    ("SHIF", "Health insurance — SHIF", "PERCENT", "GROSS", "2.75", "0",
+     None, None, True, "2500", None, [], "300"),
     ("HOUSING", "Housing Levy", "PERCENT", "GROSS", "1.5", "1.5", None, None,
-     False, "2550", "6130", []),
+     True, "2550", "6130", [], None),
     ("PAYE", "Pay as you earn", "BANDS", "GROSS", "0", "0", None, "2400", False,
-     "2300", None, [("0", "24000", "10"), ("24000", "33333", "25"),
-                    ("33333", "500000", "30"), ("500000", "800000", "32.5"),
-                    ("800000", None, "35")]),
+     "2300", None, [("0", "24000", "10"), ("24000", "32333", "25"),
+                    ("32333", "500000", "30"), ("500000", "800000", "32.5"),
+                    ("800000", None, "35")], None),
 ]
+
+
+def overlapping_runs(company, start, end, exclude=None):
+    """Live payroll runs that pay any of the days from `start` to `end`."""
+    from .models import PayrollRun
+
+    runs = PayrollRun.objects.filter(
+        company=company, period_start__lte=end, period_end__gte=start,
+    ).exclude(status="CANCELLED")
+    if exclude is not None and exclude.pk and not exclude._state.adding:
+        runs = runs.exclude(pk=exclude.pk)
+    return runs.order_by("period_start")
 
 
 def rules_as_at(company, on_date):
@@ -63,7 +81,7 @@ def ensure_default_table(company, effective_from):
 
     created = []
     for (code, name, method, basis, employee_percent, employer_percent, cap,
-         relief, allowable, payable_code, expense_code, bands) in DEFAULT_TABLE:
+         relief, allowable, payable_code, expense_code, bands, minimum) in DEFAULT_TABLE:
         if StatutoryRule.objects.filter(company=company, code=code).exists():
             continue
         payable = active(payable_code) or ensure_account(
@@ -78,6 +96,7 @@ def ensure_default_table(company, effective_from):
             employer_percent=Decimal(employer_percent) if employer_percent else Z,
             basis_cap=Decimal(cap) if cap else None,
             monthly_relief=Decimal(relief) if relief else Z,
+            employee_minimum=Decimal(minimum) if minimum else Z,
             reduces_taxable_pay=allowable, payable_account=payable,
             expense_account=expense, effective_from=effective_from,
         )

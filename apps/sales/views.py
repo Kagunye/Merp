@@ -18,7 +18,7 @@ from apps.accounting.currency import book_currency, stamp_document
 from apps.core.mixins import CompanyRequiredMixin
 from apps.core.models import SequenceCounter
 
-from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
+from .forms import InvoiceForm, InvoiceLineFormSet, PostedInvoiceForm, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
 from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder
 
 
@@ -768,6 +768,16 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         from django.urls import reverse
         return reverse("sales:invoice_detail", args=[self.object.pk])
 
+    @property
+    def posted(self):
+        return bool(self.object.journal_entry_id)
+
+    def get_form_class(self):
+        return PostedInvoiceForm if self.posted else InvoiceForm
+
+    def get_template_names(self):
+        return ["sales/invoice_posted_form.html"] if self.posted else [self.template_name]
+
     def get_line_formset(self):
         form_kwargs = {"company": self.request.active_company}
         if self.request.POST:
@@ -777,6 +787,10 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         return InvoiceLineFormSet(instance=self.object, prefix="lines", form_kwargs=form_kwargs)
 
     def form_valid(self, form):
+        if self.posted:
+            form.save()
+            messages.success(self.request, f"Invoice {self.object.reference} updated.")
+            return redirect(self.get_success_url())
         formset = self.get_line_formset()
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
@@ -801,7 +815,8 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"Edit Invoice {self.object.reference}"
         ctx["is_edit"] = True
-        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        if not self.posted:
+            ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
         return ctx
 
 

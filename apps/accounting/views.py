@@ -509,7 +509,24 @@ class FiscalYearCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
     def form_valid(self, form):
         import calendar
         from datetime import date, timedelta
-        form.instance.company = self.request.active_company
+        company = self.request.active_company
+        form.instance.company = company
+        start, end = form.cleaned_data["start_date"], form.cleaned_data["end_date"]
+        if end <= start:
+            form.add_error("end_date", "A fiscal year has to end after it starts.")
+        elif (end - start).days > 550:
+            form.add_error("end_date", "A fiscal year can't run longer than 18 months.")
+        clash = FiscalYear.objects.filter(
+            company=company, start_date__lte=end, end_date__gte=start).first()
+        if clash:
+            # Two years over the same month would give it two periods, each
+            # closable on its own, and every report would pick one at random.
+            form.add_error("start_date", f"{clash.name} already covers {clash.start_date:%d %b %Y} to "
+                                         f"{clash.end_date:%d %b %Y}. Fiscal years can't overlap.")
+        if FiscalYear.objects.filter(company=company, name__iexact=form.cleaned_data["name"]).exists():
+            form.add_error("name", "There is already a fiscal year with this name.")
+        if form.errors:
+            return self.form_invalid(form)
         response = super().form_valid(form)
         fy = self.object
         # Auto-generate 12 monthly periods

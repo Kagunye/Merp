@@ -132,11 +132,11 @@ RECOMMENDED = [
     ("1300", "Accounts Receivable"),
     ("1400", "Inventory"),
     ("2100", "Accounts Payable"),
-    ("2110", "Stock Received Not Invoiced"),
+    ("3100", "Share Capital"),
     ("2200", "VAT Payable"),
     ("2210", "VAT Input"),
     ("4100", "Sales Revenue"),
-    ("5000", "Cost of Goods Sold"),
+    ("5300", "Stock Adjustments & Shrinkage"),
     ("6000", "Operating Expenses"),
 ]
 
@@ -147,13 +147,12 @@ EXPECTED = {
     "1300": ("880.00", "500.00"),
     "1400": ("7000.00", "500.00"),
     "2100": ("2320.00", "2320.00"),
-    "2110": ("0.00", "5000.00"),
     "2200": ("0.00", "80.00"),
     "2210": ("320.00", "0.00"),
-    "3100": ("0.00", "100000.00"),
+    "3100": ("0.00", "105000.00"),
     "4100": ("0.00", "300.00"),
     "4200": ("0.00", "500.00"),
-    "5000": ("500.00", "0.00"),
+    "5300": ("500.00", "0.00"),
     "6000": ("300.00", "0.00"),
     "6400": ("1200.00", "0.00"),
 }
@@ -984,14 +983,16 @@ class Command(BaseCommand):
         from apps.inventory.models import StockLevel, StockMovement
 
         url = reverse("inventory:adjustment_create")
-        self.post(client, "stock receipt", url, {
+        # Receipts and deliveries have their own screens (orders, deliveries);
+        # the adjustment screen books opening stock and write-downs.
+        self.post(client, "opening stock", url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "RECEIPT", "quantity": "100", "unit_cost": "50",
+            "movement_type": "OPENING", "quantity": "100", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "GRN-1", "notes": "Stock received",
         })
-        self.post(client, "stock delivery", url, {
+        self.post(client, "stock written down", url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "DELIVERY", "quantity": "10", "unit_cost": "50",
+            "movement_type": "ADJUSTMENT_MINUS", "quantity": "10", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "SOUT-1", "notes": "Stock issued",
         })
 
@@ -1004,7 +1005,7 @@ class Command(BaseCommand):
         # Issuing more than the shelf holds must be refused, not posted.
         resp = client.post(url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "DELIVERY", "quantity": "500", "unit_cost": "50",
+            "movement_type": "ADJUSTMENT_MINUS", "quantity": "500", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "SOUT-2", "notes": "",
         })
         self.expect("oversized issue blocked", resp.status_code == 200)
@@ -5002,19 +5003,19 @@ class Command(BaseCommand):
                          reverse("payroll:run_calculate", args=[run.pk]), {})
         said = " | ".join(str(m) for m in self.flashes(client, resp))
         self.expect("the month's figures come out of the tables",
-                    "84554.65 to pay" in said, said)
+                    "84522.65 to pay" in said, said)
         self.expect("and the person with no live contract is named as left off",
                     "Samuel Okello" in said, said)
         run.refresh_from_db()
         self.expect("the run's totals are the payslips' own",
                     run.total_gross == D("120000.00")
-                    and run.total_deductions == D("35445.35")
-                    and run.total_net == D("84554.65")
-                    and run.total_employer == D("7260.00"),
+                    and run.total_deductions == D("35477.35")
+                    and run.total_net == D("84522.65")
+                    and run.total_employer == D("6120.00"),
                     f"gross {run.total_gross}, withheld {run.total_deductions}, "
                     f"net {run.total_net}, employer {run.total_employer}")
         self.expect("what the month cost is the pay plus the employer's own shares",
-                    run.total_cost == D("127260.00"), str(run.total_cost))
+                    run.total_cost == D("126120.00"), str(run.total_cost))
 
         slip = run.payslips.get(employee=self.employee)
         self.expect("the contract pay, the fixed allowance and the share of basic "
@@ -5023,31 +5024,35 @@ class Command(BaseCommand):
                     and slip.total_allowances == D("20000.00"),
                     f"gross {slip.gross_salary}, the rest of it allowances "
                     f"{slip.total_allowances}")
-        self.expect("taxable pay is the gross less the pension the law allows off",
-                    slip.taxable_pay == D("117840.00"), str(slip.taxable_pay))
+        # NSSF, SHIF and the housing levy all come off before PAYE (since 27 Dec 2024).
+        self.expect("taxable pay is the gross less the shares the law allows off",
+                    slip.taxable_pay == D("110580.00"), str(slip.taxable_pay))
         self.expect("and the take-home is the gross less everything withheld",
-                    slip.net_salary == D("84554.65")
+                    slip.net_salary == D("84522.65")
                     and slip.net_salary == slip.gross_salary - slip.total_deductions,
                     str(slip.net_salary))
         pension = slip.lines.get(code="NSSF", kind="DEDUCTION")
         self.expect("the pension line shows the ceiling it was charged under",
-                    pension.basis == D("36000.00")
+                    pension.basis == D("72000.00")
                     and pension.percent == D("6.000000")
-                    and pension.amount == D("2160.00") and pension.reduces_tax,
+                    and pension.amount == D("4320.00") and pension.reduces_tax,
                     f"{pension.percent}% of {pension.basis} = {pension.amount}")
         health = slip.lines.get(code="SHIF", kind="DEDUCTION")
-        self.expect("a health share is charged on the whole of the pay, not basic",
-                    health.basis == D("120000.00") and not health.reduces_tax,
+        self.expect("a health share is charged on the whole of the pay, not basic, "
+                    "and comes off before tax",
+                    health.basis == D("120000.00") and health.amount == D("3300.00")
+                    and health.reduces_tax,
                     f"{health.percent}% of {health.basis}")
         tiers = slip.lines.get(code="PAYE")
         self.expect("income tax names the pay the table was read off and the "
                     "figure after relief",
-                    tiers.basis == D("117840.00") and tiers.amount == D("27685.35"),
+                    tiers.basis == D("110580.00") and tiers.amount == D("25557.35"),
                     f"{tiers.basis} → {tiers.amount}")
-        self.expect("the employer's half of each contribution is on the slip too, "
-                    "at its own rate",
-                    slip.lines.filter(kind="EMPLOYER").count() == 3
-                    and slip.employer_cost == D("7260.00"), str(slip.employer_cost))
+        self.expect("the employer's half of NSSF and the housing levy is on the slip "
+                    "too, and SHIF has none",
+                    slip.lines.filter(kind="EMPLOYER").count() == 2
+                    and not slip.lines.filter(kind="EMPLOYER", code="SHIF").exists()
+                    and slip.employer_cost == D("6120.00"), str(slip.employer_cost))
         overtime = slip.lines.get(description="Field overtime")
         self.expect("a percentage pay element shows the pay it was measured on",
                     overtime.percent == D("5.000000") and overtime.basis == D("100000.00"),
@@ -5072,7 +5077,7 @@ class Command(BaseCommand):
                     "no bands" in said, said)
         run.refresh_from_db()
         self.expect("and the draft keeps the figures it had rather than losing them",
-                    run.total_net == D("84554.65"), str(run.total_net))
+                    run.total_net == D("84522.65"), str(run.total_net))
         for step in steps:
             self.post(client, "put a step back",
                       reverse("payroll:band_create", args=[paye.pk]), step)
@@ -5122,31 +5127,33 @@ class Command(BaseCommand):
                     f"{entry.posting_date}, period {entry.period_id}")
         dr, cr, ok = self.balanced(entry)
         self.expect("the entry balances, and what it charges is what it owes",
-                    ok and dr == D("127260.00"), f"Dr {dr} / Cr {cr}")
+                    ok and dr == D("126120.00"), f"Dr {dr} / Cr {cr}")
         self.expect("the three earnings are one charge to salaries, not three lines",
                     entry.lines.filter(account__code="6100", debit_amount__gt=0).count()
                     == 1 and self.line_total(entry, "6100", "debit") == D("120000.00"),
                     f"{entry.lines.filter(account__code='6100').count()} line(s) on 6100")
-        for code, want in (("6110", "2160.00"), ("6120", "3300.00"), ("6130", "1800.00")):
+        for code, want in (("6110", "4320.00"), ("6130", "1800.00")):
             self.expect(f"{code} took the employer's own share as a cost",
                         self.line_total(entry, code, "debit") == D(want),
                         str(self.line_total(entry, code, "debit")))
-        for code, want in (("2300", "27685.35"), ("2400", "4320.00"),
-                           ("2500", "6600.00"), ("2550", "3600.00"), ("2600", "500.00")):
+        self.expect("SHIF costs the employer nothing",
+                    not entry.lines.filter(account__code="6120").exists())
+        for code, want in (("2300", "25557.35"), ("2400", "8640.00"),
+                           ("2500", "3300.00"), ("2550", "3600.00"), ("2600", "500.00")):
             self.expect(f"{code} is owed both halves, or the whole of the withholding",
                         self.line_total(entry, code, "credit") == D(want),
                         str(self.line_total(entry, code, "credit")))
         self.expect("only the net pay leaves the bank",
-                    self.line_total(entry, "1200", "credit") == D("84554.65")
+                    self.line_total(entry, "1200", "credit") == D("84522.65")
                     and not entry.lines.filter(account__code="1100").exists())
         owed = {code: self.account(code).current_balance - before[code] for code in
                 ("2300", "2400", "2500", "2550", "2600")}
         self.expect("the authorities are owed exactly the figures on the slips",
-                    owed == {"2300": D("27685.35"), "2400": D("4320.00"),
-                             "2500": D("6600.00"), "2550": D("3600.00"),
+                    owed == {"2300": D("25557.35"), "2400": D("8640.00"),
+                             "2500": D("3300.00"), "2550": D("3600.00"),
                              "2600": D("500.00")}, str(owed))
         self.expect("the bank gave out the take-home and the salary expense is the pay",
-                    self.account("1200").current_balance - before["1200"] == D("-84554.65")
+                    self.account("1200").current_balance - before["1200"] == D("-84522.65")
                     and self.account("6100").current_balance - before["6100"]
                     == D("120000.00"),
                     f"bank {self.account('1200').current_balance - before['1200']}, "
@@ -5170,11 +5177,11 @@ class Command(BaseCommand):
         self.expect("the reversal runs the whole month backwards to the last cent",
                     back.entry_type == "REVERSAL"
                     and back.reference.startswith("JE-REV-")
-                    and ok and dr == D("127260.00"), f"{back.reference}, Dr {dr}")
+                    and ok and dr == D("126120.00"), f"{back.reference}, Dr {dr}")
         self.expect("and it puts salaries, the bank and each authority back",
                     self.line_total(back, "6100", "credit") == D("120000.00")
-                    and self.line_total(back, "1200", "debit") == D("84554.65")
-                    and self.line_total(back, "2300", "debit") == D("27685.35"))
+                    and self.line_total(back, "1200", "debit") == D("84522.65")
+                    and self.line_total(back, "2300", "debit") == D("25557.35"))
         self.expect("booked in the pay month it is unwinding",
                     back.posting_date == entry.posting_date
                     and back.period_id == entry.period_id,
@@ -5220,7 +5227,7 @@ class Command(BaseCommand):
         grace2 = run2.payslips.get(employee=self.employee)
         sam2 = run2.payslips.get(employee=samuel)
         self.expect("retiring a pay element gives the money back to the slip",
-                    grace2.net_salary == D("85054.65")
+                    grace2.net_salary == D("85022.65")
                     and not grace2.lines.filter(description="Union subscription").exists(),
                     str(grace2.net_salary))
         self.expect("the pension ceiling only bites above the pay it caps",
@@ -5230,8 +5237,8 @@ class Command(BaseCommand):
                     f"on gross {sam2.gross_salary}")
         self.expect("and a small pay still walks through the same three steps, "
                     "then loses the relief",
-                    sam2.taxable_pay == D("33800.00")
-                    and sam2.lines.get(code="PAYE").amount == D("2473.35"),
+                    sam2.taxable_pay == D("32312.50")
+                    and sam2.lines.get(code="PAYE").amount == D("2078.13"),
                     f"taxable {sam2.taxable_pay}, PAYE "
                     f"{sam2.lines.get(code='PAYE').amount}")
         self.expect("the run's totals are nothing but its slips added up",

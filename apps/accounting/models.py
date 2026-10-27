@@ -49,6 +49,28 @@ def period_for(company, posting_date):
     ).order_by("start_date").first()
 
 
+def closed_period_problem(company, posting_date, what="document"):
+    """Why a document can't be dated `posting_date`, or "" when it can.
+
+    A month that has been closed has been reported on: an invoice, bill or
+    payment landing in it afterwards changes figures somebody already signed
+    off. Late corrections are a manual journal, which is allowed and flagged.
+    """
+    from apps.organizations.models import AccountingPeriod
+
+    if company is None or posting_date is None:
+        return ""
+    shut = AccountingPeriod.objects.filter(
+        fiscal_year__company=company, start_date__lte=posting_date,
+        end_date__gte=posting_date,
+    ).filter(models.Q(status__in=["CLOSED", "LOCKED"]) | models.Q(fiscal_year__is_closed=True)
+             ).select_related("fiscal_year").first()
+    if not shut:
+        return ""
+    return (f"{shut.fiscal_year.name} {shut.name} is closed, so this {what} can't be dated "
+            f"{posting_date:%d %b %Y}. Date it in an open month, or reopen the period first.")
+
+
 class Account(BaseModel):
     """Chart of Accounts entry."""
     company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="accounts")
@@ -177,7 +199,9 @@ class JournalEntry(BaseModel, NotesMixin):
     def is_balanced(self):
         return abs(self.total_debit - self.total_credit) < Decimal("0.01")
 
-    def post(self, user=None):
+    def post(self, user=None, document=None):
+        """Post the entry. `document` names the paper behind it (an invoice, a
+        bill...) — paper can't be dated into a closed month; a journal can."""
         if self.status != "DRAFT":
             raise ValidationError(f"Cannot post a journal entry with status '{self.status}'.")
         if not self.is_balanced():
@@ -186,6 +210,10 @@ class JournalEntry(BaseModel, NotesMixin):
             )
         if not self.lines.exists():
             raise ValidationError("Journal entry must have at least one line.")
+        if document:
+            problem = closed_period_problem(self.company, self.posting_date, document)
+            if problem:
+                raise ValidationError(problem)
         with transaction.atomic():
             if self.period_id is None:
                 self.period = period_for(self.company, self.posting_date)

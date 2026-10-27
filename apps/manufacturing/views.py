@@ -211,7 +211,10 @@ def work_order_complete(request, pk):
     wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
     if request.method != "POST":
         return redirect("manufacturing:work_order_detail", pk=pk)
-    if wo.status not in ("RELEASED", "IN_PROGRESS", "DRAFT"):
+    if wo.status == "DRAFT":
+        messages.error(request, f"{wo.reference} is still a draft. Release it to the floor before completing it.")
+        return redirect("manufacturing:work_order_detail", pk=pk)
+    if wo.status not in ("RELEASED", "IN_PROGRESS"):
         messages.error(request, "Work order cannot be completed in its current state.")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
@@ -227,47 +230,60 @@ def work_order_complete(request, pk):
         messages.error(request, "Work order must have a warehouse assigned.")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
-    with transaction.atomic():
-        # Record material consumption (PRODUCTION_OUT)
-        for consumption in wo.consumptions.select_related("product"):
-            if consumption.planned_quantity > 0:
-                try:
-                    StockMovement.objects.create(
+    if actual_qty is None or not actual_qty.is_finite() or actual_qty <= 0:
+        messages.error(request, "Enter how many were actually made — a positive quantity.")
+        return redirect("manufacturing:work_order_detail", pk=pk)
+
+    from apps.inventory.models import StockLevel
+
+    def shelf_cost(product):
+        """What the shelf holds this product at, or its list cost when the
+        shelf has never been costed."""
+        level = StockLevel.objects.filter(product=product, warehouse=wo.warehouse).first()
+        return level.avg_cost if level and level.avg_cost else product.cost_price
+
+    try:
+        with transaction.atomic():
+            # Materials leave at what the book holds them at, into work in progress.
+            used = Decimal("0")
+            for consumption in wo.consumptions.select_related("product"):
+                if consumption.planned_quantity > 0:
+                    movement = StockMovement.objects.create(
                         product=consumption.product,
                         warehouse=wo.warehouse,
                         movement_type="PRODUCTION_OUT",
                         quantity=consumption.planned_quantity,
-                        unit_cost=consumption.product.cost_price,
+                        unit_cost=shelf_cost(consumption.product),
                         reference=wo.reference,
                         movement_date=actual_end,
                         performed_by=request.user,
                     )
+                    used += movement.total_cost or Decimal("0")
                     consumption.actual_quantity = consumption.planned_quantity
                     consumption.save(update_fields=["actual_quantity"])
-                except Exception as e:
-                    messages.error(request, f"Stock error for {consumption.product}: {e}")
-                    raise
 
-        # Record production output (PRODUCTION_IN)
-        try:
+            # The output is worth what went into it, so work in progress empties.
+            # With no materials (a recipe of labour only) it falls back to list cost.
+            unit_cost = (used / actual_qty).quantize(Decimal("0.0001")) if used > 0 \
+                else wo.bom.product.cost_price
             StockMovement.objects.create(
                 product=wo.bom.product,
                 warehouse=wo.warehouse,
                 movement_type="PRODUCTION_IN",
                 quantity=actual_qty,
-                unit_cost=wo.bom.product.cost_price,
+                unit_cost=unit_cost,
                 reference=wo.reference,
                 movement_date=actual_end,
                 performed_by=request.user,
             )
-        except Exception as e:
-            messages.error(request, f"Output stock error: {e}")
-            raise
 
-        wo.actual_quantity = actual_qty
-        wo.actual_end = actual_end
-        wo.status = "COMPLETED"
-        wo.save(update_fields=["actual_quantity", "actual_end", "status", "updated_at"])
+            wo.actual_quantity = actual_qty
+            wo.actual_end = actual_end
+            wo.status = "COMPLETED"
+            wo.save(update_fields=["actual_quantity", "actual_end", "status", "updated_at"])
+    except ValidationError as exc:
+        messages.error(request, f"{wo.reference} was not completed: {' '.join(exc.messages)}")
+        return redirect("manufacturing:work_order_detail", pk=pk)
 
     messages.success(request, f"Work Order {wo.reference} completed. Output: {actual_qty} {wo.bom.product.name}")
     return redirect("manufacturing:work_order_detail", pk=pk)

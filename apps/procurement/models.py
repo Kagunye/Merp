@@ -181,6 +181,12 @@ class Bill(BaseModel, NotesMixin):
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     outstanding_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True)
+    # What the bill is for when it isn't stock: electricity, rent, a repair.
+    charge_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="charged_bills", verbose_name="Charge to",
+        help_text="The expense (or asset) this bill is for. Leave blank for goods "
+                  "bought into stock.")
     # Returning goods, or a price the supplier agreed to reduce: a debit note
     # answers the bill and both stay in the book.
     original_bill = models.ForeignKey(
@@ -214,7 +220,11 @@ class Bill(BaseModel, NotesMixin):
     def save(self, *args, **kwargs):
         from apps.accounting.models import to_base
 
-        self.outstanding_amount = self.total_amount - self.paid_amount - self.credited_amount
+        # A cancelled bill is no longer owed, whatever its total said.
+        if self.status == "CANCELLED":
+            self.outstanding_amount = Decimal("0")
+        else:
+            self.outstanding_amount = self.total_amount - self.paid_amount - self.credited_amount
         # The book-currency value follows the bill's own money and its booked rate.
         self.total_amount_base = to_base(
             self.total_amount, self.exchange_rate or Decimal("1"))

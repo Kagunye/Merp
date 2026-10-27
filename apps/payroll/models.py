@@ -72,10 +72,14 @@ class StatutoryRule(BaseModel):
     monthly_relief = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0"),
         help_text="A tiered tax table takes this off the tax it has just computed.")
+    employee_minimum = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0"),
+        help_text="The least withheld from anyone who is paid at all — SHIF is never "
+                  "below 300 a month. Leave at 0 for no floor.")
     reduces_taxable_pay = models.BooleanField(
         default=False,
-        help_text="A pension contribution is taken off the pay before income tax is "
-                  "worked out; a health levy is not.")
+        help_text="Taken off the pay before income tax is worked out. In Kenya NSSF, "
+                  "SHIF and the housing levy all are (since 27 Dec 2024).")
     payable_account = models.ForeignKey(
         "accounting.Account", on_delete=models.PROTECT, related_name="statutory_rules",
         help_text="Where the money is owed to until it is remitted.")
@@ -112,9 +116,10 @@ class StatutoryRule(BaseModel):
                 "The employer pays a share, so the share needs an expense account to "
                 "land in. Choose one, or set the employer percentage to zero.")
         if self.method == "BANDS":
+            # An older row of the same code is that table's history, not a rival.
             clash = StatutoryRule.objects.filter(
                 company_id=self.company_id, method="BANDS", is_active=True,
-            ).exclude(pk=self.pk).first()
+            ).exclude(pk=self.pk).exclude(code=self.code).first()
             if clash:
                 raise ValidationError(
                     f"'{clash.code}' is already this company's tiered table. Two of "
@@ -133,7 +138,10 @@ class StatutoryRule(BaseModel):
         """
         if self.method == "BANDS":
             return Decimal("0")
-        return self._figure(basic, gross, self.employee_percent, self.employee_flat)
+        share = self._figure(basic, gross, self.employee_percent, self.employee_flat)
+        if self.employee_minimum and self.basis_for(basic, gross) > 0:
+            share = max(share, money(self.employee_minimum))
+        return share
 
     def employer_amount(self, basic, gross):
         if self.employer_percent == 0 and self.employer_flat == 0:

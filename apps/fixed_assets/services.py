@@ -257,11 +257,12 @@ def depreciate(asset, period_date, user=None):
             "month it joined the register.")
 
     live = _live_periods(asset)
-    if period_date in live:
+    # A month is one charge whichever day of it is picked.
+    if month_start(period_date) in {month_start(d) for d in live}:
         raise ValidationError(
             f"{asset.code} has already been charged for {period_date:%b %Y}. "
             "Two entries for one month would take the same wear twice.")
-    if live and period_date < max(live):
+    if live and month_start(period_date) < month_start(max(live)):
         raise ValidationError(
             f"The last month charged for {asset.code} was {max(live):%b %Y}. "
             "Depreciation runs forward through the calendar — go back to the "
@@ -291,7 +292,7 @@ def depreciate(asset, period_date, user=None):
     label = f"{asset.code} {asset.name}"
     _dr(je, expense_account, amount, label)
     _cr(je, accumulated_account, amount, label)
-    je.post(user=user)
+    je.post(user=user, document="depreciation charge")
 
     new_accumulated = money(asset.accumulated_depreciation + amount)
     row, _created = AssetDepreciation.objects.get_or_create(

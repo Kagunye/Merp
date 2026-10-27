@@ -232,6 +232,22 @@ def run_calculate(request, pk):
     return redirect("payroll:run_detail", pk=run.pk)
 
 
+def _paid_elsewhere(request, run, statuses):
+    """Refuse a run whose days another run in `statuses` already pays.
+
+    The run form stops new overlaps; this catches the ones made before it did.
+    """
+    clash = services.overlapping_runs(run.company, run.period_start, run.period_end,
+                                      exclude=run).filter(status__in=statuses).first()
+    if clash:
+        messages.error(
+            request,
+            f"{clash.reference} is already {clash.get_status_display().lower()} for "
+            f"{clash.period_start:%d %b} to {clash.period_end:%d %b %Y}, which overlaps "
+            f"'{run.reference}'. Paying both would pay those days twice — cancel one of them.")
+    return clash is not None
+
+
 @login_required
 @require_POST
 def run_approve(request, pk):
@@ -250,6 +266,8 @@ def run_approve(request, pk):
             request,
             "There is nothing to approve: this run has no payslips. Recalculate it, or "
             "put the missing contracts in first.")
+        return redirect("payroll:run_detail", pk=run.pk)
+    if _paid_elsewhere(request, run, ("APPROVED", "POSTED")):
         return redirect("payroll:run_detail", pk=run.pk)
     run.status = "APPROVED"
     run.approved_by = request.user
@@ -276,6 +294,8 @@ def run_post(request, pk):
             request,
             f"'{run.reference}' is {run.status.lower()}, and pay does not go into the "
             "book until it has been approved. Approve it first.")
+        return redirect("payroll:run_detail", pk=run.pk)
+    if _paid_elsewhere(request, run, ("POSTED",)):
         return redirect("payroll:run_detail", pk=run.pk)
     try:
         with transaction.atomic():
