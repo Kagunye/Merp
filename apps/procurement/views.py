@@ -94,7 +94,10 @@ class BillCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         if not bill.reference:
             from apps.core.models import SequenceCounter
             bill.reference = SequenceCounter.next_number(company, "BILL-")
-        bill.save()
+        with transaction.atomic():
+            bill.save()
+            if bill.purchase_order_id:
+                _claim_unbilled(bill.purchase_order)
         self.object = bill
         # The bill must survive a posting failure (it stays DRAFT for re-posting),
         # so this runs outside the caller's transaction.
@@ -655,6 +658,27 @@ def grn_record(request, pk):
 # ------------------------- conversion: order to bill -------------------------
 
 
+def _claim_unbilled(po):
+    """Mark everything received and not yet billed on `po` as billed.
+
+    Called whenever a bill is raised against an order, whether from the order
+    or typed in by hand, so the same goods can't be billed a second time.
+    """
+    lines = list(po.lines.all())
+    for line in lines:
+        qty = line.to_bill
+        if qty > 0:
+            line.billed_quantity = (line.billed_quantity or Decimal("0")) + qty
+            line.save(update_fields=["billed_quantity"])
+    # Only an order that has both arrived and been billed is finished: a
+    # line nobody has received yet has nothing to bill, and must not let
+    # the order close itself before the rest of the goods turn up.
+    if lines and all(l.received_quantity >= l.quantity and l.billed_quantity >= l.quantity
+                     for l in lines):
+        po.status = "BILLED"
+        po.save(update_fields=["status", "updated_at"])
+
+
 @login_required
 @require_POST
 def po_to_bill(request, pk):
@@ -670,6 +694,9 @@ def po_to_bill(request, pk):
 
     po = get_object_or_404(
         PurchaseOrder.objects.filter(company=request.active_company).select_related("supplier"), pk=pk)
+    if po.status == "BILLED":
+        messages.error(request, f"Everything on {po.reference} has already been billed.")
+        return redirect("procurement:po_detail", pk=pk)
     if po.status not in ("SENT", "PARTIALLY_RECEIVED", "FULLY_RECEIVED"):
         messages.error(
             request,
@@ -709,17 +736,7 @@ def po_to_bill(request, pk):
                 messages.error(request, exc.messages[0])
                 return redirect("procurement:po_detail", pk=pk)
         bill.save()
-        for line, qty in outstanding:
-            line.billed_quantity = (line.billed_quantity or Decimal("0")) + qty
-            line.save(update_fields=["billed_quantity"])
-        # Only an order that has both arrived and been billed is finished: a
-        # line nobody has received yet has nothing to bill, and must not let
-        # the order close itself before the rest of the goods turn up.
-        settled = all(l.received_quantity >= l.quantity
-                      and l.billed_quantity >= l.quantity for l in po.lines.all())
-        if settled:
-            po.status = "BILLED"
-            po.save(update_fields=["status", "updated_at"])
+        _claim_unbilled(po)
 
     messages.success(
         request,
@@ -814,7 +831,7 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
 
     def dispatch(self, request, *args, **kwargs):
         obj = self.get_object()
-        if obj.status in ("PAID", "CANCELLED"):
+        if obj.status in ("PAID", "CANCELLED", "DEBIT_NOTE", "DEBITED"):
             messages.error(request, f"Bill {obj.reference} cannot be edited ({obj.get_status_display()}).")
             return redirect("procurement:bill_detail", pk=obj.pk)
         return super().dispatch(request, *args, **kwargs)
@@ -880,7 +897,7 @@ def bill_cancel(request, pk):
                 messages.error(request, f"Cancel failed: {exc}")
                 return redirect("procurement:bill_detail", pk=pk)
         bill.status = "CANCELLED"
-        bill.save(update_fields=["status", "updated_at"])
+        bill.save(update_fields=["status", "outstanding_amount", "updated_at"])
         _release_billed_quantity(request, bill)
 
     messages.success(
@@ -937,6 +954,11 @@ def bill_post(request, pk):
     return redirect("procurement:bill_detail", pk=pk)
 
 
+# A draft is posted on the way to being paid; every other status either owes
+# nothing or is owed to us.
+PAYABLE_STATUSES = ("DRAFT", "RECEIVED", "PARTIAL", "OVERDUE")
+
+
 @login_required
 @require_POST
 def bill_pay(request, pk):
@@ -951,10 +973,21 @@ def bill_pay(request, pk):
     from apps.core.models import SequenceCounter
 
     bill = get_object_or_404(Bill, pk=pk, company=request.active_company)
+    if bill.status not in PAYABLE_STATUSES or bill.total_amount <= 0:
+        why = {
+            "CANCELLED": "it is cancelled, so nothing is owed on it",
+            "PAID": "it is already paid in full",
+            "DEBIT_NOTE": "it is a debit note: the supplier owes you, not the other way round",
+            "DEBITED": "a debit note has already settled it",
+        }.get(bill.status, "it has no amount to pay")
+        messages.error(request, f"{bill.reference} can't be paid: {why}.")
+        return redirect("procurement:bill_detail", pk=pk)
     try:
-        amount = Decimal(request.POST.get("amount") or "0")
+        amount = Decimal((request.POST.get("amount") or "0").replace(",", "").strip())
     except Exception:
-        messages.error(request, "Invalid amount.")
+        amount = None
+    if amount is None or not amount.is_finite():
+        messages.error(request, "Payment amount must be a number.")
         return redirect("procurement:bill_detail", pk=pk)
     if amount <= 0:
         messages.error(request, "Payment amount must be positive.")
@@ -1016,6 +1049,13 @@ def bill_pay(request, pk):
     bank_base = to_base(amount, payment_rate)
 
     with transaction.atomic():
+        # Re-read under a row lock: a double-clicked Pay button must not pay twice.
+        bill = Bill.objects.select_for_update().get(pk=bill.pk)
+        if bill.status not in PAYABLE_STATUSES or amount > bill.outstanding_amount:
+            messages.error(request, f"{bill.reference} changed while you were paying it "
+                                    f"(now {bill.get_status_display().lower()}, "
+                                    f"{bill.outstanding_amount} outstanding). Check it and try again.")
+            return redirect("procurement:bill_detail", pk=pk)
         ref = SequenceCounter.next_number(company, "JE-SPAY-")
         je = JournalEntry.objects.create(
             company=company,

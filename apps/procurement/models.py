@@ -214,7 +214,11 @@ class Bill(BaseModel, NotesMixin):
     def save(self, *args, **kwargs):
         from apps.accounting.models import to_base
 
-        self.outstanding_amount = self.total_amount - self.paid_amount - self.credited_amount
+        # A cancelled bill is no longer owed, whatever its total said.
+        if self.status == "CANCELLED":
+            self.outstanding_amount = Decimal("0")
+        else:
+            self.outstanding_amount = self.total_amount - self.paid_amount - self.credited_amount
         # The book-currency value follows the bill's own money and its booked rate.
         self.total_amount_base = to_base(
             self.total_amount, self.exchange_rate or Decimal("1"))
