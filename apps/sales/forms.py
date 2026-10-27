@@ -1,7 +1,7 @@
 """Sales forms."""
 import datetime
 from django import forms
-from apps.core.forms import date_input, is_new, pick_currency
+from apps.core.forms import date_input, is_new, open_date, pick_currency
 from django.forms import inlineformset_factory
 from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine
 
@@ -19,6 +19,7 @@ class InvoiceForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.company = company
         if company:
             from apps.crm.models import Customer
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
@@ -26,6 +27,31 @@ class InvoiceForm(forms.ModelForm):
         if is_new(self):
             self.fields["invoice_date"].initial = datetime.date.today()
             self.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
+
+    def clean_invoice_date(self):
+        return open_date(self.company, self.cleaned_data.get("invoice_date"), "invoice")
+
+
+class PostedInvoiceForm(forms.ModelForm):
+    """What may still change on an invoice the ledger already carries.
+
+    The customer, dates, currency and lines are what the journal entry was
+    written from; changing them here would leave the document and the ledger
+    telling different stories. A credit note or a cancellation corrects those.
+    """
+    class Meta:
+        model = Invoice
+        fields = ["due_date", "notes"]
+        widgets = {"due_date": date_input(), "notes": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def clean_due_date(self):
+        due = self.cleaned_data.get("due_date")
+        if due and due < self.instance.invoice_date:
+            raise forms.ValidationError("The due date can't be before the invoice date.")
+        return due
 
 
 class InvoiceLineForm(forms.ModelForm):
@@ -73,6 +99,7 @@ class CustomerPaymentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.company = company
         if company:
             from apps.crm.models import Customer
             self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
@@ -82,6 +109,9 @@ class CustomerPaymentForm(forms.ModelForm):
             pick_currency(self, company)
         if is_new(self):
             self.fields["payment_date"].initial = datetime.date.today()
+
+    def clean_payment_date(self):
+        return open_date(self.company, self.cleaned_data.get("payment_date"), "payment")
 
     def clean_amount(self):
         """A receipt is money coming in. A negative or nil figure books an entry

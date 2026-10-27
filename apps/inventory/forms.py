@@ -46,6 +46,9 @@ class ProductForm(forms.ModelForm):
             field.empty_label = "— System default"
 
 
+ADJUSTMENT_TYPES = ("ADJUSTMENT_PLUS", "ADJUSTMENT_MINUS", "OPENING")
+
+
 class StockMovementForm(forms.ModelForm):
     class Meta:
         model = StockMovement
@@ -64,6 +67,30 @@ class StockMovementForm(forms.ModelForm):
             company=company, is_active=True).select_related("unit_of_measure")
         self.fields["warehouse"].queryset = Warehouse.objects.filter(
             company=company, is_active=True)
+        # Receipts, deliveries, transfers, returns and production each have
+        # their own screen, which books both sides. Typed here they would move
+        # stock with half an entry, or none.
+        self.fields["movement_type"].choices = [
+            c for c in self.fields["movement_type"].choices if c[0] in ADJUSTMENT_TYPES]
+        self.fields["unit_cost"].required = False
+        self.fields["unit_cost"].help_text = (
+            "For an increase or opening stock. A decrease always leaves at the "
+            "shelf's average cost.")
+
+    def clean_unit_cost(self):
+        cost = self.cleaned_data.get("unit_cost")
+        if cost is not None and (not cost.is_finite() or cost < 0):
+            raise forms.ValidationError("Unit cost must be zero or more.")
+        return cost or 0
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("movement_type") == "ADJUSTMENT_MINUS":
+            # Stock leaves the book at what the book holds it at; a typed
+            # figure would make the ledger and the shelf disagree.
+            cleaned["unit_cost"] = 0
+            self.instance.unit_cost = 0
+        return cleaned
 
     def clean_quantity(self):
         quantity = self.cleaned_data.get("quantity")

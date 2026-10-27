@@ -237,7 +237,7 @@ def post_invoice(invoice, user=None) -> JournalEntry:
     for (account, _foreign, desc), base in zip(targets, bases):
         _cr(je, account, base, desc)
 
-    je.post(user=user)
+    je.post(user=user, document="invoice")
 
     # Link back to the invoice and mark it as SENT
     from apps.sales.models import Invoice as _Invoice
@@ -292,7 +292,7 @@ def post_credit_note(note, user=None) -> JournalEntry:
         _dr(je, account, base, desc)
     _cr(je, ar_account, total_base, f"AR credit: {note.reference}")
 
-    je.post(user=user)
+    je.post(user=user, document="credit note")
 
     from apps.sales.models import Invoice as _Invoice
     _Invoice.objects.filter(pk=note.pk).update(journal_entry=je, status="CREDIT_NOTE")
@@ -371,7 +371,7 @@ def post_debit_note(note, user=None) -> JournalEntry:
     for (account, _amount, desc), base in zip(targets, bases):
         _cr(je, account, base, desc)
 
-    je.post(user=user)
+    je.post(user=user, document="debit note")
 
     from apps.procurement.models import Bill as _Bill
     _Bill.objects.filter(pk=note.pk).update(journal_entry=je, status="DEBIT_NOTE")
@@ -495,7 +495,7 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
         je, company, bank_base - ar_base,
         f"Realised exchange on {payment.reference}",
     )
-    je.post(user=user)
+    je.post(user=user, document="payment")
 
     from apps.sales.models import CustomerPayment as _CP
     _CP.objects.filter(pk=payment.pk).update(journal_entry=je)
@@ -641,7 +641,9 @@ def _bill_targets(bill, inventory_acct, vat_input_acct):
                 targets.append(
                     (inv_acct, line.line_total + tax_amount, line_desc))
     else:
-        # Header-level fallback
+        # Header-level fallback: the account the bill was entered against, or
+        # stock when none was chosen.
+        inventory_acct = getattr(bill, "charge_account", None) or inventory_acct
         if vat_input_acct and bill.tax_amount and bill.tax_amount > 0:
             # Recoverable VAT: separate input VAT debit
             targets.append((inventory_acct, bill.subtotal, f"Purchases: {bill.reference}"))
@@ -732,7 +734,7 @@ def post_bill(bill, user=None) -> JournalEntry:
     if cleared > 0:
         _dr(je, clearing, cleared,
             f"Goods received and now billed: {bill.reference}")
-    je.post(user=user)
+    je.post(user=user, document="bill")
 
     from apps.procurement.models import Bill as _Bill
     _Bill.objects.filter(pk=bill.pk).update(
@@ -967,7 +969,7 @@ def post_expense_claim(claim, bank_account=None, user=None) -> JournalEntry:
         _dr(je, exp_acct, line.amount, line.description)
 
     _cr(je, cash_acct, claim.total_amount, f"Paid: {claim.reference}")
-    je.post(user=user)
+    je.post(user=user, document="expense claim")
 
     # Link back to claim
     claim.journal_entry = je
@@ -1074,7 +1076,7 @@ def post_payroll_run(run, user=None) -> JournalEntry:
     for account, (amount, label) in sorted(credits.items(), key=lambda kv: kv[0].code):
         _cr(je, account, amount, label)
 
-    je.post(user=user)
+    je.post(user=user, document="payroll run")
     type(run).objects.filter(pk=run.pk).update(journal_entry=je, status="POSTED")
     run.journal_entry = je
     run.status = "POSTED"

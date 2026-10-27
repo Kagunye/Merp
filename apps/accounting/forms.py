@@ -45,6 +45,13 @@ class AccountForm(forms.ModelForm):
             "Tracked against a statement or subledger. Cash, bank, receivable, "
             "payable and tax accounts are always tracked."
         )
+        if self.instance.pk and self.instance.journal_lines.exists():
+            # The type decides which report an account's history sits in:
+            # changing it would move every past posting (rent becoming an asset).
+            self.fields["account_type"].disabled = True
+            self.fields["account_type"].help_text = (
+                "Fixed: this account already has postings. Open a new account of "
+                "the right type and move the balance with a journal.")
 
     def clean_code(self):
         code = (self.cleaned_data.get("code") or "").strip()
@@ -81,15 +88,18 @@ class AccountForm(forms.ModelForm):
         cleaned = super().clean()
         parent = cleaned.get("parent")
         if parent and self.instance.pk:
-            # A chart is a tree: an account cannot parent its own ancestor.
-            ancestor_ids = []
-            node = self.instance
-            while node is not None:
-                ancestor_ids.append(node.pk)
+            # A chart is a tree: walking up from the chosen parent must never
+            # arrive back at this account.
+            seen, node = set(), parent
+            while node is not None and node.pk not in seen:
+                seen.add(node.pk)
                 node = node.parent
-            if parent.pk in ancestor_ids:
+            if self.instance.pk in seen:
                 self.add_error("parent", "An account cannot be its own parent or child.")
         return cleaned
+
+
+MANUAL_TYPES = ("MANUAL", "OPENING")
 
 
 class JournalEntryForm(forms.ModelForm):
@@ -113,6 +123,11 @@ class JournalEntryForm(forms.ModelForm):
         else:
             # A reference is the audit anchor of an entry; nothing rewrites it.
             self.fields["reference"].disabled = True
+        # The other types are written by the documents and the closing
+        # machinery, and reports treat them specially (a CLOSING entry is left
+        # out of the P&L), so a hand-made journal is an adjustment or an opening.
+        self.fields["entry_type"].choices = [
+            c for c in self.fields["entry_type"].choices if c[0] in MANUAL_TYPES]
 
     def clean_reference(self):
         if not self.instance._state.adding:

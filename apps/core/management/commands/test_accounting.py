@@ -132,11 +132,11 @@ RECOMMENDED = [
     ("1300", "Accounts Receivable"),
     ("1400", "Inventory"),
     ("2100", "Accounts Payable"),
-    ("2110", "Stock Received Not Invoiced"),
+    ("3100", "Share Capital"),
     ("2200", "VAT Payable"),
     ("2210", "VAT Input"),
     ("4100", "Sales Revenue"),
-    ("5000", "Cost of Goods Sold"),
+    ("5300", "Stock Adjustments & Shrinkage"),
     ("6000", "Operating Expenses"),
 ]
 
@@ -147,13 +147,12 @@ EXPECTED = {
     "1300": ("880.00", "500.00"),
     "1400": ("7000.00", "500.00"),
     "2100": ("2320.00", "2320.00"),
-    "2110": ("0.00", "5000.00"),
     "2200": ("0.00", "80.00"),
     "2210": ("320.00", "0.00"),
-    "3100": ("0.00", "100000.00"),
+    "3100": ("0.00", "105000.00"),
     "4100": ("0.00", "300.00"),
     "4200": ("0.00", "500.00"),
-    "5000": ("500.00", "0.00"),
+    "5300": ("500.00", "0.00"),
     "6000": ("300.00", "0.00"),
     "6400": ("1200.00", "0.00"),
 }
@@ -984,14 +983,16 @@ class Command(BaseCommand):
         from apps.inventory.models import StockLevel, StockMovement
 
         url = reverse("inventory:adjustment_create")
-        self.post(client, "stock receipt", url, {
+        # Receipts and deliveries have their own screens (orders, deliveries);
+        # the adjustment screen books opening stock and write-downs.
+        self.post(client, "opening stock", url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "RECEIPT", "quantity": "100", "unit_cost": "50",
+            "movement_type": "OPENING", "quantity": "100", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "GRN-1", "notes": "Stock received",
         })
-        self.post(client, "stock delivery", url, {
+        self.post(client, "stock written down", url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "DELIVERY", "quantity": "10", "unit_cost": "50",
+            "movement_type": "ADJUSTMENT_MINUS", "quantity": "10", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "SOUT-1", "notes": "Stock issued",
         })
 
@@ -1004,7 +1005,7 @@ class Command(BaseCommand):
         # Issuing more than the shelf holds must be refused, not posted.
         resp = client.post(url, {
             "product": self.product.pk, "warehouse": self.warehouse.pk,
-            "movement_type": "DELIVERY", "quantity": "500", "unit_cost": "50",
+            "movement_type": "ADJUSTMENT_MINUS", "quantity": "500", "unit_cost": "50",
             "movement_date": str(self.today), "reference": "SOUT-2", "notes": "",
         })
         self.expect("oversized issue blocked", resp.status_code == 200)

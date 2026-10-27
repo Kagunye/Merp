@@ -181,6 +181,12 @@ class Bill(BaseModel, NotesMixin):
     paid_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     outstanding_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True)
+    # What the bill is for when it isn't stock: electricity, rent, a repair.
+    charge_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="charged_bills", verbose_name="Charge to",
+        help_text="The expense (or asset) this bill is for. Leave blank for goods "
+                  "bought into stock.")
     # Returning goods, or a price the supplier agreed to reduce: a debit note
     # answers the bill and both stay in the book.
     original_bill = models.ForeignKey(

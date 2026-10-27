@@ -307,12 +307,17 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
     tax = money(sum((r["tax"] for r in rows), Z))
     total = money(subtotal + tax)
     method = payment_method or sale.payment_method
-    if method == "CASH" and money(sale.session.expected_cash) < total:
+    # Money goes back out of a drawer that is open now — the refunding
+    # cashier's own — never out of a till already counted and closed.
+    till = active_session(company, user)
+    if till is None:
+        raise ValidationError("Open your till first: a refund is paid out of an open drawer.")
+    if method == "CASH" and money(till.expected_cash) < total:
         raise ValidationError(
-            f"The drawer holds {money(sale.session.expected_cash)} and cannot pay back {total}.")
+            f"The drawer holds {money(till.expected_cash)} and cannot pay back {total}.")
 
     ticket = POSSale.objects.create(
-        session=sale.session,
+        session=till,
         reference=SequenceCounter.next_number(company, "POS-R"),
         customer=sale.customer, warehouse=sale.warehouse,
         subtotal=subtotal, discount_amount=Z, tax_amount=tax, total_amount=total,
@@ -336,7 +341,7 @@ def refund(sale, user, quantities, *, reason="", payment_method=None):
     sale.refunded_amount = returned
     sale.status = "REFUNDED" if returned >= sale.total_amount else "PARTIAL_REFUND"
     sale.save(update_fields=["refunded_amount", "status", "updated_at"])
-    retotal(sale.session)
+    retotal(till)
     ticket.refresh_from_db()
     return ticket
 

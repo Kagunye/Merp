@@ -89,3 +89,14 @@ def pick_currency(form, company, field_name="currency", rated_only=True):
         widget=forms.Select(attrs=dict(old.widget.attrs)),
         help_text=f"Converted into {book} at the rate filed for the document date.",
     )
+
+
+def open_date(company, value, what="document"):
+    """Form helper: refuse a document date inside a closed accounting period."""
+    from django.core.exceptions import ValidationError
+    from apps.accounting.models import closed_period_problem
+
+    problem = closed_period_problem(company, value, what)
+    if problem:
+        raise ValidationError(problem)
+    return value

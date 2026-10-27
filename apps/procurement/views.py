@@ -846,17 +846,8 @@ class BillUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("procurement:bill_detail", kwargs={"pk": self.object.pk})
 
     def form_valid(self, form):
-        previous_total = self.object.total_amount
-        was_posted = bool(self.object.journal_entry_id)
         response = super().form_valid(form)
         messages.success(self.request, f"Bill {form.instance.reference} updated.")
-        if was_posted and self.object.total_amount != previous_total:
-            messages.warning(
-                self.request,
-                f"This bill is already posted to the GL for {previous_total}, but the saved "
-                f"bill total is {self.object.total_amount}. Reverse that entry or post a "
-                "correction before the ledger and the bill agree again.",
-            )
         return response
 
     def get_context_data(self, **kwargs):
@@ -1032,6 +1023,12 @@ def bill_pay(request, pk):
             messages.error(request, "Payment date must be a real date.")
             return redirect("procurement:bill_detail", pk=pk)
 
+    from apps.accounting.models import closed_period_problem
+    problem = closed_period_problem(company, payment_date, "payment")
+    if problem:
+        messages.error(request, problem)
+        return redirect("procurement:bill_detail", pk=pk)
+
     # Payables leave the book at the value the bill was raised at; the cash
     # goes out at the payment day's rate, and the gap between them is real money.
     from apps.accounting.currency import document_rate
@@ -1079,7 +1076,7 @@ def bill_pay(request, pk):
         _book_exchange_difference(
             je, company, ap_base - bank_base,
             f"Realised exchange on {bill.reference}")
-        je.post(user=request.user)
+        je.post(user=request.user, document="payment")
         bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
         bill.outstanding_amount = bill.total_amount - bill.paid_amount
         if bill.outstanding_amount <= 0:

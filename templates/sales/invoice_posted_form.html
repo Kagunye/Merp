@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'sales:invoice_detail' object.pk as back_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="This invoice is posted, so only the due date and notes can change. To change the customer, amounts or lines, issue a credit note or cancel it and raise a new one." section_label="Invoice" back_url=back_url cancel_url=back_url submit_label="Save" %}
+{% endblock %}
