@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.accounting.currency import display_rate
 from apps.core.mixins import CompanyRequiredMixin
 
 from .forms import BillForm
@@ -278,7 +279,7 @@ class SupplierStatementView(LoginRequiredMixin, TemplateView):
                      or bill.original_bill_id is not None)
             # Money that left the account is in the bill's own currency, so it
             # is read back at the rate the bill was raised at.
-            paid = to_base(bill.paid_amount, bill.rate)
+            paid = to_base(bill.paid_amount, display_rate(bill, bill.bill_date))
             return {
                 "date": bill.bill_date,
                 "type": "Debit note" if noted else "Bill",

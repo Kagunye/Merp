@@ -73,10 +73,58 @@ def document_rate(instance, on_date=None):
     company = instance.company
     if not code or code == book_currency(company):
         return Decimal("1")
+    posted = posted_rate(instance)
+    if posted is not None:
+        return posted
     if on_date is None:
         raise ValidationError(
             f"Cannot value a {code} document without knowing its date.")
     return ExchangeRate.rate_for(company, code, on_date)
+
+
+# The control account a document's own figure lands on, and which side.
+_CONTROL = {"Invoice": ("RECEIVABLE", "debit_amount"),
+            "CustomerPayment": ("RECEIVABLE", "credit_amount"),
+            "Bill": ("PAYABLE", "credit_amount")}
+
+
+def posted_rate(instance):
+    """The rate a posted document was actually booked at, read off its entry.
+
+    Documents posted before rates were stored on them carry none, but their
+    journal entry still says what the receivable or payable was booked for.
+    That figure over the document's own amount is the rate the ledger used.
+    """
+    entry = getattr(instance, "journal_entry", None)
+    control = _CONTROL.get(type(instance).__name__)
+    amount = getattr(instance, "total_amount", None) or getattr(instance, "amount", None)
+    if entry is None or control is None or not amount:
+        return None
+    if entry.exchange_rate:
+        return Decimal(str(entry.exchange_rate))
+    account_type, side = control
+    booked = sum((getattr(line, side) for line in entry.lines.filter(
+        account__account_type=account_type)), Decimal("0"))
+    if booked <= 0:
+        return None
+    return (booked / Decimal(str(amount))).quantize(Decimal("0.000001"))
+
+
+def display_rate(instance, on_date=None):
+    """A rate for showing a figure, which never fails a page.
+
+    Posting needs a real rate and still refuses without one. A list or a
+    summary of old documents should not: it falls back to the nearest rate
+    ever filed for the currency, and to 1 when there is none.
+    """
+    try:
+        return document_rate(instance, on_date)
+    except ValidationError:
+        code = (getattr(instance, "currency", "") or "").upper()
+        nearest = ExchangeRate.objects.filter(
+            company=instance.company, currency__code=code,
+        ).order_by("-effective_date").values_list("rate", flat=True).first()
+        return Decimal(str(nearest)) if nearest else Decimal("1")
 
 
 def book_value(document, amount_field="total_amount", base_field="total_amount_base"):
@@ -95,8 +143,8 @@ def book_value(document, amount_field="total_amount", base_field="total_amount_b
     for date_field in ("invoice_date", "bill_date", "payment_date"):
         on_date = getattr(document, date_field, None)
         if on_date:
-            return to_base(foreign, document_rate(document, on_date))
-    return to_base(foreign, document_rate(document, None))
+            return to_base(foreign, display_rate(document, on_date))
+    return to_base(foreign, display_rate(document, None))
 
 
 def stamp_document(instance, on_date):
