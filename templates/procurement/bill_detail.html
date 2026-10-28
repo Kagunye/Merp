@@ -62,7 +62,7 @@
       <div><dt class="text-gray-500">Due Date</dt><dd class="text-gray-900">{{ bill.due_date }}</dd></div>
       <div><dt class="text-gray-500">Currency</dt><dd class="font-mono text-gray-900">{{ bill.currency }}</dd></div>
       {% if bill.currency != active_company.currency %}
-      <div><dt class="text-gray-500">Exchange rate</dt><dd class="font-mono text-gray-900">1 {{ bill.currency }} = {{ bill.rate|trim_qty }} {{ active_company.currency }}</dd></div>
+      <div><dt class="text-gray-500">Exchange rate</dt><dd class="font-mono text-gray-900">{% with r=bill.known_rate %}{% if r %}1 {{ bill.currency }} = {{ r|trim_qty }} {{ active_company.currency }}{% else %}No {{ bill.currency }} rate filed for this date{% endif %}{% endwith %}</dd></div>
       {% endif %}
       {% if bill.original_bill %}<div class="col-span-2"><dt class="text-gray-500">Answers bill</dt><dd><a href="{% url 'procurement:bill_detail' bill.original_bill.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.original_bill.reference }}</a></dd></div>{% endif %}
       {% if bill.purchase_order %}<div class="col-span-2"><dt class="text-gray-500">Purchase Order</dt><dd><a href="{% url 'procurement:po_detail' bill.purchase_order.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.purchase_order.reference }}</a></dd></div>{% endif %}

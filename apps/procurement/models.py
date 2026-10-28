@@ -212,10 +212,19 @@ class Bill(BaseModel, NotesMixin):
         return document_rate(self, self.bill_date)
 
     @property
+    def known_rate(self):
+        """The rate if one is booked or filed, else None — for showing, not posting."""
+        from django.core.exceptions import ValidationError
+        try:
+            return self.rate
+        except ValidationError:
+            return None
+
+    @property
     def outstanding_base(self):
         """What is still owed in the ledger's own currency."""
-        from apps.accounting.currency import to_base
-        return to_base(self.outstanding_amount, self.rate)
+        from apps.accounting.currency import display_rate, to_base
+        return to_base(self.outstanding_amount, display_rate(self, self.bill_date))
 
     def save(self, *args, **kwargs):
         from apps.accounting.models import to_base

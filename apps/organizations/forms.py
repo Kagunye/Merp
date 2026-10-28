@@ -37,6 +37,12 @@ class CompanyForm(forms.ModelForm):
             "Base currency for the whole ledger. Foreign invoices, bills and "
             "payments are converted into it at the rate filed for their date."
         )
+        if self.instance.pk and self.instance.journal_entries.exists():
+            # Every posted figure is in this currency; changing it would relabel
+            # the whole ledger (KES 1,000 owed would read as USD 1,000).
+            self.fields["currency"].disabled = True
+            self.fields["currency"].help_text = (
+                "Fixed: the ledger already holds entries in this currency.")
 
 
 class BranchForm(forms.ModelForm):
