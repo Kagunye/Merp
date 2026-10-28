@@ -7,6 +7,49 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def reconcile_old_migration(apps, schema_editor):
+    """Handle the transition from the old 0002_payroll_run_approval.
+
+    That migration added approved_at and approved_by to payrollrun and was
+    recorded in django_migrations. This file replaces it with a larger
+    migration that includes those same AddField operations. Remove the old
+    record and drop the columns it created so the AddField ops below succeed.
+    Also drop any other columns that later operations add, in case a prior
+    partial run left them behind (each Postgres DDL is transactional, but
+    a timeout could leave state if the connection was killed mid-commit).
+    """
+    from django.db import connection
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM django_migrations "
+            "WHERE app='payroll' AND name='0002_payroll_run_approval'"
+        )
+        payrollrun_cols = (
+            'approved_at', 'approved_by_id', 'paid_into_id',
+            'salary_account_id', 'total_employer',
+        )
+        for col in payrollrun_cols:
+            cursor.execute(
+                f'ALTER TABLE payroll_payrollrun '
+                f'DROP COLUMN IF EXISTS "{col}"'
+            )
+        payslip_cols = ('employer_cost', 'taxable_pay')
+        for col in payslip_cols:
+            cursor.execute(
+                f'ALTER TABLE payroll_payslip '
+                f'DROP COLUMN IF EXISTS "{col}"'
+            )
+        salarycomponent_cols = ('calculation', 'employee_id', 'percent')
+        for col in salarycomponent_cols:
+            cursor.execute(
+                f'ALTER TABLE payroll_salarycomponent '
+                f'DROP COLUMN IF EXISTS "{col}"'
+            )
+        for table in ('payroll_payrolltaxband', 'payroll_payslipline',
+                      'payroll_statutoryrule'):
+            cursor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -18,6 +61,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(reconcile_old_migration, migrations.RunPython.noop),
         migrations.AlterModelOptions(
             name='payslip',
             options={'ordering': ['employee__last_name', 'employee__first_name']},
