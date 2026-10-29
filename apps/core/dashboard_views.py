@@ -484,16 +484,26 @@ def sales_chart_widget(request):
                 # P&L of 251,692.17). Expenses are debits less credits for the
                 # same reason, and year-end closing entries are left out — they
                 # empty the accounts, they are not trading.
+                # Entries dated after today are left out as well, the way the
+                # KPI tiles leave them out: an invoice dated next week is not
+                # this month's trading yet, and charting it made the bar and the
+                # tile beside it disagree.
                 month_lines = JournalEntryLine.objects.filter(
                     account__company=company,
                     journal_entry__posting_date__gte=m,
                     journal_entry__posting_date__lt=next_m,
+                    journal_entry__posting_date__lte=today,
                     journal_entry__status="POSTED",
                 ).exclude(journal_entry__entry_type="CLOSING")
                 r = month_lines.filter(account__account_type="REVENUE").aggregate(
                     dr=Sum("debit_amount"), cr=Sum("credit_amount"))
                 rev = (r["cr"] or 0) - (r["dr"] or 0)
-                e = month_lines.filter(account__account_type="EXPENSE").aggregate(
+                # Cost of goods sold is an expense of the month as much as rent
+                # is; the P&L shows it as cost of sales above the expense lines,
+                # and leaving it out charted a trader's month as nearly all
+                # profit.
+                e = month_lines.filter(
+                    account__account_type__in=["EXPENSE", "COST_OF_GOODS"]).aggregate(
                     dr=Sum("debit_amount"), cr=Sum("credit_amount"))
                 exp = (e["dr"] or 0) - (e["cr"] or 0)
             except Exception:

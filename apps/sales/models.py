@@ -83,6 +83,45 @@ class SalesOrder(BaseModel, NotesMixin):
             "subtotal", "tax_amount", "total_amount", "total_amount_base", "updated_at",
         ])
 
+    def order_line_for(self, invoice_line_order_line_id, product_id, lines=None):
+        """The order line an invoice line bills, or None when it bills none.
+
+        An invoice line written by "invoice this order" names its order line.
+        One written before that link existed, or added by hand to the draft for
+        a product the order carries, is matched to the order's first line of
+        the same product — the line it is billing more (or less) of.
+        """
+        lines = list(self.lines.all()) if lines is None else lines
+        known = {line.pk for line in lines}
+        if invoice_line_order_line_id in known:
+            return invoice_line_order_line_id
+        for line in lines:
+            if product_id and line.product_id == product_id:
+                return line.pk
+        return None
+
+    def billed_quantities(self, lines=None, exclude_invoice=None):
+        """How much of each order line the live invoices bill, as {line pk: qty}.
+
+        Live means everything raised from this order except cancelled invoices
+        and credit notes. `exclude_invoice` leaves one invoice out, so a draft
+        being edited can be measured against what the *other* invoices have
+        already billed.
+        """
+        lines = list(self.lines.all()) if lines is None else lines
+        billed = {line.pk: Decimal("0") for line in lines}
+        live = InvoiceLine.objects.filter(
+            invoice__sales_order=self, invoice__original_invoice__isnull=True,
+        ).exclude(invoice__status__in=["CANCELLED", "CREDIT_NOTE"])
+        if exclude_invoice is not None:
+            live = live.exclude(invoice_id=exclude_invoice.pk)
+        for invoice_line in live:
+            target = self.order_line_for(
+                invoice_line.order_line_id, invoice_line.product_id, lines)
+            if target is not None:
+                billed[target] += invoice_line.quantity or Decimal("0")
+        return billed
+
     def sync_invoiced_quantities(self):
         """Work out again how much of each line has been billed, from the invoices.
 
@@ -106,19 +145,7 @@ class SalesOrder(BaseModel, NotesMixin):
         lines = list(self.lines.all())
         if not lines:
             return
-        billed = {line.pk: Decimal("0") for line in lines}
-        by_product = {}
-        for line in lines:
-            by_product.setdefault(line.product_id, line.pk)
-        live = InvoiceLine.objects.filter(
-            invoice__sales_order=self, invoice__original_invoice__isnull=True,
-        ).exclude(invoice__status__in=["CANCELLED", "CREDIT_NOTE"])
-        for invoice_line in live:
-            target = invoice_line.order_line_id
-            if target not in billed:
-                target = by_product.get(invoice_line.product_id)
-            if target is not None:
-                billed[target] += invoice_line.quantity or Decimal("0")
+        billed = self.billed_quantities(lines)
         for line in lines:
             if line.invoiced_quantity != billed[line.pk]:
                 line.invoiced_quantity = billed[line.pk]
