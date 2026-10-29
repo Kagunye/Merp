@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "merp-dev",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["manage.py", "runserver", "8787", "--settings=config.settings.development"],
+      "runtimeExecutable": "C:\\Program Files\\Python312\\python.exe",
+      "runtimeArgs": ["manage.py", "runserver", "8787", "--noreload", "--settings=config.settings.development"],
       "port": 8787
     }
   ]
