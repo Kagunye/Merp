@@ -168,6 +168,7 @@ class SalesQuoteLineForm(forms.ModelForm):
         self.fields["product"].required = False
         self.fields["quantity"].required = False
         self.fields["unit_price"].required = False
+        self.fields["discount_percent"].required = False
         if company:
             from apps.inventory.models import Product
             from apps.accounting.models import TaxRate
@@ -230,6 +231,7 @@ class SalesOrderLineForm(forms.ModelForm):
         self.fields["product"].required = False
         self.fields["quantity"].required = False
         self.fields["unit_price"].required = False
+        self.fields["discount_percent"].required = False
         if company:
             from apps.inventory.models import Product
             from apps.accounting.models import TaxRate
