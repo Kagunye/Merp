@@ -1,86 +1,253 @@
 {% extends "base/base.html" %}
-{% load static %}
+{% block extra_head %}
+<style>
+  /* Profile page. Self-contained: the pre-built tailwind.css is purged, so
+     sizing utilities this page needs aren't guaranteed to exist. */
+  .pf { display: grid; gap: 16px; max-width: 1180px; }
+  .pf-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 14px; }
+  .pf-pad { padding: 20px 22px; }
+  .pf-title { font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pf-title a { font-size: 13px; font-weight: 500; color: var(--primary); text-decoration: none; }
+  .pf-title a:hover { text-decoration: underline; }
+  .pf-muted { color: #6B7280; }
+
+  /* Hero */
+  .pf-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 24px; }
+  .pf-avatar { width: 76px; height: 76px; flex: 0 0 76px; border-radius: 50%; object-fit: cover;
+               display: flex; align-items: center; justify-content: center; color: #fff;
+               font-size: 26px; font-weight: 700; background: var(--primary); letter-spacing: .5px; }
+  .pf-who { flex: 1 1 260px; min-width: 0; }
+  .pf-name { font-size: 22px; font-weight: 700; color: #111827; margin: 0; line-height: 1.25; }
+  .pf-job { margin: 2px 0 10px; font-size: 14px; color: #4B5563; }
+  .pf-job a { color: var(--primary); text-decoration: none; font-weight: 500; }
+  .pf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pf-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+             font-size: 12.5px; background: #F3F4F6; color: #374151; max-width: 100%; }
+  .pf-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pf-chip svg { width: 14px; height: 14px; flex: 0 0 14px; opacity: .7; }
+  .pf-chip-role { background: color-mix(in srgb, var(--primary) 10%, #fff); color: var(--primary); font-weight: 600; }
+  .pf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pf-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 10px;
+            font-size: 13.5px; font-weight: 600; text-decoration: none; border: 1px solid transparent; }
+  .pf-btn svg { width: 16px; height: 16px; }
+  .pf-btn-primary { background: var(--primary); color: #fff; }
+  .pf-btn-primary:hover { background: var(--primary-dark); }
+  .pf-btn-ghost { background: #fff; color: #374151; border-color: #D1D5DB; }
+  .pf-btn-ghost:hover { background: #F9FAFB; }
+
+  /* Completeness */
+  .pf-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; padding: 16px 22px; }
+  .pf-bar { flex: 1 1 200px; height: 8px; border-radius: 99px; background: #F3F4F6; overflow: hidden; }
+  .pf-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 99px; }
+  .pf-progress p { margin: 0; font-size: 13.5px; color: #374151; }
+
+  /* Two columns */
+  .pf-cols { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  @media (min-width: 1024px) { .pf-cols { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
+  .pf-stack { display: grid; gap: 16px; }
+
+  /* Definition lists */
+  .pf-dl { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 24px; margin: 0; }
+  @media (min-width: 640px) { .pf-dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .pf-dl dt { font-size: 11.5px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: .05em; margin: 0 0 4px; }
+  .pf-dl dd { margin: 0; font-size: 14px; color: #111827; overflow-wrap: anywhere; }
+  .pf-dl .pf-wide { grid-column: 1 / -1; }
+  .pf-empty { color: #9CA3AF; }
+
+  /* Lists (companies, sign-ins) */
+  .pf-list { list-style: none; margin: 0; padding: 0; }
+  .pf-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #F3F4F6; }
+  .pf-list li:first-child { border-top: 0; padding-top: 0; }
+  .pf-list li:last-child { padding-bottom: 0; }
+  .pf-co-mark { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; display: flex; align-items: center;
+                justify-content: center; font-weight: 700; font-size: 13px; color: var(--primary);
+                background: color-mix(in srgb, var(--primary) 10%, #fff); }
+  .pf-li-main { flex: 1 1 auto; min-width: 0; }
+  .pf-li-main strong { display: block; font-size: 14px; font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pf-li-main small { display: block; font-size: 12.5px; color: #6B7280; margin-top: 1px; }
+  .pf-badge { font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+  .pf-badge-current { background: #ECFDF5; color: #047857; }
+  .pf-badge-fail { background: #FEF2F2; color: #B91C1C; }
+  .pf-switch { font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none; white-space: nowrap; }
+  .pf-switch:hover { text-decoration: underline; }
+  .pf-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #10B981; }
+  .pf-dot-fail { background: #EF4444; }
+
+  .pf-note { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; background: #FEF2F2; color: #991B1B; }
+  .pf-note a { color: inherit; font-weight: 600; }
+
+  /* Sign out: a plain button, not the app's default form card */
+  main form.pf-signout { all: unset; display: block; }
+  main form.pf-signout button[type="submit"] { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid #FECACA;
+                       background: #fff; color: #B91C1C; font-size: 13.5px; font-weight: 600; cursor: pointer;
+                       text-align: center; box-shadow: none; transform: none; }
+  main form.pf-signout button[type="submit"]:hover { background: #FEF2F2; border-color: #FCA5A5; }
+
+  [data-theme="dark"] .pf-card { background: #171A21; border-color: #2A2F3A; }
+  [data-theme="dark"] .pf-title, [data-theme="dark"] .pf-name, [data-theme="dark"] .pf-dl dd,
+  [data-theme="dark"] .pf-li-main strong { color: #F3F4F6; }
+  [data-theme="dark"] .pf-job, [data-theme="dark"] .pf-progress p { color: #D1D5DB; }
+  [data-theme="dark"] .pf-chip, [data-theme="dark"] .pf-bar { background: #232833; color: #D1D5DB; }
+  [data-theme="dark"] .pf-chip-role { background: color-mix(in srgb, var(--primary) 22%, #171A21); color: #FECDD3; }
+  [data-theme="dark"] .pf-btn-ghost { background: #171A21; color: #E5E7EB; border-color: #374151; }
+  [data-theme="dark"] .pf-list li { border-color: #232833; }
+  [data-theme="dark"] main form.pf-signout button[type="submit"] { background: transparent; border-color: #7F1D1D; color: #FCA5A5; }
+</style>
+{% endblock %}
+
 {% block content %}
 {% url 'accounts:profile_edit' as edit_url %}
-{% include "_includes/page_header.html" with title="My Profile" subtitle=request.user.email back_url=None action_label="Edit profile" action_url=edit_url %}
+{% with u=request.user %}
+<div class="pf">
 
-<div class="grid lg:grid-cols-3 gap-4 items-start">
-  <div class="lg:col-span-2 space-y-4">
-    <div class="bg-white rounded-xl border border-gray-200 p-6">
-      <div class="flex items-center gap-4 mb-6">
-        {% if request.user.avatar %}
-          <img src="{{ request.user.avatar.url }}" alt="{{ request.user.full_name }}" class="w-16 h-16 rounded-full object-cover">
-        {% else %}
-          <div class="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-semibold" style="background: var(--primary)">
-            {{ request.user.initials }}
-          </div>
-        {% endif %}
-        <div>
-          <p class="font-semibold text-gray-900">{{ request.user.full_name }}</p>
-          <p class="text-sm text-gray-500">{{ request.user.job_title|default:"No job title set" }}</p>
-        </div>
-      </div>
-
-      <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.email }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">User ID</dt>
-          <dd class="text-gray-900 mt-1 font-mono text-xs">{{ request.user.username }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Phone</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.phone|default:"—" }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Timezone</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.timezone }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Theme</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.get_theme_preference_display }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Last sign in</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.last_login|date:"d M Y H:i"|default:"This session" }}</dd></div>
-        {% if request.user.bio %}
-        <div class="sm:col-span-2"><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">About</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.bio }}</dd></div>
-        {% endif %}
-      </dl>
-    </div>
-
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-6 py-4 border-b border-gray-100">
-        <h2 class="font-semibold text-gray-800">Companies</h2>
-      </div>
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-          <tr><th class="px-4 py-3 text-left">Company</th><th class="px-4 py-3 text-left">Role</th><th class="px-4 py-3 text-left">Branch</th></tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
-          {% for mem in request.user.memberships.select_related.all %}
-          <tr>
-            <td class="px-4 py-3">{{ mem.company.name }}{% if mem.is_default %} <span class="ml-1 text-xs text-gray-400">(default)</span>{% endif %}</td>
-            <td class="px-4 py-3">{{ mem.get_role_display }}</td>
-            <td class="px-4 py-3 text-gray-500">{{ mem.branch.name|default:"—" }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
-            You are not attached to a company yet.
-            <a href="{% url 'organizations:company_create' %}" class="font-medium" style="color: var(--primary)">Set one up</a>.
-          </td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
-    <h2 class="text-sm font-semibold text-gray-700 mb-3">Account</h2>
-    <a href="{{ edit_url }}" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Edit profile details</a>
-    <a href="{% url 'accounts:change_password' %}" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Change password</a>
-    {% if request.user.is_system_admin %}
-    <a href="{% url 'accounts:user_list' %}" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Manage users</a>
-    <a href="/control-panel/" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Control panel</a>
+  <!-- Who you are -->
+  <section class="pf-card pf-hero">
+    {% if u.avatar %}
+      <img src="{{ u.avatar.url }}" alt="" class="pf-avatar">
+    {% else %}
+      <div class="pf-avatar" aria-hidden="true">{{ u.initials }}</div>
     {% endif %}
-    <div class="pt-2 mt-2 border-t border-gray-100">
-      <form method="post" action="{% url 'accounts:logout' %}">
-        {% csrf_token %}
-        <button type="submit" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-red-50 text-red-600">Sign out</button>
-      </form>
+    <div class="pf-who">
+      <h1 class="pf-name">{{ u.full_name|default:u.email }}</h1>
+      <p class="pf-job">
+        {% if u.job_title %}{{ u.job_title }}{% else %}<a href="{{ edit_url }}">Add your job title</a>{% endif %}
+      </p>
+      <div class="pf-chips">
+        {% if current_membership %}
+        <span class="pf-chip pf-chip-role"><span>{{ current_membership.get_role_display }} · {{ current_membership.company.name }}</span></span>
+        {% endif %}
+        <span class="pf-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+          <span>{{ u.email }}</span>
+        </span>
+        {% if u.phone %}
+        <span class="pf-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>
+          <span>{{ u.phone }}</span>
+        </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="pf-actions">
+      <a href="{{ edit_url }}" class="pf-btn pf-btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        Edit profile
+      </a>
+      <a href="{% url 'accounts:change_password' %}" class="pf-btn pf-btn-ghost">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        Change password
+      </a>
+    </div>
+  </section>
+
+  {% if missing_fields %}
+  <section class="pf-card pf-progress" aria-label="Profile completeness">
+    <p><strong>Your profile is {{ completeness }}% complete.</strong></p>
+    <div class="pf-bar" role="progressbar" aria-valuenow="{{ completeness }}" aria-valuemin="0" aria-valuemax="100"><i style="width: {{ completeness }}%"></i></div>
+    <p>Add: {{ missing_fields|join:", " }} · <a href="{{ edit_url }}" class="pf-switch">Complete it</a></p>
+  </section>
+  {% endif %}
+
+  <div class="pf-cols">
+    <div class="pf-stack">
+
+      <section class="pf-card pf-pad">
+        <h2 class="pf-title">Personal details <a href="{{ edit_url }}">Edit</a></h2>
+        <dl class="pf-dl">
+          <div><dt>Full name</dt><dd>{{ u.full_name|default:"—" }}</dd></div>
+          <div><dt>Username</dt><dd>{{ u.username }}</dd></div>
+          <div><dt>Email</dt><dd>{{ u.email }}</dd></div>
+          <div><dt>Phone</dt><dd>{% if u.phone %}{{ u.phone }}{% else %}<span class="pf-empty">Not added</span>{% endif %}</dd></div>
+          <div class="pf-wide"><dt>About</dt><dd>{% if u.bio %}{{ u.bio|linebreaksbr }}{% else %}<span class="pf-empty">Tell colleagues what you work on.</span>{% endif %}</dd></div>
+        </dl>
+      </section>
+
+      {% if employee %}
+      <section class="pf-card pf-pad">
+        <h2 class="pf-title">Employment <a href="{% url 'hr:leave_create' %}">Request leave</a></h2>
+        <dl class="pf-dl">
+          <div><dt>Employee number</dt><dd>{{ employee.employee_number }}</dd></div>
+          <div><dt>Job title</dt><dd>{{ employee.job_title|default:"—" }}</dd></div>
+          <div><dt>Department</dt><dd>{{ employee.department.name|default:"—" }}</dd></div>
+          <div><dt>Branch</dt><dd>{{ employee.branch.name|default:"—" }}</dd></div>
+          <div><dt>Reports to</dt><dd>{{ employee.reports_to.full_name|default:"—" }}</dd></div>
+          <div><dt>Joined</dt><dd>{{ employee.date_hired|date:"j M Y" }} <span class="pf-muted">({{ employee.date_hired|timesince }})</span></dd></div>
+        </dl>
+      </section>
+      {% endif %}
+
+      <section class="pf-card pf-pad">
+        <h2 class="pf-title">Companies</h2>
+        <ul class="pf-list">
+          {% for m in memberships %}
+          <li>
+            <span class="pf-co-mark" aria-hidden="true">{{ m.company.name|slice:":2"|upper }}</span>
+            <div class="pf-li-main">
+              <strong>{{ m.company.name }}</strong>
+              <small>{{ m.get_role_display }}{% if m.branch %} · {{ m.branch.name }}{% endif %}{% if m.is_default %} · default{% endif %}</small>
+            </div>
+            {% if m.is_current %}
+              <span class="pf-badge pf-badge-current">Current</span>
+            {% else %}
+              <a class="pf-switch" href="{% url 'dashboard:switch_company' m.company.id %}?next={{ request.path }}">Switch</a>
+            {% endif %}
+          </li>
+          {% empty %}
+          <li class="pf-muted">You aren't part of a company yet. <a class="pf-switch" href="{% url 'organizations:company_create' %}">Set one up</a></li>
+          {% endfor %}
+        </ul>
+      </section>
+    </div>
+
+    <div class="pf-stack">
+      <section class="pf-card pf-pad">
+        <h2 class="pf-title">Sign-in activity</h2>
+        {% if previous_sign_in %}
+        <p class="pf-muted" style="margin: -6px 0 14px; font-size: 13px;">Before this session you last signed in on {{ previous_sign_in.created_at|date:"j M Y \a\t H:i" }}.</p>
+        {% endif %}
+        <ul class="pf-list">
+          {% for a in sign_ins %}
+          <li>
+            <span class="pf-dot {% if not a.success %}pf-dot-fail{% endif %}" aria-hidden="true"></span>
+            <div class="pf-li-main">
+              <strong>{{ a.device }}</strong>
+              <small>{{ a.created_at|date:"j M Y, H:i" }}{% if a.ip_address %} · {{ a.ip_address }}{% endif %}</small>
+            </div>
+            {% if not a.success %}<span class="pf-badge pf-badge-fail">Failed</span>{% endif %}
+          </li>
+          {% empty %}
+          <li class="pf-muted">No sign-ins recorded yet.</li>
+          {% endfor %}
+        </ul>
+        {% if failed_recently %}
+        <p class="pf-note">{{ failed_recently }} failed sign-in attempt{{ failed_recently|pluralize }} recently. If that wasn't you, <a href="{% url 'accounts:change_password' %}">change your password</a>.</p>
+        {% endif %}
+      </section>
+
+      <section class="pf-card pf-pad">
+        <h2 class="pf-title">Preferences <a href="{{ edit_url }}">Change</a></h2>
+        <dl class="pf-dl">
+          <div><dt>Theme</dt><dd>{{ u.get_theme_preference_display }}</dd></div>
+          <div><dt>Time zone</dt><dd>{{ u.timezone }}</dd></div>
+          <div class="pf-wide"><dt>Member since</dt><dd>{{ u.date_joined|date:"j M Y" }}</dd></div>
+        </dl>
+      </section>
+
+      <section class="pf-card pf-pad">
+        <h2 class="pf-title">Account</h2>
+        {% if u.is_system_admin or u.is_superuser %}
+        <ul class="pf-list" style="margin-bottom: 14px;">
+          <li><div class="pf-li-main"><a class="pf-switch" href="{% url 'accounts:user_list' %}">Manage users</a></div></li>
+          <li><div class="pf-li-main"><a class="pf-switch" href="/control-panel/">Control panel</a></div></li>
+        </ul>
+        {% endif %}
+        <form method="post" action="{% url 'accounts:logout' %}" class="pf-signout no-card">
+          {% csrf_token %}
+          <button type="submit">Sign out</button>
+        </form>
+      </section>
     </div>
   </div>
 </div>
+{% endwith %}
 {% endblock %}
