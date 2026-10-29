@@ -165,6 +165,9 @@ class SalesQuoteLineForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.fields["product"].required = False
+        self.fields["quantity"].required = False
+        self.fields["unit_price"].required = False
         if company:
             from apps.inventory.models import Product
             from apps.accounting.models import TaxRate
@@ -224,6 +227,9 @@ class SalesOrderLineForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.fields["product"].required = False
+        self.fields["quantity"].required = False
+        self.fields["unit_price"].required = False
         if company:
             from apps.inventory.models import Product
             from apps.accounting.models import TaxRate

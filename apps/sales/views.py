@@ -655,10 +655,6 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
         formset = self.get_line_formset()
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
-        filled = [f for f in formset if f.cleaned_data and not f.cleaned_data.get("DELETE") and f.cleaned_data.get("product")]
-        if not filled:
-            formset._non_form_errors = formset.error_class(["Add at least one line item with a product."])
-            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
         with transaction.atomic():
             self.object = form.save()
             formset.instance = self.object
@@ -753,10 +749,6 @@ class SalesQuoteCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
             form.instance.reference = SequenceCounter.next_number(company, "SQ-")
         formset = self.get_line_formset()
         if not formset.is_valid():
-            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
-        filled = [f for f in formset if f.cleaned_data and not f.cleaned_data.get("DELETE") and f.cleaned_data.get("product")]
-        if not filled:
-            formset._non_form_errors = formset.error_class(["Add at least one line item with a product."])
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
         with transaction.atomic():
             self.object = form.save()
