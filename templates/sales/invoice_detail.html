@@ -19,15 +19,20 @@
     </div>
     <div class="flex gap-2 flex-wrap no-print">
       {% include "_includes/print_button.html" %}
+      {% can_do "sales:invoice_cancel" "POST" as may_cancel %}
+      {% can_do "sales:invoice_post" "POST" as may_post %}
       {% if invoice.status != 'PAID' and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
       <a href="{% url 'sales:invoice_edit' invoice.pk %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
       <a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Record Payment</a>
+      {% endif %}
+      {% comment %}Cancel is offered wherever the view accepts it: nothing paid or credited yet, and the role may cancel. A zero-value invoice is settled the moment it is posted, but its goods can still be called back.{% endcomment %}
+      {% if may_cancel and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' and not invoice.original_invoice_id and invoice.paid_amount <= 0 and invoice.credited_amount <= 0 %}
       <form method="post" action="{% url 'sales:invoice_cancel' invoice.pk %}" onsubmit="return confirm('Cancel this invoice? If it is posted, an offsetting entry is created — the original is never erased.');">
         {% csrf_token %}
         <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
       </form>
       {% endif %}
-      {% if not invoice.journal_entry_id and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
+      {% if may_post and invoice.status == 'DRAFT' and not invoice.journal_entry_id %}
       <form method="post" action="{% url 'sales:invoice_post' invoice.pk %}">
         {% csrf_token %}
         <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
@@ -221,6 +226,10 @@
       <label class="text-xs text-gray-500 flex-1 min-w-[220px]">
         Reason (goes on the credit note)
         <input type="text" name="reason" maxlength="500" class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="Goods returned / overcharged / price agreed down">
+      </label>
+      <label class="text-xs text-gray-500">
+        Credit note date
+        <input type="date" name="credit_date" value="{{ credit_date_default|date:'Y-m-d' }}" min="{{ invoice.invoice_date|date:'Y-m-d' }}" class="mt-1 block px-3 py-2 text-sm border border-gray-300 rounded-lg">
       </label>
       {% if has_stock_lines %}
       <label class="text-xs text-gray-600 flex items-center gap-2">

@@ -239,13 +239,44 @@ def post_invoice(invoice, user=None) -> JournalEntry:
     invoice : sales.Invoice instance (with lines pre-saved)
     user    : accounts.User (posted_by)
 
-    Returns the JournalEntry.
-    Raises ValueError if essential accounts are missing.
+    Returns the JournalEntry, or None for a zero-value invoice (which books
+    only its stock issue). Raises ValueError if essential accounts are
+    missing, and ValidationError for a cancelled invoice, a credit note, or an
+    order's invoice carrying stocked goods the order never promised.
     """
     if invoice.journal_entry_id:
         return invoice.journal_entry
 
+    # Only a live sale is posted. A cancelled invoice was withdrawn — posting it
+    # would book AR and revenue nobody is owed and relabel the paper SENT,
+    # bringing it back from the dead — and a credit note is booked the other
+    # way round by post_credit_note. Bills refuse the same.
+    if invoice.status == "CANCELLED":
+        raise ValidationError(
+            f"Invoice {invoice.reference} is cancelled, so it cannot be posted. "
+            "Raise a new invoice if the sale is going ahead after all.")
+    if invoice.status == "CREDIT_NOTE" or invoice.original_invoice_id:
+        raise ValidationError(
+            f"{invoice.reference} is a credit note; it is posted when it is issued "
+            "against its invoice, never as a sale.")
+
     company = invoice.company
+    _refuse_unbilled_order_stock(invoice)
+
+    if not invoice.total_amount and not invoice.subtotal and not invoice.tax_amount:
+        # A free sample, or goods given at a 100% discount: there is no
+        # receivable and no revenue, and an entry of nothing cannot be posted.
+        # The goods still leave the shelf, though, and what they cost the
+        # company is still a cost of sale — so the stock issue (Dr Cost of
+        # Goods Sold / Cr Inventory, at average cost) is booked on its own and
+        # the paper is marked settled, because nothing is owed on it.
+        if invoice.status != "DRAFT":
+            return None
+        issue_invoice_stock(invoice, user=user)
+        from apps.sales.models import Invoice as _Invoice
+        _Invoice.objects.filter(pk=invoice.pk).update(status="PAID")
+        invoice.status = "PAID"
+        return None
 
     ar_account = (
         _get_account_safe(company, "1300")
@@ -317,6 +348,40 @@ def _issue_warehouse(invoice):
 def _stocked_lines(document):
     return [line for line in document.lines.select_related("product")
             if line.product_id and line.product.track_inventory]
+
+
+def unbilled_order_stock(invoice):
+    """Stocked lines on an order's invoice that bill none of the order's lines.
+
+    An invoice raised from an order never issues stock: the order's delivery
+    takes the goods off the shelf, and the invoice only bills them. A stocked
+    product typed onto that draft by hand, for a product the order does not
+    carry, would therefore be billed and never leave the shelf — revenue with
+    no cost of sale and a stock count that is wrong by those units. Such lines
+    are refused rather than issued from the invoice, so that every unit on an
+    order's invoice goes out through the order's own delivery note (which is
+    where the warehouse looks) and is capped by what the order promised.
+
+    Returned as a list of the offending lines; empty for a direct invoice.
+    """
+    order = invoice.sales_order
+    if order is None or invoice.original_invoice_id:
+        return []
+    lines = list(order.lines.all())
+    return [line for line in _stocked_lines(invoice)
+            if order.order_line_for(line.order_line_id, line.product_id, lines) is None]
+
+
+def _refuse_unbilled_order_stock(invoice):
+    stray = unbilled_order_stock(invoice)
+    if stray:
+        names = ", ".join(sorted({line.product.name for line in stray}))
+        raise ValidationError(
+            f"{invoice.reference} is raised from order {invoice.sales_order.reference}, "
+            f"which does not carry {names}. Goods on an order's invoice leave the shelf "
+            "through the order's delivery, so these would be billed and never issued. "
+            "Remove the line and bill those goods on a direct invoice, which issues "
+            "them, or put them on a sales order and deliver them.")
 
 
 def stock_shortages(invoice, warehouse=None):
@@ -395,6 +460,53 @@ def issue_invoice_stock(invoice, user=None):
     return movements
 
 
+def _direct_issues(invoice):
+    """The DELIVERY movements a direct invoice's own posting made."""
+    from apps.inventory.models import StockMovement
+    return StockMovement.objects.filter(
+        product__company=invoice.company, movement_type="DELIVERY",
+        sales_order__isnull=True, reference=invoice.reference)
+
+
+def unissue_invoice_stock(invoice, user=None):
+    """Put a cancelled direct invoice's goods back, and take back what they cost.
+
+    Cancelling a posted invoice reverses its revenue entry, but the goods it
+    issued left the shelf through movements of their own, each with its own
+    Dr Cost of Goods Sold / Cr Inventory entry. Left alone, the sale is gone
+    while the goods stay missing from the shelf and their cost stays charged —
+    the warehouse count and the gross margin are both wrong by the invoice.
+
+    Each issue comes back as a RETURN_IN of the same quantity to the same
+    warehouse, priced at the unit cost the issue went out at (not today's
+    average, which may have moved since), dated on the invoice's own date so
+    it lands in the same period as the revenue reversal. post_stock_receipt
+    books Dr Inventory / Cr Cost of Goods Sold for exactly the value the issue
+    charged, so the pair nets to nothing.
+
+    Nothing is done for an invoice raised from an order (its goods left on the
+    order's delivery, which a return answers) or twice for the same invoice.
+    Returns the movements made.
+    """
+    from apps.inventory.models import StockMovement
+    if invoice.sales_order_id or invoice.original_invoice_id:
+        return []
+    if StockMovement.objects.filter(
+            product__company=invoice.company, movement_type="RETURN_IN",
+            sales_order__isnull=True, reference=invoice.reference).exists():
+        return []
+    back = []
+    for issue in _direct_issues(invoice).select_related("product", "warehouse"):
+        back.append(StockMovement.objects.create(
+            product=issue.product, warehouse=issue.warehouse, movement_type="RETURN_IN",
+            quantity=issue.quantity, unit_cost=issue.unit_cost,
+            movement_date=invoice.invoice_date, reference=invoice.reference,
+            performed_by=user,
+            notes=f"Back on the shelf: invoice {invoice.reference} cancelled",
+        ))
+    return back
+
+
 def _issues_for(invoice, product):
     """The movements that took this invoice's goods of `product` off the shelf.
 
@@ -425,6 +537,23 @@ def return_credit_note_stock(note, user=None):
     from apps.inventory.models import StockMovement
     from apps.sales.models import Invoice as _Invoice
     original = note.original_invoice
+    # Goods on an order's invoices all left through the order's deliveries,
+    # which belong to the order and not to any one of its invoices. So the
+    # cap is kept across the whole order: everything delivered on it, against
+    # everything any of its invoices' notes already took back. Counting every
+    # delivery as issued against each invoice while counting only that
+    # invoice's own returns let two invoices on one order, 5 delivered, each
+    # take 5 back — 10 units on the shelf that never left it.
+    if original.sales_order_id:
+        earlier = _Invoice.objects.filter(
+            original_invoice__sales_order_id=original.sales_order_id)
+        source = f"order {original.sales_order.reference}"
+    else:
+        earlier = _Invoice.objects.filter(original_invoice=original)
+        source = original.reference
+    earlier_notes = list(earlier.filter(
+        status="CREDIT_NOTE", goods_returned=True,
+    ).exclude(pk=note.pk).values_list("reference", flat=True))
     returned = []
     for line in _stocked_lines(note):
         product = line.product
@@ -435,17 +564,18 @@ def return_credit_note_stock(note, user=None):
                 f"No {product.name} has left the warehouse against {original.reference}, "
                 "so there is nothing to take back into stock. Untick 'goods returned' "
                 "to credit the price only, or deliver the order first.")
-        earlier_notes = list(_Invoice.objects.filter(
-            original_invoice=original, status="CREDIT_NOTE", goods_returned=True,
-        ).exclude(pk=note.pk).values_list("reference", flat=True))
         back_already = sum((m.quantity for m in StockMovement.objects.filter(
             movement_type="RETURN_IN", product=product, reference__in=earlier_notes,
             product__company=original.company)), Decimal("0"))
+        # Two lines of the same product on this one note are one return.
+        back_already += sum((m.quantity for m in returned if m.product_id == product.pk),
+                            Decimal("0"))
         if back_already + line.quantity > issued_qty:
             raise ValidationError(
                 f"Only {_qty_text(issued_qty)} {product.name} left the warehouse against "
-                f"{original.reference} and {_qty_text(back_already)} came back already, so "
-                f"{_qty_text(line.quantity)} more cannot be returned to stock.")
+                f"{source} and {_qty_text(back_already)} came back already, so "
+                f"{_qty_text(line.quantity)} more cannot be returned to stock. Untick "
+                "'goods returned' to credit the price only.")
         issued_value = sum((m.total_cost or Decimal("0") for m in issues), Decimal("0"))
         unit_cost = (issued_value / issued_qty).quantize(Decimal("0.0001"))
         returned.append(StockMovement.objects.create(
@@ -1715,8 +1845,14 @@ def _movement_value(movement) -> Decimal:
 
 
 def _qty_text(quantity) -> str:
-    """How a counted quantity reads on a journal line: 5, not 5.0000."""
-    text = format(Decimal(str(quantity or 0)), "f").rstrip("0").rstrip(".")
+    """How a counted quantity reads on a journal line: 5, not 5.0000.
+
+    Only zeros after the point go: a quantity of 20 with no decimals used to
+    read "2" in a shortage message, and 100 read "1".
+    """
+    text = format(Decimal(str(quantity or 0)), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
     return text or "0"
 
 

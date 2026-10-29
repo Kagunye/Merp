@@ -1,5 +1,8 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
+{% comment %}Giving a receipt back is the finance manager's step (access table: payment_reverse); other roles see the receipt without the button.{% endcomment %}
+{% can_do "sales:payment_reverse" "POST" as may_reverse %}
 <div class="space-y-5">
   <div class="flex items-center justify-between">
     <div><h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1></div>
@@ -68,7 +71,7 @@
             {% endif %}
           </td>
           <td class="px-4 py-3 align-top text-right whitespace-nowrap">
-            {% if p.status == 'RECEIVED' and p.journal_entry %}
+            {% if may_reverse and p.status == 'RECEIVED' and p.journal_entry %}
               <form method="post" action="{% url 'sales:payment_reverse' p.pk %}" class="inline-flex items-center gap-1"
                     onsubmit="return confirm('Give this receipt back? The invoices it settled become owed again and an offsetting entry is booked in the same period.');">
                 {% csrf_token %}

@@ -50,9 +50,27 @@ def _typed_number(raw, label, limit=QUANTITY_LIMIT):
     return value
 
 
+def _finer_than_stock(qty):
+    """Whether a typed quantity has more places than a stock quantity holds.
+
+    Quantities are kept to four decimal places. 0.00001 is stored as 0.0000,
+    so a delivery of it moved nothing on the shelf, yet the line was still
+    called delivered and a cent of cost was booked for no goods at all. A
+    figure finer than the column is refused rather than silently rounded.
+    """
+    return qty != qty.quantize(Decimal("0.0001"))
+
+
 def _qty(value):
-    """12.0000 written as 12 in a message."""
-    return format(Decimal(str(value)), "f").rstrip("0").rstrip(".") or "0"
+    """12.0000 written as 12 in a message.
+
+    Only zeros after the decimal point are dropped: a typed 20 has no point,
+    and stripping its zero printed "Cannot bill 2" for a request of 20.
+    """
+    text = format(Decimal(str(value)), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def _money(value):
@@ -84,6 +102,21 @@ def _may_post_invoices(request):
                       "sales", "invoice_post", "POST")
 
 
+def _posted_message(invoice):
+    """What to tell the reader once post_invoice has run on this invoice.
+
+    A zero-value invoice (a free sample, a 100% discount) has no receivable and
+    no revenue, so nothing is booked for the sale itself; only its goods leave
+    the shelf at cost. Saying "posted to GL" with no entry to show would send
+    the reader looking for one.
+    """
+    if invoice.journal_entry_id:
+        return f"Invoice '{invoice.reference}' posted to GL."
+    return (f"Invoice '{invoice.reference}' is for nothing, so no revenue or "
+            "receivable was booked. Any stocked goods on it have left the shelf "
+            "and been charged to cost of sales at what they cost.")
+
+
 def _editable(invoice):
     """Only a draft that has never reached the ledger can be rewritten.
 
@@ -102,6 +135,70 @@ def _resync_order(invoice):
     order = SalesOrder.objects.select_for_update().filter(pk=invoice.sales_order_id).first()
     if order:
         order.sync_invoiced_quantities()
+
+
+def _order_lines_refusal(invoice, formset):
+    """Why the edited lines of an order's draft cannot be saved, or None.
+
+    A draft raised from an order bills that order, so it is held to it:
+
+    * a line that bills an order line, together with what the order's other
+      live invoices already bill on it, can come to no more than the order
+      line's quantity. 2 ordered and 20 billed is a receivable for 18 units
+      nobody agreed to sell, and the order would read fully invoiced (and
+      its delivery screen would still only ever let 2 leave the shelf);
+    * a line keeps the product of the order line it bills — switching it
+      would bill one product against another's quantities;
+    * a stocked product the order does not carry is refused. Goods on an
+      order's invoice leave the shelf through the order's delivery, never
+      through the invoice, so such a line would be billed and never issued.
+      Services and other unstocked charges (carriage, installation) may be
+      added freely: nothing leaves a shelf for them.
+
+    A direct invoice is not touched by any of this.
+    """
+    order = invoice.sales_order
+    if order is None:
+        return None
+    lines = list(order.lines.select_related("product"))
+    by_pk = {line.pk: line for line in lines}
+    elsewhere = order.billed_quantities(lines, exclude_invoice=invoice)
+    here = {line.pk: Decimal("0") for line in lines}
+    for line_form in formset.forms:
+        data = getattr(line_form, "cleaned_data", None) or {}
+        if not data or data.get("DELETE"):
+            continue
+        product, qty = data.get("product"), data.get("quantity")
+        if qty is None:
+            continue
+        saved = line_form.instance if line_form.instance.pk else None
+        linked = saved.order_line_id if saved else None
+        if linked in by_pk and product is not None \
+                and product.pk != by_pk[linked].product_id:
+            return (f"The line for {by_pk[linked].product.name} was raised from order "
+                    f"{order.reference} and bills that order line, so its product cannot "
+                    f"be changed to {product.name}. Remove the line instead, and bill "
+                    f"{product.name} on its own invoice.")
+        target = order.order_line_for(linked, product.pk if product else None, lines)
+        if target is None:
+            if product is not None and product.track_inventory:
+                return (f"{product.name} is not on order {order.reference}. Stocked goods "
+                        "on an order's invoice leave the shelf through the order's delivery, "
+                        "so this line would be billed and never issued. Bill it on a direct "
+                        "invoice, which issues the goods, or put it on a sales order.")
+            continue
+        here[target] += qty
+    for pk, qty in here.items():
+        line = by_pk[pk]
+        left = line.quantity - elsewhere.get(pk, Decimal("0"))
+        if qty > left:
+            done = elsewhere.get(pk, Decimal("0"))
+            return (f"Cannot bill {_qty(qty)} of {line.product.name} on this invoice: order "
+                    f"{order.reference} is for {_qty(line.quantity)}"
+                    + (f" and its other invoices already bill {_qty(done)}" if done else "")
+                    + f", so at most {_qty(max(left, Decimal('0')))} can be billed here. "
+                    "Extra goods are a new order, or a direct invoice.")
+    return None
 
 
 def _recalculate_invoice_totals(invoice):
@@ -235,6 +332,8 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
                 f"{_money(self.object.total_amount)} {self.object.currency}. Posting it "
                 "to the ledger is a finance step: an accountant or finance manager "
                 "checks it and presses Post to GL.")
+        elif posted and not self.object.journal_entry_id:
+            messages.success(self.request, _posted_message(self.object))
         elif posted:
             messages.success(self.request, f"Invoice '{self.object.reference}' created and posted to the GL.")
         else:
@@ -273,6 +372,10 @@ class InvoiceDetailView(LoginRequiredMixin, DetailView):
         ctx["lines"] = self.object.lines.select_related("product", "tax_rate")
         ctx["payments"] = self.object.allocations.select_related("payment")
         ctx["credit_token"] = tokens.issue(self.request, "credit_note")
+        # Today, unless the invoice is dated later still: a credit note cannot
+        # come before the invoice it answers, and the box should not open on a
+        # date the server would refuse.
+        ctx["credit_date_default"] = max(datetime.date.today(), self.object.invoice_date)
         ctx["has_stock_lines"] = any(
             line.product_id and line.product.track_inventory for line in ctx["lines"])
         return ctx
@@ -288,16 +391,32 @@ class InvoicePostView(LoginRequiredMixin, View):
         company = request.active_company
         invoice = get_object_or_404(Invoice, pk=pk, company=company)
 
-        # Clear existing journal entry link so post_invoice re-creates it
         if invoice.journal_entry_id:
             messages.info(request, "Invoice is already posted to GL.")
+            return redirect("sales:invoice_detail", pk=pk)
+        # A cancelled invoice was withdrawn, and a credit note is posted by the
+        # credit-note step itself. Posting either here used to book AR and
+        # revenue for a sale nobody is owed and relabel the paper SENT, which
+        # brought a cancelled invoice back to life. post_invoice refuses them
+        # too; saying so here keeps the message plain.
+        if invoice.status in ("CANCELLED", "CREDIT_NOTE") or invoice.original_invoice_id:
+            messages.error(
+                request,
+                f"Invoice {invoice.reference} is {invoice.get_status_display()}, so it "
+                "cannot be posted. Raise a new invoice for the sale instead.")
+            return redirect("sales:invoice_detail", pk=pk)
+        if invoice.status != "DRAFT":
+            # A zero-value invoice has no revenue entry to link, so it carries no
+            # journal entry even once its goods are issued; it is not a draft
+            # any more, and posting it again would issue nothing twice.
+            messages.info(request, f"Invoice {invoice.reference} is already posted.")
             return redirect("sales:invoice_detail", pk=pk)
 
         try:
             from apps.accounting.gl_service import post_invoice
             with transaction.atomic():
                 post_invoice(invoice, user=request.user)
-            messages.success(request, f"Invoice '{invoice.reference}' posted to GL.")
+            messages.success(request, _posted_message(invoice))
         except Exception as exc:
             messages.error(request, f"GL posting failed: {_first_message(exc)}")
 
@@ -560,11 +679,21 @@ def payment_reverse(request, pk):
             for entry in applied:
                 if entry.status == "POSTED" and not entry.reversed_by_id:
                     entry.reverse(user=request.user)
+            # Added up per invoice first, then taken off a fresh, locked copy
+            # of each invoice once. Credit applied in two slices (2,000 on
+            # Monday, 3,000 on Tuesday) is two allocation rows on one invoice;
+            # each row used to carry its own copy of that invoice, so the
+            # second save wrote "paid 5,000 less 3,000" over the first and the
+            # invoice kept 2,000 of money the bank had taken back.
+            given_back = {}
             for allocation in settled:
-                invoice = allocation.invoice
+                given_back[allocation.invoice_id] = (
+                    given_back.get(allocation.invoice_id, Decimal("0"))
+                    + allocation.allocated_amount)
+            for invoice_id, amount in given_back.items():
+                invoice = Invoice.objects.select_for_update().get(pk=invoice_id)
                 invoice.paid_amount = max(
-                    Decimal("0"),
-                    (invoice.paid_amount or Decimal("0")) - allocation.allocated_amount)
+                    Decimal("0"), (invoice.paid_amount or Decimal("0")) - amount)
                 # save() works the outstanding and the name back out of it, so a
                 # paper that was called paid is owed again.
                 invoice.save()
@@ -578,7 +707,7 @@ def payment_reverse(request, pk):
     messages.success(
         request,
         f"{payment.reference} reversed through {reversal.reference}: "
-        f"{len(settled)} invoice(s) put back on account.")
+        f"{len(given_back)} invoice(s) put back on account.")
     return redirect("sales:payment_list")
 
 
@@ -777,8 +906,12 @@ class CustomerStatementView(LoginRequiredMixin, TemplateView):
                 invoice.get_status_display(),
                 reverse("sales:invoice_detail", args=[invoice.pk]))
 
-        def payment_base(payment):
-            """What the receipt took off the customer's account, in the book.
+        def applied_on(payment, allocation):
+            """The day a slice of the receipt settled its invoice."""
+            return allocation.allocation_date or payment.payment_date
+
+        def payment_base(payment, as_at=None):
+            """What the receipt held off the customer's account on `as_at`, in the book.
 
             Not the cash at the bank's rate: the slices that settled invoices
             cleared them at the rate each invoice was raised at, and only the
@@ -788,25 +921,75 @@ class CustomerStatementView(LoginRequiredMixin, TemplateView):
             customer owes or is owed. Counting it here left a fully paid
             customer's statement closing at -175.00 for a USD 100 invoice raised
             at 129.50 and paid at 131.25.
+
+            Measured as at a day, because credit applied later changes it: until
+            the 24th the whole receipt sits on account at its own rate, and only
+            from the 24th does the applied slice stand at the invoice's. A
+            statement to the 20th valued with the 24th's application showed AR
+            figures the ledger never held on the 20th. No date means as it
+            stands now.
             """
-            settled = Decimal("0")
+            settled = settled_amount = Decimal("0")
             for allocation in payment.allocations.select_related("invoice"):
+                if as_at is not None and applied_on(payment, allocation) > as_at:
+                    continue
                 settled += (allocation.base_amount
                             or to_base(allocation.allocated_amount, allocation.invoice.rate))
-            return settled + receivables.unapplied_base(payment)
+                settled_amount += allocation.allocated_amount
+            unapplied = max(payment.amount - settled_amount, Decimal("0"))
+            return settled + receivables.unapplied_base(payment, unapplied)
+
+        def exchange_rows(payment, after, upto):
+            """The receipt's change in book value each day credit was applied.
+
+            Applying money on account to an invoice at another rate releases it
+            at the receipt's rate and clears the invoice at its own, and the
+            gap moves AR (gl_service.apply_customer_credit). It happens on the
+            application's date, so it is a line of its own on that day — the
+            receipt itself stays on its own date at what it was worth then.
+            Only applications after `after` (exclusive) and up to `upto` are
+            listed; together with the receipt row (or the opening balance)
+            they bring the receipt to what it is worth at the window's end.
+            """
+            days = sorted({applied_on(payment, a) for a in payment.allocations.all()
+                           if applied_on(payment, a) > after
+                           and (upto is None or applied_on(payment, a) <= upto)})
+            rows = []
+            for day in days:
+                change = (payment_base(payment, day - datetime.timedelta(days=1))
+                          - payment_base(payment, day))
+                if not change:
+                    continue
+                paper = sum((a.allocated_amount for a in payment.allocations.all()
+                             if applied_on(payment, a) == day), Decimal("0"))
+                rows.append({
+                    "date": day, "type": "Credit applied", "reference": payment.reference,
+                    "detail": "exchange difference on applying money on account",
+                    "currency": payment.currency, "paper": paper,
+                    "rate": payment.exchange_rate,
+                    "debit": change if change > 0 else Decimal("0"),
+                    "credit": -change if change < 0 else Decimal("0"),
+                    "url": "",
+                })
+            return rows
 
         window = [invoice_row(i) for i in
                   in_window(invoices(), "invoice_date")]
-        window += [row(p.payment_date, "Payment", p, payment_base(p), "credit",
-                       p.get_payment_method_display(), "")
-                   for p in in_window(payments(), "payment_date")]
+        for p in in_window(payments(), "payment_date"):
+            window.append(row(p.payment_date, "Payment", p,
+                              payment_base(p, p.payment_date), "credit",
+                              p.get_payment_method_display(), ""))
+            window += exchange_rows(p, p.payment_date, to_date)
+        day_before = from_date - datetime.timedelta(days=1) if from_date else None
+        for p in before_window(payments(), "payment_date"):
+            window += exchange_rows(p, day_before, to_date)
         window.sort(key=lambda r: (r["date"], str(r["reference"])))
 
         # Everything the book holds before the window, in the book's money.
         opening = sum(((invoice_row(i)["debit"] - invoice_row(i)["credit"])
                        for i in before_window(invoices(), "invoice_date")),
                       Decimal("0"))
-        opening -= sum((payment_base(p)
+        opening -= sum((payment_base(p, day_before)
                         for p in before_window(payments(), "payment_date")),
                        Decimal("0"))
 
@@ -1094,6 +1277,11 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
             if not _editable(current):
                 messages.error(self.request, self.locked_message(current))
                 return redirect("sales:invoice_detail", pk=current.pk)
+            refusal = _order_lines_refusal(current, formset)
+            if refusal:
+                form.add_error(None, refusal)
+                return self.render_to_response(
+                    self.get_context_data(form=form, line_formset=formset))
             self.object = form.save()
             formset.instance = self.object
             formset.save()
@@ -1145,21 +1333,38 @@ def invoice_cancel(request, pk):
         )
         return redirect("sales:invoice_detail", pk=pk)
 
-    with transaction.atomic():
-        if inv.journal_entry_id:
-            try:
+    if inv.status == "CREDIT_NOTE" or inv.original_invoice_id:
+        messages.error(
+            request, f"{inv.reference} is a credit note. A credit note is answered by "
+            "a new invoice for what it gave back, not cancelled.")
+        return redirect("sales:invoice_detail", pk=pk)
+
+    from apps.accounting.gl_service import unissue_invoice_stock
+    restocked = []
+    try:
+        with transaction.atomic():
+            if inv.journal_entry_id:
                 inv.journal_entry.reverse(user=request.user)
-            except Exception as exc:
-                messages.error(request, f"Cancel failed: {exc}")
-                return redirect("sales:invoice_detail", pk=pk)
-        inv.status = "CANCELLED"
-        inv.save(update_fields=["status", "updated_at"])
-        _resync_order(inv)
+            # A direct invoice issued its own goods when it was posted. The
+            # revenue reversal does not bring them back, so the issue is
+            # answered too: the units return at the cost they left at, and the
+            # cost of sales charged for them comes off again.
+            restocked = unissue_invoice_stock(inv, user=request.user)
+            inv.status = "CANCELLED"
+            inv.save(update_fields=["status", "updated_at"])
+            _resync_order(inv)
+    except Exception as exc:
+        # Nothing is kept: a revenue reversal without its stock coming back
+        # (or the other way round) would leave the book half cancelled.
+        messages.error(request, f"Cancel failed: {_first_message(exc)}")
+        return redirect("sales:invoice_detail", pk=pk)
 
     messages.success(
         request,
         f"Invoice {inv.reference} cancelled."
-        + (" Offsetting entry posted." if inv.journal_entry_id else ""),
+        + (" Offsetting entry posted." if inv.journal_entry_id else "")
+        + (f" {len(restocked)} stocked line(s) are back on the shelf at the cost they "
+           "were issued at, and that cost is off cost of sales again." if restocked else ""),
     )
     return redirect("sales:invoice_detail", pk=pk)
 
@@ -1289,6 +1494,13 @@ def order_deliver(request, pk):
             return redirect("sales:order_deliver", pk=pk)
         if qty < 0:
             messages.error(request, "Delivered quantities cannot be negative.")
+            return redirect("sales:order_deliver", pk=pk)
+        if _finer_than_stock(qty):
+            messages.error(
+                request,
+                f"Cannot deliver {raw} of {line.product.name}: quantities are kept to "
+                "four decimal places (0.0001 at the finest). Round the figure and "
+                "deliver again.")
             return redirect("sales:order_deliver", pk=pk)
         outstanding = line.quantity - (line.delivered_quantity or Decimal("0"))
         if qty > outstanding:
@@ -1483,13 +1695,37 @@ def invoice_credit_note(request, pk):
         if qty < 0:
             messages.error(request, "Credit quantities cannot be negative.")
             return redirect("sales:invoice_detail", pk=pk)
+        if _finer_than_stock(qty):
+            messages.error(
+                request, f"Cannot credit {raw} of {line.description}: quantities are "
+                "kept to four decimal places (0.0001 at the finest).")
+            return redirect("sales:invoice_detail", pk=pk)
         if qty > 0:
             typed[line.pk] = qty
     if not typed:
         messages.error(request, "Enter at least one quantity to credit.")
         return redirect("sales:invoice_detail", pk=pk)
 
-    today = datetime.date.today()
+    # The note is dated the day the credit is agreed, which the person issuing
+    # it chooses (today unless they say otherwise). It cannot come before the
+    # invoice it answers: a credit dated 29 Oct against an invoice of 20 Nov
+    # would take revenue and VAT out of October for a sale October never had.
+    raw_date = (request.POST.get("credit_date") or "").strip()
+    try:
+        note_date = datetime.date.fromisoformat(raw_date) if raw_date else datetime.date.today()
+    except ValueError:
+        messages.error(request, f"'{raw_date}' is not a date; pick the credit note's date "
+                       "with the date picker.")
+        return redirect("sales:invoice_detail", pk=pk)
+    if note_date < original.invoice_date:
+        messages.error(
+            request,
+            f"A credit note against {original.reference} cannot be dated "
+            f"{note_date:%d %b %Y}: the invoice is dated {original.invoice_date:%d %b %Y}, "
+            "and a credit cannot come before the sale it corrects. Date it on or after "
+            "the invoice.")
+        return redirect("sales:invoice_detail", pk=pk)
+
     with transaction.atomic():
         # Locked, then read again: a second submit of the same form waits here
         # and then sees the first note's quantities as already credited.
@@ -1527,7 +1763,7 @@ def invoice_credit_note(request, pk):
             company=original.company, customer=original.customer,
             sales_order_id=None, original_invoice=original,
             reference=SequenceCounter.next_number(original.company, "CN-"),
-            invoice_date=today, due_date=today,
+            invoice_date=note_date, due_date=note_date,
             currency=original.currency, exchange_rate=original.exchange_rate,
             status="CREDIT_NOTE", goods_returned=goods_returned,
             notes=request.POST.get("reason", "").strip() or f"Credit note against {original.reference}",
