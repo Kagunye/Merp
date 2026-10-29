@@ -1,5 +1,19 @@
 """Core middleware for company context and request helpers."""
+from django.middleware.csrf import get_token
 from django.utils.deprecation import MiddlewareMixin
+
+
+class EnsureCsrfCookieMiddleware(MiddlewareMixin):
+    """Force the csrftoken cookie on every response.
+
+    On Vercel's serverless platform, a cold-start GET sometimes doesn't
+    set the CSRF cookie.  If the user then submits a form before the
+    cookie is present, the POST fails with a 403.  Calling get_token()
+    forces Django to include the Set-Cookie header.
+    """
+
+    def process_request(self, request):
+        get_token(request)
 
 
 class CompanyContextMiddleware(MiddlewareMixin):
