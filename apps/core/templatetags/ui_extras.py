@@ -48,9 +48,12 @@ def page_window(paginator, current, span=2):
 def trim_qty(value):
     """12.0000 reads as 12; quantities are stored to 4 dp but rarely need them."""
     try:
-        text = format(Decimal(str(value)), "f").rstrip("0").rstrip(".")
+        text = format(Decimal(str(value)), "f")
     except (InvalidOperation, TypeError, ValueError):
         return value
+    # Only zeros after the point are padding: 20 must stay 20, not become 2.
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
     return text or "0"
 
 
