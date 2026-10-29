@@ -21,13 +21,13 @@
       </div>
       <div>
         <label for="{{ form.quote_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Quote Date *</label>
-        <input id="{{ form.quote_date.id_for_label }}" type="date" name="{{ form.quote_date.html_name }}" value="{{ form.quote_date.value|default:''|date:'Y-m-d' }}"
+        <input id="{{ form.quote_date.id_for_label }}" type="date" name="{{ form.quote_date.html_name }}" value="{{ form.quote_date.value|date:'Y-m-d'|default:form.quote_date.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
         {% if form.quote_date.errors %}<p class="text-xs text-red-600 mt-1">{{ form.quote_date.errors.0 }}</p>{% endif %}
       </div>
       <div>
         <label for="{{ form.valid_until.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Valid Until</label>
-        <input id="{{ form.valid_until.id_for_label }}" type="date" name="{{ form.valid_until.html_name }}" value="{{ form.valid_until.value|default:''|date:'Y-m-d' }}"
+        <input id="{{ form.valid_until.id_for_label }}" type="date" name="{{ form.valid_until.html_name }}" value="{{ form.valid_until.value|date:'Y-m-d'|default:form.valid_until.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
       </div>
       <div class="md:col-span-2">

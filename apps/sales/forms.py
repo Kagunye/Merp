@@ -1,5 +1,6 @@
 """Sales forms."""
 import datetime
+from decimal import Decimal
 from django import forms
 from apps.core.forms import date_input, is_new, open_date, pick_currency
 from django.forms import inlineformset_factory
@@ -138,6 +139,7 @@ class SalesQuoteForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.fields["reference"].required = False
         if company:
             from apps.crm.models import Customer
             from apps.organizations.models import Warehouse, Branch
@@ -157,7 +159,35 @@ class SalesQuoteForm(forms.ModelForm):
             self.fields["valid_until"].initial = datetime.date.today() + datetime.timedelta(days=30)
 
 
-class SalesQuoteLineForm(forms.ModelForm):
+class OptionalLineMixin:
+    """Lines are optional: a row with no product, description or price is skipped."""
+
+    def has_changed(self):
+        if self.instance.pk is None:
+            filled = any(
+                (self.data.get(self.add_prefix(f)) or "").strip() not in ("", "0", "0.00")
+                for f in ("product", "description", "unit_price")
+            )
+            if not filled:
+                return False
+        return super().has_changed()
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.cleaned_data.get("DELETE"):
+            return cleaned
+        if not cleaned.get("product"):
+            self.add_error("product", "Choose a product, or remove this line.")
+        if cleaned.get("quantity") in (None, ""):
+            self.add_error("quantity", "Enter a quantity.")
+        if cleaned.get("unit_price") is None:
+            cleaned["unit_price"] = Decimal("0")
+        if cleaned.get("discount_percent") is None:
+            cleaned["discount_percent"] = Decimal("0")
+        return cleaned
+
+
+class SalesQuoteLineForm(OptionalLineMixin, forms.ModelForm):
     class Meta:
         model = SalesQuoteLine
         fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]
@@ -202,6 +232,7 @@ class SalesOrderForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.fields["reference"].required = False
         if company:
             from apps.crm.models import Customer
             from apps.organizations.models import Warehouse, Branch, CompanyMembership
@@ -220,7 +251,7 @@ class SalesOrderForm(forms.ModelForm):
             self.fields["order_date"].initial = datetime.date.today()
 
 
-class SalesOrderLineForm(forms.ModelForm):
+class SalesOrderLineForm(OptionalLineMixin, forms.ModelForm):
     class Meta:
         model = SalesOrderLine
         fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]

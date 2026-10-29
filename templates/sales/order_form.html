@@ -21,13 +21,13 @@
       </div>
       <div>
         <label for="{{ form.order_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Order Date *</label>
-        <input id="{{ form.order_date.id_for_label }}" type="date" name="{{ form.order_date.html_name }}" value="{{ form.order_date.value|default:''|date:'Y-m-d' }}"
+        <input id="{{ form.order_date.id_for_label }}" type="date" name="{{ form.order_date.html_name }}" value="{{ form.order_date.value|date:'Y-m-d'|default:form.order_date.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
         {% if form.order_date.errors %}<p class="text-xs text-red-600 mt-1">{{ form.order_date.errors.0 }}</p>{% endif %}
       </div>
       <div>
         <label for="{{ form.delivery_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Delivery Date</label>
-        <input id="{{ form.delivery_date.id_for_label }}" type="date" name="{{ form.delivery_date.html_name }}" value="{{ form.delivery_date.value|default:''|date:'Y-m-d' }}"
+        <input id="{{ form.delivery_date.id_for_label }}" type="date" name="{{ form.delivery_date.html_name }}" value="{{ form.delivery_date.value|date:'Y-m-d'|default:form.delivery_date.value|default:'' }}"
           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
       </div>
       <div class="md:col-span-2">
