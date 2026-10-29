@@ -2,6 +2,9 @@
 {% block content %}
 {% url 'sales:order_create' as pa_url %}
 {% include "_includes/page_header.html" with title="Sales Orders" subtitle="Orders from quotation through delivery" action_label="New Order" action_url=pa_url %}
+<div class="flex gap-2 mb-4">
+  <a href="{% url 'sales:quote_list' %}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border bg-white text-gray-600 hover:text-gray-900">View Sales Quotes</a>
+</div>
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
     <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Order date</th><th class="px-4 py-3 text-left">Delivery</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3">Status</th></tr></thead>

@@ -9,6 +9,7 @@
 <div class="launcher-grid">
   <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Account Enquiries</span></a>
   <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Customer Setup</span></a>
+  <a href="{% url 'sales:quote_list' %}" class="launcher-tile"><div class="ico ico-sky">📋</div><span class="label">Sales Quotes</span></a>
   <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Sales Invoices</span></a>
   <a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Credit Notes</span></a>
   <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Receipts</span></a>

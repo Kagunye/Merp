@@ -11,6 +11,54 @@ from .models import Contract, Employee
 
 FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 
+MANDATORY_EMPLOYEE_FIELDS = [
+    "employee_number", "first_name", "last_name", "other_names",
+    "gender", "date_of_birth", "date_hired", "status",
+    "department", "branch", "job_title",
+    "national_id", "kra_pin", "nssf_number", "nhif_number",
+    "phone", "email", "bank_name", "bank_account_number",
+]
+
+
+class EmployeeForm(forms.ModelForm):
+    class Meta:
+        model = Employee
+        fields = [
+            "employee_number", "first_name", "last_name", "other_names",
+            "gender", "date_of_birth", "date_hired", "status",
+            "department", "branch", "job_title", "reports_to",
+            "national_id", "kra_pin", "nssf_number", "nhif_number",
+            "phone", "email", "bank_name", "bank_account_number", "notes",
+        ]
+        widgets = {
+            "date_of_birth": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "date_hired": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        for fname in MANDATORY_EMPLOYEE_FIELDS:
+            if fname in self.fields:
+                self.fields[fname].required = True
+        for fname, field in self.fields.items():
+            if isinstance(field.widget, forms.Select):
+                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            elif isinstance(field.widget, forms.Textarea):
+                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            elif isinstance(field.widget, forms.DateInput):
+                field.widget.attrs["class"] = FIELD_CLASS
+                field.widget.attrs["type"] = "date"
+            else:
+                field.widget.attrs["class"] = FIELD_CLASS
+        if company:
+            from apps.organizations.models import Department, Branch
+            self.fields["department"].queryset = Department.objects.filter(company=company, is_active=True)
+            self.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
+            self.fields["reports_to"].queryset = Employee.objects.filter(company=company, is_active=True)
+            from apps.core.models import SequenceCounter
+            self.fields["employee_number"].initial = SequenceCounter.next_number(company, "EMP-")
+
 
 class ContractForm(forms.ModelForm):
     class Meta:

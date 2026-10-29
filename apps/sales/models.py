@@ -4,6 +4,91 @@ from django.db import models
 from apps.core.models import BaseModel, NotesMixin
 
 
+class SalesQuote(BaseModel, NotesMixin):
+    STATUS_CHOICES = [
+        ("DRAFT", "Draft"),
+        ("SENT", "Sent"),
+        ("ACCEPTED", "Accepted"),
+        ("EXPIRED", "Expired"),
+        ("CANCELLED", "Cancelled"),
+        ("CONVERTED", "Converted to Order"),
+    ]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="sales_quotes")
+    reference = models.CharField(max_length=50, db_index=True)
+    customer = models.ForeignKey("crm.Customer", on_delete=models.PROTECT, related_name="sales_quotes")
+    quote_date = models.DateField(db_index=True)
+    valid_until = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default="DRAFT", db_index=True)
+    warehouse = models.ForeignKey("organizations.Warehouse", on_delete=models.SET_NULL, null=True, blank=True)
+    sales_rep = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="sales_quotes"
+    )
+    currency = models.CharField(max_length=3, default="KES")
+    exchange_rate = models.DecimalField(
+        max_digits=18, decimal_places=6, null=True, blank=True, default=None)
+    total_amount_base = models.DecimalField(
+        max_digits=15, decimal_places=2, default=Decimal("0"))
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
+    subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.SET_NULL, null=True, blank=True)
+    sales_order = models.ForeignKey("sales.SalesOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="source_quotes")
+
+    class Meta:
+        ordering = ["-quote_date", "-created_at"]
+
+    def __str__(self):
+        return self.reference
+
+    def clean(self):
+        from apps.accounting.currency import stamp_document
+        super().clean()
+        stamp_document(self, self.quote_date)
+
+    def calculate_totals(self):
+        from apps.accounting.currency import to_base
+        lines = self.lines.all()
+        subtotal = sum((l.line_total for l in lines), Decimal("0"))
+        discount = subtotal * (self.discount_percent / 100)
+        taxable = subtotal - discount
+        kept = (Decimal("100") - self.discount_percent) / 100
+        tax = sum((l.tax_amount * kept for l in lines), Decimal("0"))
+        self.subtotal = subtotal
+        self.tax_amount = tax
+        self.total_amount = taxable + tax
+        self.total_amount_base = to_base(
+            self.total_amount, self.exchange_rate or Decimal("1"))
+        self.save(update_fields=[
+            "subtotal", "tax_amount", "total_amount", "total_amount_base", "updated_at",
+        ])
+
+
+class SalesQuoteLine(models.Model):
+    quote = models.ForeignKey(SalesQuote, on_delete=models.CASCADE, related_name="lines")
+    product = models.ForeignKey("inventory.Product", on_delete=models.PROTECT)
+    description = models.CharField(max_length=500, blank=True, default="")
+    quantity = models.DecimalField(max_digits=12, decimal_places=4)
+    unit_price = models.DecimalField(max_digits=15, decimal_places=4)
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    tax_rate = models.ForeignKey("accounting.TaxRate", on_delete=models.SET_NULL, null=True, blank=True)
+
+    @property
+    def line_total(self):
+        base = self.quantity * self.unit_price
+        disc = base * (self.discount_percent / 100)
+        return base - disc
+
+    @property
+    def tax_amount(self):
+        if not self.tax_rate:
+            return Decimal("0")
+        return self.line_total * (self.tax_rate.rate / 100)
+
+    def __str__(self):
+        return f"{self.product.name} x {self.quantity}"
+
+
 class SalesOrder(BaseModel, NotesMixin):
     STATUS_CHOICES = [
         ("DRAFT", "Draft"),
