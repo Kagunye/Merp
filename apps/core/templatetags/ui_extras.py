@@ -7,6 +7,25 @@ from django import template
 register = template.Library()
 
 
+@register.simple_tag(takes_context=True)
+def can_do(context, route, method="GET"):
+    """Whether the signed-in user may open `route` ("namespace:url_name").
+
+    Templates ask this before showing a button, so a role never sees an action
+    the role table would only answer with a 403:
+    ``{% can_do "sales:invoice_post" "POST" as may_post %}{% if may_post %}…``
+    """
+    from apps.core import access
+
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    namespace, _, url_name = route.partition(":")
+    return access.can(user, getattr(request, "company_role", None),
+                      namespace, url_name, method)
+
+
 @register.simple_tag
 def page_url(request, page):
     """Link to `page` while keeping every other query parameter (filters, search)."""
