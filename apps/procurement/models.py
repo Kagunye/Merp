@@ -220,9 +220,10 @@ class Bill(BaseModel, NotesMixin):
     # Where a bill with no purchase order behind it is charged: a service, a
     # utility, an asset. Goods only reach stock through a receipt, so a bill
     # nobody ordered against never debits inventory on its own say-so.
-    expense_account = models.ForeignKey(
+    # Named charge_account to match the column main's 0005 already created.
+    charge_account = models.ForeignKey(
         "accounting.Account", on_delete=models.PROTECT, null=True, blank=True,
-        related_name="+", verbose_name="Charge to account",
+        related_name="charged_bills", verbose_name="Charge to account",
         help_text="The expense or asset account this bill is for. "
                   "Bills for ordered goods are raised from the purchase order instead.")
     # The services and other untracked items on an order bill, one row per
@@ -247,10 +248,19 @@ class Bill(BaseModel, NotesMixin):
         return document_rate(self, self.bill_date)
 
     @property
+    def known_rate(self):
+        """The rate if one is booked or filed, else None — for showing, not posting."""
+        from django.core.exceptions import ValidationError
+        try:
+            return self.rate
+        except ValidationError:
+            return None
+
+    @property
     def outstanding_base(self):
         """What is still owed in the ledger's own currency."""
-        from apps.accounting.currency import to_base
-        return to_base(self.outstanding_amount, self.rate)
+        from apps.accounting.currency import display_rate, to_base
+        return to_base(self.outstanding_amount, display_rate(self, self.bill_date))
 
     def settlement_base(self, amount):
         """The book value of settling `amount` of this bill, payment or note.

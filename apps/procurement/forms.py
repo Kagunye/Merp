@@ -134,7 +134,7 @@ class BillForm(forms.ModelForm):
     class Meta:
         model = Bill
         fields = [
-            "reference", "supplier", "purchase_order", "expense_account", "supplier_reference",
+            "reference", "supplier", "purchase_order", "charge_account", "supplier_reference",
             "bill_date", "due_date", "currency", "subtotal", "tax_amount",
             "total_amount", "notes",
         ]
@@ -152,10 +152,10 @@ class BillForm(forms.ModelForm):
         from apps.crm.models import Supplier
         self.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
         accounts = chargeable_accounts(company)
-        self.fields["expense_account"].queryset = accounts
+        self.fields["charge_account"].queryset = accounts
         # No blank choice on screen: every bill typed in is charged somewhere
         # the bookkeeper chose, and never to stock by default.
-        self.fields["expense_account"].empty_label = None
+        self.fields["charge_account"].empty_label = None
         pick_currency(self, company)
         if is_new(self):
             import datetime
@@ -165,7 +165,7 @@ class BillForm(forms.ModelForm):
             default = accounts.filter(code="6000").first() or accounts.filter(
                 account_type="EXPENSE").first()
             if default:
-                self.fields["expense_account"].initial = default.pk
+                self.fields["charge_account"].initial = default.pk
             self.fields["bill_date"].initial = datetime.date.today()
             self.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
         else:
@@ -176,8 +176,8 @@ class BillForm(forms.ModelForm):
             self.fields["purchase_order"].empty_label = "— Not linked to an order"
             self.fields["purchase_order"].disabled = True
             if self.instance.purchase_order_id:
-                self.fields["expense_account"].disabled = True
-                self.fields["expense_account"].required = False
+                self.fields["charge_account"].disabled = True
+                self.fields["charge_account"].required = False
                 # The bill answers the order in the order's money, at the
                 # order's rate: that is what the receipt costed the goods at and
                 # what the accrual holds. Re-labelling a shilling draft as
@@ -222,16 +222,16 @@ class BillForm(forms.ModelForm):
                 "purchase_order",
                 f"{po.reference} is cancelled, so nothing on it can be billed.")
         if po or (not is_new(self) and self.instance.purchase_order_id):
-            cleaned["expense_account"] = None
-        elif not cleaned.get("expense_account") and self.company is not None:
+            cleaned["charge_account"] = None
+        elif not cleaned.get("charge_account") and self.company is not None:
             # A bill typed in with no account chosen is a general expense
             # (6000) — the bill records it, so the posting, the debit note and
             # the reader of the bill all see the same account. It is never
             # charged to stock by default: nothing a bill says puts goods on a
             # shelf.
             from apps.accounting.gl_service import unordered_charge_account
-            cleaned["expense_account"] = unordered_charge_account(self.company)
-            self.instance.expense_account = cleaned["expense_account"]
+            cleaned["charge_account"] = unordered_charge_account(self.company)
+            self.instance.charge_account = cleaned["charge_account"]
         subtotal = cleaned.get("subtotal") or Decimal("0")
         tax = cleaned.get("tax_amount") or Decimal("0")
         total = cleaned.get("total_amount")

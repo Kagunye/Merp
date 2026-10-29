@@ -119,7 +119,7 @@
           <div class="flex justify-between"><span class="text-gray-500">Due Date</span><span class="text-gray-700">{{ invoice.due_date|date:"d M Y" }}</span></div>
           <div class="flex justify-between"><span class="text-gray-500">Currency</span><span class="font-mono text-gray-700">{{ invoice.currency }}</span></div>
           {% if invoice.currency != active_company.currency %}
-          <div class="flex justify-between"><span class="text-gray-500">Exchange rate</span><span class="font-mono text-gray-700">1 {{ invoice.currency }} = {{ invoice.rate|floatformat:4 }} {{ active_company.currency }}</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Exchange rate</span><span class="font-mono text-gray-700">{% with r=invoice.known_rate %}{% if r %}1 {{ invoice.currency }} = {{ r|floatformat:4 }} {{ active_company.currency }}{% else %}No {{ invoice.currency }} rate filed for this date{% endif %}{% endwith %}</span></div>
           {% if invoice.journal_entry %}
           <div class="flex justify-between"><span class="text-gray-500">In the ledger</span><span class="font-mono text-gray-700">{{ active_company.currency }} {{ invoice.total_amount_base|floatformat:2 }}</span></div>
           {% endif %}

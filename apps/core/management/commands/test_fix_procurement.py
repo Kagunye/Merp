@@ -187,7 +187,7 @@ class Command(AccountingCommand):
     def bill_form(self, ref, **extra):
         data = {
             "reference": ref, "supplier": self.supplier.pk,
-            "expense_account": self.account("6000").pk,
+            "charge_account": self.account("6000").pk,
             "supplier_reference": f"INV-{ref}", "bill_date": str(self.today),
             "due_date": str(self.today + datetime.timedelta(days=30)), "currency": "KES",
             "subtotal": "1000", "tax_amount": "160", "total_amount": "1160", "notes": "",
@@ -370,8 +370,8 @@ class Command(AccountingCommand):
                     resp.status_code == 302 and draft.supplier_reference == "SUP-DRAFT-2",
                     f"HTTP {resp.status_code}")
         self.expect("and it stays on its order, with no account of its own",
-                    draft.purchase_order_id == po.pk and draft.expense_account_id is None,
-                    f"{draft.purchase_order_id} / {draft.expense_account_id}")
+                    draft.purchase_order_id == po.pk and draft.charge_account_id is None,
+                    f"{draft.purchase_order_id} / {draft.charge_account_id}")
         self.post(client, "post the corrected draft",
                   reverse("procurement:bill_post", args=[draft.pk]), {})
 
@@ -564,10 +564,10 @@ class Command(AccountingCommand):
         from apps.procurement.models import Bill
 
         form = client.get(reverse("procurement:bill_create")).context["form"]
-        choices = list(form.fields["expense_account"].queryset.values_list("code", flat=True))
+        choices = list(form.fields["charge_account"].queryset.values_list("code", flat=True))
         self.expect("the new-bill screen defaults to an expense account",
-                    str(form.fields["expense_account"].initial) == str(self.account("6000").pk),
-                    str(form.fields["expense_account"].initial))
+                    str(form.fields["charge_account"].initial) == str(self.account("6000").pk),
+                    str(form.fields["charge_account"].initial))
         self.expect("and does not offer the stock account at all",
                     "1400" not in choices and "1450" not in choices and "6600" in choices,
                     ", ".join(choices[:12]))
@@ -576,7 +576,7 @@ class Command(AccountingCommand):
 
         stock0 = self.net("1400")
         self.post(client, "service bill", reverse("procurement:bill_create"),
-                  self.bill_form("BILL-FIX-6", expense_account=self.account("6600").pk,
+                  self.bill_form("BILL-FIX-6", charge_account=self.account("6600").pk,
                                  subtotal="300", tax_amount="48", total_amount="348"))
         bill = Bill.objects.get(company=self.company, reference="BILL-FIX-6")
         je = bill.journal_entry
@@ -588,7 +588,7 @@ class Command(AccountingCommand):
                     f"{self.net('1400')} against {stock0}")
         self.reject(client, "a bill coded straight to inventory",
                     reverse("procurement:bill_create"),
-                    self.bill_form("BILL-FIX-6B", expense_account=self.account("1400").pk))
+                    self.bill_form("BILL-FIX-6B", charge_account=self.account("1400").pk))
         self.stock_agrees("after a service bill")
 
         # Goods come in from a supplier on their purchase order and nowhere else:
@@ -614,7 +614,7 @@ class Command(AccountingCommand):
                     equity0 - self.net("3100") == D("120.00"), str(equity0 - self.net("3100")))
         self.reject(client, "a typed bill coded to the accrual",
                     reverse("procurement:bill_create"),
-                    self.bill_form("BILL-FIX-6R", expense_account=self.account("2110").pk,
+                    self.bill_form("BILL-FIX-6R", charge_account=self.account("2110").pk,
                                    subtotal="120", tax_amount="19.20", total_amount="139.20"))
         self.stock_agrees("after a receipt with no order")
         self.accrual_agrees("after a receipt with no order")
@@ -894,7 +894,7 @@ class Command(AccountingCommand):
 
         stock0, expense0 = self.net("1400"), self.net("6000")
         self.post(client, "a bill with no account chosen", reverse("procurement:bill_create"),
-                  self.bill_form("BILL-FIX-10", expense_account="", subtotal="2000",
+                  self.bill_form("BILL-FIX-10", charge_account="", subtotal="2000",
                                  tax_amount="320", total_amount="2320"))
         bill = Bill.objects.get(company=self.company, reference="BILL-FIX-10")
         je = bill.journal_entry
@@ -903,8 +903,8 @@ class Command(AccountingCommand):
                     and self.net("6000") - expense0 == D("2000.00"),
                     f"6000 {je and self.line_total(je, '6000', 'debit')}")
         self.expect("and says so on the bill itself",
-                    bill.expense_account_id == self.account("6000").pk,
-                    str(bill.expense_account_id))
+                    bill.charge_account_id == self.account("6000").pk,
+                    str(bill.charge_account_id))
         self.expect("and never reaches inventory", self.net("1400") == stock0
                     and (je is None or self.line_total(je, "1400", "debit") == Z),
                     f"1400 moved {self.net('1400') - stock0}")

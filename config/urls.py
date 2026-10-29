@@ -54,3 +54,5 @@ if settings.DEBUG:
         urlpatterns = [path("__debug__/", include(debug_toolbar.urls))] + urlpatterns
     except ImportError:
         pass
+
+handler500 = "apps.core.errors.server_error"

@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.accounting.currency import display_rate
 from apps.core.mixins import CompanyRequiredMixin
 from apps.inventory.numbers import MONEY, QUANTITY, UNIT_COST, fits, money, pick, typed_number
 from apps.inventory.numbers import qty as show_qty
@@ -329,7 +330,7 @@ class SupplierStatementView(LoginRequiredMixin, TemplateView):
             # Converting the paid total on its own would differ from it by the
             # cent that settling part by part puts right.
             if noted:
-                paid = to_base(bill.paid_amount, bill.rate)
+                paid = to_base(bill.paid_amount, display_rate(bill, bill.bill_date))
             else:
                 notes = sum((book_value(n) for n in bill.debit_notes.filter(
                     status="DEBIT_NOTE")), Decimal("0"))

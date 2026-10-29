@@ -69,9 +69,10 @@ def _counted(value, label):
 
 # The roles that may act on a till that is not their own: close it for a
 # cashier who walked off, refund a ticket by a method other than the one it was
-# paid by. Kept deliberately narrow — a cashier's drawer is that cashier's
-# responsibility, and every override is something the cash-up has to explain.
-SUPERVISOR_ROLES = ("ADMIN",)
+# paid by. Kept to the people who answer for the cash — a cashier's drawer is
+# that cashier's responsibility, and every override is something the cash-up
+# has to explain.
+SUPERVISOR_ROLES = ("ADMIN", "FINANCE_MANAGER", "SALES_MANAGER")
 
 # What a refund can be paid by. A split tender is never taken, so it is never
 # handed back either.

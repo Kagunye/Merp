@@ -541,8 +541,8 @@ def _debit_note_targets(note, inventory_acct, vat_input_acct):
     # The same account the bill itself would have been charged to: its own
     # account, the general expense account for an unordered bill nobody
     # coded, and stock only for a bill that answers an order.
-    if original and original.expense_account_id:
-        charge = original.expense_account
+    if original and original.charge_account_id:
+        charge = original.charge_account
     elif original and not original.purchase_order_id:
         charge = unordered_charge_account(note.company)
     else:
@@ -1501,7 +1501,7 @@ def post_bill(bill, user=None) -> JournalEntry:
 
     Entries created, for a bill with no order
     -----------------------------------------
-    DR  the account the bill was coded to  bill.subtotal (bill.expense_account,
+    DR  the account the bill was coded to  bill.subtotal (bill.charge_account,
                                            or 6000 when none was chosen)
     DR  VAT Input (code 2210, if exists)   bill.tax_amount
     CR  Accounts Payable (2100)            bill.total_amount
@@ -1553,7 +1553,7 @@ def post_bill(bill, user=None) -> JournalEntry:
     # shelf only through a receipt, so a bill charged to inventory on its own
     # would lift the inventory account above the stock it describes, and the
     # difference could never be counted, sold or written off.
-    charge_acct = (bill.expense_account if bill.expense_account_id
+    charge_acct = (bill.charge_account if bill.charge_account_id
                    else unordered_charge_account(company))
     if bill.purchase_order_id:
         charge_acct = inventory_acct

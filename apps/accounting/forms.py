@@ -98,13 +98,14 @@ class AccountForm(forms.ModelForm):
         cleaned = super().clean()
         parent = cleaned.get("parent")
         if parent and self.instance.pk:
-            # A chart is a tree: an account cannot parent its own ancestor.
-            ancestor_ids = []
-            node = self.instance
-            while node is not None:
-                ancestor_ids.append(node.pk)
+            # A chart is a tree: walking up from the chosen parent must never
+            # arrive back at this account. (Walking up from the account itself
+            # would miss choosing one of its own children as its parent.)
+            seen, node = set(), parent
+            while node is not None and node.pk not in seen:
+                seen.add(node.pk)
                 node = node.parent
-            if parent.pk in ancestor_ids:
+            if self.instance.pk in seen:
                 self.add_error("parent", "An account cannot be its own parent or child.")
         return cleaned
 
