@@ -222,7 +222,7 @@
 
     <div class="flex items-center justify-end gap-3">
       <a href="{% url 'sales:order_list' %}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>
-      <button type="submit" class="px-5 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Create Order</button>
+      <button type="submit" class="px-5 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">{% if object %}Update Order{% else %}Create Order{% endif %}</button>
     </div>
   </form>
 </div>

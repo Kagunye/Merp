@@ -674,6 +674,53 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
         return reverse("sales:order_detail", args=[self.object.pk])
 
 
+class SalesOrderUpdateView(LoginRequiredMixin, CompanyRequiredMixin, UpdateView):
+    model = SalesOrder
+    form_class = SalesOrderForm
+    template_name = "sales/order_form.html"
+
+    def get_queryset(self):
+        return SalesOrder.objects.filter(company=self.request.active_company)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return SalesOrderLineFormSet(self.request.POST, instance=self.object, prefix="lines", form_kwargs=form_kwargs)
+        return SalesOrderLineFormSet(instance=self.object, prefix="lines", form_kwargs=form_kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        ctx["page_title"] = f"Edit {self.object.reference}"
+        return ctx
+
+    def form_valid(self, form):
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        with transaction.atomic():
+            self.object = form.save()
+            formset.save()
+            self.object.calculate_totals()
+        messages.success(
+            self.request,
+            f"Sales order '{self.object.reference}' updated.",
+        )
+        return redirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        return self.render_to_response(self.get_context_data(form=form))
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("sales:order_detail", args=[self.object.pk])
+
+
 class SalesOrderDetailView(LoginRequiredMixin, DetailView):
     model = SalesOrder
     template_name = "sales/order_detail.html"
