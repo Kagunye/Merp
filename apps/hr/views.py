@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.core.mixins import CompanyRequiredMixin
-from .forms import ContractForm
+from .forms import ContractForm, EmployeeForm
 from .models import Contract, Employee, LeaveRequest, LeaveType
 from apps.core.forms import ISO_DATE
 
@@ -68,42 +68,19 @@ class EmployeeListView(LoginRequiredMixin, ListView):
 class EmployeeCreateView(LoginRequiredMixin, CreateView):
     model = Employee
     template_name = "hr/employee_form.html"
-    fields = [
-        "employee_number", "first_name", "last_name", "other_names",
-        "gender", "date_of_birth", "date_hired", "status",
-        "department", "branch", "job_title", "reports_to",
-        "national_id", "kra_pin", "nssf_number", "nhif_number",
-        "phone", "email", "bank_name", "bank_account_number", "notes",
-    ]
+    form_class = EmployeeForm
 
     def get_success_url(self):
         from django.urls import reverse
         return reverse("hr:employee_detail", kwargs={"pk": self.object.pk})
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        company = self.request.active_company
-        # Style all fields
-        for fname, field in form.fields.items():
-            from django import forms as dforms
-            if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["rows"] = 3
-            elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                field.widget.attrs["type"] = "date"
-                field.widget.format = ISO_DATE
-            else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-        if company:
-            from apps.organizations.models import Department, Branch
-            form.fields["department"].queryset = Department.objects.filter(company=company, is_active=True)
-            form.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
-            form.fields["reports_to"].queryset = Employee.objects.filter(company=company, is_active=True)
-            from apps.core.models import SequenceCounter
-            form.fields["employee_number"].initial = SequenceCounter.next_number(company, "EMP-")
         form.fields["date_hired"].initial = datetime.date.today()
         return form
 

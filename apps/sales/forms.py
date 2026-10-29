@@ -3,7 +3,7 @@ import datetime
 from django import forms
 from apps.core.forms import date_input, is_new, open_date, pick_currency
 from django.forms import inlineformset_factory
-from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine
+from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine, SalesQuote, SalesQuoteLine
 
 
 class InvoiceForm(forms.ModelForm):
@@ -124,6 +124,66 @@ class CustomerPaymentForm(forms.ModelForm):
         return amount
 
 
+class SalesQuoteForm(forms.ModelForm):
+    class Meta:
+        model = SalesQuote
+        fields = ["reference", "customer", "quote_date", "valid_until", "warehouse",
+                  "sales_rep", "currency", "discount_percent", "branch", "notes"]
+        widgets = {
+            "quote_date": date_input(),
+            "valid_until": date_input(),
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        if company:
+            from apps.crm.models import Customer
+            from apps.organizations.models import Warehouse, Branch
+            from apps.accounts.models import User
+            self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
+            self.fields["warehouse"].queryset = Warehouse.objects.filter(company=company)
+            self.fields["branch"].queryset = Branch.objects.filter(company=company)
+            self.fields["sales_rep"].queryset = User.objects.filter(
+                memberships__company=company, is_active=True
+            ).distinct()
+            default_wh = self.fields["warehouse"].queryset.filter(is_default=True).first()
+            if default_wh:
+                self.fields["warehouse"].initial = default_wh.pk
+            pick_currency(self, company)
+        if is_new(self):
+            self.fields["quote_date"].initial = datetime.date.today()
+            self.fields["valid_until"].initial = datetime.date.today() + datetime.timedelta(days=30)
+
+
+class SalesQuoteLineForm(forms.ModelForm):
+    class Meta:
+        model = SalesQuoteLine
+        fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        if company:
+            from apps.inventory.models import Product
+            from apps.accounting.models import TaxRate
+            self.fields["product"].queryset = Product.objects.filter(company=company, is_active=True)
+            self.fields["tax_rate"].queryset = TaxRate.objects.filter(company=company, is_active=True)
+            self.fields["tax_rate"].empty_label = "— No tax"
+
+
+SalesQuoteLineFormSet = inlineformset_factory(
+    SalesQuote,
+    SalesQuoteLine,
+    form=SalesQuoteLineForm,
+    extra=3,
+    min_num=0,
+    validate_min=False,
+    can_delete=True,
+)
+
+
 class SalesOrderForm(forms.ModelForm):
     class Meta:
         model = SalesOrder
@@ -177,7 +237,7 @@ SalesOrderLineFormSet = inlineformset_factory(
     SalesOrderLine,
     form=SalesOrderLineForm,
     extra=3,
-    min_num=1,
-    validate_min=True,
+    min_num=0,
+    validate_min=False,
     can_delete=True,
 )

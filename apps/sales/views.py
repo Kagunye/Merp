@@ -18,8 +18,10 @@ from apps.accounting.currency import book_currency, stamp_document
 from apps.core.mixins import CompanyRequiredMixin
 from apps.core.models import SequenceCounter
 
-from .forms import InvoiceForm, InvoiceLineFormSet, PostedInvoiceForm, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
-from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder
+from .forms import (InvoiceForm, InvoiceLineFormSet, PostedInvoiceForm, CustomerPaymentForm,
+                     SalesOrderForm, SalesOrderLineFormSet,
+                     SalesQuoteForm, SalesQuoteLineFormSet)
+from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesQuote
 
 
 def _recalculate_invoice_totals(invoice):
@@ -653,6 +655,10 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
         formset = self.get_line_formset()
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        filled = [f for f in formset if f.cleaned_data and not f.cleaned_data.get("DELETE") and f.cleaned_data.get("product")]
+        if not filled:
+            formset._non_form_errors = formset.error_class(["Add at least one line item with a product."])
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
         with transaction.atomic():
             self.object = form.save()
             formset.instance = self.object
@@ -703,6 +709,128 @@ class SalesDeliveryView(LoginRequiredMixin, DetailView):
         ctx["warehouses"] = self.object.company.warehouses.filter(is_active=True).order_by("name")
         ctx["book"] = book_currency(self.object.company)
         return ctx
+
+
+class SalesQuoteListView(LoginRequiredMixin, ListView):
+    model = SalesQuote
+    template_name = "sales/quote_list.html"
+    context_object_name = "quotes"
+    paginate_by = 25
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return self.model.objects.none()
+        return self.model.objects.filter(company=company).select_related("customer")
+
+
+class SalesQuoteCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
+    model = SalesQuote
+    form_class = SalesQuoteForm
+    template_name = "sales/quote_form.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return SalesQuoteLineFormSet(self.request.POST, prefix="lines", form_kwargs=form_kwargs)
+        return SalesQuoteLineFormSet(prefix="lines", form_kwargs=form_kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        ctx["page_title"] = "New Sales Quote"
+        return ctx
+
+    def form_valid(self, form):
+        company = self.request.active_company
+        form.instance.company = company
+        if not form.instance.reference:
+            form.instance.reference = SequenceCounter.next_number(company, "SQ-")
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        filled = [f for f in formset if f.cleaned_data and not f.cleaned_data.get("DELETE") and f.cleaned_data.get("product")]
+        if not filled:
+            formset._non_form_errors = formset.error_class(["Add at least one line item with a product."])
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        with transaction.atomic():
+            self.object = form.save()
+            formset.instance = self.object
+            formset.save()
+            self.object.calculate_totals()
+        messages.success(self.request, f"Quote '{self.object.reference}' created.")
+        return redirect(self.get_success_url())
+
+    def get_success_url(self):
+        return reverse("sales:quote_detail", kwargs={"pk": self.object.pk})
+
+    def form_invalid(self, form):
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class SalesQuoteDetailView(LoginRequiredMixin, DetailView):
+    model = SalesQuote
+    template_name = "sales/quote_detail.html"
+    context_object_name = "quote"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return SalesQuote.objects.none()
+        return SalesQuote.objects.filter(company=company)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["lines"] = self.object.lines.select_related("product", "tax_rate")
+        ctx["book"] = book_currency(self.object.company)
+        return ctx
+
+
+@login_required
+@require_POST
+def quote_convert_to_order(request, pk):
+    company = request.active_company
+    quote = get_object_or_404(SalesQuote, pk=pk, company=company)
+    if quote.status == "CONVERTED":
+        messages.warning(request, "This quote has already been converted.")
+        return redirect("sales:quote_detail", pk=quote.pk)
+    with transaction.atomic():
+        order = SalesOrder.objects.create(
+            company=company,
+            reference=SequenceCounter.next_number(company, "SO-"),
+            customer=quote.customer,
+            order_date=datetime.date.today(),
+            delivery_date=quote.valid_until,
+            warehouse=quote.warehouse,
+            sales_rep=quote.sales_rep,
+            currency=quote.currency,
+            exchange_rate=quote.exchange_rate,
+            discount_percent=quote.discount_percent,
+            branch=quote.branch,
+            notes=quote.notes,
+        )
+        from .models import SalesOrderLine
+        for ql in quote.lines.all():
+            SalesOrderLine.objects.create(
+                order=order,
+                product=ql.product,
+                description=ql.description,
+                quantity=ql.quantity,
+                unit_price=ql.unit_price,
+                discount_percent=ql.discount_percent,
+                tax_rate=ql.tax_rate,
+            )
+        order.calculate_totals()
+        quote.status = "CONVERTED"
+        quote.sales_order = order
+        quote.save(update_fields=["status", "sales_order", "updated_at"])
+    messages.success(request, f"Quote converted to order '{order.reference}'.")
+    return redirect("sales:order_detail", pk=order.pk)
 
 
 class SalesIndexView(LoginRequiredMixin, TemplateView):
