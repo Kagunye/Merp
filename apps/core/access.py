@@ -69,6 +69,7 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("procurement", "requisition_approve", NOBODY, FM),
     ("procurement", "requisition_reject", NOBODY, FM),
     ("procurement", "requisition_submit", NOBODY, PURCHASERS),
+    ("procurement", "requisition_cancel", NOBODY, PURCHASERS),
     # A purchase order is a promise to pay a supplier: the buyers raise and
     # cancel it. The stores receive against it (grn*), and must not also be
     # able to order what they will then say arrived.
@@ -190,6 +191,8 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # documents may download one. See can() for why the raw /media/ route is
     # closed to company users, company admins included.
     ("documents", "document_download", EVERYONE, NOBODY),
+    # The view itself only hands a receipt to people who may see the claim.
+    ("documents", "receipt_download", EVERYONE, NOBODY),
     ("documents", "*", EVERYONE, WORKERS),
     ("notifications", "*", EVERYONE, EVERYONE),
     ("dashboard", "kpi_widgets", FINANCE | AUDIT, NOBODY),
@@ -199,6 +202,8 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("dashboard", "*", EVERYONE, EVERYONE),
 
     # --- Company set-up and user management: admin territory.
+    # HR keeps the department tree: people are filed under it.
+    ("organizations", "department_*", HR | {"FINANCE_MANAGER"}, HR),
     ("organizations", "department_list", HR | {"FINANCE_MANAGER"}, NOBODY),
     ("organizations", "*", FM, NOBODY),
     ("accounts", "user_*", NOBODY, NOBODY),
@@ -221,6 +226,8 @@ SELF_SERVICE = {
     ("dashboard", "search"),
     ("organizations", "company_create"),
     ("notifications", "list"), ("notifications", "mark_read"), ("notifications", "mark_all_read"),
+    # Avatars, logos and product pictures (DEBUG only; uploads go through views).
+    ("", "public_media"),
 }
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
