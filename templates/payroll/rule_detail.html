@@ -1,6 +1,10 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ rule.code }} — Statutory Tables — Mofisi{% endblock %}
 {% block content %}
+{% can_do "payroll:rule_update" "POST" as may_change %}
+{% can_do "payroll:rule_toggle" "POST" as may_toggle %}
+{% can_do "payroll:band_create" "POST" as may_band %}
 <div class="space-y-5">
   <div class="flex items-start justify-between flex-wrap gap-3">
     <div>
@@ -17,20 +21,23 @@
       </p>
     </div>
     <div class="flex flex-wrap items-center gap-2 no-print">
-      {% if can_edit %}
+      {% if not may_change %}
+      {% elif can_edit %}
         <a href="{% url 'payroll:rule_update' rule.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit rates</a>
       {% else %}
         <a href="{% url 'payroll:rule_create' %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">New version</a>
       {% endif %}
-      {% if rule.method == 'BANDS' and can_edit %}
+      {% if rule.method == 'BANDS' and can_edit and may_band %}
         <a href="{% url 'payroll:band_create' rule.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Add band</a>
       {% endif %}
+      {% if may_toggle %}
       <form method="post" action="{% url 'payroll:rule_toggle' rule.pk %}">
         {% csrf_token %}
         <button type="submit" class="px-3 py-2 text-sm font-medium {% if rule.is_active %}text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100{% else %}text-green-700 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100{% endif %}">
           {% if rule.is_active %}Retire this table{% else %}Bring it back{% endif %}
         </button>
       </form>
+      {% endif %}
     </div>
   </div>
 
@@ -88,7 +95,7 @@
           <td class="px-4 py-3 text-right font-mono text-gray-700">{% if band.upper is None %}<span class="text-gray-400">and above</span>{% else %}{{ band.upper|floatformat:2 }}{% endif %}</td>
           <td class="px-4 py-3 text-right font-mono font-semibold text-red-600">{{ band.percent|floatformat:2 }}%</td>
           <td class="px-4 py-3 text-right no-print">
-            {% if can_edit %}
+            {% if can_edit and may_band %}
             <form method="post" action="{% url 'payroll:band_delete' band.pk %}" onsubmit="return confirm('Remove this band? The table would tax a slice of pay that no longer has a rate on it.');">
               {% csrf_token %}
               <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Remove</button>

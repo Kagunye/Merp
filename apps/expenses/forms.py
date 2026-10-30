@@ -14,10 +14,30 @@ class ExpenseCategoryForm(forms.ModelForm):
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
         from apps.accounting.models import Account
+        self.company = company
         self.fields["gl_account"].queryset = Account.objects.filter(
             company=company, is_active=True, account_type="EXPENSE"
         )
         self.fields["gl_account"].empty_label = "— Post to the default expense account (6000)"
+
+    def clean_name(self):
+        # The company is set by the view, not the form, so the database's
+        # (company, name) uniqueness is never checked by the form itself — a
+        # second "Travel" would reach the database and come back as a server
+        # error. Two categories of one name would also split one kind of spend
+        # across two lines of every report, so it is refused here, by name.
+        name = (self.cleaned_data.get("name") or "").strip()
+        if not name:
+            raise forms.ValidationError("Give the category a name, e.g. Travel.")
+        if self.company is not None:
+            clash = ExpenseCategory.objects.filter(company=self.company, name__iexact=name)
+            if not is_new(self):
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise forms.ValidationError(
+                    f"There is already a category called '{clash.first().name}'. Use that "
+                    "one, or give this one a different name.")
+        return name
 
 
 class ExpenseClaimForm(forms.ModelForm):

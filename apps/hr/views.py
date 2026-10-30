@@ -11,11 +11,12 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.core.mixins import CompanyRequiredMixin
-from .access import manages_people, own_employee
+from .access import decides_leave, manages_people, own_employee
 from .forms import (
-    LEAVER_STATUSES, ContractForm, EmployeeForm, LeaveRequestForm, TerminationForm,
+    LEAVER_STATUSES, ContractForm, EmployeeForm, LeaveRequestForm, LeaveTypeForm,
+    TerminationForm,
 )
-from .models import Contract, Employee, LeaveRequest, LeaveType
+from .models import Contract, Employee, LeaveRequest, LeaveType, ensure_default_leave_types
 from apps.core.forms import ISO_DATE
 
 
@@ -116,8 +117,23 @@ class EmployeeCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         from apps.core.models import SequenceCounter
+        from .forms import duplicate_number_message, employee_number_clash
         company = self.request.active_company
         form.instance.company = company
+        # A number from the EMP- series that somebody else took while this form
+        # was open is simply re-issued by claim_number. Any other number the
+        # user typed is kept as typed — so if it is already somebody's, say so
+        # on the field instead of letting the database refuse it with a 500.
+        typed = (form.cleaned_data.get("employee_number") or "").strip()
+        holder = employee_number_clash(company, typed)
+        if holder is not None:
+            counter = SequenceCounter.objects.filter(company=company, prefix="EMP-").first()
+            rest = typed[len("EMP-"):] if typed.startswith("EMP-") else ""
+            reissued = (rest.isdigit() and counter is not None
+                        and int(rest) <= counter.last_number)
+            if not reissued:
+                form.add_error("employee_number", duplicate_number_message(holder))
+                return self.form_invalid(form)
         form.instance.employee_number = SequenceCounter.claim_number(
             company, "EMP-", form.instance.employee_number,
             taken=lambda ref: Employee.objects.filter(company=company, employee_number=ref).exists())
@@ -226,12 +242,29 @@ class EmployeeTerminateView(LoginRequiredMixin, CompanyRequiredMixin, TemplateVi
         form = self.get_form()
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
+        from django.core.exceptions import ValidationError
+
         day = form.cleaned_data["date_terminated"]
-        warnings = terminate_employee(self.employee, day, form.cleaned_data["status"])
-        messages.success(
-            request,
-            f"{self.employee.full_name} leaves on {day:%d %b %Y}. Their contract ends "
-            "that day: payroll pays them up to it, pro-rated, and not after it.")
+        previous = self.employee.date_terminated
+        try:
+            warnings = terminate_employee(self.employee, day, form.cleaned_data["status"])
+        except ValidationError as exc:
+            form.add_error("date_terminated", exc.messages[0])
+            return self.render_to_response(self.get_context_data(form=form))
+        # Say what actually happened to the contract, not what usually does.
+        ended = self.employee.contracts.filter(end_date=day).exists()
+        if previous and previous != day:
+            opening = (f"{self.employee.full_name}'s leaving date is corrected from "
+                       f"{previous:%d %b %Y} to {day:%d %b %Y}.")
+        else:
+            opening = f"{self.employee.full_name} leaves on {day:%d %b %Y}."
+        if ended:
+            detail = (" Their contract now ends that day: payroll pays them up to it, "
+                      "pro-rated, and not after it.")
+        else:
+            detail = (" No contract of theirs was in force on that day, so none was "
+                      "ended — payroll pays nothing after it.")
+        messages.success(request, opening + detail)
         for warning in warnings:
             messages.warning(request, warning)
         return redirect("hr:employee_detail", pk=self.employee.pk)
@@ -399,8 +432,18 @@ class LeaveRequestCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVie
         return form
 
     def form_valid(self, form):
-        messages.success(self.request, "Leave request submitted.")
+        form.instance.created_by = self.request.user
+        messages.success(
+            self.request,
+            f"Leave request submitted: {form.instance.days_requested} working day(s), "
+            "counted Monday to Friday.")
         return super().form_valid(form)
+
+    def get(self, request, *args, **kwargs):
+        # A company with no leave types yet would offer an empty list and no
+        # way to ask for leave at all; it gets the standard Kenyan set.
+        ensure_default_leave_types(request.active_company)
+        return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -420,7 +463,7 @@ def leave_approve(request, pk):
     leave = get_object_or_404(visible_leave(request), pk=pk)
     if request.method == "POST":
         action = request.POST.get("action")
-        if action in ("approve", "reject") and not manages_people(request.user, company):
+        if action in ("approve", "reject") and not decides_leave(request.user, company):
             messages.error(
                 request,
                 "Only HR or an administrator can approve or reject leave. Ask them to "
@@ -431,6 +474,14 @@ def leave_approve(request, pk):
                 request,
                 "You cannot decide your own leave request — somebody else has to "
                 "approve or reject it.")
+            return redirect("hr:leave_list")
+        if action == "approve" and leave.created_by_id == request.user.pk:
+            # Filing leave for a colleague who phoned in is fine; granting the
+            # request you filed is one person doing both halves of the check.
+            messages.error(
+                request,
+                "You filed this request, so somebody else has to approve it. Ask "
+                "another member of HR to decide it.")
             return redirect("hr:leave_list")
         if action in ("approve", "reject") and leave.status != "PENDING":
             messages.error(
@@ -455,6 +506,76 @@ def leave_approve(request, pk):
             messages.error(
                 request, "Choose whether to approve or reject the request.")
     return redirect(reverse("hr:leave_list"))
+
+
+class LeaveTypeListView(LoginRequiredMixin, CompanyRequiredMixin, ListView):
+    """The kinds of leave this company grants, and how many working days each.
+
+    Opening it seeds the standard Kenyan set into a company that has none, so
+    a book founded before this screen existed can still be given leave.
+    """
+    template_name = "hr/leavetype_list.html"
+    context_object_name = "leave_types"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        ensure_default_leave_types(company)
+        return LeaveType.objects.filter(company=company).order_by("-is_active", "name")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = "Leave Types"
+        return ctx
+
+
+class LeaveTypeFormMixin:
+    model = LeaveType
+    form_class = LeaveTypeForm
+    template_name = "hr/leavetype_form.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        _style(form)
+        return form
+
+    def get_success_url(self):
+        return reverse("hr:leavetype_list")
+
+
+class LeaveTypeCreateView(LoginRequiredMixin, CompanyRequiredMixin, LeaveTypeFormMixin,
+                          CreateView):
+    def form_valid(self, form):
+        form.instance.company = self.request.active_company
+        messages.success(
+            self.request,
+            f"'{form.instance.name}' added: {form.instance.days_per_year} working days a "
+            "year.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = "New Leave Type"
+        return ctx
+
+
+class LeaveTypeUpdateView(LoginRequiredMixin, CompanyRequiredMixin, LeaveTypeFormMixin,
+                          UpdateView):
+    def get_queryset(self):
+        return LeaveType.objects.filter(company=self.request.active_company)
+
+    def form_valid(self, form):
+        messages.success(self.request, f"'{form.instance.name}' saved.")
+        return super().form_valid(form)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = f"Edit — {self.object.name}"
+        return ctx
 
 
 class HRIndexView(LoginRequiredMixin, TemplateView):
@@ -491,6 +612,7 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         role = getattr(self.request, "company_role", None)
         ctx["can_decide"] = (access.can(self.request.user, role, "hr", "leave_approve", "POST")
-                             and self.object.employee.user_id != self.request.user.pk)
+                             and self.object.employee.user_id != self.request.user.pk
+                             and self.object.created_by_id != self.request.user.pk)
         return ctx
 

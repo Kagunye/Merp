@@ -59,6 +59,31 @@ def refuse_own_claim(request, claim, verb):
     return redirect("expenses:claim_detail", pk=claim.pk)
 
 
+def segregation_refusal(request, claim, step):
+    """Why this login may not take this step on this claim, or "".
+
+    Raising, approving and paying a claim are three different people's work.
+    Being the person the money is for is one way to be too close to it
+    (refuse_own_claim); having typed the claim in, or having approved it, is
+    another. Without this, a finance clerk could raise a claim in a
+    colleague's name, approve it and pay it out — three steps, one person, and
+    the colleague never knowing money left the bank under their name.
+    """
+    user = request.user
+    if step == "approve" and claim.created_by_id == user.pk:
+        return (f"You raised {claim.reference}, so you cannot also approve it. Somebody "
+                "other than the person who typed a claim in has to agree the money is "
+                "owed.")
+    if step == "pay":
+        if claim.created_by_id == user.pk:
+            return (f"You raised {claim.reference}, so you cannot also pay it. The "
+                    "claim has to be paid by somebody who neither raised nor approved it.")
+        if claim.approved_by_id == user.pk:
+            return (f"You approved {claim.reference}, so you cannot also pay it. The "
+                    "claim has to be paid by somebody who neither raised nor approved it.")
+    return ""
+
+
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
     template_name = "expenses/home.html"
 
@@ -98,6 +123,8 @@ class ExpenseClaimCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVie
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
+        # Who typed it in, so they cannot also approve or pay it.
+        form.instance.created_by = self.request.user
         if not form.instance.reference:
             from apps.core.models import SequenceCounter
             form.instance.reference = SequenceCounter.next_number(
@@ -161,6 +188,10 @@ class ExpenseClaimDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["line_form"] = ExpenseClaimLineForm(company=self.request.active_company)
         ctx["is_own_claim"] = is_own_claim(self.request, self.object)
+        # The buttons are hidden from whoever the segregation rule turns away,
+        # so nobody is offered a step they will only be refused.
+        ctx["cannot_approve"] = segregation_refusal(self.request, self.object, "approve")
+        ctx["cannot_pay"] = segregation_refusal(self.request, self.object, "pay")
         ctx["today"] = timezone.localdate()
         ctx["payment_accounts"] = BankAccount.objects.filter(
             company=self.request.active_company, is_active=True
@@ -211,6 +242,10 @@ def claim_approve(request, pk):
     if not manages_claims(request.user, request.active_company):
         messages.error(request, "Only finance or HR can approve an expense claim.")
         return redirect("expenses:claim_detail", pk=pk)
+    refusal = segregation_refusal(request, claim, "approve")
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("expenses:claim_detail", pk=pk)
     if claim.status == "SUBMITTED":
         claim.status = "APPROVED"
         claim.approved_by = request.user
@@ -260,6 +295,10 @@ def claim_pay(request, pk):
     if claim.journal_entry_id:
         messages.info(request, "Claim is already posted to GL.")
         return redirect("expenses:claim_detail", pk=pk)
+    refusal = segregation_refusal(request, claim, "pay")
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("expenses:claim_detail", pk=pk)
 
     bank_account = None
     account_id = (request.POST.get("bank_account") or "").strip()
@@ -290,16 +329,40 @@ def claim_pay(request, pk):
                 f"'{raw_date}' is not a date. Enter the day the money was paid as "
                 "YYYY-MM-DD, or leave it blank for today.")
             return redirect("expenses:claim_detail", pk=pk)
+    # Money is paid back after it was claimed, and on a day that has happened:
+    # a payment dated before the claim, or next month, books a bank movement
+    # the bank statement will never show.
+    if payment_date < claim.claim_date:
+        messages.error(
+            request,
+            f"{claim.reference} was claimed on {claim.claim_date:%d %b %Y}, so it cannot "
+            f"have been paid on {payment_date:%d %b %Y}. Enter the day the money "
+            "actually left — on or after the claim date.")
+        return redirect("expenses:claim_detail", pk=pk)
+    if payment_date > timezone.localdate():
+        messages.error(
+            request,
+            f"{payment_date:%d %b %Y} is in the future. Record the payment on the day "
+            "the money leaves — today, or an earlier day if it was paid already.")
+        return redirect("expenses:claim_detail", pk=pk)
 
+    from django.core.exceptions import ValidationError
     from apps.accounting.gl_service import post_expense_claim
     try:
         with transaction.atomic():
-            post_expense_claim(claim, bank_account=bank_account, user=request.user,
-                               payment_date=payment_date)
+            entry = post_expense_claim(claim, bank_account=bank_account, user=request.user,
+                                       payment_date=payment_date)
+            type(claim).objects.filter(pk=claim.pk).update(paid_by=request.user)
+    except ValidationError as exc:
+        messages.error(request, f"{claim.reference} was not paid: {exc.messages[0]}")
     except Exception as exc:
         messages.error(request, f"GL posting failed: {exc}")
     else:
         messages.success(request, f"Claim {claim.reference} paid and posted to GL.")
+        # The same warning payroll gives: a payment dated into a closed month
+        # is allowed — late paperwork happens — but it is said out loud.
+        if entry.calendar_warning:
+            messages.warning(request, entry.calendar_warning)
     return redirect("expenses:claim_detail", pk=pk)
 
 

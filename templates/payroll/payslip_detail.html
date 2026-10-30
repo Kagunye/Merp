@@ -14,6 +14,10 @@
         {{ payslip.payroll_run.period_start|date:"d M Y" }} – {{ payslip.payroll_run.period_end|date:"d M Y" }} ·
         pays {{ payslip.payroll_run.payment_date|date:"d M Y" }}
       </p>
+      <p class="text-xs text-gray-500 mt-1 max-w-2xl">
+        Pay is worked out as a share of the calendar month ({{ payslip.payroll_run.month_days }} days{% if payslip.payroll_run.is_part_month %}; this run covers {{ payslip.payroll_run.run_days }} of them, so the monthly tax steps, relief and ceilings are applied for {{ payslip.payroll_run.run_days }} of {{ payslip.payroll_run.month_days }} days{% endif %}).
+        Statutory rates are the tables in force on {{ payslip.payroll_run.period_end|date:"d M Y" }}, the last day of the period: a rate that changes during the month applies to the whole of it.
+      </p>
     </div>
     <div class="no-print">{% include "_includes/print_button.html" %}</div>
   </div>
@@ -54,7 +58,8 @@
               {% if line.percent or line.rule.method == 'BANDS' %}
               <div class="text-xs text-gray-400 font-mono">{% if line.percent %}{{ line.percent|floatformat:2 }}% of {{ line.basis|floatformat:2 }}{% else %}tiered table on {{ line.basis|floatformat:2 }}{% endif %}</div>
               {% endif %}
-              {% if line.reduces_tax %}<div class="text-xs text-gray-400">allowable against tax</div>{% endif %}
+              {% if line.reduces_tax %}<div class="text-xs text-gray-400">allowable against tax{% if line.tax_relief != line.amount %} — {{ line.tax_relief|floatformat:2 }} relieved{% endif %}</div>{% endif %}
+              {% if line.rule %}<div class="text-xs text-gray-400">{{ line.rule.code }} table in force from {{ line.rule.effective_from|date:"d M Y" }}</div>{% endif %}
             </td>
             <td class="px-4 py-2.5 text-right font-mono text-red-600">{{ line.amount|floatformat:2 }}</td>
           </tr>

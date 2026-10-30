@@ -27,8 +27,10 @@ class ContractForm(forms.ModelForm):
                             "Allowances and deductions are added on the payroll side.",
             "is_current": "The contract in force today. Saving a new current contract "
                           "ends the previous one the day before this one starts. "
-                          "Payroll pays every contract for the days its dates cover, "
-                          "so an ended contract still pays the month it ended in.",
+                          "Contracts may not overlap, and one dated before a later "
+                          "contract is saved as history, never as current. Once a "
+                          "contract has paid an approved run, its pay and dates are "
+                          "locked — a raise is a new contract.",
         }
 
     def __init__(self, *args, company=None, **kwargs):
@@ -53,6 +55,29 @@ class ContractForm(forms.ModelForm):
 
 
 LEAVER_STATUSES = ("TERMINATED", "RESIGNED")
+
+
+def employee_number_clash(company, number, exclude_pk=None):
+    """The employee who already holds this staff number in this company, or None.
+
+    The forms leave the company out — the view fills it in — so the database's
+    (company, employee_number) rule is never checked by the form, and a
+    duplicate reaches the database and comes back as a server error. Checking
+    here turns it into a message on the field.
+    """
+    number = (number or "").strip()
+    if not (company and number):
+        return None
+    clash = Employee.objects.filter(company=company, employee_number=number)
+    if exclude_pk is not None:
+        clash = clash.exclude(pk=exclude_pk)
+    return clash.first()
+
+
+def duplicate_number_message(holder):
+    return (f"{holder.employee_number} is already {holder.full_name}'s staff number. "
+            "Each person in the company has their own — choose another number, or "
+            "leave the suggested one.")
 
 
 class EmployeeForm(forms.ModelForm):
@@ -117,6 +142,13 @@ class EmployeeForm(forms.ModelForm):
                 "and ends their contract, so payroll pays them up to that day and no "
                 "further.")
 
+    def clean_employee_number(self):
+        number = (self.cleaned_data.get("employee_number") or "").strip()
+        holder = employee_number_clash(self.company, number, exclude_pk=self.instance.pk)
+        if holder:
+            raise forms.ValidationError(duplicate_number_message(holder))
+        return number
+
     def clean_status(self):
         status = self.cleaned_data.get("status")
         if status in LEAVER_STATUSES and self.instance.status not in LEAVER_STATUSES:
@@ -150,6 +182,45 @@ class TerminationForm(forms.Form):
                 f"{self.employee.date_hired:%d %b %Y}, so they cannot leave before then. "
                 "Check the date, or correct the hire date on their record first.")
         return day
+
+
+class LeaveTypeForm(forms.ModelForm):
+    """A kind of leave and the working days a year it allows.
+
+    The company is filled in by the view, so the database's one-name-per-
+    company rule is checked here by hand: otherwise a second "Annual" would
+    reach the database and come back as a server error.
+    """
+
+    class Meta:
+        model = LeaveType
+        fields = ["name", "days_per_year", "is_paid", "requires_approval",
+                  "carry_forward", "max_carry_forward_days", "is_active"]
+        labels = {"is_active": "In use"}
+        help_texts = {
+            "is_active": "Untick to stop offering this kind of leave. Requests already "
+                         "made keep it.",
+        }
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if company is not None and (self.instance.pk is None or self.instance._state.adding):
+            self.instance.company = company
+
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if not name:
+            raise forms.ValidationError("Give the kind of leave a name, e.g. Annual.")
+        if self.company is not None:
+            clash = LeaveType.objects.filter(company=self.company, name__iexact=name)
+            if not self.instance._state.adding:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise forms.ValidationError(
+                    f"There is already a leave type called '{clash.first().name}'. Edit "
+                    "that one, or give this one a different name.")
+        return name
 
 
 class LeaveRequestForm(forms.ModelForm):

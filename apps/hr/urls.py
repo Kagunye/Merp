@@ -19,4 +19,11 @@ urlpatterns = [
     path("leaves/new/", views.LeaveRequestCreateView.as_view(), name="leave_create"),
     path("leaves/<uuid:pk>/", views.LeaveRequestDetailView.as_view(), name="leave_detail"),
     path("leaves/<uuid:pk>/approve/", views.leave_approve, name="leave_approve"),
+    # Named leavetype_* rather than leave_type_*: the role table opens leave_*
+    # to everybody (anyone may ask for leave), but setting how much leave the
+    # company grants is HR's, which the hr:* rule already says.
+    path("leave-types/", views.LeaveTypeListView.as_view(), name="leavetype_list"),
+    path("leave-types/new/", views.LeaveTypeCreateView.as_view(), name="leavetype_create"),
+    path("leave-types/<uuid:pk>/edit/", views.LeaveTypeUpdateView.as_view(),
+         name="leavetype_update"),
 ]

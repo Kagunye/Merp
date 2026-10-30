@@ -31,10 +31,23 @@ class ExpenseClaim(BaseModel, NotesMixin):
     claim_date = models.DateField(db_index=True)
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="DRAFT")
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    # Three hands, three people: whoever typed the claim in, whoever agreed the
+    # money is owed, and whoever paid it out. A claim raised by finance in a
+    # colleague's name is still the clerk's paper — if the same login could
+    # also approve and pay it, one person could draw cash in somebody else's
+    # name with nobody else ever looking. See apps.expenses.views.
+    created_by = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="created_expenses",
+        help_text="The login that raised the claim. They may not approve or pay it.")
     approved_by = models.ForeignKey(
         "accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_expenses"
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    paid_by = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="paid_expenses",
+        help_text="The login that paid the claim out — never its creator or approver.")
     paid_at = models.DateField(null=True, blank=True)
     journal_entry = models.ForeignKey(
         "accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True

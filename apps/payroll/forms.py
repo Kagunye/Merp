@@ -149,7 +149,7 @@ class StatutoryRuleForm(AccountChoiceForm):
         model = StatutoryRule
         fields = ["code", "name", "method", "basis", "employee_percent",
                   "employer_percent", "employee_flat", "employer_flat", "basis_cap",
-                  "monthly_relief", "reduces_taxable_pay", "employee_minimum",
+                  "monthly_relief", "reduces_taxable_pay", "is_pension", "employee_minimum",
                   "payable_account", "expense_account", "effective_from", "is_active"]
         widgets = {"effective_from": date_input()}
 
@@ -218,12 +218,34 @@ class StatutoryRuleForm(AccountChoiceForm):
 
 class SalaryComponentForm(AccountChoiceForm):
     account_fields = ("gl_account",)
+    # An earning is charged to an expense and a deduction is owed on a
+    # liability; nothing else is offered. Which of the two fits this row is
+    # checked against its kind in SalaryComponent.clean, once the kind is known.
+    account_types = {"gl_account": list(
+        SalaryComponent.EARNING_ACCOUNT_TYPES + SalaryComponent.DEDUCTION_ACCOUNT_TYPES)}
 
     class Meta:
         model = SalaryComponent
         fields = ["employee", "name", "component_type", "calculation", "amount",
                   "percent", "is_taxable", "counts_as_statutory_pay",
-                  "reduces_taxable_pay", "gl_account", "is_active"]
+                  "reduces_taxable_pay", "prorate_part_months", "gl_account",
+                  "is_active"]
+
+    # Blank means "the usual for this kind of element": an allowance is paid
+    # for the part of the month somebody was employed, the way basic pay is,
+    # while a deduction such as a loan repayment is the same figure however
+    # much of the month was worked. A tick box could not say "the usual" — a
+    # screen or script that never heard of the setting would post nothing and
+    # silently stop pro-rating every allowance.
+    prorate_part_months = forms.TypedChoiceField(
+        label="Pro-rate in part months",
+        choices=[("", "The usual — yes for earnings, no for deductions"),
+                 ("True", "Yes — pay the share of the month the person was employed"),
+                 ("False", "No — the same figure however much of the month was worked")],
+        coerce=lambda v: v in (True, "True", "true", "on", "1"),
+        empty_value=None, required=False,
+        help_text="Only matters for a fixed figure. A joiner from the 16th of a 30-day "
+                  "month gets 15/30 of a pro-rated allowance.")
 
     # A yes/no list rather than a tick box: a tick box that is not in the post
     # reads as "no", and this one defaults to yes — an older screen or a script
@@ -247,6 +269,8 @@ class SalaryComponentForm(AccountChoiceForm):
             self.fields["employee"].empty_label = "— Everyone in the company"
             self.fields["gl_account"].empty_label = "— Salaries & wages (6100)"
             self.fields["is_active"].initial = True
+        if not is_new(self):
+            self.initial["prorate_part_months"] = str(self.instance.prorate_part_months)
 
     def clean_amount(self):
         return refuse_negative(self, "amount", "The amount")
@@ -256,6 +280,9 @@ class SalaryComponentForm(AccountChoiceForm):
 
     def clean(self):
         cleaned = super().clean()
+        if cleaned.get("prorate_part_months") is None:
+            cleaned["prorate_part_months"] = cleaned.get("component_type") != "DEDUCTION"
+            self.instance.prorate_part_months = cleaned["prorate_part_months"]
         if cleaned.get("component_type") == "DEDUCTION" and not cleaned.get("gl_account"):
             self.add_error(
                 "gl_account",

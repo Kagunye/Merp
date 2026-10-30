@@ -1,6 +1,9 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Statutory Tables — Payroll — Mofisi{% endblock %}
 {% block content %}
+{% can_do "payroll:rules_seed" "POST" as may_seed %}
+{% can_do "payroll:rule_create" "POST" as may_create %}
 <div class="space-y-5">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <div>
@@ -8,14 +11,18 @@
       <p class="text-sm text-gray-500 mt-0.5 max-w-2xl">The rates every payslip is worked out from. A new rate is a new row with a later start date, so an old slip can still be recomputed from the table that was in force when it was paid.</p>
     </div>
     <div class="flex flex-wrap gap-2 no-print">
+      {% if may_seed %}
       <form method="post" action="{% url 'payroll:rules_seed' %}">
         {% csrf_token %}
         <button type="submit" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Load standard table</button>
       </form>
+      {% endif %}
+      {% if may_create %}
       <a href="{% url 'payroll:rule_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
         New table
       </a>
+      {% endif %}
     </div>
   </div>
 
