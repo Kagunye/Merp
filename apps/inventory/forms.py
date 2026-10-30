@@ -48,6 +48,35 @@ class ProductForm(forms.ModelForm):
             field.empty_label = "— System default"
         self.company = company
 
+    # A price or a reorder point below zero has no meaning: a negative cost
+    # would value stock at less than nothing on the balance sheet, a negative
+    # selling price would turn every sale into a credit note, and a negative
+    # reorder level would never trigger a reorder.
+    NON_NEGATIVE = {
+        "cost_price": "The cost price can't be negative. Enter 0 or more.",
+        "selling_price": "The selling price can't be negative. Enter 0 or more.",
+        "reorder_level": "The reorder level can't be negative. Enter 0 or more.",
+        "reorder_quantity": "The reorder quantity can't be negative. Enter 0 or more.",
+    }
+
+    def _non_negative(self, name):
+        value = self.cleaned_data.get(name)
+        if value is not None and value < 0:
+            raise forms.ValidationError(self.NON_NEGATIVE[name])
+        return value
+
+    def clean_cost_price(self):
+        return self._non_negative("cost_price")
+
+    def clean_selling_price(self):
+        return self._non_negative("selling_price")
+
+    def clean_reorder_level(self):
+        return self._non_negative("reorder_level")
+
+    def clean_reorder_quantity(self):
+        return self._non_negative("reorder_quantity")
+
     def clean(self):
         """Refuse the two edits that would break the inventory account.
 

@@ -17,7 +17,7 @@
 
     <h3 class="text-sm font-semibold mb-3 text-gray-700">Conversation</h3>
     <div class="space-y-3 mb-6">
-      {% for c in ticket.comments.all %}
+      {% for c in comments %}
       <div class="rounded-lg border {% if c.is_internal %}bg-amber-50 border-amber-200{% else %}bg-gray-50 border-gray-200{% endif %} p-3">
         <div class="flex justify-between text-xs text-gray-500 mb-1"><span>{{ c.author|default:"System" }}{% if c.is_internal %} · <strong>Internal note</strong>{% endif %}</span><span>{{ c.created_at|date:"d M Y H:i" }}</span></div>
         <div class="text-sm text-gray-900">{{ c.body|linebreaks }}</div>
@@ -32,7 +32,7 @@
       {% csrf_token %}
       <label>Reply</label>
       {{ comment_form.body }}
-      <label class="form-check mt-2">{{ comment_form.is_internal }} Internal note (hidden from customer)</label>
+      {% if can_see_internal %}<label class="form-check mt-2">{{ comment_form.is_internal }} Internal note (hidden from customer)</label>{% endif %}
       <div class="form-actions"><button type="submit">Post reply</button></div>
     </form>
     {% endif %}

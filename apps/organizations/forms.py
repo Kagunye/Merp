@@ -82,6 +82,25 @@ class BranchForm(forms.ModelForm):
             "A company has one head office: ticking this moves the title from "
             "the current headquarters to this branch.")
 
+    def clean_is_headquarters(self):
+        """The head office can be moved, not abolished.
+
+        Ticking the box on another branch moves the title there. Unticking it
+        on the branch that holds it would leave the company with no
+        headquarters at all, and the screens and documents that print the
+        head-office address would have none to print.
+        """
+        value = self.cleaned_data.get("is_headquarters")
+        if value or self.instance._state.adding or not self.instance.pk:
+            return value
+        was_hq = Branch.objects.filter(pk=self.instance.pk, is_headquarters=True).exists()
+        if was_hq:
+            raise forms.ValidationError(
+                "This branch is the company's headquarters, and a company needs one. "
+                "To move the head office, open the branch that should take over and "
+                "tick Headquarters there.")
+        return value
+
     def clean_code(self):
         """Branch codes are how people tell branches apart on reports and
         documents, so two branches of one company may not share a code. A

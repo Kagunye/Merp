@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.views.generic import DetailView, ListView, TemplateView, UpdateView, View
 
 from .forms import (
-    AddExistingUserForm, ChangePasswordForm, LoginForm, MemberEditForm,
+    AddExistingUserForm, ChangePasswordForm, LoginForm, MemberEditForm, MembershipEditForm,
     PasswordResetConfirmForm, PasswordResetRequestForm, RegisterForm,
     UserCreateForm, UserEditForm,
 )
@@ -63,6 +63,58 @@ def login_locked_out(email, ip):
     if ip and failures.filter(ip_address=ip).count() >= LOGIN_MAX_FAILURES:
         return True
     return False
+
+
+def throttled_admin_login(admin_login):
+    """`admin_login` (AdminSite.login) behind the same lockout as the sign-in page.
+
+    /admin/login/ is a second door to the same accounts. It took any number
+    of guesses and recorded none of them, so the five-failure lockout on
+    /auth/login/ could be walked around by guessing at the admin form
+    instead -- and the accounts worth guessing (platform admins) are exactly
+    the ones it serves. Every POST here is now checked against
+    login_locked_out() first and recorded as a LoginAttempt afterwards, so
+    the two forms share one count.
+    """
+    import functools
+    import logging
+    log = logging.getLogger(__name__)
+
+    @functools.wraps(admin_login)
+    def login_view(request, extra_context=None):
+        if request.method != "POST":
+            return admin_login(request, extra_context)
+        email = (request.POST.get("username") or "").strip()
+        ip = _get_client_ip(request)
+        ua = request.META.get("HTTP_USER_AGENT", "")
+        try:
+            locked = login_locked_out(email, ip)
+        except Exception as exc:  # never let the throttle itself block sign-in
+            log.warning("Admin login throttle check failed: %s", exc)
+            locked = False
+        if locked:
+            try:
+                LoginAttempt.objects.create(email=email, ip_address=ip, user_agent=ua,
+                                            success=False, failure_reason=LOCKED_OUT_REASON)
+            except Exception as exc:
+                log.warning("LoginAttempt (admin lockout) audit write failed: %s", exc)
+            from django.http import HttpResponse
+            minutes = int(LOGIN_LOCKOUT_WINDOW.total_seconds() // 60)
+            return HttpResponse(
+                f"Too many failed sign-in attempts. Sign-in is paused for {minutes} minutes "
+                "for this account and this device. Wait and try again, or reset your password.",
+                status=429, content_type="text/plain; charset=utf-8")
+        response = admin_login(request, extra_context)
+        ok = response.status_code in (301, 302) and request.user.is_authenticated
+        try:
+            LoginAttempt.objects.create(
+                user=request.user if ok else None, email=email, ip_address=ip, user_agent=ua,
+                success=ok, failure_reason="" if ok else "Invalid credentials (admin)")
+        except Exception as exc:
+            log.warning("LoginAttempt (admin) audit write failed: %s", exc)
+        return response
+
+    return login_view
 
 
 class LoginView(View):
@@ -254,7 +306,20 @@ class ProfileView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "My Profile"
+        from .models import CompanyInvitation
+        ctx["pending_invitations"] = CompanyInvitation.pending_for(self.request.user)
         return ctx
+
+    def get(self, request, *args, **kwargs):
+        # The profile page is where a person looks for what is waiting on
+        # them; a short note sends them to the invitations screen.
+        from .models import CompanyInvitation
+        count = CompanyInvitation.pending_for(request.user).count()
+        if count:
+            messages.info(request, f"You have {count} pending company invitation"
+                                   f"{'s' if count != 1 else ''}. Open Invitations "
+                                   f"(/auth/invitations/) to accept or decline.")
+        return super().get(request, *args, **kwargs)
 
 
 class ProfileEditView(LoginRequiredMixin, View):
@@ -470,9 +535,16 @@ class UserDetailView(LoginRequiredMixin, DetailView):
 
 
 class UserEditView(LoginRequiredMixin, View):
-    """Edit a colleague's details. Sign-in identity (email, username) is locked
-    when they also belong to another company: changing it there would let
-    one company take over an account another company relies on."""
+    """Edit a colleague's seat in the active company.
+
+    A company admin changes the membership only: role, branch, department
+    (access is switched on and off from the user list). The person's own
+    details -- name, email, username, phone, profile -- are theirs: only they
+    (on their profile) or a platform administrator change them. Letting any
+    company admin edit them made "add the victim to my company, change their
+    email to mine, reset the password" an account takeover, and let one
+    company rewrite what every other company the person works for sees.
+    """
     template_name = "accounts/user_form.html"
 
     def _target(self, request, pk):
@@ -489,19 +561,19 @@ class UserEditView(LoginRequiredMixin, View):
         company = getattr(request, "active_company", None)
         membership = (CompanyMembership.objects.filter(user=user, company=company).select_related(
             "company", "user").first() if company is not None else None)
-        if membership is not None:
-            form = MemberEditForm(data, files, instance=user)
-            form.add_role_field(membership, editing_self=(user.pk == request.user.pk))
-        else:
-            form = UserEditForm(data, files, instance=user)
-        shared = (company is not None and not is_platform_admin(request.user)
-                  and user.pk != request.user.pk
-                  and user.memberships.filter(is_active=True).exclude(company=company).exists())
-        if shared:
-            for name in ("email", "username"):
-                form.fields[name].disabled = True
-                form.fields[name].help_text = "This person also belongs to another company, so only they can change it."
-        return form
+        editing_self = user.pk == request.user.pk
+        if editing_self or is_platform_admin(request.user):
+            # The person themself, or a platform admin: the whole record.
+            if membership is not None:
+                form = MemberEditForm(data, files, instance=user)
+                form.add_role_field(membership, editing_self=editing_self)
+            else:
+                form = UserEditForm(data, files, instance=user)
+            return form
+        if membership is None:
+            from django.http import Http404
+            raise Http404
+        return MembershipEditForm(data, membership=membership, editing_self=False)
 
     def get(self, request, pk):
         user = self._target(request, pk)
@@ -517,38 +589,50 @@ class UserEditView(LoginRequiredMixin, View):
         if form.is_valid():
             from django.db import transaction
             with transaction.atomic():
-                form.save()
                 membership = getattr(form, "membership", None)
+                old_role = membership.role if membership is not None else None
+                old_display = membership.get_role_display() if membership is not None else ""
+                form.save()
                 role = form.cleaned_data.get("company_role")
-                if membership is not None and role and role != membership.role:
-                    old = membership.get_role_display()
+                if membership is not None and role and role != old_role:
                     membership.role = role
                     membership.save(update_fields=["role"])
                     messages.success(request, f"{user.full_name}'s role in {membership.company.name} "
-                                              f"changed from {old} to {membership.get_role_display()}.")
+                                              f"changed from {old_display} to {membership.get_role_display()}.")
             messages.success(request, "User updated successfully.")
             return redirect("accounts:user_detail", pk=pk)
         return render(request, self.template_name, {"form": form, "profile_user": user})
 
 
 class UserAddExistingView(LoginRequiredMixin, View):
-    """Give somebody who already has a login a seat in the active company.
+    """Invite somebody who may already have a login to the active company.
 
     People work for more than one company; creating a second account for
     them is impossible (the email is taken) and would split their history in
-    two anyway. The admin names them by the email they sign in with and picks
-    their role; they are told by email, with a link built from SITE_URL.
+    two anyway. But a company must not be able to take a person in without
+    asking: anybody can register and set up a company, and the "admin" of
+    that company could otherwise pull a stranger in by email and manage them.
+    So this only records an invitation. The person accepts it, signed in as
+    themselves, from the emailed link or from Invitations on their profile;
+    only then do they become a member.
+
+    The answer here is the same whatever email is typed -- existing or not,
+    already a member or not -- so the screen can't be used to find out who
+    has an account, or what their name is.
     """
     template_name = "accounts/user_form.html"
+    SAME_ANSWER = "If that person has a Mofisi account, they've been invited."
 
     def get(self, request):
         return render(request, self.template_name, {
             "form": AddExistingUserForm(company=request.active_company),
-            "page_title": "Add an existing user",
+            "page_title": "Invite an existing user",
         })
 
     def post(self, request):
+        from django.db import transaction
         from apps.organizations.models import CompanyMembership
+        from .models import CompanyInvitation
         company = request.active_company
         if company is None:
             messages.error(request, "Switch to a company before adding people to it.")
@@ -556,23 +640,118 @@ class UserAddExistingView(LoginRequiredMixin, View):
         form = AddExistingUserForm(request.POST, company=company)
         if not form.is_valid():
             return render(request, self.template_name, {
-                "form": form, "page_title": "Add an existing user"})
-        user = form.user
-        membership = CompanyMembership.objects.create(
-            user=user, company=company, role=form.cleaned_data["company_role"], is_active=True)
-        link = absolute_link("/auth/login/", request)
-        if link:
-            from django.core.mail import send_mail
-            send_mail(
-                subject=f"You've been added to {company.name} — Mofisi",
-                message=(f"{request.user.full_name} added you to {company.name} as "
-                         f"{membership.get_role_display()}.\n\nSign in with your usual "
-                         f"email and password: {link}"),
-                from_email=None, recipient_list=[user.email], fail_silently=True,
-            )
-        messages.success(request, f"{user.full_name} added to {company.name} as "
+                "form": form, "page_title": "Invite an existing user"})
+        email = form.cleaned_data["email"]
+        role = form.cleaned_data["company_role"]
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        already = user is not None and CompanyMembership.objects.filter(
+            user=user, company=company).exists()
+        if not already:
+            with transaction.atomic():
+                # One open invitation per person per company: asking again
+                # replaces the old one (new role, new link, new 14 days).
+                CompanyInvitation.objects.filter(
+                    company=company, email__iexact=email, accepted_at__isnull=True,
+                    declined_at__isnull=True).update(declined_at=timezone.now())
+                invitation = CompanyInvitation.objects.create(
+                    company=company, email=email, role=role, invited_by=request.user)
+            if user is not None:
+                link = absolute_link(f"/auth/invitations/{invitation.token}/", request)
+                if link:
+                    from django.core.mail import send_mail
+                    send_mail(
+                        subject=f"Invitation to join {company.name} — Mofisi",
+                        message=(f"{request.user.full_name} has invited you to join {company.name} "
+                                 f"as {invitation.get_role_display()}.\n\nSign in and accept or "
+                                 f"decline here: {link}\n\nNothing changes unless you accept. "
+                                 "The invitation expires in 14 days."),
+                        from_email=None, recipient_list=[user.email], fail_silently=True,
+                    )
+        messages.success(request, self.SAME_ANSWER)
+        return redirect("accounts:user_list")
+
+
+class InvitationListView(LoginRequiredMixin, View):
+    """The signed-in person's open invitations, to accept or decline."""
+    template_name = "accounts/invitations.html"
+
+    def get(self, request):
+        from .models import CompanyInvitation
+        return render(request, self.template_name, {
+            "invitations": CompanyInvitation.pending_for(request.user),
+            "page_title": "Invitations",
+        })
+
+
+class InvitationRespondView(LoginRequiredMixin, View):
+    """Accept or decline one invitation.
+
+    The link alone proves nothing: it is matched against the email of the
+    person signed in, so only the person it was addressed to can act on it.
+    Somebody else who opens the link is told it isn't theirs.
+    """
+    template_name = "accounts/invitations.html"
+    NOT_YOURS = ("This invitation isn't for the account you are signed in with, or it has "
+                 "expired or been answered already. Sign in with the email it was sent to, "
+                 "or ask the company for a new one.")
+
+    def _invitation(self, request, token):
+        from .models import CompanyInvitation
+        return CompanyInvitation.pending_for(request.user).filter(token=token).first()
+
+    def get(self, request, token):
+        invitation = self._invitation(request, token)
+        if invitation is None:
+            messages.error(request, self.NOT_YOURS)
+            return redirect("accounts:invitations")
+        return render(request, self.template_name, {
+            "invitations": [invitation], "page_title": "Invitation"})
+
+    def post(self, request, token):
+        from django.db import transaction
+        from apps.organizations.models import CompanyMembership
+        from .models import CompanyInvitation
+        invitation = self._invitation(request, token)
+        if invitation is None:
+            messages.error(request, self.NOT_YOURS)
+            return redirect("accounts:invitations")
+        if request.POST.get("decision") == "decline":
+            invitation.declined_at = timezone.now()
+            invitation.save(update_fields=["declined_at"])
+            messages.info(request, f"You declined the invitation to {invitation.company.name}.")
+            return redirect("accounts:invitations")
+        existing = CompanyMembership.objects.filter(user=request.user, company=invitation.company).first()
+        if existing is not None and not existing.is_active:
+            # A disabled seat is not re-opened by an invitation: the company
+            # turned it off, and turns it back on from its user list.
+            messages.error(request, f"Your access to {invitation.company.name} was disabled by its "
+                                    "administrators. Ask them to re-enable it.")
+            return redirect("accounts:invitations")
+        with transaction.atomic():
+            membership = existing or CompanyMembership.objects.create(
+                user=request.user, company=invitation.company, role=invitation.role, is_active=True)
+            now = timezone.now()
+            invitation.accepted_at = now
+            invitation.save(update_fields=["accepted_at"])
+            CompanyInvitation.objects.filter(
+                company=invitation.company, email__iexact=invitation.email,
+                accepted_at__isnull=True, declined_at__isnull=True).exclude(
+                pk=invitation.pk).update(declined_at=now)
+        request.session["active_company_id"] = str(invitation.company.id)
+        request.session.pop("active_branch_id", None)
+        messages.success(request, f"You joined {invitation.company.name} as "
                                   f"{membership.get_role_display()}.")
-        return redirect("accounts:user_detail", pk=user.pk)
+        return redirect("dashboard:index")
+
+
+def _last_active_admin(membership):
+    """Whether `membership` is the company's only active ADMIN seat."""
+    from apps.organizations.models import CompanyMembership
+    if membership.role != "ADMIN" or not membership.is_active:
+        return False
+    return not CompanyMembership.objects.filter(
+        company=membership.company, role="ADMIN", is_active=True,
+        user__is_active=True).exclude(pk=membership.pk).exists()
 
 
 @login_required
@@ -595,6 +774,12 @@ def toggle_user_active(request, pk):
     membership = CompanyMembership.objects.filter(user=user, company=request.active_company).first()
     if membership is None:
         messages.error(request, f"{user.full_name} isn't a member of {request.active_company}.")
+        return redirect("accounts:user_list")
+    if _last_active_admin(membership):
+        # Applies to platform admins too: a company with no active admin has
+        # nobody left who can manage its users, branches or company record.
+        messages.error(request, f"{user.full_name} is the only active admin of "
+                                f"{membership.company.name}. Make someone else an admin first.")
         return redirect("accounts:user_list")
     membership.is_active = not membership.is_active
     membership.save(update_fields=["is_active"])

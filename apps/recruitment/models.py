@@ -58,6 +58,10 @@ class JobOpening(BaseModel, NotesMixin):
             errors["salary_range_max"] = (
                 f"The top of the range ({hi:,.2f}) is below the bottom ({lo:,.2f}). "
                 "Swap them, or correct one.")
+        from apps.organizations.validators import earliest_date_error
+        msg = earliest_date_error(self.posted_date, "The posted date")
+        if msg:
+            errors["posted_date"] = msg
         if self.posted_date and self.close_date and self.close_date < self.posted_date:
             errors["close_date"] = (
                 f"The opening can't close ({self.close_date:%d %b %Y}) before it was "
@@ -134,6 +138,13 @@ class Interview(models.Model):
         return f"Interview — {self.candidate} @ {self.scheduled_at:%Y-%m-%d %H:%M}"
 
     def clean(self):
+        from apps.organizations.validators import earliest_date_error
+        errors = {}
         if self.duration_minutes is not None and self.duration_minutes <= 0:
-            raise ValidationError({"duration_minutes":
-                                   "An interview has to last at least one minute. Enter its length in minutes."})
+            errors["duration_minutes"] = (
+                "An interview has to last at least one minute. Enter its length in minutes.")
+        msg = earliest_date_error(self.scheduled_at, "The interview date")
+        if msg:
+            errors["scheduled_at"] = msg
+        if errors:
+            raise ValidationError(errors)

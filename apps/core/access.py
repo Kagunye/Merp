@@ -225,6 +225,8 @@ PUBLIC = {
 # Reachable by any signed-in user, even one who doesn't belong to a company yet.
 SELF_SERVICE = {
     ("accounts", "profile"), ("accounts", "profile_edit"), ("accounts", "change_password"),
+    # A person answers their own invitations, before they belong to the company.
+    ("accounts", "invitations"), ("accounts", "invitation_respond"),
     ("dashboard", "index"), ("dashboard", "switch_company"), ("dashboard", "switch_branch"),
     ("dashboard", "search"),
     ("organizations", "company_create"),
