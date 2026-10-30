@@ -1,13 +1,17 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'documents:document_list' as back %}
-{% include "_includes/page_header.html" with title="Delete document?" back_url=back %}
-<form method="post" class="max-w-md">
+{% url 'documents:document_detail' doc.pk as detail_url %}
+{% include "_includes/page_header.html" with title="Delete document?" back_url=detail_url back_label=doc.name hide_print=True %}
+<form method="post" class="card card-body max-w-lg">
   {% csrf_token %}
-  <p class="text-sm text-gray-700 mb-5">You're about to permanently delete <strong>{{ doc.name }}</strong>. This can't be undone.</p>
+  <div class="alert alert-danger" role="alert">
+    {% include "_includes/icon.html" with name="warning" %}
+    <div class="alert-body">You're about to permanently delete <strong>{{ doc.name }}</strong>. This can't be undone.</div>
+  </div>
   <div class="form-actions">
-    <button type="submit" style="background: #DC2626; border-color: #DC2626; box-shadow: 0 6px 14px rgba(220,38,38,0.2);">Delete permanently</button>
-    <a href="{{ back }}" class="btn-outline">Cancel</a>
+    <a href="{{ back }}" class="btn btn-ghost">Cancel</a>
+    <button type="submit" class="btn btn-danger">{% include "_includes/icon.html" with name="trash" cls="h-4 w-4" only %}Delete permanently</button>
   </div>
 </form>
 {% endblock %}

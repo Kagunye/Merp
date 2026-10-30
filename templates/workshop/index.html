@@ -3,36 +3,38 @@
 {% load ui_extras %}
 {% include "_includes/launcher.html" with launcher_title="Workshop" launcher_subtitle="Service jobs, quotations, inventory issues and scheduling" %}
 
+<section aria-label="Workshop at a glance" class="stat-grid mb-6">
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}{% url 'helpdesk:ticket_list' as u %}{% endif %}
+  {% include "_includes/stat.html" with label="Open jobs" value=open_jobs|default:0 meta="Open or in progress" icon="clipboard" tone="warning" url=u only %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}{% url 'sales:invoice_list' as u2 %}{% endif %}
+  {% include "_includes/stat.html" with label="Invoiced jobs" value=invoiced_jobs|default:0 meta="Invoices raised" icon="receipt" tone="success" url=u2 only %}
+  {% can_do "hr:employee_list" as ok %}{% if ok %}{% url 'hr:employee_list' as u3 %}{% endif %}
+  {% include "_includes/stat.html" with label="Technicians" value=technicians|default:0 meta="Active employees" icon="users" tone="info" url=u3 only %}
+</section>
+
 <div class="launcher-section-label">
   Processing
 </div>
 <div class="launcher-grid">
-  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Account Enquiries</span></a>{% endif %}
-  {% can_do "sales:invoice_create" as ok %}{% if ok %}<a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Invoice Job</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_create" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-sky">🔧</div><span class="label">Process Job</span></a>{% endif %}
-  {% can_do "sales:order_create" as ok %}{% if ok %}<a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-mint">💬</div><span class="label">Create Quotation</span></a>{% endif %}
-  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Credit Notes</span></a>{% endif %}
-  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Credit Requests</span></a>{% endif %}
-  {% can_do "sales:payment_list" as ok %}{% if ok %}<a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Receipts</span></a>{% endif %}
-  {% can_do "projects:task_list" as ok %}{% if ok %}<a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Workshop Schedule</span></a>{% endif %}
-  {% can_do "inventory:adjustment_create" as ok %}{% if ok %}<a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-rose">📦</div><span class="label">Inventory Issue</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Account Enquiries</span></a>{% endif %}
+  {% can_do "sales:invoice_create" as ok %}{% if ok %}<a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Invoice Job</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_create" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Process Job</span></a>{% endif %}
+  {% can_do "sales:order_create" as ok %}{% if ok %}<a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Create Quotation</span></a>{% endif %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Credit Notes</span></a>{% endif %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Credit Requests</span></a>{% endif %}
+  {% can_do "sales:payment_list" as ok %}{% if ok %}<a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Receipts</span></a>{% endif %}
+  {% can_do "projects:task_list" as ok %}{% if ok %}<a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Workshop Schedule</span></a>{% endif %}
+  {% can_do "inventory:adjustment_create" as ok %}{% if ok %}<a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Inventory Issue</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
   Maintenance
 </div>
 <div class="launcher-grid">
-  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛠️</div><span class="label">Serviceable Item</span></a>{% endif %}
-  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Serviceable Item Type</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Job Template</span></a>{% endif %}
-  {% can_do "hr:employee_list" as ok %}{% if ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">👨‍🔧</div><span class="label">Setup Technician</span></a>{% endif %}
-  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Owners</span></a>{% endif %}
-</div>
-
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open jobs</div><div class="text-2xl font-bold text-amber-600">{{ open_jobs|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Invoiced jobs</div><div class="text-2xl font-bold text-green-700">{{ invoiced_jobs|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Technicians</div><div class="text-2xl font-bold">{{ technicians|default:0 }}</div></div>
+  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Serviceable Item</span></a>{% endif %}
+  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Serviceable Item Type</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Job Template</span></a>{% endif %}
+  {% can_do "hr:employee_list" as ok %}{% if ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Setup Technician</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Owners</span></a>{% endif %}
 </div>
 {% endblock %}

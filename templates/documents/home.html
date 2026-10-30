@@ -3,15 +3,24 @@
 {% load ui_extras %}
 {% include "_includes/launcher.html" with launcher_title="Documents" launcher_subtitle="Upload, categorise and retrieve company files" %}
 
+{% can_do "documents:document_list" as may_list %}{% can_do "documents:document_detail" as may_view %}{% can_do "documents:category_list" as may_cats %}
+{% if may_list %}
+<section aria-label="Library at a glance" class="stat-grid mb-6">
+  {% url 'documents:document_list' as u %}
+  {% include "_includes/stat.html" with label="Documents" value=doc_count|default:0 meta="Files in the library" icon="document" tone="info" url=u only %}
+  {% if may_cats %}{% url 'documents:category_list' as u2 %}{% endif %}
+  {% include "_includes/stat.html" with label="Categories" value=categories|length meta="Ways files are grouped" icon="filter" tone="neutral" url=u2 only %}</section>
+{% endif %}
+
 <div class="launcher-section-label">
   Processing
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  {% can_do "documents:document_upload" as ok %}{% if ok %}<a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">📤</div><span class="label">Upload Document</span></a>{% endif %}
-  {% can_do "documents:category_create" as ok %}{% if ok %}<a href="{% url 'documents:category_create' %}" class="launcher-tile"><div class="ico ico-sky">🏷️</div><span class="label">New Category</span></a>{% endif %}
-  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">🔍</div><span class="label">Search Documents</span></a>{% endif %}
-  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📎</div><span class="label">Share Link</span></a>{% endif %}
+  {% can_do "documents:document_upload" as ok %}{% if ok %}<a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Upload Document</span></a>{% endif %}
+  {% can_do "documents:category_create" as ok %}{% if ok %}<a href="{% url 'documents:category_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Category</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="search" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Search Documents</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="arrow-right" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Share Link</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -19,9 +28,9 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">All Documents</span></a>{% endif %}
-  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>{% endif %}
-  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">⭐</div><span class="label">Recent Uploads</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">All Documents</span></a>{% endif %}
+  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="filter" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Categories</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Recent Uploads</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -29,8 +38,28 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Document Types</span></a>{% endif %}
-  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">🔒</div><span class="label">Access Permissions</span></a>{% endif %}
-  {% can_do "organizations:home" as ok %}{% if ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💾</div><span class="label">Storage Settings</span></a>{% endif %}
+  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Document Types</span></a>{% endif %}
+  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="lock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Access Permissions</span></a>{% endif %}
+  {% can_do "organizations:home" as ok %}{% if ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Storage Settings</span></a>{% endif %}
 </div>
+
+{% if may_list and recent %}
+<section class="card mt-8 overflow-hidden">
+  <div class="card-header">
+    <div><h2 class="card-title">Recent uploads</h2><p class="card-subtitle">{{ doc_count }} file{{ doc_count|pluralize }} in the library</p></div>
+    <a href="{% url 'documents:document_list' %}" class="card-link">View all →</a>
+  </div>
+  <ul class="list">
+    {% for d in recent %}
+    <li class="list-row items-center">
+      {% include "documents/_file_icon.html" with mime=d.mime_type only %}
+      <div class="min-w-0 flex-1">
+        {% if may_view %}<a href="{% url 'documents:document_detail' d.pk %}" class="row-link block truncate">{{ d.name }}</a>{% else %}<span class="block truncate font-medium text-ink">{{ d.name }}</span>{% endif %}
+        <p class="text-xs text-ink-muted">{{ d.file_size_display }} · {{ d.created_at|date:"d M Y" }}</p>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endblock %}

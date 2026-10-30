@@ -1,24 +1,35 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'documents:document_list' as back %}
-{% include "_includes/page_header.html" with title=doc.name subtitle=doc.category back_url=back %}
+{% can_do "documents:document_download" as may_download %}{% if doc.file and may_download %}{% url 'documents:document_download' doc.pk as dl_url %}{% endif %}
+{% include "_includes/page_header.html" with title=doc.name subtitle=doc.category back_url=back back_label="Documents" action_label="Download" action_url=dl_url action_icon="download" actions_template="documents/_document_actions.html" hide_print=True %}
 
-<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
-  <div class="grid grid-cols-2 gap-5">
-    <div><div class="text-xs text-gray-500">Category</div><div class="font-semibold">{{ doc.category|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Size</div><div class="font-semibold">{{ doc.file_size_display }}</div></div>
-    <div><div class="text-xs text-gray-500">Uploaded by</div><div class="font-semibold">{{ doc.uploaded_by|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Uploaded</div><div class="font-semibold">{{ doc.created_at|date:"d M Y H:i" }}</div></div>
-    <div><div class="text-xs text-gray-500">Expiry</div><div class="font-semibold">{{ doc.expiry_date|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Version</div><div class="font-semibold">v{{ doc.version }}</div></div>
-    {% if doc.description %}
-    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-gray-900 text-sm mt-1">{{ doc.description }}</div></div>
-    {% endif %}
+<section class="card max-w-3xl">
+  <div class="card-header">
+    <div class="flex min-w-0 items-center gap-3">
+      {% include "documents/_file_icon.html" with mime=doc.mime_type size="lg" only %}
+      <div class="min-w-0">
+        <h2 class="card-title truncate">{{ doc.name }}</h2>
+        <p class="card-subtitle">{% include "documents/_file_type.html" with mime=doc.mime_type only %} · {{ doc.file_size_display }}</p>
+      </div>
+    </div>
+    <span class="badge badge-neutral">v{{ doc.version }}</span>
   </div>
-
-  <div class="mt-5 pt-4 border-t flex gap-3">
-    {% if doc.file %}<a href="{% url 'documents:document_download' doc.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Download</a>{% else %}<span class="px-4 py-2 text-sm text-gray-400">No file stored</span>{% endif %}
-    {% if can_delete %}<a href="{% url 'documents:document_delete' doc.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-red-600 bg-white border border-red-200 rounded-xl">Delete</a>{% endif %}
+  <div class="card-body">
+    <dl class="dl">
+      <div><dt>Category</dt><dd>{{ doc.category|default:"—" }}</dd></div>
+      <div><dt>Size</dt><dd class="tabular-nums">{{ doc.file_size_display }}</dd></div>
+      <div><dt>Uploaded by</dt><dd>{{ doc.uploaded_by|default:"—" }}</dd></div>
+      <div><dt>Uploaded</dt><dd>{{ doc.created_at|date:"d M Y H:i" }}</dd></div>
+      <div><dt>Expiry</dt><dd>{{ doc.expiry_date|date:"d M Y"|default:"—" }}</dd></div>
+      <div><dt>Version</dt><dd>v{{ doc.version }}</dd></div>
+      {% if doc.mime_type %}<div class="dl-full"><dt>File type</dt><dd class="mono break-all">{{ doc.mime_type }}</dd></div>{% endif %}
+      {% if doc.description %}<div class="dl-full"><dt>Description</dt><dd>{{ doc.description|linebreaksbr }}</dd></div>{% endif %}
+    </dl>
   </div>
-</div>
+  {% if not doc.file %}
+  <div class="card-footer text-sm text-ink-muted">No file stored</div>
+  {% endif %}
+</section>
 {% endblock %}

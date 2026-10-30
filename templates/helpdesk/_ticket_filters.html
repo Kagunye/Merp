@@ -1,0 +1,11 @@
+<div class="form-field">
+  <label class="form-label" for="fb-status">Status</label>
+  <select id="fb-status" name="status" class="select">
+    <option value="">All</option>
+    <option value="OPEN"{% if request.GET.status == 'OPEN' %} selected{% endif %}>Open</option>
+    <option value="IN_PROGRESS"{% if request.GET.status == 'IN_PROGRESS' %} selected{% endif %}>In progress</option>
+    <option value="WAITING"{% if request.GET.status == 'WAITING' %} selected{% endif %}>Waiting on customer</option>
+    <option value="RESOLVED"{% if request.GET.status == 'RESOLVED' %} selected{% endif %}>Resolved</option>
+    <option value="CLOSED"{% if request.GET.status == 'CLOSED' %} selected{% endif %}>Closed</option>
+  </select>
+</div>

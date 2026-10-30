@@ -3,17 +3,28 @@
 {% load ui_extras %}
 {% include "_includes/launcher.html" with launcher_title="Help Desk" launcher_subtitle="Support tickets, SLA tracking and knowledge base" %}
 
+{% can_do "helpdesk:ticket_list" as may_list %}{% can_do "helpdesk:ticket_detail" as may_ticket %}
+{% if may_list %}
+{% url 'helpdesk:ticket_list' as list_url %}
+<section aria-label="Tickets at a glance" class="stat-grid mb-6">
+  {% include "_includes/stat.html" with label="Open" value=open_count|default:0 meta="Open or in progress" icon="inbox" tone="info" url=list_url only %}
+  {% include "_includes/stat.html" with label="Urgent" value=urgent_count|default:0 meta="Urgent and still open" icon="warning" tone="danger" url=list_url only %}
+  {% include "_includes/stat.html" with label="Waiting on customer" value=waiting_count|default:0 meta="Paused for a reply" icon="clock" tone="warning" url=list_url only %}
+  {% include "_includes/stat.html" with label="Resolved" value=resolved_count|default:0 meta="Ready to close" icon="check-circle" tone="success" url=list_url only %}
+</section>
+{% endif %}
+
 <div class="launcher-section-label">
   Processing
   <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
-  {% can_do "helpdesk:ticket_create" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-mint">🎫</div><span class="label">New Ticket</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-rose">🔥</div><span class="label">Open Tickets</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-amber">⚡</div><span class="label">In Progress</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?priority=HIGH" class="launcher-tile"><div class="ico ico-rose">🚨</div><span class="label">High Priority</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?status=RESOLVED" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Resolved</span></a>{% endif %}
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?assigned=me" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">My Tickets</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_create" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Ticket</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'helpdesk:ticket_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="inbox" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Open Tickets</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'helpdesk:ticket_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">In Progress</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'helpdesk:ticket_list' %}?priority=HIGH" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="warning" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">High Priority</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'helpdesk:ticket_list' %}?status=RESOLVED" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Resolved</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'helpdesk:ticket_list' %}?assigned=me" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">My Tickets</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -21,9 +32,9 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-sky">📋</div><span class="label">All Tickets</span></a>{% endif %}
-  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">👥</div><span class="label">Customers</span></a>{% endif %}
-  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Agents</span></a>{% endif %}
+  {% if may_list %}<a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">All Tickets</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customers</span></a>{% endif %}
+  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Agents</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -31,8 +42,32 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">📚</div><span class="label">Knowledge Base</span></a>{% endif %}
-  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Ticket Categories</span></a>{% endif %}
-  {% can_do "notifications:list" as ok %}{% if ok %}<a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-peach">🔔</div><span class="label">Notification Rules</span></a>{% endif %}
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Knowledge Base</span></a>{% endif %}
+  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="filter" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Ticket Categories</span></a>{% endif %}
+  {% can_do "notifications:list" as ok %}{% if ok %}<a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="bell" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Notification Rules</span></a>{% endif %}
 </div>
+
+{% if may_list and my_tickets %}
+<section class="card mt-8 overflow-hidden">
+  <div class="card-header">
+    <div><h2 class="card-title">Assigned to you</h2><p class="card-subtitle">Open and in progress</p></div>
+    <a href="{{ list_url }}" class="card-link">View all →</a>
+  </div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Ref</th><th>Subject</th><th>Priority</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for t in my_tickets %}
+        <tr>
+          <td class="mono whitespace-nowrap">{% if may_ticket %}<a href="{% url 'helpdesk:ticket_detail' t.pk %}" class="row-link">{{ t.reference }}</a>{% else %}{{ t.reference }}{% endif %}</td>
+          <td>{{ t.subject|truncatechars:60 }}</td>
+          <td>{% status_badge t.priority t.get_priority_display %}</td>
+          <td>{% status_badge t.status t.get_status_display %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

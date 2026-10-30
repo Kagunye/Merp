@@ -1,19 +1,32 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Projects" launcher_subtitle="Projects, tasks, milestones and job costing" %}
+
+{% can_do "projects:project_list" as may_projects %}{% can_do "projects:task_list" as may_tasks %}
+{% if may_projects or may_tasks %}
+<section aria-label="Projects at a glance" class="stat-grid mb-6">
+  {% if may_projects %}{% url 'projects:project_list' as u %}
+    {% include "_includes/stat.html" with label="Active projects" value=active_projects|default:0 meta="Planning or in progress" icon="briefcase" tone="info" url=u only %}
+    {% include "_includes/stat.html" with label="Completed" value=completed_projects|default:0 meta="Projects delivered" icon="check-circle" tone="success" url=u only %}{% endif %}
+  {% if may_tasks %}{% url 'projects:task_list' as u %}
+    {% include "_includes/stat.html" with label="Open tasks" value=open_tasks|default:0 meta="Not done or cancelled" icon="clipboard" tone="brand" url=u only %}
+    {% include "_includes/stat.html" with label="Due this week" value=due_this_week|default:0 meta="Open tasks due in 7 days" icon="calendar" tone="warning" url=u only %}{% endif %}
+</section>
+{% endif %}
 
 <div class="launcher-section-label">
   Processing
   <span class="launcher-section-count">7 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'projects:project_create' %}" class="launcher-tile"><div class="ico ico-mint">📁</div><span class="label">New Project</span></a>
-  <a href="{% url 'projects:task_create' %}" class="launcher-tile"><div class="ico ico-sky">✅</div><span class="label">New Task</span></a>
-  <a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-amber">⏰</div><span class="label">Log Time</span></a>
-  <a href="{% url 'expenses:claim_create' %}" class="launcher-tile"><div class="ico ico-rose">💳</div><span class="label">Project Expense</span></a>
-  <a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Invoice Project</span></a>
-  <a href="{% url 'projects:task_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-violet">📋</div><span class="label">My Open Tasks</span></a>
-  <a href="{% url 'projects:project_list' %}?status=ACTIVE" class="launcher-tile"><div class="ico ico-mint">📂</div><span class="label">Active Projects</span></a>
+  {% can_do "projects:project_create" as ok %}{% if ok %}<a href="{% url 'projects:project_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Project</span></a>{% endif %}
+  {% can_do "projects:task_create" as ok %}{% if ok %}<a href="{% url 'projects:task_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Task</span></a>{% endif %}
+  {% can_do "timesheets:entry_create" as ok %}{% if ok %}<a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Log Time</span></a>{% endif %}
+  {% can_do "expenses:claim_create" as ok %}{% if ok %}<a href="{% url 'expenses:claim_create' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Project Expense</span></a>{% endif %}
+  {% can_do "sales:invoice_create" as ok %}{% if ok %}<a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Invoice Project</span></a>{% endif %}
+  {% if may_tasks %}<a href="{% url 'projects:task_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">My Open Tasks</span></a>{% endif %}
+  {% if may_projects %}<a href="{% url 'projects:project_list' %}?status=ACTIVE" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Active Projects</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -21,10 +34,10 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-sky">📂</div><span class="label">Projects</span></a>
-  <a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-amber">🗒️</div><span class="label">Tasks</span></a>
-  <a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-mint">🕒</div><span class="label">Timesheets</span></a>
-  <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-rose">📄</div><span class="label">Expenses</span></a>
+  {% if may_projects %}<a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Projects</span></a>{% endif %}
+  {% if may_tasks %}<a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Tasks</span></a>{% endif %}
+  {% can_do "timesheets:entry_list" as ok %}{% if ok %}<a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Timesheets</span></a>{% endif %}
+  {% can_do "expenses:claim_list" as ok %}{% if ok %}<a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Expenses</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -32,9 +45,9 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Project P&amp;L</span></a>
-  <a href="{% url 'timesheets:home' %}" class="launcher-tile"><div class="ico ico-sky">⏱️</div><span class="label">Time Reports</span></a>
-  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">📊</div><span class="label">Unbilled WIP</span></a>
+  {% can_do "reporting:profit_loss" as ok %}{% if ok %}<a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Project P&amp;L</span></a>{% endif %}
+  {% can_do "timesheets:home" as ok %}{% if ok %}<a href="{% url 'timesheets:home' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Time Reports</span></a>{% endif %}
+  {% can_do "sales:ar_aging" as ok %}{% if ok %}<a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="trending-down" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Unbilled WIP</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -42,9 +55,9 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Clients</span></a>
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">👷</div><span class="label">Team Members</span></a>
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-slate">🏢</div><span class="label">Departments</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-peach">💰</div><span class="label">Cost Centers</span></a>
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Clients</span></a>{% endif %}
+  {% can_do "hr:employee_list" as ok %}{% if ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Team Members</span></a>{% endif %}
+  {% can_do "organizations:department_list" as ok %}{% if ok %}<a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Departments</span></a>{% endif %}
+  {% can_do "accounting:account_list" as ok %}{% if ok %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cost Centers</span></a>{% endif %}
 </div>
 {% endblock %}

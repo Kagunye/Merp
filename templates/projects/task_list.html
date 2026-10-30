@@ -1,20 +1,25 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% include "_includes/page_header.html" with title="Tasks" subtitle="Every task across all projects" %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Task</th><th class="px-4 py-3 text-left">Project</th><th class="px-4 py-3 text-left">Assignee</th><th class="px-4 py-3 text-left">Due</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+{% can_do "projects:task_create" "POST" as may_create %}{% if may_create %}{% url 'projects:task_create' as new_url %}{% endif %}
+{% can_do "projects:task_detail" as may_task %}
+{% include "_includes/page_header.html" with title="Tasks" subtitle="Every task across all projects" action_label="New Task" action_url=new_url %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Task</th><th>Project</th><th>Assignee</th><th>Priority</th><th>Due</th><th class="num">Est. Hrs</th><th>Status</th></tr></thead>
+    <tbody>
       {% for t in tasks %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-medium"><a href="{% url 'projects:task_detail' t.pk %}" style="color: var(--primary);">{{ t.title }}</a></td>
-        <td class="px-4 py-3">{{ t.project.name }}</td>
-        <td class="px-4 py-3">{{ t.assigned_to.full_name|default:"—" }}</td>
-        <td class="px-4 py-3">{{ t.due_date|date:"d M Y"|default:"—" }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ t.get_status_display|default:t.status }}</span></td>
+      <tr>
+        <td>{% if may_task %}<a href="{% url 'projects:task_detail' t.pk %}" class="row-link">{{ t.title }}</a>{% else %}<span class="font-medium text-ink">{{ t.title }}</span>{% endif %}</td>
+        <td class="text-ink-2">{{ t.project.name }}</td>
+        <td class="text-ink-2">{{ t.assigned_to.full_name|default:"—" }}</td>
+        <td>{% status_badge t.priority t.get_priority_display %}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ t.due_date|date:"d M Y"|default:"—" }}</td>
+        <td class="num">{{ t.estimated_hours|qty }}</td>
+        <td>{% status_badge t.status t.get_status_display %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No tasks yet.</td></tr>
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No tasks yet." text="Tasks added to any project appear here." action_label="New Task" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

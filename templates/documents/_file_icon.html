@@ -1,0 +1,6 @@
+{% comment %}File-type chip from the recorded MIME type. Params: mime, size ("lg" for the detail page).{% endcomment %}
+{% with m=mime|default:""|lower %}
+<span class="list-row-icon icon-tile shrink-0{% if 'pdf' in m %}tone-danger{% elif 'image' in m %}tone-info{% elif 'sheet' in m or 'excel' in m or 'csv' in m %}tone-success{% elif 'word' in m or 'document' in m or 'text' in m %}tone-brand{% else %}tone-neutral{% endif %}{% if size == 'lg' %} h-12 w-12{% endif %}" aria-hidden="true">
+  {% include "_includes/icon.html" with name="document" cls=size|yesno:"h-6 w-6,h-4 w-4" only %}
+</span>
+{% endwith %}
