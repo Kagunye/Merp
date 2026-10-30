@@ -17,6 +17,8 @@
 </div>
 {% endif %}
 
+{% can_do "procurement:grn_record" "POST" as may_receive %}
+{% if may_receive %}
 <form method="post" action="{% url 'procurement:grn_record' po.pk %}">
   {% csrf_token %}
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -59,6 +61,28 @@
     {% endif %}
   </div>
 </form>
+{% else %}
+{# Signing for goods is the stores' word that they arrived; everyone else sees what has come in so far, without the boxes to book more. #}
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Received so far</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-right">Ordered</th><th class="px-4 py-3 text-right">Received so far</th><th class="px-4 py-3 text-right">Outstanding</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for l in po.lines.all %}
+      <tr>
+        <td class="px-4 py-2"><p class="font-medium">{{ l.product.name }}</p><p class="text-xs text-gray-400 font-mono">{{ l.product.sku }}</p></td>
+        <td class="px-4 py-2 text-right font-mono">{{ l.quantity|with_unit:l.product.unit_of_measure }}</td>
+        <td class="px-4 py-2 text-right font-mono text-green-700">{{ l.received_quantity|with_unit:l.product.unit_of_measure }}</td>
+        <td class="px-4 py-2 text-right font-mono font-semibold">{{ l.to_receive|trim_qty }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">This order has no lines.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="px-4 py-3 border-t border-gray-100 text-xs text-gray-500">Goods are booked in by the warehouse, whose word it is that they arrived.</p>
+</div>
+{% endif %}
 
 <p class="text-xs text-gray-500 mt-4">Recording a receipt puts the goods on the shelf at the cost the order was placed at, converted into {{ book }} at the rate this order carries. The ledger entry debits Inventory against <strong>Stock Received Not Invoiced</strong>, because the goods are owed for but nobody has billed for them yet. When the supplier's bill is posted it releases that accrual instead of charging the same goods into stock a second time.</p>
 {% endblock %}

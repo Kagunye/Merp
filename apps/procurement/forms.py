@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 
 from django import forms
@@ -33,6 +34,12 @@ class PurchaseRequisitionForm(forms.ModelForm):
         reference = (self.cleaned_data.get("reference") or "").strip()
         if not reference:
             raise forms.ValidationError("Give the requisition a reference.")
+        # A number from the company's own PR- series is the preview the form
+        # showed: if somebody saved with it meanwhile, the save takes the next
+        # one (SequenceCounter.claim_number). Only a hand-typed one can clash.
+        series = reference[3:] if reference.upper().startswith("PR-") else ""
+        if is_new(self) and series.isdigit():
+            return reference
         if self.company is not None:
             twin = PurchaseRequisition.objects.filter(
                 company=self.company, reference__iexact=reference).exclude(
@@ -76,6 +83,34 @@ class PurchaseOrderForm(forms.ModelForm):
         self.fields["supplier"].queryset = Supplier.objects.filter(company=company, is_active=True)
         self.fields["warehouse"].queryset = Warehouse.objects.filter(company=company, is_active=True)
         pick_currency(self, company)
+        # The currency follows the supplier unless somebody chose otherwise: the
+        # select is pre-set to the supplier's money as soon as one is picked
+        # (each supplier option carries its currency for the page to read),
+        # and a form sent with no currency at all takes the supplier's.
+        self.supplier_currencies = {
+            str(s.pk): (s.currency or "").upper()
+            for s in self.fields["supplier"].queryset.only("pk", "currency")}
+        self.fields["supplier"].widget.attrs["data-currencies"] = json.dumps(
+            self.supplier_currencies)
+        self.fields["supplier"].widget.attrs["onchange"] = (
+            "var c=JSON.parse(this.dataset.currencies||'{}')[this.value];"
+            "var s=this.form.elements['currency'];"
+            "if(c&&s&&[].some.call(s.options,function(o){return o.value===c;}))s.value=c;")
+        if not self.is_bound and is_new(self):
+            chosen = self.initial.get("supplier")
+            if chosen and str(getattr(chosen, "pk", chosen)) in self.supplier_currencies:
+                self.initial["currency"] = self.supplier_currencies[str(getattr(chosen, "pk", chosen))]
+
+    def clean(self):
+        cleaned = super().clean()
+        supplier = cleaned.get("supplier")
+        typed = (self.data.get(self.add_prefix("currency")) or "").strip()
+        if supplier and is_new(self) and not typed and "currency" in self.fields:
+            own = (supplier.currency or "").upper()
+            if own and own in dict(self.fields["currency"].choices):
+                cleaned["currency"] = own
+        # The model's own clean() then stamps the rate for the currency chosen.
+        return cleaned
 
     def clean_reference(self):
         reference = (self.cleaned_data.get("reference") or "").strip()
@@ -186,6 +221,45 @@ class BillForm(forms.ModelForm):
                 if "currency" in self.fields:
                     self.fields["currency"].disabled = True
 
+    def clean_reference(self):
+        # A bill's own reference is how a payment, a debit note and the
+        # supplier statement find it; two bills under one reference cannot be
+        # told apart on any of them.
+        reference = (self.cleaned_data.get("reference") or "").strip()
+        if reference and self.company is not None:
+            twin = Bill.objects.filter(
+                company=self.company, reference__iexact=reference).exclude(
+                pk=self.instance.pk).first()
+            if twin:
+                raise forms.ValidationError(
+                    f"Bill reference {twin.reference} is already used in this company "
+                    f"({twin.supplier.name}, {twin.bill_date:%d %b %Y}). Use another "
+                    "reference, or leave it blank to take the next number.")
+        return reference
+
+    def clean_bill_date(self):
+        # A bill is a supplier's paper that has already arrived. One dated more
+        # than a year ahead, or more than ten years back, is a typing slip in
+        # the year — and it would land in a period nobody is looking at.
+        import datetime
+        bill_date = self.cleaned_data.get("bill_date")
+        if bill_date is None:
+            return bill_date
+        today = datetime.date.today()
+        if bill_date > today + datetime.timedelta(days=365):
+            raise forms.ValidationError(
+                f"The bill date {bill_date:%d %b %Y} is more than a year ahead. Enter the "
+                "date printed on the supplier's invoice.")
+        try:
+            earliest = today.replace(year=today.year - 10)
+        except ValueError:  # 29 February
+            earliest = today.replace(year=today.year - 10, day=28)
+        if bill_date < earliest:
+            raise forms.ValidationError(
+                f"The bill date {bill_date:%d %b %Y} is more than ten years ago. Enter the "
+                "date printed on the supplier's invoice.")
+        return bill_date
+
     def clean(self):
         cleaned = super().clean()
         currency = cleaned.get("currency")
@@ -239,12 +313,26 @@ class BillForm(forms.ModelForm):
             return cleaned
         if subtotal < 0 or tax < 0 or total < 0:
             raise forms.ValidationError("Bill amounts cannot be negative.")
-        if abs((subtotal + tax) - total) > Decimal("0.01"):
+        # To the cent: a total a cent away from its parts would post a payable
+        # the bill's own lines do not add up to, and the cent would fall into
+        # an expense account with nothing to say where it came from.
+        if (subtotal + tax) != total:
             self.add_error(
                 "total_amount",
-                f"Total must equal subtotal + tax ({money(subtotal + tax)}). "
-                "The payable posted to the ledger must match the bill.",
+                f"Total must equal subtotal + tax exactly ({money(subtotal + tax)}), "
+                f"not {money(total)}. The payable posted to the ledger must match the bill.",
             )
+        on_order = "purchase_order" in self.fields and cleaned.get("purchase_order") \
+            or (not is_new(self) and self.instance.purchase_order_id)
+        if total == 0 and not on_order:
+            # Only an order's free goods are billed at nothing ("Bill this order"
+            # settles those with no journal). A typed bill for nothing records
+            # no debt and no cost; it is a mistake, not a document.
+            self.add_error(
+                "total_amount",
+                "A bill for 0.00 records nothing. Enter the amounts on the supplier's "
+                "invoice; free goods on a purchase order are settled from the order "
+                "with \"Bill this order\".")
         # The same supplier invoice entered twice is the commonest way a bill
         # gets paid twice: refuse it while the first one still stands.
         supplier = cleaned.get("supplier")

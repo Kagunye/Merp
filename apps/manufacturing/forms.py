@@ -19,6 +19,16 @@ class BOMForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 3}),
         }
 
+    def clean_production_quantity(self):
+        # A work order's needs are the recipe scaled by planned ÷ this figure.
+        # Nothing or less than nothing per run turns that into a division by
+        # zero, or a recipe that hands materials back for every unit made.
+        quantity = self.cleaned_data.get("production_quantity")
+        if quantity is not None and quantity <= 0:
+            raise forms.ValidationError(
+                "Enter how many one run of this recipe makes — a number greater than zero.")
+        return quantity
+
 
 class BOMLineForm(forms.ModelForm):
     class Meta:
@@ -73,6 +83,16 @@ class WorkOrderForm(forms.ModelForm):
             "warehouse": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
             "notes": forms.Textarea(attrs={"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 3}),
         }
+
+    def clean_planned_quantity(self):
+        # A plan of nothing draws no materials, and a plan below nothing would
+        # scale the recipe negative; either way the order could only put stock
+        # on the shelf that nothing went into.
+        quantity = self.cleaned_data.get("planned_quantity")
+        if quantity is not None and quantity <= 0:
+            raise forms.ValidationError(
+                "Enter how many to make — a number greater than zero.")
+        return quantity
 
 
 class CompleteWorkOrderForm(forms.Form):

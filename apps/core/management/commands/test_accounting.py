@@ -1166,8 +1166,11 @@ class Command(BaseCommand):
         self.expect("overpayment blocked", bill.paid_amount == Z, f"paid {bill.paid_amount}")
         self.expect_flash(client, resp, "exceeds outstanding", "overpayment explained")
 
+        # Paid from the till on purpose: a payment that names no account now
+        # goes out of the main bank account, never the lowest-coded cash one,
+        # so the cash this script expects to leave 1100 is chosen explicitly.
         resp = self.post(client, "bill payment", reverse("procurement:bill_pay", args=[bill.pk]),
-                         {"amount": "2320"})
+                         {"amount": "2320", "gl_account": self.account("1100").pk})
         bill.refresh_from_db()
         self.expect("bill fully paid", bill.status == "PAID" and bill.outstanding_amount == Z,
                    f"{bill.status} / {bill.outstanding_amount}")
@@ -2786,9 +2789,14 @@ class Command(BaseCommand):
 
         # ── the same discipline on the payable side ──
         ap_ledger, ap_book = self.ap_position()
+        # Dated a week back, at that day's 130, and paid today at 135. It was
+        # raised today and paid on the forward date at 128 until payments
+        # dated after today were refused (a payment records what the bank has
+        # done, not what it will do); the gap is now a loss instead of a gain,
+        # and proves the same thing.
         self.post(client, "dollar bill", reverse("procurement:bill_create"), {
             "reference": "BILL-USD-1", "supplier": self.supplier.pk, "purchase_order": "",
-            "supplier_reference": "USD-77", "bill_date": str(self.today),
+            "supplier_reference": "USD-77", "bill_date": str(old),
             "due_date": str(ahead), "currency": "USD",
             "subtotal": "100", "tax_amount": "0", "total_amount": "100",
             "notes": "Bought in dollars",
@@ -2797,23 +2805,24 @@ class Command(BaseCommand):
         if not self.expect("dollar bill created", bill is not None):
             return
         self.expect("the bill is worth its day's rate in our money",
-                    bill.exchange_rate == D("135")
-                    and bill.total_amount_base == D("13500.00"),
+                    bill.exchange_rate == D("130")
+                    and bill.total_amount_base == D("13000.00"),
                     f"{bill.exchange_rate} -> {bill.total_amount_base}")
         if self.expect("the dollar bill reached the ledger", bill.journal_entry_id is not None):
             self.expect("payables are credited in our money",
-                        self.line_total(bill.journal_entry, "2100", "credit") == D("13500.00")
+                        self.line_total(bill.journal_entry, "2100", "credit") == D("13000.00")
                         and bill.journal_entry.source_currency == "USD",
                         str(self.line_total(bill.journal_entry, "2100", "credit")))
         ap_ledger_now, ap_book_now = self.ap_position()
         self.expect("payables and the bill book both grew by the converted amount",
-                    ap_ledger_now - ap_ledger == D("13500.00")
-                    and ap_book_now - ap_book == D("13500.00"),
+                    ap_ledger_now - ap_ledger == D("13000.00")
+                    and ap_book_now - ap_book == D("13000.00"),
                     f"account {ap_ledger_now - ap_ledger}, book {ap_book_now - ap_book}")
 
         resp = self.post(client, "dollar bill payment",
                          reverse("procurement:bill_pay", args=[bill.pk]),
-                         {"amount": "100", "payment_date": str(ahead)})
+                         {"amount": "100", "payment_date": str(self.today),
+                          "gl_account": self.account("1100").pk})
         bill.refresh_from_db()
         self.expect_flash(client, resp, "posted", "dollar payment surfaced")
         self.expect("the dollar bill is paid off",
@@ -2824,21 +2833,21 @@ class Command(BaseCommand):
             notes__icontains="BILL-USD-1").first()
         if self.expect("the bill payment has its own journal", payment_entry is not None):
             self.expect("payables leave at the rate the bill was raised at",
-                        self.line_total(payment_entry, "2100", "debit") == D("13500.00"),
+                        self.line_total(payment_entry, "2100", "debit") == D("13000.00"),
                         str(self.line_total(payment_entry, "2100", "debit")))
             self.expect("cash goes out at the payment day's rate",
-                        self.line_total(payment_entry, "1100", "credit") == D("12800.00"),
+                        self.line_total(payment_entry, "1100", "credit") == D("13500.00"),
                         str(self.line_total(payment_entry, "1100", "credit")))
-            self.expect("a cheaper dollar to pay with is a gain",
-                        self.line_total(payment_entry, "4310", "credit") == D("700.00"),
-                        str(self.line_total(payment_entry, "4310", "credit")))
+            self.expect("a dearer dollar to pay with is a loss",
+                        self.line_total(payment_entry, "7300", "debit") == D("500.00"),
+                        str(self.line_total(payment_entry, "7300", "debit")))
             dr, cr, ok = self.balanced(payment_entry)
             self.expect("the paid-off bill balances", ok and dr == D("13500.00"),
                         f"Dr {dr} / Cr {cr}")
         ap_ledger, ap_book = self.ap_position()
         self.expect("the payable side closes back to the bill book",
-                    ap_ledger - ap_ledger_now == D("-13500.00")
-                    and ap_book == ap_book_now - D("13500.00"),
+                    ap_ledger - ap_ledger_now == D("-13000.00")
+                    and ap_book == ap_book_now - D("13000.00"),
                     f"account {ap_ledger}, book {ap_book}")
 
         # ── a currency nobody priced must never reach the book ──
@@ -3313,10 +3322,14 @@ class Command(BaseCommand):
         self.expect("the payable came back down by what that bill owed",
                     self.account("2100").current_balance == ap_before - D("1000.00"),
                     str(self.account("2100").current_balance))
-        self.expect("a second bill still live on the order holds the quantities",
-                    l2.billed_quantity == D("5.0000"), str(l2.billed_quantity))
-        self.expect_flash(client, resp, "another bill against it",
-                          "the order explains why nothing was released")
+        # Each bill now records the quantities it took, so cancelling one of two
+        # hands back exactly its own (the second line) and leaves the other
+        # bill's (the first line) where they are. It used to release nothing
+        # while another bill was live, which stranded the accrual for good.
+        self.expect("the cancelled bill hands back only its own quantities",
+                    l2.billed_quantity == Z and l1.billed_quantity > Z
+                    and po.status == "FULLY_RECEIVED",
+                    f"{l1.billed_quantity} / {l2.billed_quantity} / {po.status}")
         bank_before = self.account("1200").current_balance
         resp = client.post(reverse("procurement:bill_pay", args=[b2.pk]), {"amount": "100"})
         b2.refresh_from_db()
@@ -3581,12 +3594,15 @@ class Command(BaseCommand):
         rows = {row["code"]: row for row in position["rows"]}
         # What was owed is read as at the day: the receipt and the supplier
         # payment section 15 dated ahead have not happened yet, so INV-USD-2
-        # and BILL-USD-1 still count as owed today.
+        # still counts as owed today. (BILL-USD-1 is paid today: supplier
+        # payments can no longer be dated in the future.)
         self.expect("a balance raised at the reported day's rate needs no move",
                     rows["USD"]["ar_foreign"] == D("300.00")
                     and rows["USD"]["ar_carried"] == D("40500.00")
                     and rows["USD"]["ar_revalued"] == D("40500.00")
-                    and rows["USD"]["ap_foreign"] == D("150.00")
+                    # 50: BILL-USD-1 is now paid today (a payment cannot be
+                    # dated ahead), so only the other dollar bill is still owed.
+                    and rows["USD"]["ap_foreign"] == D("50.00")
                     and rows["USD"]["ar_difference"] == Z
                     and rows["USD"]["ap_difference"] == Z,
                     f"USD row {rows['USD']}")

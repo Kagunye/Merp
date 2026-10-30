@@ -40,6 +40,12 @@ def typed_number(raw, label, shape=MONEY, *, allow_zero=False, allow_negative=Fa
         raise ValidationError(
             f"{label} '{text}' has a comma in it. Type the number without "
             "thousands separators, for example 1250 or 12.5.")
+    if "e" in text.lower() and any(ch.isdigit() for ch in text):
+        # 1e2 is a hundred to a programmer and a typing slip to everyone else;
+        # a money or quantity box takes the figure written out.
+        raise ValidationError(
+            f"{label} '{text}' is written as a power of ten. Type the number out in "
+            "full, for example 100 or 12.5.")
     try:
         value = Decimal(text)
     except (InvalidOperation, ValueError):

@@ -34,6 +34,31 @@ What is covered (numbers are the bug list the testers filed):
        into an order; a reference cannot be used twice
    15. a part-received order is closed short only once what arrived is billed
    16. flash messages print money to two places
+
+Round three (R3-n in the output):
+    1. a product with stock on hand, or receipts not yet billed, keeps its
+       stock tracking and its inventory account
+    2. a work order for an untracked product expenses its cost, so 1450 empties
+    3. cancelling one of two bills releases exactly that bill's quantities and
+       accrual, drafts included, and the order can be billed again
+    4. work orders and recipes need positive quantities
+    5. labour and other untracked inputs need no stock and are charged to WIP
+       (Dr 1450, Cr 5250 Production Costs Absorbed) at their cost price
+    6. the shelves carry their value to the cent: 1400 equals the valuation
+       exactly, and the last unit out takes whatever value is left
+    7. nobody approves a requisition they raised or submitted
+    8. a requisition for a dollar supplier is ordered in dollars
+    9. order lines change only while the order is a draft
+   10. free goods on an order close out with no journal; a typed 0.00 bill
+       is refused
+   11-13. bill references are unique; total = subtotal + tax to the cent;
+       bill and payment dates are range-checked
+   14. the payment amount is read like every other money box
+   15. requisitions: back to approved when their order is cancelled, can be
+       cancelled, take products only, and opening the form takes no number
+   16. status words read as English in messages
+   17. a payment that names no account leaves the main bank, never the till
+   18. buttons a role cannot use are not shown
 """
 import datetime
 from decimal import Decimal as D
@@ -97,15 +122,17 @@ class Command(AccountingCommand):
         return (row["dr"] or Z) - (row["cr"] or Z)
 
     def valuation(self):
-        from apps.inventory.models import StockLevel
+        """The stock valuation the screens report: each shelf's value, to the cent."""
+        from apps.inventory.models import stock_valuation
 
-        return sum((level.quantity * level.avg_cost for level in StockLevel.objects.filter(
-            warehouse__company=self.company, product__track_inventory=True)), Z)
+        return stock_valuation(self.company)
 
     def stock_agrees(self, label):
+        # To the cent, not within one: the shelves carry the very cents the
+        # movements posted, so there is no rounding left to forgive.
         gl, shelf = self.net("1400"), self.valuation()
         return self.expect(f"{label}: inventory 1400 equals the stock valuation",
-                           abs(gl - shelf) < CENT, f"GL {gl} against shelves {shelf:.4f}")
+                           gl == shelf, f"GL {gl} against shelves {shelf}")
 
     def accrual_agrees(self, label):
         from apps.accounting.gl_service import accrual_remaining
@@ -261,6 +288,32 @@ class Command(AccountingCommand):
         self.check_close_short(client)
         self.section("16. Messages print money to the cent")
         self.check_flash_rounding(client)
+
+        # ── the third round of fixes (numbers are that round's bug list) ──
+        self.section("R3-1. A product with stock keeps its tracking and its account")
+        self.check_product_edit(client)
+        self.section("R3-2/5. Untracked output and untracked inputs in production")
+        self.check_untracked_production(client)
+        self.section("R3-3. Cancelling one of two bills releases exactly its part")
+        self.check_cancel_one_of_two(client)
+        self.section("R3-4. Work orders and recipes need positive quantities")
+        self.check_positive_quantities(client)
+        self.section("R3-6. Inventory 1400 equals the shelves to the cent")
+        self.check_stock_cents(client)
+        self.section("R3-7/15/16. Requisitions: approval, cancelling, numbering, wording")
+        self.check_requisitions_round3(client)
+        self.section("R3-8. A requisition for a dollar supplier is ordered in dollars")
+        self.check_requisition_currency(client)
+        self.section("R3-9. Order lines change only on a draft")
+        self.check_draft_lines_only(client)
+        self.section("R3-10. Free goods close out")
+        self.check_free_goods(client)
+        self.section("R3-11/12/13. Bill references, totals and dates")
+        self.check_bill_entry(client)
+        self.section("R3-13/14/17. Supplier payments: amount, date, account")
+        self.check_payments_round3(client)
+        self.section("R3-18. Buttons a role cannot use are not shown")
+        self.check_hidden_buttons(client)
 
         self.section("The book at the end")
         self.stock_agrees("after the whole run")
@@ -1144,12 +1197,14 @@ class Command(AccountingCommand):
         self.post(buyer, "a product line", line_url,
                   {"product": self.raw.pk, "description": "", "quantity": "10",
                    "estimated_unit_cost": "52.5", "warehouse": self.warehouse.pk})
-        self.post(buyer, "a described line", line_url,
-                  {"product": "", "description": "Welding rods, 3mm", "quantity": "2",
-                   "estimated_unit_cost": "400"})
+        # A line that names no product could be approved and never ordered, so
+        # it is refused at entry now rather than at "Raise purchase order".
+        resp = buyer.post(line_url, {"product": "", "description": "Welding rods, 3mm",
+                                     "quantity": "2", "estimated_unit_cost": "400"})
+        self.expect_flash(buyer, resp, "Welding rods", "a described line is refused, naming it")
         req.refresh_from_db()
-        self.expect("the lines and their estimate are on the requisition",
-                    req.lines.count() == 2 and req.total_amount == D("1325.00"),
+        self.expect("the product line and its estimate are on the requisition",
+                    req.lines.count() == 1 and req.total_amount == D("525.00"),
                     f"{req.lines.count()} lines, {req.total_amount}")
 
         resp = client.post(reverse("procurement:requisition_reject", args=[req.pk]), {})
@@ -1165,7 +1220,7 @@ class Command(AccountingCommand):
         self.expect("submitted, it waits for approval", req.status == "PENDING_APPROVAL", req.status)
         buyer.post(reverse("procurement:requisition_line_add", args=[req.pk]),
                    {"product": self.raw.pk, "quantity": "1", "estimated_unit_cost": "1"})
-        self.expect("a submitted requisition takes no more lines", req.lines.count() == 2,
+        self.expect("a submitted requisition takes no more lines", req.lines.count() == 1,
                     str(req.lines.count()))
 
         finance = self.role_client("FINANCE_MANAGER")
@@ -1179,13 +1234,6 @@ class Command(AccountingCommand):
         self.expect("an approved requisition cannot then be rejected", req.status == "APPROVED",
                     req.status)
         self.expect_flash(finance, resp, "waiting for approval", "and the refusal says why")
-
-        to_po = reverse("procurement:requisition_to_po", args=[req.pk])
-        resp = client.post(to_po, {"supplier": self.supplier.pk})
-        req.refresh_from_db()
-        self.expect("a line with no product cannot go on an order", req.status == "APPROVED",
-                    req.status)
-        self.expect_flash(client, resp, "Welding rods", "and the refusal names it")
 
         # A second requisition, all products, becomes an order.
         self.post(buyer, "a product requisition", create,
@@ -1290,3 +1338,552 @@ class Command(AccountingCommand):
         said = self.messages_of(client, resp)
         self.expect("a stock adjustment prints its cost to the cent",
                     said and not any(long_decimals.search(m) for m in said), str(said))
+
+    # ─────────────────────────── round three ─────────────────────────────────
+
+    def product_data(self, product, **changes):
+        """The product form as it stands, with some boxes changed."""
+        data = {
+            "sku": product.sku, "name": product.name, "product_type": product.product_type,
+            "category": product.category_id or "", "unit_of_measure": product.unit_of_measure_id,
+            "cost_price": str(product.cost_price), "selling_price": str(product.selling_price),
+            "tax_rate": product.tax_rate_id or "", "reorder_level": "0",
+            "reorder_quantity": "0", "valuation_method": product.valuation_method,
+            "income_account": product.income_account_id or "",
+            "cogs_account": product.cogs_account_id or "",
+            "inventory_account": product.inventory_account_id or "",
+            "barcode": "", "description": "",
+        }
+        if product.track_inventory:
+            data["track_inventory"] = "on"
+        for key, value in changes.items():
+            if value is None:
+                data.pop(key, None)
+            else:
+                data[key] = value
+        return data
+
+    def work_order(self, client, bom, ref, planned):
+        from apps.manufacturing.models import WorkOrder
+
+        client.post(reverse("manufacturing:work_order_create"), {
+            "reference": ref, "bom": bom.pk, "planned_quantity": str(planned),
+            "planned_start": str(self.today), "planned_end": "",
+            "warehouse": self.warehouse.pk, "notes": ""})
+        return WorkOrder.objects.filter(company=self.company, reference=ref).first()
+
+    def recipe(self, client, name, product, lines, per_run="1"):
+        from apps.manufacturing.models import BillOfMaterials
+
+        client.post(reverse("manufacturing:bom_create"), merge({
+            "name": name, "product": product.pk, "version": "1",
+            "status": "ACTIVE", "production_quantity": per_run, "notes": "",
+        }, formset("lines", [
+            {"component": part.pk, "quantity": str(qty), "unit_of_measure": "",
+             "scrap_percent": "0"} for part, qty in lines
+        ], blank={"component": "", "quantity": "", "unit_of_measure": "", "scrap_percent": "0"})))
+        return BillOfMaterials.objects.filter(company=self.company, name=name).first()
+
+    # ── R3-1 ──
+    def check_product_edit(self, client):
+        from apps.accounting.gl_service import ensure_account
+
+        bolt = self.make_product(client, "BOLT-R1", "20")
+        po = self.order(client, "PO-R3-1", [(bolt, 4, "20", False)])
+        self.receive(client, po, [(po.lines.first(), 4)])
+        edit = reverse("inventory:product_edit", args=[bolt.pk])
+
+        resp = client.post(edit, self.product_data(bolt, track_inventory=None))
+        bolt.refresh_from_db()
+        form = resp.context.get("form") if resp.status_code == 200 and resp.context else None
+        self.expect("stock tracking cannot be turned off while goods are on the shelf",
+                    resp.status_code == 200 and bolt.track_inventory
+                    and form is not None and "track_inventory" in form.errors,
+                    f"HTTP {resp.status_code}, tracked {bolt.track_inventory}")
+        self.expect("and the refusal says the goods are on hand and unbilled",
+                    form is not None and "on hand" in str(form.errors)
+                    and "PO-R3-1" in str(form.errors), str(form and form.errors))
+
+        spares = ensure_account(self.company, "1410", "Inventory - Spares", "ASSET", "1000")
+        resp = client.post(edit, self.product_data(bolt, inventory_account=spares.pk))
+        bolt.refresh_from_db()
+        self.expect("nor can it move to another inventory account",
+                    resp.status_code == 200 and bolt.inventory_account.code == "1400",
+                    f"HTTP {resp.status_code}, {bolt.inventory_account}")
+
+        # Bill what arrived and use it all: then either edit is allowed.
+        self.bill_order(client, po)
+        self.adjust(client, "ADJUSTMENT_MINUS", "4", product=bolt)
+        self.post(client, "move the empty product to 1410", edit,
+                  self.product_data(bolt, inventory_account=spares.pk))
+        bolt.refresh_from_db()
+        self.expect("an empty, fully billed product can change its account",
+                    bolt.inventory_account_id == spares.pk, str(bolt.inventory_account))
+        self.post(client, "and stop tracking it", edit,
+                  self.product_data(bolt, track_inventory=None))
+        bolt.refresh_from_db()
+        self.expect("and stop being tracked", not bolt.track_inventory)
+        self.stock_agrees("after the product edits")
+
+    # ── R3-2 and R3-5 ──
+    def check_untracked_production(self, client):
+        from apps.manufacturing.models import WorkOrder
+
+        steel = self.make_product(client, "STEEL-R2", "40")
+        po = self.order(client, "PO-R3-2", [(steel, 20, "40", False)])
+        self.receive(client, po, [(po.lines.first(), 20)])
+        self.bill_order(client, po)
+
+        # A finished product nobody keeps on a shelf (made to order, say).
+        job = self.make_product(client, "JOB-R2", "0", track=False)
+        bom = self.recipe(client, f"Job recipe {self.stamp}", job, [(steel, 2)])
+        wo = self.work_order(client, bom, f"WO-R3-2-{self.stamp}", 3)
+        wip0, cogs0 = self.net("1450"), self.net("5000")
+        self.post(client, "complete the untracked job",
+                  reverse("manufacturing:work_order_complete", args=[wo.pk]),
+                  {"actual_quantity": "3", "actual_end": str(self.today)})
+        wo.refresh_from_db()
+        self.expect("an untracked product's work order completes",
+                    wo.status == "COMPLETED" and wo.cost == D("240.00"),
+                    f"{wo.status} / {wo.cost}")
+        self.expect("work in progress returns to where it was",
+                    self.net("1450") == wip0, f"{self.net('1450')} against {wip0}")
+        self.expect("and what was made is expensed to cost of sales",
+                    self.net("5000") - cogs0 == D("240.00"), str(self.net("5000") - cogs0))
+        self.expect("no shelf is made up for the untracked product",
+                    self.shelf(job) is None or self.shelf(job).quantity == Z)
+        self.stock_agrees("after an untracked output")
+
+        # Labour is an untracked input: it is never short, and its cost goes in.
+        labour = self.make_product(client, "LAB-R5", "15", track=False)
+        frame = self.make_product(client, "FRAME-R5", "0")
+        bom = self.recipe(client, f"Frame recipe {self.stamp}", frame, [(steel, 1), (labour, 2)])
+        wo = self.work_order(client, bom, f"WO-R3-5-{self.stamp}", 4)
+        absorbed0 = self.net("5250")
+        resp = client.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
+                           {"actual_quantity": "4", "actual_end": str(self.today)})
+        wo.refresh_from_db()
+        self.expect("a recipe with a labour line completes, with no stock check on it",
+                    wo is not None and wo.status == "COMPLETED", wo and wo.status)
+        self.expect("the frames carry steel and labour: 4 × 40 + 8 × 15",
+                    wo.cost == D("280.00") and self.shelf(frame).value == D("280.00")
+                    and self.shelf(frame).quantity == D("4"),
+                    f"{wo.cost} / {self.shelf(frame) and self.shelf(frame).value}")
+        self.expect("the labour is credited to production costs absorbed",
+                    absorbed0 - self.net("5250") == D("120.00"), str(absorbed0 - self.net("5250")))
+        self.expect("work in progress is empty again", self.net("1450") == wip0,
+                    str(self.net("1450")))
+        self.expect("labour leaves no shelf behind",
+                    self.shelf(labour) is None or self.shelf(labour).quantity == Z)
+        self.stock_agrees("after a recipe with labour")
+
+    # ── R3-3 ──
+    def check_cancel_one_of_two(self, client):
+        from apps.accounting.gl_service import accrual_remaining
+
+        nut = self.make_product(client, "NUT-R3", "5")
+        washer = self.make_product(client, "WASHER-R3", "3")
+        po = self.order(client, "PO-R3-3", [(nut, 10, "5", True), (washer, 10, "3", False)])
+        nut_line, washer_line = po.lines.order_by("id")
+        self.receive(client, po, [(nut_line, 10)])
+        first = self.bill_order(client, po)
+        self.receive(client, po, [(washer_line, 10)])
+        second = self.bill_order(client, po)
+        po.refresh_from_db()
+        self.expect("two bills finish the order", po.status == "BILLED"
+                    and first.status == second.status == "RECEIVED", po.status)
+
+        self.post(client, "cancel the first bill",
+                  reverse("procurement:bill_cancel", args=[first.pk]), {})
+        po.refresh_from_db()
+        nut_line.refresh_from_db()
+        washer_line.refresh_from_db()
+        self.expect("cancelling one bill hands back exactly its own quantities",
+                    nut_line.billed_quantity == Z and washer_line.billed_quantity == D("10")
+                    and po.status == "FULLY_RECEIVED",
+                    f"{nut_line.billed_quantity} / {washer_line.billed_quantity} / {po.status}")
+        self.expect("and its accrual is standing again, ready to be billed",
+                    accrual_remaining(po) == D("50.00"), str(accrual_remaining(po)))
+        self.accrual_agrees("after cancelling one of two bills")
+
+        again = self.bill_order(client, po, post=False)
+        self.expect("the order can be billed again, for that bill's part only",
+                    again is not None and again.subtotal == D("50.00")
+                    and again.accrual_to_clear == D("50.00"),
+                    f"{again and again.subtotal} / {again and again.accrual_to_clear}")
+        # A draft cancelled hands its part back too.
+        self.post(client, "cancel the draft", reverse("procurement:bill_cancel", args=[again.pk]), {})
+        nut_line.refresh_from_db()
+        self.expect("a cancelled draft releases its quantities",
+                    nut_line.billed_quantity == Z, str(nut_line.billed_quantity))
+        final = self.bill_order(client, po)
+        po.refresh_from_db()
+        self.expect("billed once more, the order is finished and the accrual cleared",
+                    final is not None and final.status == "RECEIVED" and po.status == "BILLED"
+                    and accrual_remaining(po) == Z,
+                    f"{final and final.status} / {po.status} / {accrual_remaining(po)}")
+        self.accrual_agrees("after re-billing")
+        self.stock_agrees("after re-billing")
+
+    # ── R3-4 ──
+    def check_positive_quantities(self, client):
+        from apps.inventory.models import StockMovement
+        from apps.manufacturing.models import BillOfMaterials
+
+        gear = self.make_product(client, "GEAR-R4", "0")
+        cog = self.make_product(client, "COG-R4", "10")
+        count = BillOfMaterials.objects.filter(company=self.company).count()
+        self.recipe(client, f"Negative run {self.stamp}", gear, [(cog, 1)], per_run="-1")
+        self.recipe(client, f"Zero run {self.stamp}", gear, [(cog, 1)], per_run="0")
+        self.expect("a recipe that makes nothing or less per run is refused",
+                    BillOfMaterials.objects.filter(company=self.company).count() == count)
+        bom = self.recipe(client, f"Gear recipe {self.stamp}", gear, [(cog, 1)])
+        for planned in ("0", "-5"):
+            wo = self.work_order(client, bom, f"WO-R3-4-{planned}-{self.stamp}", planned)
+            self.expect(f"a work order planned at {planned} is refused", wo is None,
+                        wo and wo.status)
+        moved = StockMovement.objects.filter(product=gear).exists()
+        self.expect("and no gears appear from nothing", not moved)
+
+    # ── R3-6 ──
+    def check_stock_cents(self, client):
+        from apps.inventory.models import StockMovement
+
+        # A unit cost to four places: every receipt posts 1,006.64 for 1,006.6424.
+        valve = self.make_product(client, "VALVE-R6", "1006.6424")
+        stock0, adj0 = self.net("1400"), self.net("5300")
+        po = self.order(client, "PO-R3-6", [(valve, 10, "1006.6424", False)])
+        line = po.lines.first()
+        for _ in range(10):
+            self.receive(client, po, [(line, 1)])
+        level = self.shelf(valve)
+        self.expect("ten single receipts put exactly what they posted on the shelf",
+                    level.value == D("10066.40") and self.net("1400") - stock0 == D("10066.40"),
+                    f"shelf {level.value}, GL {self.net('1400') - stock0}")
+        self.stock_agrees("after ten single receipts")
+        inventory_page = client.get(reverse("inventory:index"))
+        self.expect("the inventory dashboard reports the ledger's figure",
+                    inventory_page.status_code == 200
+                    and inventory_page.context["inventory_value"] == self.valuation(),
+                    f"{inventory_page.context and inventory_page.context.get('inventory_value')}")
+
+        self.adjust(client, "ADJUSTMENT_MINUS", "3", product=valve)
+        issue = StockMovement.objects.filter(product=valve,
+                                             movement_type="ADJUSTMENT_MINUS").first()
+        self.expect("a part issue is the shelf's value before less after",
+                    issue is not None and issue.total_cost == D("3019.92"),
+                    str(issue and issue.total_cost))
+        self.stock_agrees("after a part write-off")
+        self.adjust(client, "ADJUSTMENT_MINUS", "7", product=valve)
+        level = self.shelf(valve)
+        self.expect("the last unit out takes whatever value is left: an empty shelf is worth 0",
+                    level.quantity == Z and level.value == Z,
+                    f"{level.quantity} @ {level.value}")
+        self.expect("and the write-offs took exactly what came in",
+                    self.net("1400") == stock0 and self.net("5300") - adj0 == D("10066.40"),
+                    f"1400 {self.net('1400') - stock0}, 5300 {self.net('5300') - adj0}")
+        self.bill_order(client, po)
+        self.stock_agrees("after the shelf is emptied")
+
+        # Thirds: 100 over three units, out one at a time.
+        third = self.make_product(client, "THIRD-R6", "33.3333")
+        self.adjust(client, "ADJUSTMENT_PLUS", "3", "33.3333", product=third)
+        for _ in range(3):
+            self.adjust(client, "ADJUSTMENT_MINUS", "1", product=third)
+        level = self.shelf(third)
+        self.expect("three thirds out leave nothing behind",
+                    level.quantity == Z and level.value == Z, f"{level.quantity} @ {level.value}")
+        self.stock_agrees("after three thirds")
+
+    # ── R3-7, R3-15, R3-16 ──
+    def check_requisitions_round3(self, client):
+        from apps.core.models import SequenceCounter
+        from apps.procurement.models import PurchaseRequisition
+
+        finance = self.role_client("FINANCE_MANAGER")
+        create = reverse("procurement:requisition_create")
+        before = SequenceCounter.peek_number(self.company, "PR-")
+        finance.get(create)
+        finance.get(create)
+        self.expect("opening the requisition form takes no number",
+                    SequenceCounter.peek_number(self.company, "PR-") == before,
+                    f"{before} -> {SequenceCounter.peek_number(self.company, 'PR-')}")
+        header = {"reference": before, "department": "",
+                  "required_date": str(self.today + datetime.timedelta(days=7)), "notes": ""}
+        self.post(finance, "a requisition with the previewed number", create, header)
+        own = PurchaseRequisition.objects.filter(company=self.company, reference=before).first()
+        self.expect("it is saved under the number the form showed", own is not None, before)
+        if own is None:
+            return
+        self.post(finance, "its line",
+                  reverse("procurement:requisition_line_add", args=[own.pk]),
+                  {"product": self.raw.pk, "quantity": "2", "estimated_unit_cost": "50"})
+        self.post(finance, "submit it", reverse("procurement:requisition_submit", args=[own.pk]), {})
+        resp = finance.post(reverse("procurement:requisition_approve", args=[own.pk]), {})
+        own.refresh_from_db()
+        self.expect("a finance manager cannot approve their own requisition",
+                    own.status == "PENDING_APPROVAL", own.status)
+        self.expect_flash(finance, resp, "approve", "and is told why")
+        page = finance.get(reverse("procurement:requisition_detail", args=[own.pk]))
+        self.expect("nor is shown the Approve button on it",
+                    reverse("procurement:requisition_approve", args=[own.pk])
+                    not in page.content.decode())
+
+        # Raised by one person, submitted by another: the submitter cannot approve.
+        other = self.role_client("FINANCE_MANAGER")
+        self.post(other, "another finance manager approves it",
+                  reverse("procurement:requisition_approve", args=[own.pk]), {})
+        own.refresh_from_db()
+        self.expect("somebody else can", own.status == "APPROVED", own.status)
+
+        resp = self.post(client, "order it", reverse("procurement:requisition_to_po",
+                                                     args=[own.pk]),
+                         {"supplier": self.supplier.pk})
+        own.refresh_from_db()
+        po = own.purchaseorder_set.first()
+        resp = client.post(reverse("procurement:requisition_approve", args=[own.pk]), {})
+        said = " ".join(self.messages_of(client, resp))
+        self.expect("an ordered requisition is said to be on a purchase order",
+                    "already on a purchase order" in said and "po created" not in said.lower(),
+                    said)
+        self.post(client, "cancel its order", reverse("procurement:po_cancel", args=[po.pk]), {})
+        own.refresh_from_db()
+        self.expect("cancelling the order hands the requisition back as approved",
+                    own.status == "APPROVED", own.status)
+        self.post(client, "cancel the requisition",
+                  reverse("procurement:requisition_cancel", args=[own.pk]), {})
+        own.refresh_from_db()
+        self.expect("an approved requisition can be cancelled", own.status == "CANCELLED",
+                    own.status)
+        resp = client.post(reverse("procurement:requisition_cancel", args=[own.pk]), {})
+        self.expect_flash(client, resp, "cannot be cancelled", "but only once")
+
+        for start in ("DRAFT", "PENDING_APPROVAL"):
+            self.post(client, f"a requisition to withdraw from {start}", create,
+                      dict(header, reference=f"PR-R3-{start}"))
+            req = PurchaseRequisition.objects.get(company=self.company,
+                                                  reference=f"PR-R3-{start}")
+            if start == "PENDING_APPROVAL":
+                self.post(client, "its line",
+                          reverse("procurement:requisition_line_add", args=[req.pk]),
+                          {"product": self.raw.pk, "quantity": "1", "estimated_unit_cost": "5"})
+                self.post(client, "submit",
+                          reverse("procurement:requisition_submit", args=[req.pk]), {})
+            self.post(client, "cancel it", reverse("procurement:requisition_cancel",
+                                                   args=[req.pk]), {})
+            req.refresh_from_db()
+            self.expect(f"a requisition {start.lower()} can be cancelled",
+                        req.status == "CANCELLED", req.status)
+
+        # Wording: a closed-short order is not told to be sent to the supplier.
+        closed = self.order(client, "PO-R3-16", [(self.raw, 4, "50", False)])
+        self.receive(client, closed, [(closed.lines.first(), 1)])
+        self.bill_order(client, closed)
+        self.post(client, "close it short",
+                  reverse("procurement:po_close_short", args=[closed.pk]), {})
+        resp = self.receive(client, closed, [(closed.lines.first(), 1)])
+        said = " ".join(self.messages_of(client, resp))
+        self.expect("receiving on a closed order says it was closed short",
+                    "was closed short" in said and "send it to the supplier" not in said, said)
+
+    # ── R3-8 ──
+    def check_requisition_currency(self, client):
+        from apps.crm.models import Supplier
+        from apps.procurement.models import PurchaseOrder, PurchaseRequisition
+
+        dollars = Supplier.objects.create(company=self.company, name="Ohio Tools Inc",
+                                          currency="USD")
+        create = reverse("procurement:requisition_create")
+        self.post(client, "a requisition", create, {
+            "reference": "PR-R3-USD", "department": "",
+            "required_date": str(self.today + datetime.timedelta(days=7)), "notes": ""})
+        req = PurchaseRequisition.objects.get(company=self.company, reference="PR-R3-USD")
+        self.post(client, "its line", reverse("procurement:requisition_line_add", args=[req.pk]),
+                  {"product": self.raw.pk, "quantity": "2", "estimated_unit_cost": "3"})
+        self.post(client, "submit", reverse("procurement:requisition_submit", args=[req.pk]), {})
+        approver = self.role_client("FINANCE_MANAGER")
+        self.post(approver, "approve",
+                  reverse("procurement:requisition_approve", args=[req.pk]), {})
+        self.post(client, "order it from the dollar supplier",
+                  reverse("procurement:requisition_to_po", args=[req.pk]),
+                  {"supplier": dollars.pk})
+        po = req.purchaseorder_set.first()
+        self.expect("the order is raised in the supplier's dollars at the day's rate",
+                    po is not None and po.currency == "USD"
+                    and po.exchange_rate == D("131"),
+                    f"{po and po.currency} at {po and po.exchange_rate}")
+
+        self.post(client, "an order form with no currency chosen",
+                  reverse("procurement:po_create"), {
+                      "reference": "PO-R3-8", "supplier": dollars.pk,
+                      "order_date": str(self.today), "expected_delivery_date": "",
+                      "warehouse": self.warehouse.pk, "notes": ""})
+        typed = PurchaseOrder.objects.filter(company=self.company, reference="PO-R3-8").first()
+        self.expect("the order form defaults to the supplier's currency",
+                    typed is not None and typed.currency == "USD"
+                    and typed.exchange_rate == D("131"),
+                    f"{typed and typed.currency} at {typed and typed.exchange_rate}")
+        form = client.get(reverse("procurement:po_create")).content.decode()
+        self.expect("and the page knows each supplier's currency", "data-currencies" in form
+                    and '"USD"' in form.replace("&quot;", '"'))
+
+    # ── R3-9 ──
+    def check_draft_lines_only(self, client):
+        po = self.order(client, "PO-R3-9", [(self.raw, 2, "50", False)])
+        line = po.lines.first()
+        resp = client.post(reverse("procurement:po_line_add", args=[po.pk]),
+                           {"product": self.raw.pk, "quantity": "1", "unit_cost": "50"})
+        self.expect("a sent order takes no new lines", po.lines.count() == 1,
+                    str(po.lines.count()))
+        self.expect_flash(client, resp, "only a draft", "and says only a draft can change")
+        client.post(reverse("procurement:po_line_delete", args=[po.pk, line.pk]), {})
+        self.expect("nor loses one", po.lines.count() == 1, str(po.lines.count()))
+        self.receive(client, po, [(line, 2)])
+        po.refresh_from_db()
+        client.post(reverse("procurement:po_line_add", args=[po.pk]),
+                    {"product": self.raw.pk, "quantity": "1", "unit_cost": "50"})
+        po.refresh_from_db()
+        self.expect("a fully received order cannot be reopened with a new line",
+                    po.lines.count() == 1 and po.status == "FULLY_RECEIVED", po.status)
+        self.bill_order(client, po)
+        po.refresh_from_db()
+        self.expect("so it still finishes", po.status == "BILLED", po.status)
+        draft = self.order(client, "PO-R3-9D", [(self.raw, 2, "50", False)], send=False)
+        dline = draft.lines.first()
+        self.post(client, "delete a draft's line",
+                  reverse("procurement:po_line_delete", args=[draft.pk, dline.pk]), {})
+        self.expect("a draft's lines can still change", draft.lines.count() == 0)
+
+    # ── R3-10 ──
+    def check_free_goods(self, client):
+        from apps.procurement.models import Bill
+
+        sample = self.make_product(client, "SAMPLE-R10", "0")
+        po = self.order(client, "PO-R3-10", [(sample, 5, "0", False)])
+        self.receive(client, po, [(po.lines.first(), 5)])
+        bill = self.bill_order(client, po, post=False)
+        resp = client.post(reverse("procurement:bill_post", args=[bill.pk]), {})
+        bill.refresh_from_db()
+        po.refresh_from_db()
+        said = " ".join(self.messages_of(client, resp))
+        self.expect("a free-goods bill posts with no journal and settles the order",
+                    bill.status == "PAID" and bill.journal_entry_id is None
+                    and po.status == "BILLED" and "Journal entry must have" not in said,
+                    f"{bill.status} / {po.status} / {said}")
+        count = Bill.objects.filter(company=self.company).count()
+        resp = client.post(reverse("procurement:bill_create"),
+                           self.bill_form("BILL-R3-ZERO", subtotal="0", tax_amount="0",
+                                          total_amount="0"))
+        form = resp.context.get("form") if resp.status_code == 200 and resp.context else None
+        self.expect("a typed bill for 0.00 is refused with a clear message",
+                    Bill.objects.filter(company=self.company).count() == count
+                    and form is not None and "0.00 records nothing" in str(form.errors),
+                    str(form and form.errors))
+        self.accrual_agrees("after free goods")
+
+    # ── R3-11, R3-12, R3-13 ──
+    def check_bill_entry(self, client):
+        from apps.procurement.models import Bill
+
+        create = reverse("procurement:bill_create")
+        self.post(client, "a bill", create, self.bill_form("BILL-R3-11", supplier_reference="R3-A"))
+        self.reject(client, "the same bill reference again", create,
+                    self.bill_form("bill-r3-11", supplier_reference="R3-B"))
+        self.expect("only one bill carries the reference",
+                    Bill.objects.filter(company=self.company,
+                                        reference__iexact="BILL-R3-11").count() == 1)
+        self.reject(client, "a total a cent above subtotal + tax", create,
+                    self.bill_form("BILL-R3-12", supplier_reference="R3-C", total_amount="1160.01"))
+        self.reject(client, "a total a cent below", create,
+                    self.bill_form("BILL-R3-12", supplier_reference="R3-C", total_amount="1159.99"))
+        ahead = self.today + datetime.timedelta(days=400)
+        back = self.today.replace(year=self.today.year - 11)
+        self.reject(client, "a bill dated more than a year ahead", create,
+                    self.bill_form("BILL-R3-13A", supplier_reference="R3-D", bill_date=ahead,
+                                   due_date=ahead))
+        self.reject(client, "a bill dated more than ten years back", create,
+                    self.bill_form("BILL-R3-13B", supplier_reference="R3-E", bill_date=back))
+        self.expect("none of them reached the book", not Bill.objects.filter(
+            company=self.company, reference__in=["BILL-R3-12", "BILL-R3-13A", "BILL-R3-13B"]
+        ).exists())
+
+    # ── R3-13, R3-14, R3-17 ──
+    def check_payments_round3(self, client):
+        from apps.accounting.models import JournalEntry
+        from apps.procurement.models import Bill
+
+        old = self.today - datetime.timedelta(days=3)
+        self.post(client, "a bill to pay", reverse("procurement:bill_create"),
+                  self.bill_form("BILL-R3-PAY", supplier_reference="R3-PAY", bill_date=old))
+        bill = Bill.objects.get(company=self.company, reference="BILL-R3-PAY")
+        pay = reverse("procurement:bill_pay", args=[bill.pk])
+        for amount in ("1e2", "100.005", "1,250", "NaN"):
+            resp = client.post(pay, {"amount": amount})
+            bill.refresh_from_db()
+            self.expect(f"a payment of '{amount}' is refused", resp.status_code == 302
+                        and bill.paid_amount == Z, f"paid {bill.paid_amount}")
+        for when, label in ((old - datetime.timedelta(days=1), "before the bill"),
+                            (self.today + datetime.timedelta(days=1), "in the future")):
+            resp = client.post(pay, {"amount": "100", "payment_date": str(when)})
+            bill.refresh_from_db()
+            self.expect(f"a payment dated {label} is refused", bill.paid_amount == Z,
+                        f"paid {bill.paid_amount}")
+        self.expect_flash(client, resp, "future", "and the refusal says why")
+
+        till0, bank0 = self.net("1100"), self.net("1200")
+        self.post(client, "pay with no account named", pay, {"amount": "100"})
+        bill.refresh_from_db()
+        self.expect("a payment naming no account leaves the main bank, not the till",
+                    bill.paid_amount == D("100.00") and self.net("1200") - bank0 == D("-100.00")
+                    and self.net("1100") == till0,
+                    f"bank {self.net('1200') - bank0}, till {self.net('1100') - till0}")
+        self.post(client, "pay from the till on purpose", pay,
+                  {"amount": "60", "gl_account": self.account("1100").pk})
+        self.expect("the till pays only when chosen", self.net("1100") - till0 == D("-60.00"),
+                    str(self.net("1100") - till0))
+        page = client.get(reverse("procurement:bill_detail", args=[bill.pk])).content.decode()
+        bank_pk = str(self.account("1200").pk)
+        self.expect("the pay form starts on the bank account",
+                    f'value="{bank_pk}" selected' in page, "")
+
+        # A payment dated in a closed or missing period is booked and flagged.
+        paid = JournalEntry.objects.filter(company=self.company, entry_type="PAYMENT",
+                                           notes__icontains="BILL-R3-PAY").count()
+        self.expect("both payments were booked", paid == 2, str(paid))
+
+    # ── R3-18 ──
+    def check_hidden_buttons(self, client):
+        po = self.order(client, "PO-R3-18", [(self.raw, 2, "50", False)])
+        stores = self.role_client("WAREHOUSE_MANAGER")
+        page = stores.get(reverse("procurement:po_detail", args=[po.pk])).content.decode()
+        self.expect("the stores do not see Bill this order",
+                    reverse("procurement:po_to_bill", args=[po.pk]) not in page)
+        page = stores.get(reverse("procurement:po_list")).content.decode()
+        self.expect("nor New PO", reverse("procurement:po_create") not in page)
+        page = stores.get(reverse("procurement:grn", args=[po.pk])).content.decode()
+        self.expect("but they do see the receive form",
+                    reverse("procurement:grn_record", args=[po.pk]) in page)
+        for role in ("FINANCE_MANAGER", "ACCOUNTANT", "PROCUREMENT"):
+            other = self.role_client(role)
+            page = other.get(reverse("procurement:grn", args=[po.pk])).content.decode()
+            self.expect(f"{role} does not see the receive form",
+                        reverse("procurement:grn_record", args=[po.pk]) not in page)
+        finance = self.role_client("FINANCE_MANAGER")
+        page = finance.get(reverse("procurement:po_detail", args=[po.pk])).content.decode()
+        self.expect("finance does see Bill this order",
+                    reverse("procurement:po_to_bill", args=[po.pk]) in page)
+
+        cog = self.make_product(client, "COG-R18", "10")
+        widget = self.make_product(client, "WIDGET-R18", "0")
+        bom = self.recipe(client, f"Widget recipe {self.stamp}", widget, [(cog, 1)])
+        wo = self.work_order(client, bom, f"WO-R3-18-{self.stamp}", 1)
+        url = reverse("manufacturing:work_order_detail", args=[wo.pk])
+        actions = [reverse(f"manufacturing:work_order_{a}", args=[wo.pk])
+                   for a in ("release", "complete", "cancel")]
+        for role in ("FINANCE_MANAGER", "PROCUREMENT", "VIEWER"):
+            page = self.role_client(role).get(url).content.decode()
+            self.expect(f"{role} sees no work-order actions",
+                        not any(a in page for a in actions))
+        page = stores.get(url).content.decode()
+        self.expect("the warehouse manager does",
+                    all(a in page for a in actions))

@@ -15,7 +15,7 @@ from apps.core.mixins import CompanyRequiredMixin
 
 from .numbers import money, qty
 from .forms import ProductForm, StockMovementForm, UnitOfMeasureForm
-from .models import Product, StockLevel, StockMovement, UnitOfMeasure
+from .models import Product, StockLevel, StockMovement, UnitOfMeasure, stock_valuation
 
 
 class ProductListView(LoginRequiredMixin, ListView):
@@ -199,13 +199,12 @@ class InventoryIndexView(LoginRequiredMixin, TemplateView):
         if not company:
             return ctx
         ctx["product_count"] = Product.objects.filter(company=company, is_active=True).count()
-        # Stock is worth what each shelf carries it at — its quantity times its
-        # moving average — which is the figure the inventory account is kept
-        # at. The price on the product card is only a guess at the next buy.
-        ctx["inventory_value"] = sum(
-            (sl.quantity * sl.avg_cost for sl in StockLevel.objects.filter(
-                warehouse__company=company, product__track_inventory=True)),
-            Decimal(0)).quantize(Decimal("0.01"))
+        # Stock is worth what each shelf carries it at — the value kept on the
+        # stock level to the cent, which every movement moves by exactly what
+        # its journal entry posted — so this is the figure the inventory
+        # account is kept at. The price on the product card is only a guess at
+        # the next buy.
+        ctx["inventory_value"] = stock_valuation(company)
         try:
             ctx["low_stock_count"] = StockLevel.objects.filter(
                 warehouse__company=company,
@@ -258,9 +257,9 @@ class WarehouseDetailView(LoginRequiredMixin, TemplateView):
             warehouse=warehouse
         ).select_related("product", "performed_by").order_by("-movement_date", "-created_at")[:30]
         ctx["low_stock"] = [sl for sl in ctx["stock_levels"] if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level]
-        # Valued as the ledger values it: each shelf at its own moving average.
-        ctx["total_value"] = sum((sl.quantity * sl.avg_cost for sl in ctx["stock_levels"]),
-                                 Decimal(0)).quantize(Decimal("0.01"))
+        # Valued as the ledger values it: each shelf at the value it carries.
+        ctx["total_value"] = sum((sl.value for sl in ctx["stock_levels"]
+                                  if sl.product.track_inventory), Decimal("0"))
         return ctx
 
 
@@ -340,13 +339,18 @@ class StockTransferView(LoginRequiredMixin, TemplateView):
                     movement_date=movement_date, performed_by=request.user,
                     notes=f"Transfer to {to_w.name}",
                 )
-                StockMovement.objects.create(
+                arriving = StockMovement(
                     product=product, warehouse=to_w, movement_type="TRANSFER_IN",
                     quantity=qty, unit_cost=out.unit_cost,
                     reference=reference or f"TRF-{from_w.code}",
                     movement_date=movement_date, performed_by=request.user,
                     notes=f"Transfer from {from_w.name}",
                 )
+                # To the cent what left the other shelf, not quantity × the
+                # four-place average recomputed — the two shelves together are
+                # still worth exactly what the inventory account holds.
+                arriving.carried_value = out.total_cost
+                arriving.save()
         except ValidationError as exc:
             messages.error(request, f"Could not transfer {product.name}: {exc.messages[0]}")
             return redirect("inventory:stock_transfer")
