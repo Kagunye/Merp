@@ -32,7 +32,7 @@
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Total debit</div><div class="font-bold text-lg">{{ total_debit|floatformat:2 }}</div></div>
   <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Total credit</div><div class="font-bold text-lg">{{ total_credit|floatformat:2 }}</div></div>
   <div class="rounded-xl border p-4" style="background:{{ wash }};border-color:{{ edge }}">
-    <div class="text-xs" style="color:{{ edge }}">Closing balance ({{ account.normal_balance|lower }} normal)</div>
+    <div class="text-xs" style="color:{{ edge }}">Closing balance at {{ as_at|date:"d M Y" }} ({{ account.normal_balance|lower }} normal)</div>
     <div class="font-bold text-lg" style="color:{{ edge }};">{{ closing_balance|floatformat:2 }}</div>
   </div>
 </div>
@@ -68,6 +68,28 @@
     </tbody>
   </table>
 </div>
+
+{% if future_rows %}
+<div class="bg-white rounded-xl border border-amber-200 overflow-x-auto mt-6">
+  <div class="px-4 py-3 border-b border-amber-100 text-sm text-amber-800" style="background:#FFFBEB">
+    Dated after {{ as_at|date:"d M Y" }} — {{ future_rows|length }} line(s) keyed in ahead. They are not in the closing balance above until their day comes; choose a later "To" date to read them in.
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Debit</th><th class="px-4 py-3 text-right">Credit</th></tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in future_rows %}
+      <tr>
+        <td class="px-4 py-2 whitespace-nowrap">{{ r.date|date:"d M Y" }}</td>
+        <td class="px-4 py-2"><a href="{% url 'accounting:journal_entry_detail' r.entry_pk %}" class="font-mono text-xs hover:underline" style="color:var(--primary)">{{ r.reference }}</a></td>
+        <td class="px-4 py-2">{{ r.description|default:"—" }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.debit|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ r.credit|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <p class="text-xs text-gray-400 mt-3">Balances are shown in the account's normal direction, so this agrees with the trial balance whichever side the account sits on.</p>
 {% endblock %}

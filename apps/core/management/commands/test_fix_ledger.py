@@ -20,7 +20,8 @@ Everything happens inside one transaction that is rolled back at the end.
                                        refused; a date with no fiscal year is
                                        refused at Post
     3. closes                       -> a late posting into a closed month is
-                                       swept at year end, the year end reads
+                                       refused until the month is reopened, the
+                                       year end reads
                                        3300 as at its own date, a closed year
                                        takes no postings and its months cannot
                                        be reopened on their own, years close and
@@ -64,6 +65,21 @@ Everything happens inside one transaction that is rolled back at the end.
    15. revaluation shares           -> a part payment releases its slice, a
                                        cancellation or a backdated receipt the
                                        rest, and checking twice changes nothing
+   16. closed means closed          -> a year end sweeps its own window, no
+                                       year slips in under a closed one, no
+                                       early close, nothing posted or reversed
+                                       into a closed month, OPENING only on its
+                                       screen, refused forms take no number,
+                                       600-line journals save
+   17. as at today                  -> home tiles equal the balance sheet, GL
+                                       and ledger leave tomorrow apart, the KPI
+                                       tiles and cash chart, reversed windows,
+                                       no future revaluation, purchase or
+                                       disposal, depreciation stood down from
+                                       the end, ISO codes, used rates locked
+   18. roles                        -> purchase orders, aged creditors,
+                                       timesheets, tills, downloads, /media/,
+                                       and the business launcher's tiles
 """
 import datetime
 import re
@@ -254,6 +270,20 @@ class Command(BaseCommand):
     def day(self, month, day=15):
         return datetime.date(self.year, month, day)
 
+    def past_year(self, year):
+        """A calendar fiscal year `year`, made through the fiscal year form.
+
+        Closing a period or a year is refused until it has ended, so every
+        check that closes something works in a year that is already over.
+        """
+        from apps.organizations.models import FiscalYear
+        found = FiscalYear.objects.filter(company=self.company, start_date__year=year).first()
+        if found:
+            return found
+        self.client.post(reverse("accounting:fiscal_year_create"), {
+            "name": f"FY {year}", "start_date": f"{year}-01-01", "end_date": f"{year}-12-31"})
+        return FiscalYear.objects.get(company=self.company, start_date__year=year)
+
     # ─────────────────────────────── the run ─────────────────────────────────
 
     def run(self):
@@ -287,6 +317,12 @@ class Command(BaseCommand):
         self.check_figures()
         self.section("15. A revaluation's shares, released in proportion")
         self.check_revaluation_shares()
+        self.section("16. Closed means closed, year ends in their window, opening balances")
+        self.check_round_three_ledger()
+        self.section("17. Figures as at today, dates that have not come, rates and currencies")
+        self.check_round_three_figures()
+        self.section("18. The role table, the raw file route and the business launcher")
+        self.check_round_three_roles()
 
     # ────────────────────────── 1. generic reverse ───────────────────────────
 
@@ -333,8 +369,13 @@ class Command(BaseCommand):
         self.expect("the receivable still carries the invoice",
                     self.bal("1300") == D("5000.00"), str(self.bal("1300")))
 
+        # CHANGED (fix3/ledger): a period is closed only once it has ended, so
+        # the month closed here is one of last year's, with a charge in it.
         from apps.accounting.models import period_for
-        period = period_for(company, self.today)
+        self.past_year(self.year - 1)
+        june = datetime.date(self.year - 1, 6, 15)
+        self.journal([("6200", 400, 0), ("1200", 0, 400)], june)
+        period = period_for(company, june)
         client.post(reverse("accounting:period_close", args=[period.pk]), {})
         closing = gl_service.closing_entry_for(company, gl_service.PERIOD_CLOSE, period.pk)
         if self.expect("the month closed with a closing entry", closing is not None):
@@ -404,12 +445,26 @@ class Command(BaseCommand):
     # ─────────────────────────────── 3. closes ───────────────────────────────
 
     def check_closes(self):
+        # CHANGED (fix3/ledger): a period or year is closed only once it has
+        # ended, and a closed period takes no postings. The scenario runs two
+        # years back (year A) with the year after it (year B) as "next year",
+        # both already over. The late posting into closed January is now
+        # refused; it goes in after January is reopened, and January is closed
+        # again, so the year's profit still includes it.
+        current = self.year
+        try:
+            self._check_closes()
+        finally:
+            self.year = current
+
+    def _check_closes(self):
         from apps.accounting import gl_service
         from apps.accounting.models import JournalEntry, period_for
-        from apps.organizations.models import FiscalYear
 
         company, client, user = self.book("close")
-        fy = FiscalYear.objects.get(company=company)
+        fy = self.past_year(self.year - 2)
+        nxt = self.past_year(self.year - 1)
+        self.year -= 2
         self.journal([("1200", 100000, 0), ("4100", 0, 100000)], self.day(1))
         self.journal([("6200", 30000, 0), ("1200", 0, 30000)], self.day(1, 31))
         self.journal([("1200", 50000, 0), ("4100", 0, 50000)], self.day(2))
@@ -421,9 +476,19 @@ class Command(BaseCommand):
         self.expect("January closed", jan.status == "CLOSED", jan.status)
 
         late, resp = self.journal([("1200", 1234, 0), ("4100", 0, 1234)], self.day(1, 20))
-        self.expect("a late posting into a closed month is still allowed, with a warning",
-                    late.status == "POSTED" and "closed" in late.calendar_warning,
-                    f"{late.status} {late.calendar_warning!r}")
+        self.expect("a late posting into a closed month is refused",
+                    late.status == "DRAFT", f"{late.status} {late.calendar_warning!r}")
+        self.expect("and says to reopen the period or use an open one",
+                    self.said(client, resp, "reopen") and any("open period" in m for m in self.heard),
+                    str(self.heard[-2:]))
+        client.post(reverse("accounting:period_reopen", args=[jan.pk]), {})
+        client.post(reverse("accounting:journal_entry_post", args=[late.pk]), {})
+        late.refresh_from_db()
+        client.post(reverse("accounting:period_close", args=[jan.pk]), {})
+        jan.refresh_from_db()
+        self.expect("reopened, the late posting goes in and January closes again",
+                    late.status == "POSTED" and jan.status == "CLOSED",
+                    f"{late.status}, {jan.status}")
 
         profit = D("100000") - D("30000") + D("50000") - D("70000") + D("10000") + D("1234")
         retained_before = -self.bal("3200")
@@ -469,16 +534,11 @@ class Command(BaseCommand):
                     str(-self.bal("4100", upto=fy.end_date)))
 
         # ── the next year, and its January closed before this year is ──
-        resp = client.post(reverse("accounting:fiscal_year_create"), {
-            "name": f"FY {self.year + 1}", "start_date": f"{self.year + 1}-01-01",
-            "end_date": f"{self.year + 1}-12-31"})
-        nxt = FiscalYear.objects.filter(company=company, start_date__year=self.year + 1).first()
-        if not self.expect("the next fiscal year was created with 12 months",
-                           nxt is not None and nxt.periods.count() == 12,
-                           f"HTTP {resp.status_code}"):
-            return
-        self.journal([("1200", 40000, 0), ("4100", 0, 40000)], datetime.date(self.year + 1, 1, 10))
-        n_jan = period_for(company, datetime.date(self.year + 1, 1, 10))
+        self.expect("the next fiscal year has 12 months", nxt.periods.count() == 12,
+                    str(nxt.periods.count()))
+        n_day = datetime.date(self.year + 1, 1, 10)
+        self.journal([("1200", 40000, 0), ("4100", 0, 40000)], n_day)
+        n_jan = period_for(company, n_day)
         client.post(reverse("accounting:period_close", args=[n_jan.pk]), {})
         self.expect("next January's profit sits in 3300", -self.bal("3300") == D("40000"),
                     str(-self.bal("3300")))
@@ -693,9 +753,16 @@ class Command(BaseCommand):
                     str(self.heard[-2:]))
         self.expect("3100 holds the opening capital once", -self.bal("3100") == D("520000.50"),
                     str(-self.bal("3100")))
-        client.post(reverse("accounting:journal_entry_reverse", args=[first.pk]), {})
+        # CHANGED (fix3/ledger): opening balances are reversed on their own
+        # screen, by the finance manager; the generic Reverse refuses them.
+        resp = client.post(reverse("accounting:journal_entry_reverse", args=[first.pk]), {})
         first.refresh_from_db()
-        self.expect("the opening entry can be reversed from its journal page",
+        self.expect("the generic Reverse refuses the opening entry and names its screen",
+                    first.reversed_by_id is None
+                    and self.said(client, resp, "Opening Balances"), str(self.heard[-2:]))
+        client.post(url, {"action": "reverse"})
+        first.refresh_from_db()
+        self.expect("the opening entry is reversed from the opening-balances screen",
                     first.reversed_by_id is not None)
         resp = client.post(url, {"posting_date": on, f"dr_{bank}": "500000",
                                  f"cr_{capital}": "500000"})
@@ -1376,3 +1443,333 @@ class Command(BaseCommand):
         self.expect("taking the revaluation off clears 1350 and every release with it",
                     self.bal("1350") == Z and not revaluation.live_releases(company).exists(),
                     str(self.bal("1350")))
+
+    # ─────────────────────── 16. round three: ledger ─────────────────────────
+
+    def check_round_three_ledger(self):
+        from django.core.exceptions import ValidationError
+        from apps.accounting import gl_service
+        from apps.accounting.models import JournalEntry, period_for
+        from apps.core.models import SequenceCounter
+        from apps.organizations.models import FiscalYear
+
+        # ── a year end sweeps its own window only ──
+        company, client, user = self.book("window")
+        last = self.past_year(self.year - 1)
+        before_any = datetime.date(self.year - 3, 6, 15)
+        self.journal([("1200", 7000, 0), ("4100", 0, 7000)], before_any)
+        self.journal([("1200", 50000, 0), ("4100", 0, 50000)], datetime.date(self.year - 1, 3, 15))
+        resp = client.post(reverse("accounting:fiscal_year_close", args=[last.pk]), {})
+        last.refresh_from_db()
+        self.expect("a year end moves retained earnings by its own year's profit only",
+                    last.is_closed and -self.bal("3200") == D("50000"),
+                    f"closed {last.is_closed}, 3200 {-self.bal('3200')} "
+                    f"{self.flashes(client, resp)[-1:]}")
+        self.expect("a sale dated before any fiscal year is left where it was",
+                    -self.bal("4100", upto=last.end_date) == D("7000"),
+                    str(-self.bal("4100", upto=last.end_date)))
+        sheet = client.get(reverse("reporting:balance_sheet")
+                           + f"?date_to={last.end_date:%Y-%m-%d}").context
+        self.expect("the closed year's balance sheet carries no current year profit",
+                    sheet["is_balanced"] and sheet["current_year_profit"] == Z
+                    and sheet["earlier_unclosed_profit"] == D("7000"),
+                    f"current {sheet['current_year_profit']}, earlier "
+                    f"{sheet['earlier_unclosed_profit']}, error {sheet['balancing_error']}")
+        resp = client.post(reverse("accounting:fiscal_year_create"), {
+            "name": "Before", "start_date": f"{self.year - 3}-01-01",
+            "end_date": f"{self.year - 3}-12-31"})
+        self.expect("a fiscal year earlier than a closed one cannot be created",
+                    resp.status_code == 200
+                    and not FiscalYear.objects.filter(company=company, name="Before").exists(),
+                    f"HTTP {resp.status_code}")
+        early = FiscalYear.objects.create(
+            company=company, name="Slipped in", start_date=datetime.date(self.year - 3, 1, 1),
+            end_date=datetime.date(self.year - 3, 12, 31))
+        try:
+            gl_service.close_fiscal_year(company, early, user=user)
+            refused = ""
+        except ValidationError as exc:
+            refused = " ".join(exc.messages)
+        early.refresh_from_db()
+        self.expect("and one slipped in underneath cannot be closed",
+                    not early.is_closed and "closed in order" in refused, refused)
+        self.expect("so the early sale is never swept twice",
+                    -self.bal("3200") == D("50000"), str(-self.bal("3200")))
+        early.delete()
+
+        # ── an early close is refused ──
+        now = period_for(company, self.today)
+        resp = client.post(reverse("accounting:period_close", args=[now.pk]), {})
+        now.refresh_from_db()
+        self.expect("a period that has not ended cannot be closed",
+                    now.status == "OPEN" and self.said(client, resp, "still to come"),
+                    str(self.heard[-1:]))
+
+        # ── closed means closed ──
+        june = datetime.date(self.year - 1, 6, 10)
+        client.post(reverse("accounting:fiscal_year_reopen", args=[last.pk]), {})
+        last.refresh_from_db()
+        self.expect("last year reopened for the closed-month checks", not last.is_closed)
+        manual, _ = self.journal([("6200", 300, 0), ("1200", 0, 300)], june)
+        invoice = self.invoice("INV-CLOSED-1", june, "2500")
+        jun = period_for(company, june)
+        client.post(reverse("accounting:period_close", args=[jun.pk]), {})
+        jun.refresh_from_db()
+        draft, _ = self.draft([("6200", 100, 0), ("1200", 0, 100)], june)
+        self.expect("a draft dated in a closed month is told so before Post",
+                    "closed" in draft.calendar_warning, draft.calendar_warning)
+        resp = client.post(reverse("accounting:journal_entry_post", args=[draft.pk]), {})
+        draft.refresh_from_db()
+        self.expect("a journal dated in a closed month is refused",
+                    draft.status == "DRAFT" and self.said(client, resp, "reopen")
+                    and any("open period" in m for m in self.heard), str(self.heard[-1:]))
+        resp = client.post(reverse("accounting:journal_entry_reverse", args=[manual.pk]), {})
+        manual.refresh_from_db()
+        self.expect("a journal in a closed month is not reversed into it",
+                    manual.reversed_by_id is None and self.said(client, resp, "reopen"),
+                    str(self.heard[-1:]))
+        refs = SequenceCounter.objects.filter(company=company, prefix="JE-REV-").count()
+        try:
+            invoice.journal_entry.reverse(user=user)
+            said = ""
+        except ValidationError as exc:
+            said = " ".join(exc.messages)
+        self.expect("cancelling a document whose entry sits in a closed month is refused",
+                    "reopen" in said and invoice.journal_entry.reversed_by_id is None, said)
+        self.expect("and the refusal takes no JE-REV- number",
+                    SequenceCounter.objects.filter(company=company, prefix="JE-REV-").count()
+                    == refs)
+        client.post(reverse("accounting:period_reopen", args=[jun.pk]), {})
+        client.post(reverse("accounting:journal_entry_post", args=[draft.pk]), {})
+        draft.refresh_from_db()
+        self.expect("reopened, the month takes the journal", draft.status == "POSTED",
+                    draft.status)
+        page = client.get(reverse("accounting:journal_entry_detail", args=[manual.pk]))
+        self.expect("the journal page no longer calls a closed period a reporting flag",
+                    "reporting flag" not in page.content.decode())
+
+        # ── opening balances are not a manual journal ──
+        entry, resp = self.draft([("1200", 1000, 0), ("3100", 0, 1000)], self.today,
+                                 entry_type="OPENING")
+        self.expect("a manual journal cannot be typed OPENING",
+                    entry is None and resp.status_code == 200, f"HTTP {resp.status_code}")
+        _, accountant = self.member("ACCOUNTANT", "acct3")
+        resp = accountant.post(reverse("accounting:opening_balances"), {
+            "posting_date": str(self.today), f"dr_{self.account('1200').pk}": "1",
+            f"cr_{self.account('3100').pk}": "1"})
+        self.expect("an accountant cannot post opening balances", resp.status_code == 403,
+                    f"HTTP {resp.status_code}")
+        client.post(reverse("accounting:opening_balances"), {
+            "posting_date": str(self.today), f"dr_{self.account('1200').pk}": "8000",
+            f"cr_{self.account('3100').pk}": "8000"})
+        opening = JournalEntry.objects.filter(company=company, entry_type="OPENING").first()
+        resp = accountant.post(reverse("accounting:journal_entry_reverse", args=[opening.pk]), {})
+        opening.refresh_from_db()
+        self.expect("an accountant cannot undo the opening through the generic Reverse",
+                    opening.reversed_by_id is None, str(self.flashes(accountant, resp)[-1:]))
+        page = accountant.get(reverse("accounting:opening_balances")).content.decode()
+        self.expect("nor is offered the reverse-opening button", "Reverse opening balances" not in page)
+
+        # ── a refused journal takes no number; a large one saves ──
+        taken = SequenceCounter.objects.filter(company=company, prefix="JE-").values_list(
+            "last_number", flat=True).first()
+        for _ in range(3):
+            self.draft([("6200", 100, 0), ("6300", 0, 0), ("1200", 0, 100)], self.today)
+        self.expect("a refused journal form takes no JE- number",
+                    SequenceCounter.objects.filter(company=company, prefix="JE-").values_list(
+                        "last_number", flat=True).first() == taken, str(taken))
+        ok, _ = self.draft([("6200", 5, 0), ("1200", 0, 5)], self.today)
+        self.expect("the next saved journal takes the next number",
+                    ok is not None and ok.reference == f"JE-{taken + 1:05d}",
+                    ok and ok.reference)
+        self.expect("a draft in an open month carries no calendar banner",
+                    ok is not None and ok.calendar_warning == "", ok and ok.calendar_warning)
+        many = [("6200", 1, 0) if i % 2 == 0 else ("1200", 0, 1) for i in range(600)]
+        big, resp = self.draft(many, self.today)
+        self.expect("a 600-line journal saves",
+                    big is not None and big.lines.count() == 600, f"HTTP {resp.status_code}")
+
+    # ─────────────────── 17. round three: figures and dates ──────────────────
+
+    def check_round_three_figures(self):
+        from apps.accounting.forms import CurrencyForm
+        from apps.accounting.models import Currency, ExchangeRate, JournalEntry
+        from apps.fixed_assets.models import AssetDepreciation, FixedAsset
+
+        company, client, user = self.book("asat")
+        client.post(reverse("accounting:opening_balances"), {
+            "posting_date": str(self.day(1, 1)), f"dr_{self.account('1200').pk}": "100000",
+            f"cr_{self.account('3100').pk}": "100000"})
+        self.journal([("1300", 40000, 0), ("4100", 0, 40000)], self.day(1, 5))
+        self.journal([("6200", 25000, 0), ("2100", 0, 25000)], self.day(1, 5))
+        self.journal([("6200", 1600, 0), ("2200", 0, 1600)], self.day(1, 5))
+        later = self.today + datetime.timedelta(days=1)
+        self.journal([("1200", 999, 0), ("4100", 0, 999)], later)
+        self.journal([("1200", 321, 0), ("4100", 0, 321)], self.today)
+
+        idx = client.get(reverse("accounting:index")).context
+        sheet = client.get(reverse("reporting:balance_sheet")
+                           + f"?date_to={self.today:%Y-%m-%d}").context
+        self.expect("the home 'Total assets' tile equals the balance sheet today",
+                    idx["asset_balance"] == sheet["total_assets"],
+                    f"{idx['asset_balance']} vs {sheet['total_assets']}")
+        self.expect("the home 'Total liabilities' tile equals the balance sheet today",
+                    idx["liability_balance"] == sheet["total_liabilities"] == D("26600"),
+                    f"{idx['liability_balance']} vs {sheet['total_liabilities']}")
+
+        gl = client.get(reverse("accounting:general_ledger")).context
+        bank = next(a for accounts in gl["buckets"].values() for a in accounts
+                    if a.code == "1200")
+        self.expect("the general ledger shows the bank as at today, tomorrow apart",
+                    bank.balance_today == self.bal("1200", upto=self.today)
+                    and bank.future_movement == D("999"),
+                    f"{bank.balance_today}, later {bank.future_movement}")
+        ledger = client.get(reverse("accounting:account_ledger",
+                                    args=[self.account("1200").pk])).context
+        self.expect("the undated account ledger closes at today and lists tomorrow apart",
+                    ledger["closing_balance"] == self.bal("1200", upto=self.today)
+                    and len(ledger["future_rows"]) == 1,
+                    f"{ledger['closing_balance']}, {len(ledger['future_rows'])} later")
+
+        board = client.get(reverse("dashboard:index")).context
+        month = self.today.replace(day=1)
+        expected = D("321") + (D("40000") if month <= self.day(1, 5) <= self.today else Z)
+        self.expect("the dashboard's month revenue leaves tomorrow's sale out",
+                    board.get("monthly_revenue") == expected,
+                    f"{board.get('monthly_revenue')} vs {expected}")
+        kpis = client.get(reverse("dashboard:kpi_widgets")).context
+        self.expect("the KPI tiles agree with the dashboard, as at today",
+                    kpis["total_cash"] == board["total_cash"] == self.bal("1200", upto=self.today)
+                    + self.bal("1100", upto=self.today) + self.bal("1110", upto=self.today),
+                    f"{kpis['total_cash']} / {board['total_cash']}")
+        chart = client.get(reverse("dashboard:cashflow_chart")).json()
+        self.expect("the cash chart ends on today's cash",
+                    D(str(chart["data"][-1])) == board["total_cash"],
+                    f"{chart['data'][-1]} vs {board['total_cash']}")
+
+        for name in ("reporting:profit_loss", "reporting:cash_flow"):
+            ctx = client.get(reverse(name) + f"?date_from={self.day(12, 1)}"
+                             f"&date_to={self.day(1, 1)}").context
+            self.expect(f"{name} with the dates the wrong way round says so",
+                        "Swap the two dates" in (ctx.get("error") or ""), str(ctx.get("error")))
+
+        # ── no revaluation, disposal or purchase in the future ──
+        resp = client.post(reverse("accounting:revaluation_post"),
+                           {"date": str(self.today + datetime.timedelta(days=30))})
+        self.expect("a revaluation dated in the future is refused",
+                    not JournalEntry.objects.filter(company=company,
+                                                    entry_type="REVALUATION").exists()
+                    and self.said(client, resp, "still to come"), str(self.heard[-1:]))
+
+        create = reverse("fixed_assets:asset_create")
+        client.post(create, self.asset_data("F1", "12000", on_date=later))
+        self.expect("an asset bought in the future is refused",
+                    not FixedAsset.objects.filter(company=company, code="F1").exists())
+        client.post(create, self.asset_data("D1", "120000", life="1", on_date=self.day(1, 1)))
+        asset = FixedAsset.objects.get(company=company, code="D1")
+        resp = client.post(reverse("fixed_assets:asset_dispose", args=[asset.pk]), {
+            "disposal_date": str(self.today + datetime.timedelta(days=60)),
+            "disposal_type": "SALE", "proceeds": "1000", "received_into": "", "notes": ""})
+        asset.refresh_from_db()
+        self.expect("a disposal dated in the future is refused",
+                    asset.status == "ACTIVE" and resp.status_code == 200, asset.status)
+
+        # ── depreciation stands down from the latest month backwards ──
+        for month in (1, 2, 3):
+            client.post(reverse("fixed_assets:asset_depreciate", args=[asset.pk]),
+                        {"period_date": str(self.day(month, 1))})
+        feb = AssetDepreciation.objects.get(asset=asset, period_date=self.day(2, 1))
+        resp = client.post(reverse("fixed_assets:depreciation_reverse", args=[feb.pk]), {})
+        feb.refresh_from_db()
+        self.expect("a month in the middle of the run cannot be stood down",
+                    not feb.is_reversed and self.said(client, resp, "latest backwards"),
+                    str(self.heard[-1:]))
+        mar = AssetDepreciation.objects.get(asset=asset, period_date=self.day(3, 1))
+        client.post(reverse("fixed_assets:depreciation_reverse", args=[mar.pk]), {})
+        client.post(reverse("fixed_assets:depreciation_reverse", args=[feb.pk]), {})
+        feb.refresh_from_db()
+        client.post(reverse("fixed_assets:asset_depreciate", args=[asset.pk]),
+                    {"period_date": str(self.day(2, 1))})
+        asset.refresh_from_db()
+        self.expect("stood down from the end, February can be charged again",
+                    feb.is_reversed and asset.accumulated_depreciation == D("20000.00"),
+                    str(asset.accumulated_depreciation))
+
+        # ── currencies: real codes, and a used rate is history ──
+        for code in ("US1", "Q Q", "US", "ÄÖÜ", "USDX"):
+            form = CurrencyForm(data={"code": code, "name": "x", "symbol": "", "minor_units": "2"})
+            self.expect(f"the currency register refuses {code!r}", not form.is_valid())
+        usd, _ = Currency.objects.get_or_create(code="USD", defaults={"name": "US Dollar"})
+        used = ExchangeRate.objects.create(company=company, currency=usd,
+                                           effective_date=self.day(2, 1), rate=D("130"))
+        self.invoice("INV-USD-3", self.day(2, 10), "100", currency="USD", rate=D("130"))
+        resp = client.post(reverse("accounting:exchange_rate_edit", args=[used.pk]), {
+            "currency": usd.pk, "effective_date": str(self.day(2, 1)), "rate": "1",
+            "source": "MANUAL", "note": ""})
+        used.refresh_from_db()
+        self.expect("a rate a posted document was booked at cannot be rewritten",
+                    used.rate == D("130") and self.said(client, resp, "new rate"),
+                    f"{used.rate} {self.heard[-1:]}")
+        fresh = ExchangeRate.objects.create(company=company, currency=usd,
+                                            effective_date=self.day(3, 1), rate=D("131"))
+        page = client.get(reverse("accounting:exchange_rate_edit", args=[fresh.pk]))
+        self.expect("a rate nothing has used yet can still be corrected",
+                    page.status_code == 200, f"HTTP {page.status_code}")
+
+    # ───────────────────── 18. round three: the role table ───────────────────
+
+    def check_round_three_roles(self):
+        from types import SimpleNamespace
+
+        from apps.core import access
+
+        person = SimpleNamespace(is_authenticated=True, is_superuser=False, is_system_admin=False)
+
+        def who(target, method="POST"):
+            ns, _, name = target.rpartition(":")
+            return {r for r in access.ROLES if access.can(person, r, ns, name, method)}
+
+        for target in ("procurement:po_line_add", "procurement:po_line_delete",
+                       "procurement:po_send", "procurement:po_create", "procurement:po_cancel",
+                       "procurement:po_close_short", "procurement:requisition_to_po"):
+            self.expect(f"{target} is the buyers' alone",
+                        who(target) - {"ADMIN"} == set(access.BUYERS), str(sorted(who(target))))
+        self.expect("the stores still receive the goods",
+                    who("procurement:grn_record") - {"ADMIN"} == {"WAREHOUSE_MANAGER"})
+        self.expect("a sales manager reads the aged debtors but not the aged creditors",
+                    "SALES_MANAGER" in who("reporting:aged_debtors", "GET")
+                    and "SALES_MANAGER" not in who("reporting:aged_creditors", "GET"))
+        self.expect("timesheets are written by people who work in the book",
+                    who("timesheets:entry_create") - {"ADMIN"} == set(access.WORKERS) - {"ADMIN"}
+                    and not {"VIEWER", "AUDITOR"} & who("timesheets:entry_submit"))
+        self.expect("a refund is the till's, not the finance manager's",
+                    "FINANCE_MANAGER" not in who("pos:sale_refund")
+                    and {"SALES_MANAGER", "POS_CASHIER"} <= who("pos:sale_refund"))
+        self.expect("whoever may close a till may record its late count",
+                    who("pos:cash_up") == who("pos:session_close"),
+                    f"{sorted(who('pos:cash_up'))} vs {sorted(who('pos:session_close'))}")
+        self.expect("every role that sees documents may download one",
+                    who("documents:document_download", "GET") == who("documents:document_list", "GET")
+                    and not who("documents:document_download", "POST") - {"ADMIN"})
+        self.expect("an unnamed route such as /media/ is closed even to a company admin",
+                    not access.can(person, "ADMIN", "", "", "GET"))
+
+        company, client, user = self.book("roles3")
+        resp = client.get("/media/documents/someone-elses-payslip.pdf")
+        self.expect("a company admin asking /media/ directly is turned away",
+                    resp.status_code in (403, 404), f"HTTP {resp.status_code}")
+
+        page = client.get(reverse("business_mgmt:index"))
+        body = page.content.decode()
+        self.expect("the launcher calls the opening-balances tile Opening Balances",
+                    "Opening Balances" in body and "Budget Planning" not in body)
+        for role in ("EMPLOYEE", "POS_CASHIER", "VIEWER", "SALES_REP", "SALES_MANAGER"):
+            member, member_client = self.member(role, f"{role}3")
+            ctx = member_client.get(reverse("business_mgmt:index")).context
+            dead = []
+            for section in ctx["sections"]:
+                for tile in section["tiles"]:
+                    status = member_client.get(tile["url"]).status_code
+                    if status != 200:
+                        dead.append(f"{tile['label']} {status}")
+            self.expect(f"{role}: every tile on the business launcher opens", not dead, str(dead))

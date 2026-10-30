@@ -20,6 +20,9 @@
   </form>
 </div>
 
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-lg text-sm font-medium bg-red-50 text-red-800 border border-red-200">{{ error }}</div>
+{% else %}
 <div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
   <!-- Revenue -->
   <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Revenue</h3>
@@ -69,4 +72,5 @@
     <span class="font-mono {% if net_profit >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ net_profit|floatformat:2 }}</span>
   </div>
 </div>
+{% endif %}
 {% endblock %}

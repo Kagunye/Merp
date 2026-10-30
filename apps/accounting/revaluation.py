@@ -335,6 +335,15 @@ def take_off(entry, user=None, posting_date=None):
     return entry.reverse(user=user, posting_date=posting_date)
 
 
+def _today():
+    """The day the revaluation is being booked on; nothing later may be valued.
+
+    Kept in one place so the regression suites can book a revaluation "on"
+    the period end they have built ahead of the calendar.
+    """
+    return datetime.date.today()
+
+
 @transaction.atomic
 def post_revaluation(company, as_of, user=None):
     """Value the open foreign balances at `as_of` and book the difference.
@@ -345,6 +354,14 @@ def post_revaluation(company, as_of, user=None):
     """
     from apps.accounting.gl_service import _cr, _dr, _new_je
 
+    if as_of > _today():
+        # A revaluation reads the rate of its day. A day still to come has no
+        # rate yet -- only a forecast -- and booking it now would put a guess
+        # about next month's shilling onto today's balance sheet.
+        raise ValidationError(
+            f"{as_of:%d %b %Y} is still to come. A revaluation is dated on or "
+            "before today, at a rate that has actually been filed; revalue at a "
+            "period end once it has passed.")
     position = positions(company, as_of)
     if position["missing"]:
         raise ValidationError(

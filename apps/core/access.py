@@ -75,7 +75,14 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("procurement", "po_create", BUYERS, BUYERS),
     ("procurement", "po_cancel", NOBODY, BUYERS),
     ("procurement", "requisition_to_po", NOBODY, BUYERS),
-    ("procurement", "po_close_short", NOBODY, frozenset({"PROCUREMENT", "FINANCE_MANAGER"})),
+    ("procurement", "po_close_short", NOBODY, BUYERS),
+    # What a purchase order asks for, and sending it to the supplier, are the
+    # order itself: changing a line or sending it commits the company as
+    # surely as raising it. These used to fall through to the module rule
+    # below, which let the stores (WAREHOUSE_MANAGER is a purchaser, for
+    # requisitions) add a line to an order and then sign for its arrival.
+    ("procurement", "po_line_*", NOBODY, BUYERS),
+    ("procurement", "po_send", NOBODY, BUYERS),
     ("procurement", "bill_pay", NOBODY, FINANCE),
     ("procurement", "bill_post", NOBODY, FINANCE),
     ("procurement", "bill_cancel", NOBODY, FINANCE),
@@ -90,7 +97,15 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("pos", "terminal", TILL, TILL),
     ("pos", "session_open", TILL, TILL),
     ("pos", "session_close", NOBODY, TILL | FM),
-    ("pos", "sale_refund", NOBODY, TILL | FM),
+    # A late count on the cash-up sheet is part of closing the till, so it is
+    # open to whoever may close one: the finance manager who closes a till a
+    # cashier walked away from has to be able to enter what was in it.
+    ("pos", "cash_up", FINANCE | TILL | AUDIT, TILL | FM),
+    # A refund is rung through an open till, by the cashier with a supervisor
+    # (the sales manager) standing by. The finance manager opens no till, so
+    # every refund they tried failed half way; they are left out rather than
+    # offered a button that cannot work.
+    ("pos", "sale_refund", NOBODY, TILL),
     ("payroll", "run_approve", NOBODY, FM),
     ("payroll", "run_post", NOBODY, FM),
     ("payroll", "run_cancel", NOBODY, FM),
@@ -130,7 +145,11 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("banking", "transfer*", FINANCE | AUDIT, FINANCE),
     ("banking", "*", FINANCE | AUDIT, FINANCE),
     ("fixed_assets", "*", FINANCE | AUDIT, FINANCE),
-    ("reporting", "aged_*", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
+    # The sales manager chases what customers owe, so may read the aged
+    # debtors. What the company owes its suppliers is finance's business; the
+    # old "aged_*" rule handed the creditors' list to sales as well.
+    ("reporting", "aged_debtors", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
+    ("reporting", "aged_creditors", FINANCE | AUDIT, NOBODY),
     ("reporting", "*", FINANCE | AUDIT, NOBODY),
     ("sales", "*", FINANCE | SALES | AUDIT | {"VIEWER"}, SALES | {"FINANCE_MANAGER"}),
     ("pos", "*", FINANCE | TILL | AUDIT, TILL),
@@ -153,7 +172,10 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # Anyone who works here raises, edits and submits their own claim; the
     # view keeps them to their own and to claims still in draft.
     ("expenses", "*", EVERYONE, WORKERS),
-    ("timesheets", "*", EVERYONE, EVERYONE),
+    # Everybody may read the timesheet pages (the views keep each person to
+    # their own); only people who work in the book log time. A VIEWER or an
+    # AUDITOR who could add hours could add them to someone's pay.
+    ("timesheets", "*", EVERYONE, WORKERS),
     # Anybody may raise a ticket. Resolving and closing are open here because
     # the assignee may hold any role; the view lets only the assignee, the
     # reporter (close only) and an admin do it.
@@ -163,6 +185,11 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("helpdesk", "*", EVERYONE, WORKERS),
     # Deleting a document is for an admin or whoever uploaded it, which the
     # view checks; read-only seats may not upload or delete at all.
+    # Files are only ever handed out through the download view, which checks
+    # the document belongs to the active company: every role that may see the
+    # documents may download one. See can() for why the raw /media/ route is
+    # closed to company users, company admins included.
+    ("documents", "document_download", EVERYONE, NOBODY),
     ("documents", "*", EVERYONE, WORKERS),
     ("notifications", "*", EVERYONE, EVERYONE),
     ("dashboard", "kpi_widgets", FINANCE | AUDIT, NOBODY),
@@ -221,7 +248,17 @@ def _rule_for(namespace: str, url_name: str):
 
 
 def can(user, role: str | None, namespace: str | None, url_name: str | None, method: str = "GET") -> bool:
-    """Whether `user`, holding `role` in the active company, may make this request."""
+    """Whether `user`, holding `role` in the active company, may make this request.
+
+    A route with no name at all -- the debug file server behind /media/ is
+    the one there is -- is for platform administrators only. The company
+    ADMIN bypass below means "everything inside your own company", and an
+    unnamed route belongs to no company: /media/ serves any uploaded file by
+    its path, so an admin of one company could read another company's
+    payslips and contracts by knowing a file name. Company users reach files
+    through documents:document_download, which checks the document is their
+    company's before handing it over.
+    """
     namespace, url_name = namespace or "", url_name or ""
     if (namespace, url_name) in PUBLIC:
         return True
@@ -229,6 +266,8 @@ def can(user, role: str | None, namespace: str | None, url_name: str | None, met
         return False
     if is_platform_admin(user):
         return True
+    if not url_name:
+        return False
     if (namespace, url_name) in SELF_SERVICE:
         return True
     if not role:

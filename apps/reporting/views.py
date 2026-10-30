@@ -22,6 +22,123 @@ def _parse_dates(request):
     return date_from, date_to
 
 
+ASSET_TYPES = ("ASSET", "CASH", "BANK", "RECEIVABLE")
+LIABILITY_TYPES = ("LIABILITY", "PAYABLE", "TAX")
+
+
+def _window_error(date_from, date_to):
+    """The message for a window that ends before it starts, or ""."""
+    if date_from > date_to:
+        return (f"The window starts on {date_from:%d %b %Y}, after it ends on "
+                f"{date_to:%d %b %Y}. Swap the two dates.")
+    return ""
+
+
+def current_year_start(company, on_date):
+    """The first day of the year whose profit is still 'current' on `on_date`.
+
+    The fiscal year the day falls in, when there is one. A day outside every
+    year belongs to whatever came after the last year that ended before it;
+    with no year before it at all, the whole history is current.
+    """
+    from apps.organizations.models import FiscalYear
+
+    year = FiscalYear.objects.filter(
+        company=company, start_date__lte=on_date, end_date__gte=on_date,
+    ).order_by("start_date").first()
+    if year:
+        return year.start_date
+    before = FiscalYear.objects.filter(
+        company=company, end_date__lt=on_date).order_by("-end_date").first()
+    return before.end_date + datetime.timedelta(days=1) if before else None
+
+
+def balance_sheet_figures(company, date_to):
+    """Every figure the balance sheet prints, as at the close of `date_to`.
+
+    Kept in one place so the accounting home tiles, which promise the same
+    totals, read them from the sheet itself rather than from a second list of
+    account types that had already drifted: the tiles left receivables,
+    payables, tax and retired accounts out, and disagreed with the sheet by
+    exactly those balances. Retired accounts are counted -- one cannot be
+    retired while it holds money, and if it somehow does, the money is real.
+
+    The profit still sitting in the revenue and expense accounts is split in
+    two. What was posted inside the current year is that year's profit; once
+    the year is closed its year end has swept it to retained earnings and the
+    line reads nothing. Anything older that no year end has swept (a sale
+    dated before the first fiscal year, or a year not yet closed) is shown on
+    its own line, so a closed year is never credited with someone else's
+    profit and the sheet still balances.
+    """
+    from apps.accounting.models import Account, INCOME_STATEMENT_TYPES, JournalEntryLine
+    from django.db.models import Q, Sum
+
+    zero = Decimal("0")
+    cy_start = current_year_start(company, date_to)
+    inside = Q(journal_entry__posting_date__gte=cy_start) if cy_start else Q()
+    figures = {
+        row["account_id"]: row for row in JournalEntryLine.objects.filter(
+            account__company=company, journal_entry__status="POSTED",
+            journal_entry__posting_date__lte=date_to,
+        ).values("account_id").annotate(
+            dr=Sum("debit_amount"), cr=Sum("credit_amount"),
+            year_dr=Sum("debit_amount", filter=inside),
+            year_cr=Sum("credit_amount", filter=inside),
+        )
+    }
+
+    def section(account_types, flip=False):
+        rows, total = [], zero
+        for acc in Account.objects.filter(
+                company=company, account_type__in=account_types,
+                pk__in=figures).order_by("code"):
+            row = figures[acc.pk]
+            dr, cr = row["dr"] or zero, row["cr"] or zero
+            bal = (cr - dr) if flip else (dr - cr)
+            if bal != 0:
+                rows.append({"account": acc, "balance": bal})
+                total += bal
+        return rows, total
+
+    asset_rows, total_assets = section(ASSET_TYPES)
+    liab_rows, total_liab = section(LIABILITY_TYPES, flip=True)
+    equity_rows, total_equity = section(["EQUITY"], flip=True)
+
+    # The balancing figure is the profit not yet carried to equity. Until a
+    # period is closed it still sits in the revenue and expense accounts, so
+    # it has to be carried onto the equity side or the sheet cannot balance.
+    pl_rows, unclosed_profit = section(list(INCOME_STATEMENT_TYPES), flip=True)
+    current_year_profit = zero
+    for acc_id in Account.objects.filter(
+            company=company, account_type__in=INCOME_STATEMENT_TYPES,
+            pk__in=figures).values_list("pk", flat=True):
+        row = figures[acc_id]
+        current_year_profit += (row["year_cr"] or zero) - (row["year_dr"] or zero)
+    earlier_profit = unclosed_profit - current_year_profit
+
+    # The equity section total the sheet prints must foot above the fold:
+    # the reserve accounts plus the profit beneath them.
+    equity_section = total_equity + unclosed_profit
+    return {
+        "date_to": date_to,
+        "current_year_start": cy_start,
+        "asset_rows": asset_rows,
+        "total_assets": total_assets,
+        "liability_rows": liab_rows,
+        "total_liabilities": total_liab,
+        "equity_rows": equity_rows,
+        "total_equity": equity_section,
+        "current_year_profit": current_year_profit,
+        "earlier_unclosed_profit": earlier_profit,
+        "shows_profit": bool(pl_rows),
+        "total_liab_equity": total_liab + equity_section,
+        "balancing_error": total_assets - (total_liab + equity_section),
+        "is_balanced": abs(total_assets - (total_liab + equity_section))
+        < Decimal("0.01"),
+    }
+
+
 class ReportingIndexView(LoginRequiredMixin, TemplateView):
     template_name = "reporting/index.html"
 
@@ -57,13 +174,9 @@ class TrialBalanceView(LoginRequiredMixin, TemplateView):
 
         date_from, date_to = _parse_dates(self.request)
         ctx.update({"date_from": date_from, "date_to": date_to})
-        if date_from > date_to:
-            ctx.update({
-                "rows": [], "error": (
-                    f"The window starts on {date_from:%d %b %Y}, after it ends on "
-                    f"{date_to:%d %b %Y}. Swap the two dates."),
-                "is_balanced": None,
-            })
+        error = _window_error(date_from, date_to)
+        if error:
+            ctx.update({"rows": [], "error": error, "is_balanced": None})
             return ctx
 
         # One pass over the posted lines up to the end date, split into what
@@ -135,6 +248,12 @@ class ProfitLossView(LoginRequiredMixin, TemplateView):
         from django.db.models import Sum
 
         date_from, date_to = _parse_dates(self.request)
+        error = _window_error(date_from, date_to)
+        if error:
+            # A window that ends before it starts holds no postings, and a
+            # statement of noughts under it reads as a month with no trading.
+            ctx.update({"date_from": date_from, "date_to": date_to, "error": error})
+            return ctx
 
         def _get_balance(account_types):
             rows = []
@@ -194,57 +313,8 @@ class BalanceSheetView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
-
-        from apps.accounting.models import Account, INCOME_STATEMENT_TYPES
-        from django.db.models import Sum
-
         _, date_to = _parse_dates(self.request)
-
-        def _get_section(account_types, flip=False):
-            rows = []
-            total = Decimal("0")
-            accounts = Account.objects.filter(company=company, account_type__in=account_types).order_by("code")
-            for acc in accounts:
-                lines = acc.journal_lines.filter(
-                    journal_entry__status="POSTED",
-                    journal_entry__posting_date__lte=date_to,
-                )
-                dr = lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0")
-                cr = lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")
-                bal = (cr - dr) if flip else (dr - cr)
-                if bal != 0:
-                    rows.append({"account": acc, "balance": bal})
-                    total += bal
-            return rows, total
-
-        asset_rows, total_assets = _get_section(["ASSET", "CASH", "BANK", "RECEIVABLE"])
-        liab_rows, total_liab = _get_section(["LIABILITY", "PAYABLE", "TAX"], flip=True)
-        equity_rows, total_equity = _get_section(["EQUITY"], flip=True)
-
-        # The balancing figure is the year's own profit. Until a period is
-        # closed it still sits in the revenue and expense accounts, so it has
-        # to be carried onto the equity side or the sheet cannot balance.
-        pl_rows, current_year_profit = _get_section(list(INCOME_STATEMENT_TYPES), flip=True)
-
-        # The equity section total the sheet prints must foot above the fold:
-        # the reserve accounts plus the year's own profit beneath them.
-        equity_section = total_equity + current_year_profit
-
-        ctx.update({
-            "date_to": date_to,
-            "asset_rows": asset_rows,
-            "total_assets": total_assets,
-            "liability_rows": liab_rows,
-            "total_liabilities": total_liab,
-            "equity_rows": equity_rows,
-            "total_equity": equity_section,
-            "current_year_profit": current_year_profit,
-            "shows_profit": bool(pl_rows),
-            "total_liab_equity": total_liab + equity_section,
-            "balancing_error": total_assets - (total_liab + equity_section),
-            "is_balanced": abs(total_assets - (total_liab + equity_section))
-            < Decimal("0.01"),
-        })
+        ctx.update(balance_sheet_figures(company, date_to))
         return ctx
 
 
@@ -375,6 +445,10 @@ class CashFlowView(LoginRequiredMixin, TemplateView):
             return ctx
 
         date_from, date_to = _parse_dates(self.request)
+        error = _window_error(date_from, date_to)
+        if error:
+            ctx.update({"date_from": date_from, "date_to": date_to, "error": error})
+            return ctx
         from apps.accounting.models import JournalEntryLine
         from django.db.models import Sum
 

@@ -206,6 +206,10 @@ class FixedAssetDetailView(LoginRequiredMixin, DetailView):
         ctx["page_title"] = f"Asset: {asset.code}"
         ctx["depreciations"] = asset.depreciations.select_related(
             "journal_entry").order_by("-period_date")
+        # Only the latest charge standing can be stood down (the run goes
+        # forward month by month), so only its row offers the button.
+        live = services._live_periods(asset)
+        ctx["latest_charged"] = max(live) if live else None
         ctx["disposal"] = getattr(asset, "disposal", None)
         ctx["next_period"] = services.next_charge_date(asset)
         ctx["preview"] = services.charge_preview(asset)

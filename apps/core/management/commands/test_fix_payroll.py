@@ -457,7 +457,12 @@ class Command(BaseCommand):
                         sep2 is not None and sep2.payslips.exists(), self.said(po, resp))
 
         # ── 7. a cancellation dated into a closed month ──
-        self.section("7. cancelling into a closed period warns")
+        # CHANGED (fix3/ledger): closed means closed. A cancellation reverses
+        # the run in its own period, so with August closed it is refused and
+        # the user is told to have the period reopened; reopened, it goes
+        # through. (Before, the reversal was let into the closed month with a
+        # warning.)
+        self.section("7. cancelling into a closed period is refused until it is reopened")
         aug.refresh_from_db()
         period = aug.journal_entry.period
         if self.expect("August's entry sits in a period", period is not None):
@@ -466,11 +471,19 @@ class Command(BaseCommand):
             resp = fm.post(reverse("payroll:run_cancel", args=[aug.pk]), {"reason": "redo"})
             aug.refresh_from_db()
             said = self.said(fm, resp)
-            self.expect("August is cancelled by a reversal",
+            self.expect("August is not cancelled while its period is closed",
+                        aug.status != "CANCELLED"
+                        and aug.journal_entry.reversed_by_id is None, aug.status)
+            self.expect("and the user is told the period is closed and to reopen it",
+                        "closed" in said.lower() and period.name in said
+                        and "reopen" in said.lower(), said)
+            period.status = "OPEN"
+            period.save(update_fields=["status"])
+            resp = fm.post(reverse("payroll:run_cancel", args=[aug.pk]), {"reason": "redo"})
+            aug.refresh_from_db()
+            self.expect("reopened, August is cancelled by a reversal",
                         aug.status == "CANCELLED"
                         and aug.journal_entry.reversed_by_id is not None, aug.status)
-            self.expect("and the user is told the reversal is dated in a closed period",
-                        "closed" in said.lower() and period.name in said, said)
 
     # ───────────────────────────── 8. expenses ───────────────────────────────
 

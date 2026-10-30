@@ -173,7 +173,7 @@
           {% else %}<span class="text-gray-400">—</span>{% endif %}
         </td>
         <td class="px-4 py-3 text-right whitespace-nowrap">
-          {% if asset.status == 'ACTIVE' and dep.journal_entry and not dep.is_reversed %}
+          {% if asset.status == 'ACTIVE' and dep.journal_entry and not dep.is_reversed and dep.period_date == latest_charged %}
           <form method="post" action="{% url 'fixed_assets:depreciation_reverse' dep.pk %}" class="inline-flex items-center gap-1"
                 onsubmit="return confirm('Stand this month down? An offsetting entry is booked in the same month and the register goes back.');">
             {% csrf_token %}

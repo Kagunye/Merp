@@ -437,7 +437,7 @@ class Command(BaseCommand):
         self.setup_master_data()
         self.create_product(client)
 
-        self.section("2. Opening balances (manual journal, then Post)")
+        self.section("2. Opening balances (the opening-balances screen)")
         self.post_opening_journal(client)
 
         self.section("3. Inventory: goods receipt then delivery")
@@ -473,7 +473,19 @@ class Command(BaseCommand):
         self.verify_account_module(client)
 
         self.section("12. Period close, year end and a balance sheet that agrees")
-        self.verify_period_close(client)
+        # CHANGED (fix3/ledger): a period or year is closed only once it has
+        # ended. This book is dated today, so the close is run "on" the day
+        # after today's fiscal year ends; the figures are unchanged.
+        from unittest import mock
+        from apps.accounting.models import period_for
+
+        def after_year_end():
+            period = period_for(self.company, self.today)
+            return (period.fiscal_year.end_date + datetime.timedelta(days=1)
+                    if period else self.today)
+
+        with mock.patch("apps.accounting.gl_service._today", after_year_end):
+            self.verify_period_close(client)
 
         self.section("13. Draft journals: edit, cancel, and the wall around posted entries")
         self.verify_draft_editing(client)
@@ -488,7 +500,13 @@ class Command(BaseCommand):
         self.verify_lifecycle(client)
 
         self.section("17. Exchange revaluation: reading open paper at the day's rate")
-        self.verify_revaluation(client)
+        # CHANGED (fix3/ledger): a revaluation cannot be dated after the day it
+        # is booked. This section revalues at period ends 30 and 50 days ahead,
+        # so it is booked "on" the later of them; the dates and figures are
+        # unchanged.
+        with mock.patch("apps.accounting.revaluation._today",
+                        lambda: self.today + datetime.timedelta(days=50)):
+            self.verify_revaluation(client)
 
         self.section("18. Stock cost and margin: what the shelf is worth")
         self.verify_stock_costing(client)
@@ -624,10 +642,10 @@ class Command(BaseCommand):
                     sheet["is_balanced"] and sheet["shows_profit"],
                     f"error {sheet['balancing_error']}, carried {sheet['current_year_profit']}")
 
-        # A late adjustment into a closed period is allowed but must say so:
-        # closing is reported here, never enforced (the accountant's choice).
-        cash_before = self.account("1100").current_balance
-        bank_before = self.account("1200").current_balance
+        # CHANGED (fix3/ledger): closed means closed. A late adjustment into a
+        # closed period used to be let through with a warning; it is now
+        # refused at Post, with the way forward (reopen the period, or date it
+        # in an open one), and the draft is cancelled so it moves nothing.
         probe = {
             "reference": "IGNORE-ME", "entry_type": "MANUAL",
             "posting_date": str(period.start_date),
@@ -641,29 +659,17 @@ class Command(BaseCommand):
         ], blank=BLANK_JOURNAL_LINE))
         late = self.created_entry(client, "late adjustment drafted into a closed period", probe)
         if late is not None:
+            self.expect("the draft itself flags the closed period before Post",
+                        "closed" in late.calendar_warning, late.calendar_warning)
             resp = client.post(reverse("accounting:journal_entry_post", args=[late.pk]), {})
             late.refresh_from_db()
-            self.expect("a booking into a closed period is allowed, not blocked",
-                        late.status == "POSTED", late.status)
-            self.expect("the entry itself flags the closed period",
-                        "closed" in late.calendar_warning, late.calendar_warning)
-            self.expect_flash(client, resp, "closed", "the screen warns as the entry is posted")
-            undo = late.reverse(user=self.user)
-            self.expect("reversal of a dated-inside entry lands in the same period",
-                        undo.period_id == late.period_id and undo.posting_date == late.posting_date,
-                        f"{undo.posting_date} vs {late.posting_date}")
-            from django.core.exceptions import ValidationError
-            try:
-                late.reverse(user=self.user)
-                double = "accepted a second reversal"
-            except ValidationError as exc:
-                double = ""
-            self.expect("an entry cannot be reversed twice", not double, double)
-            self.expect("reversing the adjustment put the closed period back as it was",
-                        self.account("1100").current_balance == cash_before
-                        and self.account("1200").current_balance == bank_before,
-                        f"1100 {self.account('1100').current_balance} vs {cash_before}, "
-                        f"1200 {self.account('1200').current_balance} vs {bank_before}")
+            self.expect("a booking into a closed period is refused",
+                        late.status == "DRAFT", late.status)
+            self.expect_flash(client, resp, "reopen", "the screen says to reopen the period")
+            client.post(reverse("accounting:journal_entry_cancel", args=[late.pk]), {})
+            late.refresh_from_db()
+            self.expect("the refused draft is cancelled and moves nothing",
+                        late.status == "CANCELLED", late.status)
 
         self.post(client, "closing an already closed period",
                   reverse("accounting:period_close", args=[period.pk]), {})
@@ -748,8 +754,8 @@ class Command(BaseCommand):
                     sheet["is_balanced"] and sheet["shows_profit"],
                     f"error {sheet['balancing_error']}, carried {sheet['current_year_profit']}")
         self.note("Closing entries are dated at the period end and land in the ledger like any "
-                  "other journal; a booking into a closed period is allowed and flagged, never "
-                  "blocked, so a late adjustment can still be filed.")
+                  "other journal; a booking into a closed period is refused until a finance "
+                  "manager reopens it.")
 
     def verify_currency_and_tenancy(self, client):
         """One book currency per company, and no sight of another company's rows."""
@@ -1013,42 +1019,60 @@ class Command(BaseCommand):
     # ────────────────────────────── document flows ───────────────────────────
 
     def post_opening_journal(self, client):
+        # CHANGED (fix3/ledger): OPENING is no longer a manual journal type --
+        # the opening-balances screen is the only way a book is opened, so a
+        # second set cannot be typed past its "one live opening" check. The
+        # same 100,000 opening (1100 20,000 and 1200 80,000 against 3100) now
+        # goes through that screen, which numbers and posts it itself. The
+        # manual form's own checks (it mints the reference, a save is a
+        # DRAFT, Post posts it) are left to section 13, which drafts, edits
+        # and posts ordinary journals; a practice draft here would be one
+        # more entry in the book that section 7 counts.
         from apps.accounting.models import JournalEntry
 
-        data = {
-            "reference": "TYPED-BY-BROWSER",
-            "entry_type": "OPENING",
-            "posting_date": str(self.today),
-            "notes": "Opening balances",
-        }
-        data.update(formset("lines", [
+        lines = [
             {"account": self.account("1100").pk, "description": "Cash float",
              "debit_amount": "20000", "credit_amount": "0"},
             {"account": self.account("1200").pk, "description": "Bank opening",
              "debit_amount": "80000", "credit_amount": "0"},
             {"account": self.account("3100").pk, "description": "Share capital",
              "debit_amount": "0", "credit_amount": "100000"},
-        ], blank=BLANK_JOURNAL_LINE))
-        entry = self.created_entry(client, "opening journal", data)
-        if not self.expect("manual journal saved", entry is not None):
-            return
-        self.expect("ledger mints its own reference",
-                    entry.reference.startswith("JE-") and entry.reference != "TYPED-BY-BROWSER",
-                    entry.reference)
+        ]
+        data = {
+            "reference": "TYPED-BY-BROWSER",
+            "entry_type": "OPENING",
+            "posting_date": str(self.today),
+            "notes": "Opening balances",
+        }
+        data.update(formset("lines", lines, blank=BLANK_JOURNAL_LINE))
+        before = JournalEntry.objects.filter(company=self.company).count()
+        self.reject(client, "an OPENING entry typed on the manual journal form",
+                    reverse("accounting:journal_entry_create"), data)
+        self.expect("the refused opening journal saved nothing",
+                    JournalEntry.objects.filter(company=self.company).count() == before)
         self.expect("typed reference never reached the books",
                     not JournalEntry.objects.filter(company=self.company,
                                                     reference="TYPED-BY-BROWSER").exists())
-        self.expect("journal saved as DRAFT", entry.status == "DRAFT", entry.status)
-        self.get_ok(client, "journal edit page is read-only detail",
-                    reverse("accounting:journal_entry_detail", args=[entry.pk]))
 
-        self.post(client, "journal post",
-                  reverse("accounting:journal_entry_post", args=[entry.pk]), {})
-        entry.refresh_from_db()
-        self.expect("journal posted through the Post button", entry.status == "POSTED", entry.status)
-        self.expect("posting stamped by the accountant",
-                   entry.posted_by_id == self.user.pk and entry.posted_at is not None,
-                   f"by {entry.posted_by_id}, at {entry.posted_at}")
+        self.post(client, "opening balances screen", reverse("accounting:opening_balances"), {
+            "posting_date": str(self.today),
+            f"dr_{self.account('1100').pk}": "20000",
+            f"dr_{self.account('1200').pk}": "80000",
+            f"cr_{self.account('3100').pk}": "100000",
+        })
+        opening = JournalEntry.objects.filter(
+            company=self.company, entry_type="OPENING").order_by("-created_at").first()
+        if not self.expect("opening balances entry made", opening is not None):
+            return
+        self.expect("opening balances numbered by the ledger",
+                    opening.reference.startswith("OB-"), opening.reference)
+        self.expect("opening balances posted", opening.status == "POSTED", opening.status)
+        self.expect("opening of 100,000 a side",
+                    opening.total_debit == D("100000") and opening.total_credit == D("100000"),
+                    f"{opening.total_debit} / {opening.total_credit}")
+        self.expect("posting stamped by the bookkeeper",
+                   opening.posted_by_id == self.user.pk and opening.posted_at is not None,
+                   f"by {opening.posted_by_id}, at {opening.posted_at}")
 
     def post_stock(self, client):
         from apps.inventory.models import StockLevel, StockMovement
@@ -2877,9 +2901,12 @@ class Command(BaseCommand):
                     rows["EUR"]["note"])
         self.expect("the book currency is marked as the one this book counts in",
                     rows[book_code]["is_book"] and rows[book_code]["usable"])
-        self.expect("a filed rate can be corrected",
+        # CHANGED (fix3/ledger): a rate posted documents were booked at is
+        # history and is no longer edited; the correction is a new dated rate.
+        # The newest USD filing has been used by this section's documents.
+        self.expect("a filed rate that posted documents used is locked against editing",
                     client.get(reverse("accounting:exchange_rate_edit",
-                                       args=[rows["USD"]["rate"].pk])).status_code == 200)
+                                       args=[rows["USD"]["rate"].pk])).status_code == 302)
 
         # ── the whole book, after all of it ──
         lines = self.posted_lines()

@@ -448,6 +448,15 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
 
         start = as_date(self.request.GET.get("from"))
         end = as_date(self.request.GET.get("to"))
+        # Left undated, the ledger closes at today, like the trial balance and
+        # the balance sheet beside it. A payment keyed in for next week has not
+        # happened yet: it is listed under the balance, apart, instead of being
+        # run into a closing figure no other report agrees with. Asking for a
+        # later end date on purpose still reads to that day.
+        today = datetime.now().date()  # `datetime` is the class here
+        undated_end = end is None
+        if undated_end:
+            end = today if not start or start <= today else start
 
         posted = JournalEntryLine.objects.filter(
             account=account, journal_entry__status="POSTED",
@@ -487,14 +496,29 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
                 "entry_pk": ln.journal_entry_id,
             })
 
+        future_rows = []
+        if undated_end:
+            later = posted.filter(journal_entry__posting_date__gt=end).order_by(
+                "journal_entry__posting_date", "journal_entry__created_at", "id")
+            future_rows = [{
+                "date": ln.journal_entry.posting_date,
+                "reference": ln.journal_entry.reference,
+                "description": ln.description or ln.journal_entry.notes,
+                "debit": ln.debit_amount,
+                "credit": ln.credit_amount,
+                "entry_pk": ln.journal_entry_id,
+            } for ln in later]
+
         ctx["account"] = account
         ctx["rows"] = rows
+        ctx["future_rows"] = future_rows
+        ctx["as_at"] = end
         ctx["opening_balance"] = opening
         ctx["closing_balance"] = running
         ctx["total_debit"] = sum(r["debit"] for r in rows)
         ctx["total_credit"] = sum(r["credit"] for r in rows)
         ctx["from_date"] = start
-        ctx["to_date"] = end
+        ctx["to_date"] = None if undated_end else end
         ctx["bank_accounts"] = account.bank_accounts.filter(is_active=True)
         ctx["reconcilable"] = account.is_reconcilable
         ctx["line_count"] = len(rows)
@@ -502,7 +526,14 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
 
 
 class GeneralLedgerIndexView(LoginRequiredMixin, TemplateView):
-    """Chart-of-accounts tree grouped by account type with current balances."""
+    """Chart-of-accounts tree grouped by account type, with balances as at today.
+
+    The balance column is the one the trial balance and the balance sheet
+    print for today. Postings dated after today -- a supplier payment keyed
+    in for next week, an accrual entered ahead of month end -- are not in it;
+    they are shown in a column of their own, so they can be seen without
+    being mistaken for money that has already moved.
+    """
     template_name = "accounting/general_ledger.html"
 
     def get_context_data(self, **kwargs):
@@ -510,11 +541,32 @@ class GeneralLedgerIndexView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
-        accounts = Account.objects.filter(company=company, is_active=True).order_by("code")
+        today = datetime.date.today()
+        ctx["as_at"] = today
+        accounts = list(Account.objects.filter(company=company, is_active=True).order_by("code"))
+        sums = {
+            row["account_id"]: row for row in JournalEntryLine.objects.filter(
+                account__company=company, journal_entry__status="POSTED",
+            ).values("account_id").annotate(
+                dr=Sum("debit_amount", filter=Q(journal_entry__posting_date__lte=today)),
+                cr=Sum("credit_amount", filter=Q(journal_entry__posting_date__lte=today)),
+                later_dr=Sum("debit_amount", filter=Q(journal_entry__posting_date__gt=today)),
+                later_cr=Sum("credit_amount", filter=Q(journal_entry__posting_date__gt=today)),
+            )
+        }
+        zero = Decimal("0")
         buckets = {}
+        any_future = False
         for a in accounts:
+            row = sums.get(a.pk, {})
+            sign = 1 if a.normal_balance == "DEBIT" else -1
+            a.balance_today = ((row.get("dr") or zero) - (row.get("cr") or zero)) * sign
+            a.future_movement = ((row.get("later_dr") or zero)
+                                 - (row.get("later_cr") or zero)) * sign
+            any_future = any_future or bool(row.get("later_dr") or row.get("later_cr"))
             buckets.setdefault(a.get_account_type_display(), []).append(a)
         ctx["buckets"] = buckets
+        ctx["any_future"] = any_future
         return ctx
 
 
@@ -531,6 +583,13 @@ class FiscalYearListView(LoginRequiredMixin, ListView):
         if not company:
             return FiscalYear.objects.none()
         return FiscalYear.objects.filter(company=company).prefetch_related("periods")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # A period or year is closed once it has ended; before then its Close
+        # button is not offered at all.
+        ctx["today"] = datetime.date.today()
+        return ctx
 
 
 class FiscalYearCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
@@ -693,6 +752,18 @@ def _opening_amount(raw):
     return amount.quantize(Decimal("0.01")), ""
 
 
+def live_opening_entry(company):
+    """The opening entry the book currently stands on, or None.
+
+    A reversed opening entry stays POSTED (its reversal offsets it), so
+    liveness is read from the reversal link, the way a close is.
+    """
+    return JournalEntry.objects.filter(
+        company=company, entry_type="OPENING", status="POSTED",
+        reversed_by__isnull=True, reversal_of__isnull=True,
+    ).order_by("posting_date").first()
+
+
 class OpeningBalanceView(LoginRequiredMixin, TemplateView):
     """Enter opening balances for a company's chart of accounts.
     POSTing creates a single balanced journal entry dated the fiscal year start.
@@ -707,7 +778,32 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
         ctx["accounts"] = Account.objects.filter(company=company, is_active=True).order_by("code")
         ctx["fiscal_years"] = FiscalYear.objects.filter(company=company)
         ctx["page_title"] = "Opening Balances"
+        ctx["live_opening"] = live_opening_entry(company)
         return ctx
+
+    def reverse_opening(self, request, live):
+        """Take the book's opening balances off, so a corrected set can go in.
+
+        Done here and nowhere else. Opening balances are the finance manager's
+        word on what the company owned and owed on its first day; the generic
+        Reverse button on the journal page refuses them, so an accountant
+        cannot quietly empty share capital and the opening bank balance. The
+        reversal is dated on the opening day, so the book starts from nothing
+        on that day rather than carrying two different first days.
+        """
+        if not live:
+            messages.info(request, "This book has no opening balances to reverse.")
+            return redirect("accounting:opening_balances")
+        try:
+            reversal = live.reverse(user=request.user)
+        except ValidationError as exc:
+            messages.error(request, f"{live.reference} was not reversed. " + " ".join(exc.messages))
+            return redirect("accounting:opening_balances")
+        messages.success(
+            request,
+            f"Opening balances {live.reference} reversed by {reversal.reference}. "
+            "Enter the corrected balances below.")
+        return redirect("accounting:opening_balances")
 
     def post(self, request, *args, **kwargs):
         from django.utils import timezone
@@ -719,16 +815,15 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
         # One live opening entry per book. A second one would add the same
         # share capital and the same bank balance on top of the first; a wrong
         # opening is put right by reversing it and entering it again.
-        live = JournalEntry.objects.filter(
-            company=company, entry_type="OPENING", status="POSTED",
-            reversed_by__isnull=True, reversal_of__isnull=True,
-        ).order_by("posting_date").first()
+        live = live_opening_entry(company)
+        if request.POST.get("action") == "reverse":
+            return self.reverse_opening(request, live)
         if live:
             messages.error(
                 request,
                 f"This book already has its opening balances in {live.reference} "
-                f"({live.posting_date:%d %b %Y}). To change them, reverse "
-                f"{live.reference} from its journal page and enter them again here.")
+                f"({live.posting_date:%d %b %Y}). To change them, reverse them with "
+                "the button on this page and enter them again.")
             return redirect("accounting:opening_balances")
 
         raw_date = (request.POST.get("posting_date") or "").strip()
@@ -812,22 +907,25 @@ class AccountingIndexView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         if not company:
             return ctx
+        from apps.reporting.views import balance_sheet_figures
         accs = Account.objects.filter(company=company, is_active=True)
         ctx["account_count"] = accs.count()
         # The tiles are balances as at today, the same as the trial balance and
         # the balance sheet opened today: a supplier payment dated next week,
         # or an accrual keyed in ahead for month end, has not happened yet,
         # and a tile that counts it disagrees with every report beside it.
+        # They are read from the balance sheet itself, so receivables,
+        # payables, tax and any retired account still holding money are in
+        # them exactly as the sheet has them.
         today = date.today()
         ctx["as_at"] = today
-
-        def total(types):
-            return sum((a.balance_as_at(today) for a in accs.filter(account_type__in=types)),
-                       Decimal(0))
-
-        ctx["asset_balance"] = total(["ASSET", "CASH", "BANK"])
-        ctx["liability_balance"] = total(["LIABILITY"])
-        ctx["equity_balance"] = total(["EQUITY"])
+        sheet = balance_sheet_figures(company, today)
+        ctx["asset_balance"] = sheet["total_assets"]
+        ctx["liability_balance"] = sheet["total_liabilities"]
+        # The equity tile is the reserve accounts alone, without the profit
+        # still sitting in the revenue and expense accounts.
+        ctx["equity_balance"] = sum(
+            (row["balance"] for row in sheet["equity_rows"]), Decimal(0))
         ctx["recent_entries"] = JournalEntry.objects.filter(company=company).order_by("-posting_date", "-created_at")[:8]
         ctx["draft_count"] = JournalEntry.objects.filter(company=company, status="DRAFT").count()
         return ctx
@@ -968,6 +1066,24 @@ class ExchangeRateUpdateView(_ExchangeRateCompanyMixin, LoginRequiredMixin,
 
     def get_queryset(self):
         return ExchangeRate.objects.filter(company=self.request.active_company)
+
+    def dispatch(self, request, *args, **kwargs):
+        from .currency import rate_in_use
+        rate = self.get_object()
+        used = rate_in_use(rate)
+        if used:
+            # A posted document says which rate it was translated at, and the
+            # journal under it carries that figure. Rewriting the rate after the
+            # fact leaves the history saying one thing and the ledger another,
+            # and the next document dated that day would convert differently
+            # from the first. A correction is a new rate on a new day.
+            messages.error(
+                request,
+                f"The {rate.currency.code} rate for {rate.effective_date:%d %b %Y} has "
+                f"already been used by {used}, so it can no longer be changed. File a "
+                "new rate dated the day the correction applies from instead.")
+            return redirect("accounting:currency_list")
+        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

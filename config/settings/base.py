@@ -230,6 +230,12 @@ LOGGING = {
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+# Django's default of 1000 fields is about 250 journal lines (four boxes a
+# line), and a month-end payroll or depreciation journal typed by hand runs
+# past that: the browser got a bare HTTP 400 and the bookkeeper lost the whole
+# journal. 10000 fields carries a journal of the formset's 1000-line ceiling
+# with room to spare, and still caps what one request may make the server parse.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
