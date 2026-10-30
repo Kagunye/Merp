@@ -4,37 +4,31 @@
 {% block content %}
 {% can_do "hr:leavetype_create" "POST" as may_add %}
 {% can_do "hr:leavetype_update" "POST" as may_edit %}
-{% url 'hr:leave_list' as back %}
+{% can_do "hr:leave_list" as may_list %}
+{% if may_list %}{% url 'hr:leave_list' as back %}{% endif %}
 {% if may_add %}{% url 'hr:leavetype_create' as add_url %}{% endif %}
-{% include "_includes/page_header.html" with title="Leave Types" subtitle="The kinds of leave the company grants, in working days (Monday to Friday) a year." back_url=back action_label=may_add|yesno:"New leave type," action_url=add_url %}
+{% include "_includes/page_header.html" with title="Leave Types" subtitle="The kinds of leave the company grants, in working days (Monday to Friday) a year." back_url=back back_label="Leave Requests" action_label="New leave type" action_url=add_url %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr>
-        <th class="px-4 py-3 text-left">Name</th>
-        <th class="px-4 py-3 text-right">Days a year</th>
-        <th class="px-4 py-3 text-left">Paid</th>
-        <th class="px-4 py-3 text-left">Carry forward</th>
-        <th class="px-4 py-3 text-left">Status</th>
-        <th class="px-4 py-3"></th>
-      </tr>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Name</th><th class="num">Days a year</th><th>Paid</th><th>Carry forward</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% for t in leave_types %}
-      <tr class="{% if not t.is_active %}bg-gray-50/60{% endif %}">
-        <td class="px-4 py-3 font-medium text-gray-900">{{ t.name }}</td>
-        <td class="px-4 py-3 text-right font-mono">{{ t.days_per_year }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ t.is_paid|yesno:"Paid,Unpaid" }}</td>
-        <td class="px-4 py-3 text-gray-600">{% if t.carry_forward %}Unused days, up to {{ t.max_carry_forward_days }}{% else %}—{% endif %}</td>
-        <td class="px-4 py-3">{% if t.is_active %}<span class="badge bg-green-50 text-green-700">in use</span>{% else %}<span class="badge bg-gray-100 text-gray-500">retired</span>{% endif %}</td>
-        <td class="px-4 py-3 text-right">{% if may_edit %}<a href="{% url 'hr:leavetype_update' t.pk %}" class="text-xs font-medium hover:underline" style="color:var(--primary)">Edit</a>{% endif %}</td>
+      <tr{% if not t.is_active %} class="text-ink-muted"{% endif %}>
+        <td class="font-medium{% if t.is_active %} text-ink{% endif %}">{{ t.name }}</td>
+        <td class="num">{{ t.days_per_year }}</td>
+        <td class="text-ink-2">{{ t.is_paid|yesno:"Paid,Unpaid" }}</td>
+        <td class="text-ink-2">{% if t.carry_forward %}Unused days, up to {{ t.max_carry_forward_days }}{% else %}—{% endif %}</td>
+        <td>{% if t.is_active %}<span class="badge badge-success"><span class="badge-dot"></span>in use</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot"></span>retired</span>{% endif %}</td>
+        <td class="actions">{% if may_edit %}<a href="{% url 'hr:leavetype_update' t.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No leave types yet.</td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="calendar" title="No leave types yet" text="Add annual, sick and the other kinds of leave the company grants." action_label="New leave type" action_url=add_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-<p class="text-xs text-gray-500 mt-3 max-w-3xl">Leave is counted in working days, Monday to Friday; public holidays are not taken off automatically. Carrying forward brings only the days actually left unused last year into this year, never more than the limit, and nothing for somebody hired this year.</p>
+<p class="mt-3 max-w-3xl text-xs text-ink-muted">Leave is counted in working days, Monday to Friday; public holidays are not taken off automatically. Carrying forward brings only the days actually left unused last year into this year, never more than the limit, and nothing for somebody hired this year.</p>
 {% endblock %}

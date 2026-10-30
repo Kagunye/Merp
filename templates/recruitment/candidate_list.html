@@ -1,21 +1,23 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'recruitment:candidate_create' as pa_url %}
+{% can_do "recruitment:candidate_create" "POST" as may_create %}
+{% if may_create %}{% url 'recruitment:candidate_create' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Candidates" subtitle="Applicants across every opening" action_label="Add Candidate" action_url=pa_url %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Name</th><th class="px-4 py-3 text-left">Opening</th><th class="px-4 py-3 text-left">Source</th><th class="px-4 py-3 text-right">Experience</th><th class="px-4 py-3">Stage</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Name</th><th>Opening</th><th>Source</th><th class="num">Experience</th><th>Stage</th></tr></thead>
+    <tbody>
       {% for c in candidates %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-medium"><a href="{% url 'recruitment:candidate_detail' c.pk %}" style="color: var(--primary);">{{ c.full_name }}</a><div class="text-xs text-gray-500">{{ c.email }}</div></td>
-        <td class="px-4 py-3">{{ c.opening.title }}</td>
-        <td class="px-4 py-3">{{ c.source|default:"—" }}</td>
-        <td class="px-4 py-3 text-right">{{ c.years_experience }} y</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ c.get_stage_display }}</span></td>
+      <tr>
+        <td class="font-medium"><a href="{% url 'recruitment:candidate_detail' c.pk %}" class="row-link">{{ c.full_name }}</a><div class="text-xs font-normal text-ink-muted">{{ c.email }}</div></td>
+        <td class="text-ink-2">{{ c.opening.title }}</td>
+        <td class="text-ink-2">{{ c.source|default:"—" }}</td>
+        <td class="num">{{ c.years_experience }} y</td>
+        <td>{% status_badge c.stage c.get_stage_display %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No candidates yet.</td></tr>
+      <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="users" title="No candidates yet" text="Applicants you add against an opening appear here." action_label="Add Candidate" action_url=pa_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

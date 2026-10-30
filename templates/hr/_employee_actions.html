@@ -1,0 +1,4 @@
+{% load ui_extras %}{% can_do "hr:employee_terminate" "POST" as may_terminate %}
+{% if may_terminate and employee.status != 'TERMINATED' and employee.status != 'RESIGNED' %}
+<a href="{% url 'hr:employee_terminate' employee.pk %}" class="btn btn-danger">{% include "_includes/icon.html" with name="x-circle" cls="h-4 w-4" %}Terminate</a>
+{% endif %}

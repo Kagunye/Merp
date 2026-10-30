@@ -1,100 +1,149 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
+{% can_do "expenses:claim_submit" "POST" as may_submit %}
 {% can_do "expenses:claim_approve" "POST" as may_approve %}
+{% can_do "expenses:claim_reject" "POST" as may_reject %}
 {% can_do "expenses:claim_pay" "POST" as may_pay %}
-{% url 'expenses:claim_list' as back %}
-{% include "_includes/page_header.html" with title=claim.reference subtitle=claim.employee back_url=back %}
+{% can_do "expenses:claim_edit" "POST" as may_edit %}
+{% can_do "expenses:claim_add_line" "POST" as may_add_line %}
+{% can_do "expenses:claim_list" as may_list %}
+{% can_do "accounting:journal_entry_detail" as may_journal %}
+{% if may_list %}{% url 'expenses:claim_list' as back %}{% endif %}
+{% if may_edit and claim.status == 'DRAFT' %}{% url 'expenses:claim_edit' claim.pk as edit_url %}{% endif %}
+{% include "_includes/page_header.html" with title=claim.reference subtitle=claim.employee eyebrow="Expense claim" back_url=back back_label="Expense Claims" action_label="Edit" action_url=edit_url %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Total</div>
-    <div class="text-2xl font-bold" style="color: var(--primary);">{{ claim.total_amount|floatformat:2 }}</div>
+{# Workflow: draft → submitted → approved → paid #}
+<section class="card mb-5">
+  <div class="card-header">
+    <h2 class="card-title">Workflow</h2>
+    {% status_badge claim.status claim.get_status_display %}
   </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Status</div>
-    <div class="text-lg font-semibold text-gray-900">{{ claim.get_status_display }}</div>
-    <div class="text-xs text-gray-500 mt-1">Claim date: {{ claim.claim_date|date:"d M Y" }}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-2">
-    <div class="text-xs text-gray-500 mb-1">Actions</div>
-    {% if claim.status == 'DRAFT' %}
-      <form method="post" action="{% url 'expenses:claim_submit' claim.pk %}">{% csrf_token %}<button class="btn-primary w-full">Submit for approval</button></form>
-    {% elif claim.status == 'SUBMITTED' and is_own_claim %}
-      <p class="text-sm text-gray-600">Waiting for somebody else in finance to approve it — you cannot approve your own claim.</p>
-    {% elif claim.status == 'APPROVED' and is_own_claim %}
-      <p class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}. Somebody else in finance will pay it.</p>
-    {% elif claim.status == 'SUBMITTED' and not may_approve %}
-      <p class="text-sm text-gray-600">Waiting for finance or HR to approve it.</p>
-    {% elif claim.status == 'SUBMITTED' and cannot_approve %}
-      <p class="text-sm text-gray-600">{{ cannot_approve }}</p>
-    {% elif claim.status == 'SUBMITTED' %}
-      <form method="post" action="{% url 'expenses:claim_approve' claim.pk %}">{% csrf_token %}<button class="btn-primary w-full">Approve</button></form>
-      <form method="post" action="{% url 'expenses:claim_reject' claim.pk %}">{% csrf_token %}<button type="submit" onclick="return confirm('Reject this claim?')" class="btn-outline w-full">Reject</button></form>
-    {% elif claim.status == 'APPROVED' and not may_pay %}
-      <p class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}. Finance will pay it.</p>
-    {% elif claim.status == 'APPROVED' and cannot_pay %}
-      <p class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}.</p>
-      <p class="text-sm text-gray-600">{{ cannot_pay }}</p>
-    {% elif claim.status == 'APPROVED' %}
-      <p class="text-sm text-green-700">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}</p>
-      <form method="post" action="{% url 'expenses:claim_pay' claim.pk %}" class="flex flex-col gap-2">
+  <ol class="grid grid-cols-2 gap-4 px-5 py-4 text-sm sm:grid-cols-4">
+    {% with s=claim.status %}
+    <li class="flex items-center gap-2">
+      <span class="stat-icon shrink-0 {% if s == 'SUBMITTED' or s == 'APPROVED' or s == 'PAID' %}tone-success{% elif s == 'DRAFT' %}tone-info{% else %}tone-neutral{% endif %}">{% if s == 'SUBMITTED' or s == 'APPROVED' or s == 'PAID' %}{% include "_includes/icon.html" with name="check" stroke="2" only %}{% else %}<span class="text-xs font-bold">1</span>{% endif %}</span>
+      <span class="font-medium text-ink">Draft</span>
+    </li>
+    <li class="flex items-center gap-2">
+      <span class="stat-icon shrink-0 {% if s == 'APPROVED' or s == 'PAID' %}tone-success{% elif s == 'SUBMITTED' %}tone-info{% else %}tone-neutral{% endif %}">{% if s == 'APPROVED' or s == 'PAID' %}{% include "_includes/icon.html" with name="check" stroke="2" only %}{% else %}<span class="text-xs font-bold">2</span>{% endif %}</span>
+      <span class="font-medium text-ink">Submitted</span>
+    </li>
+    <li class="flex items-center gap-2">
+      <span class="stat-icon shrink-0 {% if s == 'PAID' %}tone-success{% elif s == 'APPROVED' %}tone-info{% elif s == 'REJECTED' %}tone-danger{% else %}tone-neutral{% endif %}">{% if s == 'PAID' %}{% include "_includes/icon.html" with name="check" stroke="2" only %}{% elif s == 'REJECTED' %}{% include "_includes/icon.html" with name="x" stroke="2" only %}{% else %}<span class="text-xs font-bold">3</span>{% endif %}</span>
+      <span class="font-medium text-ink">{% if s == 'REJECTED' %}Rejected{% else %}Approved{% endif %}</span>
+    </li>
+    <li class="flex items-center gap-2">
+      <span class="stat-icon shrink-0 {% if s == 'PAID' %}tone-success{% else %}tone-neutral{% endif %}">{% if s == 'PAID' %}{% include "_includes/icon.html" with name="check" stroke="2" only %}{% else %}<span class="text-xs font-bold">4</span>{% endif %}</span>
+      <span class="font-medium text-ink">Paid</span>
+    </li>
+    {% endwith %}
+  </ol>
+</section>
+
+<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+  <div class="min-w-0 space-y-5 lg:col-span-2">
+    <section class="card">
+      <div class="card-body">
+        <dl class="dl dl-3">
+          <div><dt>Employee</dt><dd>{{ claim.employee }}</dd></div>
+          <div><dt>Claim date</dt><dd>{{ claim.claim_date|date:"d M Y" }}</dd></div>
+          <div><dt>Total</dt><dd class="text-lg font-bold tabular-nums">{{ claim.total_amount|money }}</dd></div>
+          {% if claim.approved_by %}<div><dt>Approved by</dt><dd>{{ claim.approved_by }}{% if claim.approved_at %} · {{ claim.approved_at|date:"d M Y" }}{% endif %}</dd></div>{% endif %}
+          {% if claim.paid_at %}<div><dt>Paid</dt><dd>{{ claim.paid_at|date:"d M Y" }}{% if claim.paid_by %} by {{ claim.paid_by }}{% endif %}</dd></div>{% endif %}
+          {% if claim.journal_entry %}<div><dt>GL entry</dt><dd>{% if may_journal %}<a href="{% url 'accounting:journal_entry_detail' claim.journal_entry.pk %}" class="link mono">{{ claim.journal_entry.reference }}</a>{% else %}<span class="mono">{{ claim.journal_entry.reference }}</span>{% endif %}</dd></div>{% endif %}
+          {% if claim.notes %}<div class="dl-full"><dt>Notes</dt><dd>{{ claim.notes|linebreaksbr }}</dd></div>{% endif %}
+        </dl>
+      </div>
+    </section>
+
+    <section class="card overflow-hidden">
+      <div class="card-header"><h2 class="card-title">Line items <span class="tab-count ml-1">{{ claim.lines.count }}</span></h2></div>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Date</th><th>Category</th><th>Description</th><th class="num">Amount</th><th>Receipt</th></tr></thead>
+          <tbody>
+            {% for l in claim.lines.all %}
+            <tr>
+              <td class="whitespace-nowrap text-ink-2">{{ l.expense_date|date:"d M Y" }}</td>
+              <td>{{ l.category }}</td>
+              <td class="text-ink-2">{{ l.description }}</td>
+              <td class="num">{{ l.amount|money }}</td>
+              <td class="whitespace-nowrap">{% if l.receipt %}<a href="{% url 'documents:receipt_download' l.pk %}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="download" cls="h-3.5 w-3.5" %}Download</a>{% else %}<span class="text-ink-muted">—</span>{% endif %}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="No line items yet" text="Add what was spent, with a receipt, before submitting." compact=True only %}</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if claim.lines.exists %}
+          <tfoot><tr><td colspan="3">Total</td><td class="num">{{ claim.total_amount|money }}</td><td></td></tr></tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </section>
+
+    {% if claim.status == 'DRAFT' and may_add_line %}
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Add line item</h2></div>
+      <form method="post" action="{% url 'expenses:claim_add_line' claim.pk %}" enctype="multipart/form-data" class="no-card card-body" novalidate>
         {% csrf_token %}
-        <label for="id_bank_account" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Paid from</label>
-        <select id="id_bank_account" name="bank_account" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-          <option value="">— Cash on Hand (1100)</option>
-          {% for acct in payment_accounts %}
-            <option value="{{ acct.pk }}">{{ acct.name }} — {{ acct.bank_name }}</option>
-          {% endfor %}
-        </select>
-        <label for="id_payment_date" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Paid on</label>
-        <input type="date" id="id_payment_date" name="payment_date" value="{{ today|date:'Y-m-d' }}" min="{{ claim.claim_date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-        <button type="submit" class="btn-primary w-full">Pay &amp; post to GL</button>
+        {% include "hr/_form_fields.html" with form=line_form %}
+        <div class="form-actions"><button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}Add line</button></div>
       </form>
-      <p class="text-xs text-gray-500">Posts Dr each line's expense account, Cr the selected account for {{ claim.total_amount }}.</p>
-    {% elif claim.status == 'PAID' %}
-      <p class="text-sm text-gray-700">Paid on {{ claim.paid_at|date:"d M Y" }}{% if claim.paid_by %} by {{ claim.paid_by }}{% endif %}</p>
-      {% if claim.created_by %}<p class="text-xs text-gray-500">Raised by {{ claim.created_by }}; approved by {{ claim.approved_by|default:"—" }}.</p>{% endif %}
-      {% if claim.journal_entry %}<p class="text-xs text-gray-500">GL entry <a href="{% url 'accounting:journal_entry_detail' claim.journal_entry.pk %}" class="hover:underline" style="color:var(--primary)">{{ claim.journal_entry.reference }}</a></p>{% endif %}
+    </section>
     {% endif %}
   </div>
-</div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Line items</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Category</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3">Receipt</th></tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for l in claim.lines.all %}
-      <tr>
-        <td class="px-4 py-3">{{ l.expense_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3">{{ l.category }}</td>
-        <td class="px-4 py-3">{{ l.description }}</td>
-        <td class="px-4 py-3 text-right font-semibold">{{ l.amount|floatformat:2 }}</td>
-        <td class="px-4 py-3">{% if l.receipt %}<a href="{% url 'documents:receipt_download' l.pk %}" style="color: var(--primary);" class="text-xs">View</a>{% else %}—{% endif %}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500 text-sm">No line items yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-{% if claim.status == 'DRAFT' %}
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Add line item</h2>
-<form method="post" action="{% url 'expenses:claim_add_line' claim.pk %}" enctype="multipart/form-data" class="max-w-3xl">
-  {% csrf_token %}
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    {% for field in line_form %}
-    <div class="{% if field.field.widget.input_type == 'textarea' %}md:col-span-2{% endif %}">
-      <label>{{ field.label }}</label>{{ field }}
-      {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Next step</h2></div>
+    <div class="card-body space-y-3">
+    {% if claim.status == 'DRAFT' %}
+      {% if may_submit %}
+      <form method="post" action="{% url 'expenses:claim_submit' claim.pk %}">{% csrf_token %}<button type="submit" class="btn btn-primary btn-block">Submit for approval</button></form>
+      {% else %}<p class="text-sm text-ink-muted">Still a draft.</p>{% endif %}
+    {% elif claim.status == 'SUBMITTED' and is_own_claim %}
+      <p class="text-sm text-ink-2">Waiting for somebody else in finance to approve it — you cannot approve your own claim.</p>
+    {% elif claim.status == 'APPROVED' and is_own_claim %}
+      <p class="text-sm text-success">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}. Somebody else in finance will pay it.</p>
+    {% elif claim.status == 'SUBMITTED' and not may_approve %}
+      <p class="text-sm text-ink-2">Waiting for finance or HR to approve it.</p>
+    {% elif claim.status == 'SUBMITTED' and cannot_approve %}
+      <p class="text-sm text-ink-2">{{ cannot_approve }}</p>
+    {% elif claim.status == 'SUBMITTED' %}
+      <form method="post" action="{% url 'expenses:claim_approve' claim.pk %}">{% csrf_token %}<button type="submit" class="btn btn-primary btn-block">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" %}Approve</button></form>
+      {% if may_reject %}<form method="post" action="{% url 'expenses:claim_reject' claim.pk %}">{% csrf_token %}<button type="submit" onclick="return confirm('Reject this claim?')" class="btn btn-danger-ghost btn-block">Reject</button></form>{% endif %}
+    {% elif claim.status == 'APPROVED' and not may_pay %}
+      <p class="text-sm text-success">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}. Finance will pay it.</p>
+    {% elif claim.status == 'APPROVED' and cannot_pay %}
+      <p class="text-sm text-success">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}.</p>
+      <p class="text-sm text-ink-2">{{ cannot_pay }}</p>
+    {% elif claim.status == 'APPROVED' %}
+      <p class="text-sm text-success">Approved by {{ claim.approved_by|default:"—" }} on {{ claim.approved_at|date:"d M Y" }}</p>
+      <form method="post" action="{% url 'expenses:claim_pay' claim.pk %}" class="no-card space-y-3">
+        {% csrf_token %}
+        <div class="form-field">
+          <label for="id_bank_account" class="form-label">Paid from</label>
+          <select id="id_bank_account" name="bank_account" class="select">
+            <option value="">— Cash on Hand (1100)</option>
+            {% for acct in payment_accounts %}
+              <option value="{{ acct.pk }}">{{ acct.name }} — {{ acct.bank_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="id_payment_date" class="form-label">Paid on</label>
+          <input type="date" id="id_payment_date" name="payment_date" value="{{ today|date:'Y-m-d' }}" min="{{ claim.claim_date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}" class="input">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Pay &amp; post to GL</button>
+      </form>
+      <p class="text-xs text-ink-muted">Posts Dr each line's expense account, Cr the selected account for {{ claim.total_amount|money }}.</p>
+    {% elif claim.status == 'PAID' %}
+      <p class="text-sm text-ink-2">Paid on {{ claim.paid_at|date:"d M Y" }}{% if claim.paid_by %} by {{ claim.paid_by }}{% endif %}</p>
+      {% if claim.created_by %}<p class="text-xs text-ink-muted">Raised by {{ claim.created_by }}; approved by {{ claim.approved_by|default:"—" }}.</p>{% endif %}
+    {% else %}
+      <p class="text-sm text-ink-muted">Nothing more to do: this claim is {{ claim.get_status_display|lower }}.</p>
+    {% endif %}
     </div>
-    {% endfor %}
-  </div>
-  <div class="form-actions"><button type="submit">Add line</button></div>
-</form>
-{% endif %}
+  </section>
+</div>
 {% endblock %}

@@ -1,47 +1,61 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}My payslips — Mofisi{% endblock %}
 {% block content %}
-<div class="space-y-5">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Your own payslips from months that have been approved. A month still being worked out appears here once it is signed off.</p>
-  </div>
+{% include "_includes/page_header.html" with title=page_title subtitle="Your own payslips from months that have been approved. A month still being worked out appears here once it is signed off." hide_print=True %}
 
-  {% if not employee %}
-  <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
-    Your login is not linked to an employee record in this company, so there are no payslips to show. Ask HR to link your login on your employee record.
-  </div>
-  {% endif %}
+{% if not employee %}
+<div class="alert alert-warning mb-5" role="status">
+  {% include "_includes/icon.html" with name="warning" %}
+  <div class="alert-body">Your login is not linked to an employee record in this company, so there are no payslips to show. Ask HR to link your login on your employee record.</div>
+</div>
+{% endif %}
 
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="w-full text-sm" style="min-width: 640px">
+{% if payslips and not page_obj.has_previous %}{% with latest=payslips.0 %}
+<section class="hero mb-5 rounded-2xl p-5 sm:p-7 print:border print:border-line print:bg-surface print:text-ink" aria-label="Latest net pay">
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
+      <p class="text-xs font-semibold uppercase tracking-widest opacity-70">{{ latest.payroll_run.company.name }}</p>
+      <p class="mt-1 text-sm font-semibold">{{ employee.full_name }} · <span class="mono">{{ employee.employee_number }}</span></p>
+    </div>
+    <a href="{% url 'payroll:my_payslip_detail' latest.pk %}" class="btn btn-ghost btn-sm no-print">Open payslip</a>
+  </div>
+  <p class="mt-6 text-xs font-semibold uppercase tracking-widest opacity-70">Net pay · {{ latest.payroll_run.period_end|date:"F Y" }}</p>
+  <p class="mt-1 break-words text-3xl font-extrabold tabular-nums tracking-tight sm:text-5xl">{{ latest.net_salary|money:latest.payroll_run.company.currency }}</p>
+  <p class="mt-1 text-sm opacity-70">Paid {{ latest.payroll_run.payment_date|date:"d M Y" }}</p>
+  <dl class="mt-6 grid grid-cols-2 gap-4 border-t border-line/20 pt-4 text-sm">
+    <div><dt class="text-xs opacity-70">Gross pay</dt><dd class="font-bold tabular-nums">{{ latest.gross_salary|money }}</dd></div>
+    <div><dt class="text-xs opacity-70">Deductions</dt><dd class="font-bold tabular-nums">{{ latest.total_deductions|money }}</dd></div>
+  </dl>
+</section>
+{% endwith %}{% endif %}
+
+<section class="card overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Statements</h2></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
       <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Period</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Paid on</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Gross</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Deductions</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Net</th>
-        </tr>
+        <tr><th>Period</th><th>Paid on</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net pay</th><th><span class="sr-only">Actions</span></th></tr>
       </thead>
-      <tbody class="divide-y divide-gray-50">
+      <tbody>
         {% for ps in payslips %}
-        <tr class="hover:bg-gray-50/50">
-          <td class="px-4 py-3">
-            <a href="{% url 'payroll:my_payslip_detail' ps.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ ps.payroll_run.period_start|date:"d M Y" }} to {{ ps.payroll_run.period_end|date:"d M Y" }}</a>
-            <div class="text-xs text-gray-400">{{ ps.payroll_run.reference }}</div>
+        <tr>
+          <td class="whitespace-nowrap">
+            <a href="{% url 'payroll:my_payslip_detail' ps.pk %}" class="row-link">{{ ps.payroll_run.period_end|date:"F Y" }}</a>
+            <div class="text-xs text-ink-muted">{{ ps.payroll_run.period_start|date:"d M Y" }} to {{ ps.payroll_run.period_end|date:"d M Y" }} · <span class="mono">{{ ps.payroll_run.reference }}</span></div>
           </td>
-          <td class="px-4 py-3 text-gray-600">{{ ps.payroll_run.payment_date|date:"d M Y" }}</td>
-          <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
-          <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
-          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ ps.payroll_run.payment_date|date:"d M Y" }}</td>
+          <td class="num">{{ ps.gross_salary|money }}</td>
+          <td class="num">{{ ps.total_deductions|money }}</td>
+          <td class="num font-bold">{{ ps.net_salary|money }}</td>
+          <td class="actions"><a href="{% url 'payroll:my_payslip_detail' ps.pk %}" class="btn btn-ghost btn-sm">View</a></td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="px-4 py-10 text-center text-gray-400">No payslips yet.</td></tr>
+        <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No payslips yet" text="Your payslip appears here once the month's payroll is approved." compact=True only %}</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% include "_includes/pagination.html" %}
-</div>
+</section>
+{% include "_includes/pagination.html" %}
 {% endblock %}

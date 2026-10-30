@@ -5,69 +5,49 @@
 {% can_do "hr:employee_list" as may_see_staff %}
 {% can_do "hr:leave_approve" "POST" as may_decide %}
 {% can_do "hr:leavetype_list" as may_see_types %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Leave Requests</h1>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    {% if may_see_types %}<a href="{% url 'hr:leavetype_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Leave types</a>{% endif %}
-    {% if may_see_staff %}<a href="{% url 'hr:employee_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Employees</a>{% endif %}
-    <a href="{% url 'hr:leave_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Request Leave</a>
-  </div>
-</div>
+{% can_do "hr:leave_create" "POST" as may_request %}
+{% if may_request %}{% url 'hr:leave_create' as new_url %}{% endif %}
+{% if may_see_types %}{% url 'hr:leavetype_list' as types_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Leave Requests" subtitle="Time off asked for, granted and refused" action_label="Request Leave" action_url=new_url secondary_label="Leave types" secondary_url=types_url actions_template="hr/_leave_list_actions.html" %}
 
-<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="no-print flex flex-wrap gap-3">
-    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-      <option value="">All Statuses</option>
-      {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
-  </form>
-</div>
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="hr/_status_filter.html" %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-200">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Employee</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">From</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">To</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Days</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Actions</th>
-      </tr>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th class="num">Days</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% for lr in leaves %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-medium text-gray-900">
-          {% if may_see_staff %}<a href="{% url 'hr:employee_detail' lr.employee.pk %}" class="hover:underline" style="color:var(--primary)">{{ lr.employee.full_name }}</a>{% else %}{{ lr.employee.full_name }}{% endif %}
+      <tr>
+        <td class="whitespace-nowrap font-medium">
+          {% if may_see_staff %}<a href="{% url 'hr:employee_detail' lr.employee.pk %}" class="row-link">{{ lr.employee.full_name }}</a>{% else %}{{ lr.employee.full_name }}{% endif %}
         </td>
-        <td class="px-4 py-3 text-gray-900">{{ lr.leave_type.name }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ lr.start_date }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ lr.end_date }}</td>
-        <td class="px-4 py-3 text-right text-gray-900">{{ lr.days_requested }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if lr.status == 'APPROVED' %}bg-green-50 text-green-700{% elif lr.status == 'PENDING' %}bg-amber-50 text-amber-700{% elif lr.status == 'REJECTED' %}bg-red-50 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ lr.get_status_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3">
+        <td><a href="{% url 'hr:leave_detail' lr.pk %}" class="link">{{ lr.leave_type.name }}</a></td>
+        <td class="whitespace-nowrap text-ink-2">{{ lr.start_date|date:"d M Y" }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ lr.end_date|date:"d M Y" }}</td>
+        <td class="num">{{ lr.days_requested }}</td>
+        <td>{% status_badge lr.status lr.get_status_display %}</td>
+        <td class="actions">
           {% if lr.status == 'PENDING' and may_decide and lr.employee.user_id != request.user.pk %}
-          <form method="post" action="{% url 'hr:leave_approve' lr.pk %}" class="inline-flex gap-2">
+          <form method="post" action="{% url 'hr:leave_approve' lr.pk %}" class="inline-flex gap-1">
             {% csrf_token %}
-            <button name="action" value="approve" type="submit" class="px-3 py-1 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700">Approve</button>
-            <button name="action" value="reject" type="submit" onclick="return confirm('Reject this leave request?')" class="px-3 py-1 rounded text-xs font-medium text-red-600 border border-red-300 hover:bg-red-50">Reject</button>
+            <button name="action" value="approve" type="submit" class="btn btn-secondary btn-sm">{% include "_includes/icon.html" with name="check" cls="h-3.5 w-3.5" stroke="2" %}Approve</button>
+            <button name="action" value="reject" type="submit" onclick="return confirm('Reject this leave request?')" class="btn btn-danger-ghost btn-sm">Reject</button>
           </form>
           {% elif lr.status == 'PENDING' %}
-          <span class="text-xs text-gray-400">Waiting for HR</span>
+          <span class="text-xs text-ink-muted">Waiting for HR</span>
           {% endif %}
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No leave requests. <a href="{% url 'hr:leave_create' %}" style="color:var(--primary)" class="font-medium">Create one</a></td></tr>
+      <tr><td colspan="7" class="p-0">
+        {% if status_filter %}
+        {% include "_includes/empty_state.html" with icon="calendar" title="No leave requests with that status" text="Choose another status, or clear the filter." compact=True only %}
+        {% else %}
+        {% include "_includes/empty_state.html" with icon="calendar" title="No leave requests" text="Requests appear here once somebody asks for time off." action_label="Create one" action_url=new_url compact=True only %}
+        {% endif %}
+      </td></tr>
       {% endfor %}
     </tbody>
   </table>

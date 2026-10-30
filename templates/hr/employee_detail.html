@@ -1,172 +1,148 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ employee.full_name }} — HR — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'hr:employee_list' %}" class="hover:underline">Employees</a> / <span class="text-gray-900 font-medium">{{ employee.full_name }}</span></nav>
-    <h1 class="text-2xl font-bold text-gray-900">{{ employee.full_name }}</h1>
-    <p class="text-sm text-gray-500 mt-0.5">{{ employee.employee_number }} &bull; {{ employee.job_title|default:"No title" }}</p>
+{% can_do "hr:employee_list" as may_list %}{% can_do "hr:employee_update" "POST" as may_edit %}
+{% can_do "hr:contract_create" "POST" as may_contract %}{% can_do "hr:contract_update" "POST" as may_contract_edit %}
+{% can_do "hr:leave_create" "POST" as may_leave %}{% can_do "payroll:payslip_detail" as may_slip %}
+{% if may_list %}{% url 'hr:employee_list' as back %}{% endif %}
+{% if may_edit %}{% url 'hr:employee_update' employee.pk as edit_url %}{% endif %}
+{% include "_includes/page_header.html" with title=employee.full_name subtitle=employee.job_title|default:"No title" eyebrow=employee.employee_number back_url=back back_label="Employees" action_label="Edit" action_url=edit_url actions_template="hr/_employee_actions.html" %}
+
+<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+  <div class="min-w-0 space-y-5 lg:col-span-2">
+    <section class="card">
+      <div class="card-body">
+        <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div class="flex min-w-0 items-center gap-4">
+            <span class="avatar avatar-lg">{% if employee.profile_photo %}<img src="{{ employee.profile_photo.url }}" alt="{{ employee.full_name }}">{% else %}{{ employee.first_name|slice:":1" }}{{ employee.last_name|slice:":1" }}{% endif %}</span>
+            <div class="min-w-0">
+              <p class="truncate text-lg font-semibold text-ink">{{ employee.full_name }}</p>
+              <p class="text-sm text-ink-muted"><span class="mono">{{ employee.employee_number }}</span> · {{ employee.job_title|default:"No title" }}</p>
+            </div>
+          </div>
+          {% status_badge employee.status employee.get_status_display %}
+        </div>
+
+        <h2 class="section-title">Personal</h2>
+        <dl class="dl dl-3 mb-6">
+          <div><dt>Gender</dt><dd>{{ employee.get_gender_display|default:"—" }}</dd></div>
+          <div><dt>Date of birth</dt><dd>{{ employee.date_of_birth|date:"d M Y"|default:"—" }}</dd></div>
+          <div><dt>National ID</dt><dd class="mono">{{ employee.national_id|default:"—" }}</dd></div>
+          <div><dt>Login</dt><dd>{% if employee.user %}{{ employee.user.get_full_name|default:employee.user.username }}{% else %}— not linked{% endif %}</dd></div>
+        </dl>
+
+        <h2 class="section-title">Employment</h2>
+        <dl class="dl dl-3 mb-6">
+          <div><dt>Date hired</dt><dd>{{ employee.date_hired|date:"d M Y" }}</dd></div>
+          <div><dt>Date terminated</dt><dd>{{ employee.date_terminated|date:"d M Y"|default:"—" }}</dd></div>
+          <div><dt>Department</dt><dd>{{ employee.department.name|default:"—" }}</dd></div>
+          <div><dt>Branch</dt><dd>{{ employee.branch.name|default:"—" }}</dd></div>
+          <div><dt>Reports to</dt><dd>{{ employee.reports_to.full_name|default:"—" }}</dd></div>
+          <div><dt>Bank</dt><dd>{{ employee.bank_name|default:"—" }}</dd></div>
+          <div><dt>Bank account</dt><dd class="mono">{{ employee.bank_account_number|default:"—" }}</dd></div>
+        </dl>
+
+        <h2 class="section-title">Statutory numbers</h2>
+        <dl class="dl dl-3">
+          <div><dt>KRA PIN</dt><dd class="mono">{{ employee.kra_pin|default:"—" }}</dd></div>
+          <div><dt>NSSF</dt><dd class="mono">{{ employee.nssf_number|default:"—" }}</dd></div>
+          <div><dt>NHIF/SHIF</dt><dd class="mono">{{ employee.nhif_number|default:"—" }}</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <div><h2 class="card-title">Contract history</h2><p class="card-subtitle">The current contract's basic pay is what payroll works from</p></div>
+        {% if may_contract %}<a href="{% url 'hr:contract_create' employee.pk %}" class="btn btn-secondary btn-sm no-print">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}Add contract</a>{% endif %}
+      </div>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Type</th><th>Title</th><th class="num">Basic salary</th><th>Start</th><th>End</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody>
+            {% for c in contracts %}
+            <tr>
+              <td class="whitespace-nowrap">{{ c.get_contract_type_display }}{% if c.is_current %} <span class="badge badge-success ml-1">Current</span>{% endif %}</td>
+              <td class="text-ink-2">{{ c.job_title|default:"—" }}</td>
+              <td class="num">{{ c.basic_salary|money }}</td>
+              <td class="whitespace-nowrap text-ink-2">{{ c.start_date|date:"d M Y" }}</td>
+              <td class="whitespace-nowrap text-ink-2">{{ c.end_date|date:"d M Y"|default:"Ongoing" }}</td>
+              <td class="actions">{% if may_contract_edit %}<a href="{% url 'hr:contract_update' c.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No contract yet" text="Payroll has no basic pay to work this person's month from." compact=True only %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card overflow-hidden">
+      <div class="card-header"><h2 class="card-title">Payslips</h2></div>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Period</th><th>Run</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net</th><th class="num">Employer cost</th></tr></thead>
+          <tbody>
+            {% for ps in payslips %}
+            <tr>
+              <td class="whitespace-nowrap">{% if may_slip %}<a href="{% url 'payroll:payslip_detail' ps.pk %}" class="row-link">{{ ps.payroll_run.period_start|date:"d M" }} – {{ ps.payroll_run.period_end|date:"d M Y" }}</a>{% else %}{{ ps.payroll_run.period_start|date:"d M" }} – {{ ps.payroll_run.period_end|date:"d M Y" }}{% endif %}</td>
+              <td class="whitespace-nowrap"><span class="mono text-ink-2">{{ ps.payroll_run.reference }}</span> {% status_badge ps.payroll_run.status ps.payroll_run.get_status_display %}</td>
+              <td class="num">{{ ps.gross_salary|money }}</td>
+              <td class="num">{{ ps.total_deductions|money }}</td>
+              <td class="num font-semibold">{{ ps.net_salary|money }}</td>
+              <td class="num text-ink-2">{{ ps.employer_cost|money }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="cash" title="No payslips" text="Payslips appear once a payroll run includes this person." compact=True only %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
-  <div class="flex items-center gap-2 flex-wrap">
-    <span class="badge {% if employee.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif employee.status == 'TERMINATED' or employee.status == 'RESIGNED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %} text-sm">
-      {{ employee.get_status_display }}
-    </span>
-    <a href="{% url 'hr:employee_update' employee.pk %}" class="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
-    {% if employee.status != 'TERMINATED' and employee.status != 'RESIGNED' %}
-    <a href="{% url 'hr:employee_terminate' employee.pk %}" class="px-3 py-1.5 text-sm text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50">Terminate</a>
-    {% endif %}
+
+  <div class="min-w-0 space-y-5">
+    <section class="card overflow-hidden">
+      <div class="card-header"><div><h2 class="card-title">Leave balance {{ leave_year }}</h2><p class="card-subtitle">Working days, granted or waiting</p></div></div>
+      <ul class="grid grid-cols-1 gap-3 p-4 min-[420px]:grid-cols-2 lg:grid-cols-1">
+        {% for b in leave_balances %}
+        <li class="flex items-center gap-3 rounded-xl border border-line bg-surface p-3">
+          <span class="icon-tile stat-icon tone-neutral shrink-0">{% include "_includes/icon.html" with name="calendar" cls="h-5 w-5" only %}</span>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-semibold text-ink">{{ b.leave_type.name }}{% if not b.leave_type.is_paid %} <span class="text-xs font-normal text-ink-muted">unpaid</span>{% endif %}</p>
+            <p class="text-xs text-ink-muted">{{ b.used }} of {{ b.entitled }} taken or waiting</p>
+          </div>
+          <div class="text-right">
+            <p class="text-xl font-extrabold tabular-nums{% if b.left <= 0 %} neg{% else %} text-ink{% endif %}">{{ b.left }}</p>
+            <p class="text-xs text-ink-muted">left</p>
+          </div>
+        </li>
+        {% empty %}
+        <li class="py-4 text-center text-sm text-ink-muted">No leave types in use.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <h2 class="card-title">Leave history</h2>
+        {% if may_leave %}<a href="{% url 'hr:leave_create' %}" class="btn btn-ghost btn-sm no-print">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}Request Leave</a>{% endif %}
+      </div>
+      <ul class="list">
+        {% for lr in leave_requests %}
+        <li class="list-row items-center py-2.5">
+          <div class="min-w-0 flex-1">
+            <a href="{% url 'hr:leave_detail' lr.pk %}" class="row-link">{{ lr.leave_type.name }}</a>
+            <p class="text-xs text-ink-muted">{{ lr.start_date|date:"d M" }} – {{ lr.end_date|date:"d M Y" }} · {{ lr.days_requested }} day{{ lr.days_requested|pluralize }}</p>
+          </div>
+          {% status_badge lr.status lr.get_status_display %}
+        </li>
+        {% empty %}
+        <li class="px-5 py-6 text-center text-sm text-ink-muted">No leave requests.</li>
+        {% endfor %}
+      </ul>
+    </section>
   </div>
 </div>
-
-<!-- Tabs -->
-<div class="border-b border-gray-200 mb-6">
-  <nav class="flex gap-6 text-sm font-medium" id="emp-tabs">
-    <button onclick="showTab('personal')" class="tab-btn pb-3 border-b-2 text-gray-900" style="border-color:var(--primary)" data-tab="personal">Personal</button>
-    <button onclick="showTab('employment')" class="tab-btn pb-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-tab="employment">Employment</button>
-    <button onclick="showTab('leave')" class="tab-btn pb-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-tab="leave">Leave History</button>
-    <button onclick="showTab('payslips')" class="tab-btn pb-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-tab="payslips">Payslips</button>
-  </nav>
-</div>
-
-<div id="tab-personal" class="tab-content grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Personal Information</h2>
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-      <div><dt class="text-gray-500">Gender</dt><dd class="text-gray-900">{{ employee.get_gender_display|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Date of Birth</dt><dd class="text-gray-900">{{ employee.date_of_birth|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">National ID</dt><dd class="text-gray-900">{{ employee.national_id|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Phone</dt><dd class="text-gray-900">{{ employee.phone|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Email</dt><dd class="text-gray-900">{{ employee.email|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Login</dt><dd class="text-gray-900">{% if employee.user %}{{ employee.user.get_full_name|default:employee.user.username }}{% else %}— not linked{% endif %}</dd></div>
-    </dl>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Statutory Numbers</h2>
-    <dl class="grid grid-cols-1 gap-y-3 text-sm">
-      <div class="flex justify-between"><dt class="text-gray-500">KRA PIN</dt><dd class="text-gray-900">{{ employee.kra_pin|default:"—" }}</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500">NSSF</dt><dd class="text-gray-900">{{ employee.nssf_number|default:"—" }}</dd></div>
-      <div class="flex justify-between"><dt class="text-gray-500">NHIF/SHIF</dt><dd class="text-gray-900">{{ employee.nhif_number|default:"—" }}</dd></div>
-    </dl>
-  </div>
-</div>
-
-<div id="tab-employment" class="tab-content hidden bg-white rounded-xl border border-gray-200 p-6">
-  <h2 class="text-base font-semibold text-gray-900 mb-4">Employment Information</h2>
-  <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-    <div><dt class="text-gray-500">Date Hired</dt><dd class="text-gray-900">{{ employee.date_hired }}</dd></div>
-    <div><dt class="text-gray-500">Date Terminated</dt><dd class="text-gray-900">{{ employee.date_terminated|default:"—" }}</dd></div>
-    <div><dt class="text-gray-500">Department</dt><dd class="text-gray-900">{{ employee.department.name|default:"—" }}</dd></div>
-    <div><dt class="text-gray-500">Branch</dt><dd class="text-gray-900">{{ employee.branch.name|default:"—" }}</dd></div>
-    <div><dt class="text-gray-500">Reports To</dt><dd class="text-gray-900">{{ employee.reports_to.full_name|default:"—" }}</dd></div>
-    <div><dt class="text-gray-500">Bank</dt><dd class="text-gray-900">{{ employee.bank_name|default:"—" }}</dd></div>
-    <div><dt class="text-gray-500">Bank Account</dt><dd class="text-gray-900">{{ employee.bank_account_number|default:"—" }}</dd></div>
-  </dl>
-  <div class="flex items-center justify-between mt-6 mb-3">
-    <h3 class="text-sm font-semibold text-gray-900">Contract History</h3>
-    <a href="{% url 'hr:contract_create' employee.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Add contract</a>
-  </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50"><tr>
-      <th class="px-3 py-2 text-left font-semibold text-gray-700">Type</th>
-      <th class="px-3 py-2 text-left font-semibold text-gray-700">Title</th>
-      <th class="px-3 py-2 text-right font-semibold text-gray-700">Basic Salary</th>
-      <th class="px-3 py-2 text-left font-semibold text-gray-700">Start</th>
-      <th class="px-3 py-2 text-left font-semibold text-gray-700">End</th>
-      <th class="px-3 py-2 text-right font-semibold text-gray-700">&nbsp;</th>
-    </tr></thead>
-    <tbody>{% for c in contracts %}<tr class="border-t border-gray-100">
-      <td class="px-3 py-2 text-gray-900">
-        {{ c.get_contract_type_display }}
-        {% if c.is_current %}<span class="badge bg-green-50 text-green-700 ml-1">Current</span>{% endif %}
-      </td>
-      <td class="px-3 py-2 text-gray-600">{{ c.job_title|default:"—" }}</td>
-      <td class="px-3 py-2 text-right font-mono text-gray-900">{{ c.basic_salary|floatformat:2 }}</td>
-      <td class="px-3 py-2 text-gray-600">{{ c.start_date }}</td>
-      <td class="px-3 py-2 text-gray-600">{{ c.end_date|default:"Ongoing" }}</td>
-      <td class="px-3 py-2 text-right"><a href="{% url 'hr:contract_update' c.pk %}" class="text-xs font-medium hover:underline" style="color:var(--primary)">Edit</a></td>
-    </tr>{% empty %}<tr>
-      <td colspan="6" class="px-3 py-6 text-center text-gray-400">
-        No contract yet — payroll has no basic pay to work this person's month from.
-      </td>
-    </tr>{% endfor %}</tbody>
-  </table>
-</div>
-
-<div id="tab-leave" class="tab-content hidden bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-6 py-4 border-b border-gray-200 flex justify-between">
-    <h2 class="text-base font-semibold text-gray-900">Leave History</h2>
-    <a href="{% url 'hr:leave_create' %}" class="text-sm font-medium" style="color:var(--primary)">+ Request Leave</a>
-  </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50"><tr>
-      <th class="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
-      <th class="px-4 py-3 text-left font-semibold text-gray-700">Start</th>
-      <th class="px-4 py-3 text-left font-semibold text-gray-700">End</th>
-      <th class="px-4 py-3 text-right font-semibold text-gray-700">Days</th>
-      <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-    </tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for lr in leave_requests %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 text-gray-900">{{ lr.leave_type.name }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ lr.start_date }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ lr.end_date }}</td>
-        <td class="px-4 py-3 text-right text-gray-900">{{ lr.days_requested }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if lr.status == 'APPROVED' %}bg-green-50 text-green-700{% elif lr.status == 'PENDING' %}bg-amber-50 text-amber-700{% elif lr.status == 'REJECTED' %}bg-red-50 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ lr.get_status_display }}
-          </span>
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No leave requests.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<div id="tab-payslips" class="tab-content hidden bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Payslips</h2></div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50"><tr>
-      <th class="px-4 py-3 text-left font-semibold text-gray-700">Period</th>
-      <th class="px-4 py-3 text-right font-semibold text-gray-700">Gross</th>
-      <th class="px-4 py-3 text-right font-semibold text-gray-700">Deductions</th>
-      <th class="px-4 py-3 text-right font-semibold text-gray-700">Net</th>
-      <th class="px-4 py-3 text-right font-semibold text-gray-700">Employer cost</th>
-    </tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for ps in payslips %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 text-gray-900">
-          <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="hover:underline" style="color:var(--primary)">{{ ps.payroll_run.period_start }} to {{ ps.payroll_run.period_end }}</a>
-          <div class="text-xs text-gray-400">{{ ps.payroll_run.reference }} · {{ ps.payroll_run.status }}</div>
-        </td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ ps.employer_cost|floatformat:2 }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No payslips.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<script>
-function showTab(name) {
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.classList.remove('text-gray-900');
-    btn.classList.add('text-gray-500', 'border-transparent');
-    btn.style.borderColor = 'transparent';
-  });
-  document.getElementById('tab-' + name).classList.remove('hidden');
-  const btn = document.querySelector('[data-tab="' + name + '"]');
-  btn.classList.add('text-gray-900');
-  btn.classList.remove('text-gray-500', 'border-transparent');
-  btn.style.borderColor = 'var(--primary)';
-}
-</script>
 {% endblock %}

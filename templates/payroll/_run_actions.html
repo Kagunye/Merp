@@ -1,0 +1,25 @@
+{% comment %}Run detail POST actions; each gated by the can_do flags set on run_detail.html.{% endcomment %}
+{% if may_cancel and run.status != 'CANCELLED' %}
+<form method="post" action="{% url 'payroll:run_cancel' run.pk %}" onsubmit="return confirm('Cancel this run?{% if run.journal_entry %} Its journal entry will be reversed with an offsetting entry.{% endif %}');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel run</button>
+</form>
+{% endif %}
+{% if can_edit and may_calculate %}
+<form method="post" action="{% url 'payroll:run_calculate' run.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="refresh" cls="h-4 w-4" %}Recalculate</button>
+</form>
+{% if may_amend %}<a href="{% url 'payroll:run_update' run.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" cls="h-4 w-4" %}Amend</a>{% endif %}
+{% endif %}
+{% if may_approve and run.status == 'DRAFT' or may_approve and run.status == 'REVIEW' %}
+<form method="post" action="{% url 'payroll:run_approve' run.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" %}Approve</button>
+</form>
+{% elif may_post and run.status == 'APPROVED' %}
+<form method="post" action="{% url 'payroll:run_post' run.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="bank" cls="h-4 w-4" %}Post to ledger</button>
+</form>
+{% endif %}

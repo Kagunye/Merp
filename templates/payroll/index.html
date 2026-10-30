@@ -3,81 +3,54 @@
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Payroll" launcher_subtitle="Payroll runs, statutory tables, pay elements and the journal each month produces" %}
 
-<div class="launcher-section-label">
-  Processing
-  <span class="launcher-section-count">5 modules</span>
-</div>
+{% can_do "payroll:run_create" as g_run_new %}{% can_do "payroll:run_list" as g_runs %}{% can_do "payroll:payslip_list" as g_slips %}
+{% can_do "accounting:journal_entry_list" as g_journals %}{% can_do "payroll:rule_list" as g_rules %}{% can_do "payroll:component_list" as g_components %}
+{% can_do "hr:employee_list" as may_see_staff %}{% can_do "hr:leave_list" as g_leave %}{% can_do "organizations:department_list" as g_depts %}
+{% can_do "reporting:profit_loss" as g_pl %}{% can_do "reporting:cash_flow" as g_cf %}{% can_do "payroll:my_payslips" as g_mine %}
+
+<div class="launcher-section-label">Processing</div>
 <div class="launcher-grid">
-  <a href="{% url 'payroll:run_create' %}" class="launcher-tile"><div class="ico ico-mint">▶️</div><span class="label">New Payroll Run</span></a>
-  <a href="{% url 'payroll:run_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-amber">✍️</div><span class="label">Draft Runs</span></a>
-  <a href="{% url 'payroll:run_list' %}?status=APPROVED" class="launcher-tile"><div class="ico ico-sky">💵</div><span class="label">Approved, Awaiting Payment</span></a>
-  <a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">All Payslips</span></a>
-  <a href="{% url 'accounting:journal_entry_list' %}?type=PAYROLL" class="launcher-tile"><div class="ico ico-mint">📚</div><span class="label">Payroll Journals</span></a>
+  {% if g_run_new %}<a href="{% url 'payroll:run_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Payroll Run</span></a>{% endif %}
+  {% if g_runs %}<a href="{% url 'payroll:run_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Draft Runs</span></a>
+  <a href="{% url 'payroll:run_list' %}?status=APPROVED" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Approved, Awaiting Payment</span></a>{% endif %}
+  {% if g_slips %}<a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">All Payslips</span></a>{% endif %}
+  {% if g_journals %}<a href="{% url 'accounting:journal_entry_list' %}?type=PAYROLL" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Payroll Journals</span></a>{% endif %}
+  {% if g_mine %}<a href="{% url 'payroll:my_payslips' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">My Payslips</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Rates and pay elements
-  <span class="launcher-section-count">2 modules</span>
-</div>
+<div class="launcher-section-label">Rates and pay elements</div>
 <div class="launcher-grid">
-  <a href="{% url 'payroll:rule_list' %}" class="launcher-tile"><div class="ico ico-rose">🧾</div><span class="label">Statutory Tables</span></a>
-  <a href="{% url 'payroll:component_list' %}" class="launcher-tile"><div class="ico ico-amber">🗂️</div><span class="label">Allowances and Deductions</span></a>
+  {% if g_rules %}<a href="{% url 'payroll:rule_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Statutory Tables</span></a>{% endif %}
+  {% if g_components %}<a href="{% url 'payroll:component_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Allowances and Deductions</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  People
-  <span class="launcher-section-count">3 modules</span>
-</div>
+<div class="launcher-section-label">People</div>
 <div class="launcher-grid">
-  {% can_do "hr:employee_list" as may_see_staff %}{% if may_see_staff %}
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Employees</span></a>
-  {% endif %}
-  <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-mint">📅</div><span class="label">Leave Register</span></a>
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
+  {% if may_see_staff %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Employees</span></a>{% endif %}
+  {% if g_leave %}<a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Leave Register</span></a>{% endif %}
+  {% if g_depts %}<a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Departments</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Reports
-  <span class="launcher-section-count">2 modules</span>
-</div>
+<div class="launcher-section-label">Reports</div>
 <div class="launcher-grid">
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-peach">📈</div><span class="label">Salary Expense (P&amp;L)</span></a>
-  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-rose">💧</div><span class="label">Payroll Cash Flow</span></a>
+  {% if g_pl %}<a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Salary Expense (P&amp;L)</span></a>{% endif %}
+  {% if g_cf %}<a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="trending-down" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Payroll Cash Flow</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5">
-    <div class="text-xs text-gray-500 mb-1">Runs</div>
-    <div class="text-2xl font-bold">{{ run_count|default:0 }}</div>
-    {% if last_run %}<div class="text-xs text-gray-400 mt-1">latest {{ last_run.reference }}</div>{% endif %}
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <div class="text-xs text-gray-500 mb-1">Waiting to be approved</div>
-    <div class="text-2xl font-bold text-amber-600">{{ draft_count|default:0 }}</div>
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <div class="text-xs text-gray-500 mb-1">Approved, not yet posted</div>
-    <div class="text-2xl font-bold text-green-700">{{ approved_count|default:0 }}</div>
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <div class="text-xs text-gray-500 mb-1">On the payroll</div>
-    <div class="text-2xl font-bold">{{ staff_count|default:0 }}</div>
-    <div class="text-xs {% if unpaid_staff %}text-red-600{% else %}text-gray-400{% endif %} mt-1">
-      {% if unpaid_staff %}{{ unpaid_staff }} without a current contract{% else %}all have current contracts{% endif %}
-    </div>
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <div class="text-xs text-gray-500 mb-1">Rates in force today</div>
-    <div class="text-2xl font-bold">{{ rule_count|default:0 }}</div>
-    <a href="{% url 'payroll:rule_list' %}" class="text-xs underline mt-1" style="color:var(--primary)">Statutory tables</a>
-  </div>
-  <div class="bg-white rounded-xl border p-5">
-    <div class="text-xs text-gray-500 mb-1">Pay elements</div>
-    <div class="text-2xl font-bold">{{ component_count|default:0 }}</div>
-    <a href="{% url 'payroll:component_list' %}" class="text-xs underline mt-1" style="color:var(--primary)">Allowances and deductions</a>
-  </div>
+<div class="launcher-section-label">At a glance</div>
+<div class="stat-grid mb-4">
+  {% if g_runs %}{% url 'payroll:run_list' as runs_url %}{% endif %}
+  {% if g_rules %}{% url 'payroll:rule_list' as rules_url %}{% endif %}
+  {% if g_components %}{% url 'payroll:component_list' as comp_url %}{% endif %}
+  {% if last_run %}{% with "latest "|add:last_run.reference as m %}{% include "_includes/stat.html" with label="Runs" value=run_count|default:0 icon="document" tone="neutral" meta=m url=runs_url only %}{% endwith %}
+  {% else %}{% include "_includes/stat.html" with label="Runs" value=run_count|default:0 icon="document" tone="neutral" meta="None yet" url=runs_url only %}{% endif %}
+  {% include "_includes/stat.html" with label="Waiting to be approved" value=draft_count|default:0 icon="clock" tone="warning" meta="Draft or under review" url=runs_url only %}
+  {% include "_includes/stat.html" with label="Approved, not yet posted" value=approved_count|default:0 icon="check-circle" tone="success" meta="Ready for the ledger" url=runs_url only %}
+  {% if unpaid_staff %}{% with unpaid_staff|stringformat:"s"|add:" without a current contract" as m %}{% include "_includes/stat.html" with label="On the payroll" value=staff_count|default:0 icon="users" tone="danger" meta=m trend="down" only %}{% endwith %}
+  {% else %}{% include "_includes/stat.html" with label="On the payroll" value=staff_count|default:0 icon="users" tone="info" meta="All have current contracts" only %}{% endif %}
+  {% include "_includes/stat.html" with label="Rates in force today" value=rule_count|default:0 icon="receipt" tone="brand" meta="Statutory tables" url=rules_url only %}
+  {% include "_includes/stat.html" with label="Pay elements" value=component_count|default:0 icon="clipboard" tone="neutral" meta="Allowances and deductions" url=comp_url only %}
 </div>
 
-<p class="text-xs text-gray-500 mb-8">A run is calculated from the tables, approved by a second pair of hands, and only then posted — one journal entry for the month, with the withholding resting on the statutory payables until it is remitted.</p>
+<p class="mb-8 text-xs text-ink-muted">A run is calculated from the tables, approved by a second pair of hands, and only then posted — one journal entry for the month, with the withholding resting on the statutory payables until it is remitted.</p>
 {% endblock %}

@@ -1,20 +1,33 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'timesheets:entry_list' as back %}
-{% include "_includes/page_header.html" with title="Time Entry" subtitle=entry.user back_url=back %}
-<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
-  <div class="grid grid-cols-2 gap-5 text-sm">
-    <div><div class="text-xs text-gray-500">Date</div><div class="font-semibold">{{ entry.entry_date|date:"d M Y" }}</div></div>
-    <div><div class="text-xs text-gray-500">Hours</div><div class="font-bold text-lg" style="color: var(--primary);">{{ entry.hours|floatformat:2 }}</div></div>
-    <div><div class="text-xs text-gray-500">Project</div><div class="font-semibold">{{ entry.project|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Task</div><div class="font-semibold">{{ entry.task|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Billable</div><div class="font-semibold">{% if entry.billable %}Yes{% else %}No{% endif %}</div></div>
-    <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ entry.get_status_display }}</span></div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-sm text-gray-900 mt-1">{{ entry.description|default:"—"|linebreaks }}</div></div>
+{% can_do "timesheets:entry_list" as may_list %}{% can_do "timesheets:entry_submit" "POST" as may_submit %}{% can_do "timesheets:entry_approve" "POST" as may_approve %}
+{% if may_list %}{% url 'timesheets:entry_list' as back %}{% endif %}
+{% include "_includes/page_header.html" with title="Time Entry" subtitle=entry.user back_url=back back_label="Timesheet Entries" hide_print=True %}
+
+<section class="card max-w-3xl">
+  <div class="card-header">
+    <div><h2 class="card-title">{{ entry.entry_date|date:"l, d M Y" }}</h2><p class="card-subtitle">{{ entry.project|default:"No project" }}{% if entry.task %} / {{ entry.task }}{% endif %}</p></div>
+    {% status_badge entry.status entry.get_status_display %}
   </div>
-  <div class="mt-5 pt-4 border-t flex gap-3">
-    {% if entry.status == 'DRAFT' %}<form method="post" action="{% url 'timesheets:entry_submit' entry.pk %}">{% csrf_token %}<button type="submit">Submit for approval</button></form>{% endif %}
-    {% if entry.status == 'SUBMITTED' %}<form method="post" action="{% url 'timesheets:entry_approve' entry.pk %}">{% csrf_token %}<button type="submit">Approve</button></form>{% endif %}
+  <div class="card-body">
+    <dl class="dl">
+      <div><dt>Date</dt><dd>{{ entry.entry_date|date:"d M Y" }}</dd></div>
+      <div><dt>Hours</dt><dd class="text-lg font-bold tabular-nums">{{ entry.hours|qty:2 }}</dd></div>
+      <div><dt>Project</dt><dd>{{ entry.project|default:"—" }}</dd></div>
+      <div><dt>Task</dt><dd>{{ entry.task|default:"—" }}</dd></div>
+      <div><dt>Billable</dt><dd>{% if entry.billable %}Yes{% else %}No{% endif %}</dd></div>
+      <div><dt>Status</dt><dd>{% status_badge entry.status entry.get_status_display %}</dd></div>
+      <div class="dl-full"><dt>Description</dt><dd>{{ entry.description|default:"—"|linebreaksbr }}</dd></div>
+    </dl>
   </div>
-</div>
+  {% if entry.status == 'DRAFT' and may_submit and entry.user_id == request.user.pk or entry.status == 'SUBMITTED' and may_approve and entry.user_id != request.user.pk %}
+  <div class="card-footer justify-end">
+    {% if entry.status == 'DRAFT' %}<form method="post" action="{% url 'timesheets:entry_submit' entry.pk %}">{% csrf_token %}<button type="submit" class="btn btn-primary">Submit for approval</button></form>{% endif %}
+    {% if entry.status == 'SUBMITTED' %}<form method="post" action="{% url 'timesheets:entry_approve' entry.pk %}">{% csrf_token %}<button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" %}Approve</button></form>{% endif %}
+  </div>
+  {% elif entry.status == 'SUBMITTED' %}
+  <div class="card-footer"><p class="text-sm text-ink-muted">Waiting for somebody else to approve these hours.</p></div>
+  {% endif %}
+</section>
 {% endblock %}

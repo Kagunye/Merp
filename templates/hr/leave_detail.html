@@ -1,33 +1,59 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'hr:leave_list' as back %}
-{% include "_includes/page_header.html" with title="Leave Request" subtitle=leave.employee back_url=back %}
+{% can_do "hr:leave_list" as may_list %}{% can_do "hr:employee_list" as may_see_staff %}
+{% if may_list %}{% url 'hr:leave_list' as back %}{% endif %}
+{% include "_includes/page_header.html" with title="Leave Request" subtitle=leave.employee back_url=back back_label="Leave Requests" %}
 
-<div class="max-w-2xl bg-white rounded-xl border p-6">
-  <div class="grid grid-cols-2 gap-5 text-sm">
-    <div><div class="text-xs text-gray-500">Employee</div><div class="font-semibold">{{ leave.employee }}</div></div>
-    <div><div class="text-xs text-gray-500">Leave type</div><div class="font-semibold">{{ leave.leave_type|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">From</div><div class="font-semibold">{{ leave.start_date|date:"d M Y" }}</div></div>
-    <div><div class="text-xs text-gray-500">To</div><div class="font-semibold">{{ leave.end_date|date:"d M Y" }}</div></div>
-    <div><div class="text-xs text-gray-500">Days</div><div class="font-semibold">{{ leave.days_requested|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ leave.get_status_display|default:leave.status }}</span></div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Reason</div><div class="text-sm mt-1">{{ leave.notes|default:"—"|linebreaks }}</div></div>
-  </div>
-
-  {% if leave.status == "PENDING" and can_decide %}
-  <form method="post" action="{% url 'hr:leave_approve' leave.pk %}" class="no-card mt-5 pt-4 border-t flex flex-wrap items-end gap-3">
-    {% csrf_token %}
-    <div style="flex:1 1 12rem;">
-      <label class="block text-xs text-gray-500 mb-1" for="reason">Reason (if rejecting)</label>
-      <input id="reason" name="reason" type="text" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg">
+<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+  <section class="card lg:col-span-2">
+    <div class="card-header">
+      <div><h2 class="card-title">{{ leave.leave_type|default:"Leave" }}</h2><p class="card-subtitle">{{ leave.start_date|date:"d M Y" }} – {{ leave.end_date|date:"d M Y" }}</p></div>
+      {% status_badge leave.status leave.get_status_display %}
     </div>
-    <button type="submit" name="action" value="approve">Approve</button>
-    <button type="submit" name="action" value="reject" class="btn-outline">Reject</button>
-  </form>
-  {% elif leave.status == "PENDING" %}
-  <p class="mt-5 pt-4 border-t text-sm text-gray-500">Waiting for HR to decide.</p>
-  {% elif leave.approved_by %}
-  <p class="mt-5 pt-4 border-t text-sm text-gray-500">{{ leave.get_status_display }} by {{ leave.approved_by }} on {{ leave.approved_at|date:"d M Y" }}{% if leave.rejection_reason %} — {{ leave.rejection_reason }}{% endif %}.</p>
-  {% endif %}
+    <div class="card-body">
+      <dl class="dl">
+        <div><dt>Employee</dt><dd>{% if may_see_staff %}<a href="{% url 'hr:employee_detail' leave.employee.pk %}" class="link">{{ leave.employee.full_name }}</a>{% else %}{{ leave.employee.full_name }}{% endif %}</dd></div>
+        <div><dt>Leave type</dt><dd>{{ leave.leave_type|default:"—" }}</dd></div>
+        <div><dt>From</dt><dd>{{ leave.start_date|date:"d M Y" }}</dd></div>
+        <div><dt>To</dt><dd>{{ leave.end_date|date:"d M Y" }}</dd></div>
+        <div><dt>Days</dt><dd>{{ leave.days_requested|default:"—" }} working day{{ leave.days_requested|pluralize }}</dd></div>
+        <div><dt>Status</dt><dd>{% status_badge leave.status leave.get_status_display %}</dd></div>
+        <div class="dl-full"><dt>Reason</dt><dd>{{ leave.notes|default:"—"|linebreaksbr }}</dd></div>
+      </dl>
+    </div>
+
+    {% if leave.status == "PENDING" and can_decide %}
+    <div class="card-footer">
+      <form method="post" action="{% url 'hr:leave_approve' leave.pk %}" class="no-card flex w-full flex-wrap items-end gap-3">
+        {% csrf_token %}
+        <div class="form-field min-w-0 flex-1 basis-48">
+          <label class="form-label" for="reason">Reason (if rejecting)</label>
+          <input id="reason" name="reason" type="text" class="input">
+        </div>
+        <div class="btn-group">
+          <button type="submit" name="action" value="reject" class="btn btn-danger-ghost">Reject</button>
+          <button type="submit" name="action" value="approve" class="btn btn-primary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" %}Approve</button>
+        </div>
+      </form>
+    </div>
+    {% elif leave.status == "PENDING" %}
+    <div class="card-footer"><p class="text-sm text-ink-muted">Waiting for HR to decide.</p></div>
+    {% elif leave.approved_by %}
+    <div class="card-footer"><p class="text-sm text-ink-muted">{{ leave.get_status_display }} by {{ leave.approved_by }} on {{ leave.approved_at|date:"d M Y" }}{% if leave.rejection_reason %} — {{ leave.rejection_reason }}{% endif %}.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-header"><div><h2 class="card-title">{{ leave.leave_type.name }} balance {{ balance.year }}</h2><p class="card-subtitle">Working days</p></div></div>
+    <div class="card-body">
+      <dl class="dl-rows">
+        <div><dt>Allowance this year</dt><dd class="num">{{ balance.entitled }}</dd></div>
+        <div><dt>Other leave granted or waiting</dt><dd class="num">{{ balance.others }}</dd></div>
+        <div><dt>This request</dt><dd class="num">{{ balance.this }}</dd></div>
+        <div class="font-semibold"><dt>Left{% if leave.status == 'PENDING' %} if approved{% endif %}</dt><dd class="num{% if balance.left < 0 %} neg{% endif %}">{{ balance.left }}</dd></div>
+      </dl>
+    </div>
+  </section>
 </div>
 {% endblock %}

@@ -1,0 +1,11 @@
+{% comment %}Filters the view reads: GET "status" (a TimesheetEntry status) and "mine" (=1).{% endcomment %}
+<div class="form-field">
+  <label class="form-label" for="fb-status">Status</label>
+  <select id="fb-status" name="status" class="select">
+    <option value="">All statuses</option>
+    {% for val, label in ts_statuses %}<option value="{{ val }}"{% if request.GET.status == val %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+</div>
+<div class="form-field justify-end">
+  <label class="check" for="fb-mine"><input id="fb-mine" type="checkbox" name="mine" value="1" class="checkbox"{% if request.GET.mine == "1" %} checked{% endif %}> Only mine</label>
+</div>

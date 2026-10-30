@@ -1,0 +1,8 @@
+{% comment %}Status select for a filter_bar. Needs status_choices and status_filter; the view reads GET "status".{% endcomment %}
+<div class="form-field">
+  <label class="form-label" for="fb-status">Status</label>
+  <select id="fb-status" name="status" class="select">
+    <option value="">All statuses</option>
+    {% for val, label in status_choices %}<option value="{{ val }}"{% if val == status_filter %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+</div>

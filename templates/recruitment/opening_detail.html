@@ -1,36 +1,41 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'recruitment:opening_list' as back %}
-{% url 'recruitment:opening_edit' opening.pk as pa_url %}
-{% include "_includes/page_header.html" with title=opening.title subtitle=opening.get_employment_type_display back_url=back action_label="Edit" action_url=pa_url %}
+{% can_do "recruitment:opening_list" as may_list %}{% can_do "recruitment:opening_edit" "POST" as may_edit %}{% can_do "recruitment:candidate_create" as may_add %}
+{% if may_list %}{% url 'recruitment:opening_list' as back %}{% endif %}
+{% if may_edit %}{% url 'recruitment:opening_edit' opening.pk as pa_url %}{% endif %}
+{% include "_includes/page_header.html" with title=opening.title subtitle=opening.get_employment_type_display eyebrow="Job opening" back_url=back back_label="Job Openings" action_label="Edit" action_url=pa_url %}
 
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ opening.get_status_display }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Department</div><div class="font-semibold">{{ opening.department|default:"—" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Headcount</div><div class="font-semibold">{{ opening.headcount }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Hiring manager</div><div class="font-semibold">{{ opening.hiring_manager|default:"—" }}</div></div>
-</div>
-
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  <div class="lg:col-span-2 bg-white rounded-xl border p-6">
-    <h3 class="text-sm font-semibold text-gray-700 mb-2">Description</h3>
-    <div class="text-sm text-gray-900 mb-4">{{ opening.description|default:"—"|linebreaks }}</div>
-    <h3 class="text-sm font-semibold text-gray-700 mb-2">Requirements</h3>
-    <div class="text-sm text-gray-900">{{ opening.requirements|default:"—"|linebreaks }}</div>
+<section class="card mb-5">
+  <div class="card-header"><h2 class="card-title">Summary</h2>{% status_badge opening.status opening.get_status_display %}</div>
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>Department</dt><dd>{{ opening.department|default:"—" }}</dd></div>
+      <div><dt>Headcount</dt><dd>{{ opening.headcount }}</dd></div>
+      <div><dt>Hiring manager</dt><dd>{{ opening.hiring_manager|default:"—" }}</dd></div>
+    </dl>
   </div>
-  <div class="bg-white rounded-xl border p-5">
-    <h3 class="text-sm font-semibold text-gray-700 mb-3">Candidates in pipeline</h3>
-    <div class="divide-y divide-gray-100">
-      {% for c in opening.candidates.all|slice:":10" %}
-      <a href="{% url 'recruitment:candidate_detail' c.pk %}" class="flex justify-between py-2 hover:bg-gray-50 px-1 rounded">
-        <span class="text-sm font-medium">{{ c.full_name }}</span>
-        <span class="badge bg-gray-100 text-gray-700">{{ c.get_stage_display }}</span>
-      </a>
-      {% empty %}
-      <p class="text-sm text-gray-500 py-3">No candidates yet.</p>
-      {% endfor %}
+</section>
+
+<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+  <section class="card lg:col-span-2">
+    <div class="card-body space-y-5">
+      <div><h2 class="section-title">Description</h2><div class="text-sm text-ink">{{ opening.description|default:"—"|linebreaks }}</div></div>
+      <div><h2 class="section-title">Requirements</h2><div class="text-sm text-ink">{{ opening.requirements|default:"—"|linebreaks }}</div></div>
     </div>
-    <a href="{% url 'recruitment:candidate_create' %}" class="text-xs font-semibold mt-3 inline-block" style="color: var(--primary);">+ Add candidate</a>
-  </div>
+  </section>
+  <section class="card overflow-hidden">
+    <div class="card-header">
+      <h2 class="card-title">Candidates in pipeline</h2>
+      {% if may_add %}<a href="{% url 'recruitment:candidate_create' %}" class="btn btn-ghost btn-sm no-print">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}Add</a>{% endif %}
+    </div>
+    <ul class="list">
+      {% for c in opening.candidates.all|slice:":10" %}
+      <li class="list-row items-center py-2.5"><a href="{% url 'recruitment:candidate_detail' c.pk %}" class="row-link flex-1 truncate">{{ c.full_name }}</a>{% status_badge c.stage c.get_stage_display %}</li>
+      {% empty %}
+      <li class="px-5 py-6 text-center text-sm text-ink-muted">No candidates yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
 </div>
 {% endblock %}

@@ -1,121 +1,100 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Payslip — {{ payslip.employee.full_name }} — Mofisi{% endblock %}
 {% block content %}
-<div class="space-y-5">
-  <div class="flex items-start justify-between flex-wrap gap-3">
-    <div>
-      <a href="{% if own_view %}{% url 'payroll:my_payslips' %}{% else %}{% url 'payroll:run_detail' payslip.payroll_run.pk %}{% endif %}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-1">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-        {{ payslip.payroll_run.reference }}
-      </a>
-      <h1 class="text-xl font-bold text-gray-900">{{ payslip.employee.full_name }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5">
-        {{ payslip.employee.employee_number }} ·
-        {{ payslip.payroll_run.period_start|date:"d M Y" }} – {{ payslip.payroll_run.period_end|date:"d M Y" }} ·
-        pays {{ payslip.payroll_run.payment_date|date:"d M Y" }}
-      </p>
-      <p class="text-xs text-gray-500 mt-1 max-w-2xl">
-        Pay is worked out as a share of the calendar month ({{ payslip.payroll_run.month_days }} days{% if payslip.payroll_run.is_part_month %}; this run covers {{ payslip.payroll_run.run_days }} of them, so the monthly tax steps, relief and ceilings are applied for {{ payslip.payroll_run.run_days }} of {{ payslip.payroll_run.month_days }} days{% endif %}).
-        Statutory rates are the tables in force on {{ payslip.payroll_run.period_end|date:"d M Y" }}, the last day of the period: a rate that changes during the month applies to the whole of it.
-      </p>
-    </div>
-    <div class="no-print">{% include "_includes/print_button.html" %}</div>
-  </div>
+{% with run=payslip.payroll_run employee=payslip.employee company=payslip.payroll_run.company %}
+{% can_do "payroll:run_detail" as may_run %}{% can_do "accounting:journal_entry_detail" as may_journal %}
+{% if own_view %}{% url 'payroll:my_payslips' as back %}{% elif may_run %}{% url 'payroll:run_detail' run.pk as back %}{% endif %}
+{% with month=run.period_end|date:"F Y" %}{% with sub=employee.full_name|add:" · "|add:month %}
+{% include "_includes/page_header.html" with title="Payslip" subtitle=sub back_url=back back_label=own_view|yesno:"My payslips,"|default:run.reference print_label="Print payslip" %}
+{% endwith %}{% endwith %}
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-5 py-3 border-b border-gray-100 text-xs font-bold uppercase tracking-wider text-gray-500">Earnings</div>
-      <table class="w-full text-sm">
-        <tbody class="divide-y divide-gray-50">
-          {% for line in earnings %}
-          <tr>
-            <td class="px-4 py-2.5 text-gray-700">{{ line.description }}
-              {% if line.percent %}<div class="text-xs text-gray-400 font-mono">{{ line.percent|floatformat:2 }}% of {{ line.basis|floatformat:2 }}</div>{% endif %}
-              {% if not line.is_taxable %}<div class="text-xs text-gray-400">not taxable</div>{% endif %}
-            </td>
-            <td class="px-4 py-2.5 text-right font-mono text-gray-900">{{ line.amount|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td class="px-4 py-4 text-gray-400 text-sm">No earnings.</td></tr>
-          {% endfor %}
-        </tbody>
-        <tfoot class="bg-gray-50 border-t border-gray-200">
-          <tr>
-            <td class="px-4 py-2.5 font-semibold text-gray-900">Gross</td>
-            <td class="px-4 py-2.5 text-right font-mono font-bold text-gray-900">{{ payslip.gross_salary|floatformat:2 }}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-5 py-3 border-b border-gray-100 text-xs font-bold uppercase tracking-wider text-gray-500">Deductions</div>
-      <table class="w-full text-sm">
-        <tbody class="divide-y divide-gray-50">
-          {% for line in deductions %}
-          <tr>
-            <td class="px-4 py-2.5 text-gray-700">{{ line.description }}
-              {% if line.percent or line.rule.method == 'BANDS' %}
-              <div class="text-xs text-gray-400 font-mono">{% if line.percent %}{{ line.percent|floatformat:2 }}% of {{ line.basis|floatformat:2 }}{% else %}tiered table on {{ line.basis|floatformat:2 }}{% endif %}</div>
-              {% endif %}
-              {% if line.reduces_tax %}<div class="text-xs text-gray-400">allowable against tax{% if line.tax_relief != line.amount %} — {{ line.tax_relief|floatformat:2 }} relieved{% endif %}</div>{% endif %}
-              {% if line.rule %}<div class="text-xs text-gray-400">{{ line.rule.code }} table in force from {{ line.rule.effective_from|date:"d M Y" }}</div>{% endif %}
-            </td>
-            <td class="px-4 py-2.5 text-right font-mono text-red-600">{{ line.amount|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td class="px-4 py-4 text-gray-400 text-sm">Nothing withheld.</td></tr>
-          {% endfor %}
-        </tbody>
-        <tfoot class="bg-gray-50 border-t border-gray-200">
-          <tr>
-            <td class="px-4 py-2.5 font-semibold text-gray-900">Total withheld</td>
-            <td class="px-4 py-2.5 text-right font-mono font-bold text-red-600">{{ payslip.total_deductions|floatformat:2 }}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-5 py-3 border-b border-gray-100 text-xs font-bold uppercase tracking-wider text-gray-500">Employer's own cost</div>
-      <table class="w-full text-sm">
-        <tbody class="divide-y divide-gray-50">
-          {% for line in employer %}
-          <tr>
-            <td class="px-4 py-2.5 text-gray-700">{{ line.description }}
-              {% if line.percent %}<div class="text-xs text-gray-400 font-mono">{{ line.percent|floatformat:2 }}% of {{ line.basis|floatformat:2 }}</div>{% endif %}
-            </td>
-            <td class="px-4 py-2.5 text-right font-mono text-gray-700">{{ line.amount|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td class="px-4 py-4 text-gray-400 text-sm">No employer contributions.</td></tr>
-          {% endfor %}
-        </tbody>
-        <tfoot class="bg-gray-50 border-t border-gray-200">
-          <tr>
-            <td class="px-4 py-2.5 font-semibold text-gray-900">Total cost of employing</td>
-            <td class="px-4 py-2.5 text-right font-mono font-bold text-gray-900">{{ payslip.total_cost|floatformat:2 }}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  </div>
-
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="flex flex-wrap items-end justify-between gap-4">
-      <div class="text-sm text-gray-600 space-y-1">
-        <p>Taxable pay <span class="font-mono text-gray-900">{{ payslip.taxable_pay|floatformat:2 }}</span>
-           <span class="text-xs text-gray-400">— taxable earnings less the deductions the law allows off</span></p>
-        <p>Of which allowances <span class="font-mono text-gray-900">{{ payslip.total_allowances|floatformat:2 }}</span></p>
+<div class="mx-auto max-w-5xl space-y-5">
+  {# Statement hero: net pay is the figure that matters #}
+  <section class="hero rounded-2xl p-5 sm:p-7 print:border print:border-line print:bg-surface print:text-ink" aria-label="Net pay">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="min-w-0">
+        <p class="text-xs font-semibold uppercase tracking-widest opacity-70">{{ company.legal_name|default:company.name }}</p>
+        <p class="mt-1 text-sm font-semibold">Payslip · {{ run.period_end|date:"F Y" }}</p>
       </div>
-      <div class="text-right">
-        <p class="text-xs uppercase tracking-wider text-gray-500">Net pay</p>
-        <p class="text-3xl font-bold font-mono text-gray-900">{{ book }} {{ payslip.net_salary|floatformat:2 }}</p>
-        <p class="text-xs text-gray-500">paid {{ payslip.payroll_run.payment_date|date:"d M Y" }}</p>
+      <p class="text-right text-xs opacity-70"><span class="mono">{{ run.reference }}</span><br>{{ run.get_status_display }}</p>
+    </div>
+    <p class="mt-6 text-xs font-semibold uppercase tracking-widest opacity-70">Net pay</p>
+    <p class="mt-1 break-words text-3xl font-extrabold tabular-nums tracking-tight sm:text-5xl">{{ payslip.net_salary|money:book }}</p>
+    <p class="mt-1 text-sm opacity-70">Paid {{ run.payment_date|date:"d M Y" }}{% if employee.bank_name %} to {{ employee.bank_name }}{% endif %}</p>
+    <dl class="mt-6 grid grid-cols-2 gap-4 border-t sm:grid-cols-3 border-line/20 pt-4 text-sm">
+      <div><dt class="text-xs opacity-70">Gross pay</dt><dd class="font-bold tabular-nums">{{ payslip.gross_salary|money }}</dd></div>
+      <div><dt class="text-xs opacity-70">Taxable pay</dt><dd class="font-bold tabular-nums">{{ payslip.taxable_pay|money }}</dd></div>
+      <div><dt class="text-xs opacity-70">Deductions</dt><dd class="font-bold tabular-nums">{{ payslip.total_deductions|money }}</dd></div>
+    </dl>
+  </section>
+
+  {# Employer and employee summary #}
+  <section class="card">
+    <div class="card-body grid grid-cols-1 gap-6 md:grid-cols-3">
+      <div class="min-w-0">
+        <p class="section-title">Employer</p>
+        <p class="font-bold text-ink">{{ company.legal_name|default:company.name }}</p>
+        {% if company.tax_id %}<p class="text-xs text-ink-muted">KRA PIN <span class="mono">{{ company.tax_id }}</span></p>{% endif %}
+        {% if company.registration_number %}<p class="text-xs text-ink-muted">Reg. no. <span class="mono">{{ company.registration_number }}</span></p>{% endif %}
+        <p class="mt-3 text-xs text-ink-muted">Period {{ run.period_start|date:"d M Y" }} – {{ run.period_end|date:"d M Y" }}<br>Payment date {{ run.payment_date|date:"d M Y" }}</p>
+      </div>
+      <div class="min-w-0 md:col-span-2">
+        <p class="section-title">Employee</p>
+        <dl class="dl dl-3">
+          <div><dt>Name</dt><dd class="font-semibold">{{ employee.full_name }}</dd></div>
+          <div><dt>Employee no.</dt><dd class="mono">{{ employee.employee_number }}</dd></div>
+          <div><dt>Job title</dt><dd>{{ employee.job_title|default:"—" }}</dd></div>
+          <div><dt>Department</dt><dd>{{ employee.department.name|default:"—" }}</dd></div>
+          <div><dt>KRA PIN</dt><dd class="mono">{{ employee.kra_pin|default:"—" }}</dd></div>
+          <div><dt>NSSF no.</dt><dd class="mono">{{ employee.nssf_number|default:"—" }}</dd></div>
+          <div><dt>NHIF/SHIF no.</dt><dd class="mono">{{ employee.nhif_number|default:"—" }}</dd></div>
+          <div><dt>Bank</dt><dd>{{ employee.bank_name|default:"—" }}</dd></div>
+          <div><dt>Account</dt><dd class="mono">{{ employee.bank_account_number|default:"—" }}</dd></div>
+        </dl>
       </div>
     </div>
+  </section>
+
+  {# Earnings and deductions: two clear sections #}
+  <div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+    <section class="card min-w-0 overflow-hidden" aria-label="Earnings">
+      <div class="card-header"><h2 class="card-title">Earnings</h2></div>
+      {% include "payroll/_payslip_lines.html" with lines=earnings kind="earning" total_label="Gross pay" total=payslip.gross_salary empty_text="No earnings." only %}
+    </section>
+    <section class="card min-w-0 overflow-hidden" aria-label="Deductions">
+      <div class="card-header"><h2 class="card-title">Deductions</h2></div>
+      {% include "payroll/_payslip_lines.html" with lines=deductions kind="deduction" total_label="Total deductions" total=payslip.total_deductions empty_text="Nothing withheld." only %}
+    </section>
   </div>
 
-  <p class="text-xs text-gray-500">Each figure carries the rate and the pay it was taken from, so this slip can be recomputed from the tables months later. {% if payslip.payroll_run.journal_entry and not own_view %}The month was booked as <a class="underline" href="{% url 'accounting:journal_entry_detail' payslip.payroll_run.journal_entry.pk %}">{{ payslip.payroll_run.journal_entry.reference }}</a>.{% endif %}</p>
+  {# Totals, right aligned #}
+  <section class="card" aria-label="Totals">
+    <div class="card-body flex justify-end">
+      <dl class="dl-rows w-full max-w-md">
+        <div><dt>Gross pay</dt><dd class="num">{{ payslip.gross_salary|money }}</dd></div>
+        <div><dt>Of which allowances</dt><dd class="num">{{ payslip.total_allowances|money }}</dd></div>
+        <div><dt>Taxable pay <span class="block text-xs font-normal text-ink-muted">taxable earnings less the deductions the law allows off</span></dt><dd class="num">{{ payslip.taxable_pay|money }}</dd></div>
+        <div><dt>Total deductions</dt><dd class="num">{{ payslip.total_deductions|money }}</dd></div>
+        <div class="text-lg font-extrabold"><dt>Net pay</dt><dd class="num">{{ payslip.net_salary|money:book }}</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  {# Employer's own contributions — not taken from pay #}
+  <section class="card overflow-hidden" aria-label="Employer contributions">
+    <div class="card-header"><div><h2 class="card-title">Employer contributions</h2><p class="card-subtitle">Paid by the employer on top of your pay — not deducted from it</p></div></div>
+    {% include "payroll/_payslip_lines.html" with lines=employer kind="employer" total_label="Total employer contributions" total=payslip.employer_cost empty_text="No employer contributions." only %}
+    <dl class="dl-rows border-t border-line px-5 py-3">
+      <div class="font-semibold"><dt>Total cost of employing</dt><dd class="num">{{ payslip.total_cost|money }}</dd></div>
+    </dl>
+  </section>
+
+  <div class="space-y-2 text-xs text-ink-muted">
+    <p>Pay is worked out as a share of the calendar month ({{ run.month_days }} days{% if run.is_part_month %}; this run covers {{ run.run_days }} of them, so the monthly tax steps, relief and ceilings are applied for {{ run.run_days }} of {{ run.month_days }} days{% endif %}).
+    Statutory rates are the tables in force on {{ run.period_end|date:"d M Y" }}, the last day of the period: a rate that changes during the month applies to the whole of it.</p>
+    <p>Each figure carries the rate and the pay it was taken from, so this slip can be recomputed from the tables months later. {% if run.journal_entry and not own_view and may_journal %}The month was booked as <a class="link" href="{% url 'accounting:journal_entry_detail' run.journal_entry.pk %}">{{ run.journal_entry.reference }}</a>.{% endif %}</p>
+  </div>
 </div>
+{% endwith %}
 {% endblock %}
