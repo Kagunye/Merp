@@ -72,6 +72,16 @@ two cashiers at two branches of one company:
    22. where till takings land    -> card and M-Pesa go to the flagged bank
                                      account, at most one of each
    23. a refund at another branch -> comes back at the cost it was sold at
+   24. the cash floor, everywhere -> every entry that empties a cash box past
+                                     nothing is refused as it posts: a journal,
+                                     a deleted deposit or transfer (no 500), a
+                                     transfer reversed on the journal screen, a
+                                     deposit moved or re-dated past its spend,
+                                     a Cash account with no bank account; a
+                                     line dated before an opening takes the
+                                     opening back with it; a card refund goes
+                                     back through the account the sale was
+                                     banked in; the till list is ordered
 """
 import datetime
 import re
@@ -350,6 +360,7 @@ class Command(BaseCommand):
         self.check_cash_floor()
         self.check_takings_accounts()
         self.check_cross_branch_refund_cost()
+        self.check_central_cash_floor()
 
         self.section("11. The book after it all")
         dr, cr = self.book_balances()
@@ -1719,3 +1730,190 @@ class Command(BaseCommand):
         self.expect("so the full refund leaves inventory and cost of sales where they were",
                     self.balance("1400") == stock0 and self.balance("5000") == cogs0,
                     f"1400 {self.balance('1400') - stock0}, 5000 {self.balance('5000') - cogs0}")
+
+    # ───────────────────── 24. the cash floor, everywhere ─────────────────────
+
+    def check_central_cash_floor(self):
+        from django.core.exceptions import ValidationError
+        from apps.accounting.models import JournalEntry, JournalEntryLine
+        from apps.banking import services as bank_services
+        from apps.banking.models import BankAccount, BankTransaction
+
+        self.section("24. The cash floor is kept by the ledger itself, on every path")
+        client = self.admin_client
+        today = timezone.localdate()
+        kes = getattr(self, "kes", None)
+        if kes is None:
+            return
+        client.post(reverse("banking:account_create"), self.bank_form(
+            "Floor box", self.new_gl("1130", "Floor Box", kind="CASH"), kind="PETTY_CASH"))
+        box = BankAccount.objects.filter(company=self.company, name="Floor box").first()
+        if not self.expect("a fresh petty-cash box is opened at nothing", box is not None):
+            return
+
+        def journal(lines, day=None, memo="Floor journal"):
+            entry = JournalEntry.objects.create(
+                company=self.company, reference=f"JNL-FL-{JournalEntry.objects.count()}",
+                entry_type="MANUAL", posting_date=day or today, notes=memo)
+            for account, dr, cr in lines:
+                JournalEntryLine.objects.create(journal_entry=entry, account=account,
+                                                debit_amount=D(dr), credit_amount=D(cr))
+            return entry
+
+        def refused(entry):
+            try:
+                with transaction.atomic():
+                    entry.post(user=self.admin)
+            except ValidationError as exc:
+                return exc.messages[0]
+            return ""
+
+        # A journal -- any screen's entry -- is held to the floor as it posts.
+        why = refused(journal([(self.account("6600"), "100", "0"),
+                               (box.gl_account, "0", "100")]))
+        self.expect("a journal paying 100 out of an empty petty-cash box is refused",
+                    "cannot pay out notes" in why and "Floor box" in why, why)
+        self.expect("and the refused entry is left a draft",
+                    not JournalEntry.objects.filter(notes="Floor journal",
+                                                    status="POSTED").exists())
+
+        # A Cash ledger account with no bank account behind it at all.
+        loose = self.new_gl("1140", "Loose Cash", kind="CASH")
+        why = refused(journal([(self.account("6600"), "50", "0"), (loose, "0", "50")]))
+        self.expect("a Cash ledger account with no bank account is held to the floor too",
+                    "1140 Loose Cash" in why, why)
+
+        # A deposit that was spent cannot be deleted -- and saying so is not a 500.
+        _, deposit = self.manual_line(box, "CREDIT", "500", "Floor deposit", self.account("3100"))
+        _, spend = self.manual_line(box, "DEBIT", "400", "Floor spend", self.account("6600"))
+        if not self.expect("the box takes a 500 deposit and a 400 spend",
+                           deposit is not None and spend is not None):
+            return
+        response = client.post(reverse("banking:transaction_delete", args=[deposit.pk]))
+        self.expect("deleting the spent deposit is refused with a message, not a 500",
+                    response.status_code == 302
+                    and str(deposit.pk) in (response.get("Location") or ""),
+                    f"HTTP {response.status_code} {response.get('Location')}")
+        self.expect_flash(client, response, "Deleting this deposit would leave Floor box",
+                          "and the message names the box")
+        self.expect("the deposit and its entry are still there",
+                    BankTransaction.objects.filter(pk=deposit.pk, journal_entry__isnull=False,
+                                                   journal_entry__reversed_by__isnull=True)
+                    .exists())
+
+        def edit(line, **change):
+            data = {"bank_account": box.pk, "transaction_date": today.isoformat(),
+                    "value_date": "", "transaction_type": "CREDIT", "amount": "500",
+                    "counter_account": self.account("3100").pk,
+                    "description": "Floor deposit", "reference": ""}
+            data.update(change)
+            return client.post(reverse("banking:transaction_edit", args=[line.pk]), data)
+
+        # Moving the spent deposit to another account checks the account it left.
+        response = edit(deposit, bank_account=kes.pk)
+        deposit.refresh_from_db()
+        self.expect("moving the spent deposit to the bank is refused",
+                    response.status_code == 200 and deposit.bank_account_id == box.pk
+                    and box.statement_balance == D("100"),
+                    f"HTTP {response.status_code}, box {box.statement_balance}")
+
+        # Re-dating money: a top-up dated two days ago, spent yesterday, cannot be
+        # moved to today -- the box would be short in between.
+        two, one = today - datetime.timedelta(days=2), today - datetime.timedelta(days=1)
+        _, early = self.manual_line(box, "CREDIT", "300", "Floor early top-up",
+                                    self.account("3100"), day=two)
+        _, used = self.manual_line(box, "DEBIT", "250", "Floor early spend",
+                                   self.account("6600"), day=one)
+        if self.expect("a back-dated top-up and its spend are recorded",
+                       early is not None and used is not None):
+            response = edit(early, transaction_date=today.isoformat(), amount="300",
+                            description="Floor early top-up")
+            early.refresh_from_db()
+            self.expect("re-dating the top-up to after its spend is refused",
+                        response.status_code == 200 and early.transaction_date == two,
+                        f"HTTP {response.status_code}, dated {early.transaction_date}")
+            earlier = two - datetime.timedelta(days=1)
+            response = edit(early, transaction_date=earlier.isoformat(), amount="300",
+                            description="Floor early top-up")
+            early.refresh_from_db()
+            self.expect("re-dating it earlier is fine",
+                        response.status_code == 302 and early.transaction_date == earlier,
+                        str(self.form_errors(response)))
+
+        # A transfer into the box, spent, then deleted or reversed on the journal screen.
+        client.post(reverse("banking:transfer_create"), {
+            "from_account": kes.pk, "to_account": box.pk, "transfer_date": today.isoformat(),
+            "amount_sent": "1000", "amount_received": "", "reference": "",
+            "description": "Floor top-up"})
+        _, big = self.manual_line(box, "DEBIT", str(box.statement_balance), "Floor big spend",
+                                  self.account("6600"))
+        moved_in = BankTransaction.objects.filter(bank_account=box, origin="TRANSFER").first()
+        if self.expect("a 1000 transfer into the box is spent to nothing",
+                       moved_in is not None and big is not None
+                       and box.statement_balance == 0, str(box.statement_balance)):
+            response = client.post(reverse("banking:transaction_delete", args=[moved_in.pk]))
+            self.expect_flash(client, response, "Deleting this transfer would leave Floor box",
+                              "deleting the spent transfer is refused")
+            response = client.post(reverse("accounting:journal_entry_reverse",
+                                           args=[moved_in.journal_entry_id]))
+            moved_in.journal_entry.refresh_from_db()
+            self.expect("and so is reversing its entry from the journal screen",
+                        moved_in.journal_entry.reversed_by_id is None
+                        and box.statement_balance == 0, str(self.flashes(client, response)))
+        ok, detail = self.book_agrees(box)
+        self.expect("the box's book still agrees with its ledger, and is not below zero",
+                    ok and box.statement_balance >= 0, detail)
+
+        # A line dated before the account's opening takes the opening back with it.
+        client.post(reverse("banking:account_create"), self.bank_form(
+            "Opened today", self.new_gl("1150", "Opened Today", kind="CASH"),
+            opening="1000", kind="PETTY_CASH"))
+        opened = BankAccount.objects.filter(company=self.company, name="Opened today").first()
+        back = today - datetime.timedelta(days=4)
+        if self.expect("a box opened today with 1000",
+                       opened is not None and opened.opening_entry_id is not None):
+            _, old = self.manual_line(opened, "DEBIT", "800", "Last week's tea",
+                                      self.account("6600"), day=back)
+            opened.refresh_from_db()
+            self.expect("a spend dated four days back is taken", old is not None)
+            self.expect("and the opening moves back beneath it",
+                        opened.opening_entry.posting_date == back,
+                        str(opened.opening_entry.posting_date))
+            book = opened.book_balance_at(back)
+            ledger = bank_services.gl_balance_at(opened.gl_account, back)
+            self.expect("so the book and the ledger agree on that day",
+                        book == ledger == D("200"), f"book {book}, ledger {ledger}")
+            why = opened.opening_entry.generic_reversal_refusal()
+            self.expect("the journal screen calls it 'an opening balance entry'",
+                        "as an opening balance entry" in why, why)
+
+        # A card refund goes back through the account the sale was banked in.
+        bank = getattr(self, "fix3", None)
+        if bank is not None:
+            BankAccount.objects.filter(company=self.company).update(receives_pos_card=False)
+            BankAccount.objects.filter(pk=bank.pk).update(receives_pos_card=True)
+            banked = bank.gl_account.code
+            response, card = self.ring(self.c_nbo, {self.milk: "1"}, payment_method="CARD")
+            BankAccount.objects.filter(pk=bank.pk).update(receives_pos_card=False)
+            BankAccount.objects.filter(pk=kes.pk).update(receives_pos_card=True)
+            there, here = self.balance(banked), self.balance("1200")
+            back_ticket = None
+            if card is not None:
+                response, back_ticket = self.refund(self.c_nbo, card, {self.milk: "1"})
+            self.expect("after the card flag moves, the refund still comes out of the "
+                        "account the sale was banked in",
+                        back_ticket is not None
+                        and self.balance(banked) == there - card.total_amount
+                        and self.balance("1200") == here,
+                        f"{banked} {self.balance(banked) - there}, "
+                        f"1200 {self.balance('1200') - here}")
+            BankAccount.objects.filter(pk=kes.pk).update(receives_pos_card=False)
+
+        # The till list is ordered, so its pages never shuffle.
+        response = client.get(reverse("pos:session_list"))
+        ctx = response.context
+        listed = list(ctx["sessions"]) if ctx else []
+        self.expect("the till list pages an ordered list, newest first",
+                    response.status_code == 200 and ctx["paginator"].object_list.ordered
+                    and listed == sorted(listed, key=lambda s: s.opened_at, reverse=True),
+                    f"HTTP {response.status_code}")

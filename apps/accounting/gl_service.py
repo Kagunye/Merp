@@ -13,6 +13,8 @@ Conventions
   → first account of that type.  This means GL posting works even when the
   chart of accounts is sparse.
 """
+import threading
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import Optional
 
@@ -1089,7 +1091,12 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
 
     company = sale.session.company
     cash = sale.payment_method == "CASH"
-    counter = (
+    # A card or M-Pesa refund goes back out of the account the sale was banked
+    # in, read off the sale's own entry -- not whichever account carries the
+    # takings flag today, which may have moved since (see pos_takings_account).
+    counter = (_original_takings_account(sale.refund_of, sale.payment_method)
+               if refund and not cash else None)
+    counter = counter or (
         _get_account_safe(company, "1100") if cash
         else pos_takings_account(company, sale.payment_method)
         or _get_account_safe(company, "1200", "1100")
@@ -1151,6 +1158,11 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
         _cr(je, counter, total, f"Money back over the counter: {sale.reference}")
     else:
         _dr(je, counter, total, f"Counter receipt: {sale.reference}")
+    if cash:
+        # The drawer keeps its own floor (a refund cannot pay out more than the
+        # drawer's expected cash); the ledger's cash floor leaves the till's
+        # account alone on the till's own entries -- see "The cash floor".
+        je.till_drawer_account_id = counter.pk
     je.post(user=user)
 
     from apps.pos.models import POSSale as _Sale
@@ -1174,7 +1186,9 @@ def pos_takings_account(company, payment_method) -> Optional[Account]:
     decides; with none flagged (or the flagged one retired) this returns None
     and the caller falls back to the Bank ledger account, 1200, which is how
     every till posted before the flags existed. A refund pays back through
-    the same account, so it comes out of the account the sale went into.
+    the account the sale went into -- read off the sale's own entry
+    (_original_takings_account), not from this flag, which may have moved to
+    another account since the sale was banked.
     """
     from apps.banking.models import BankAccount
 
@@ -1186,6 +1200,25 @@ def pos_takings_account(company, payment_method) -> Optional[Account]:
     if bank is None or not bank.gl_account.is_active:
         return None
     return bank.gl_account
+
+
+def _original_takings_account(original, payment_method) -> Optional[Account]:
+    """The account a till sale's money was debited to, read off its entry.
+
+    Used for a refund paid back the way the sale came in: the money comes out
+    of the account it went into. None when the refund goes back another way
+    (an administrator refunding a card sale in notes, say), when the sale has
+    no entry, or when that account has since been retired -- the caller then
+    falls back to today's takings account.
+    """
+    if (original is None or not original.journal_entry_id
+            or (original.payment_method or "").upper() != (payment_method or "").upper()):
+        return None
+    line = (original.journal_entry.lines.filter(debit_amount__gt=0)
+            .select_related("account").order_by("-debit_amount").first())
+    if line is None or not line.account.is_active:
+        return None
+    return line.account
 
 
 def _pos_day(moment):
@@ -1253,6 +1286,9 @@ def post_till_variance(session, user=None) -> Optional[JournalEntry]:
     else:
         _dr(je, drawer, variance, f"Notes over in the drawer — {who}")
         _cr(je, over_short, variance, f"Drawer over at cash-up — {who}")
+    # The count is the fact: the cash floor leaves the drawer's account alone
+    # here (the float the count includes was never booked to the ledger).
+    je.till_drawer_account_id = drawer.pk
     je.post(user=user)
     POSSession.objects.filter(pk=session.pk).update(variance_entry=je)
     return je
@@ -1309,32 +1345,220 @@ def is_cash_account(bank_account):
             or bank_account.account_type == "PETTY_CASH")
 
 
-def refuse_cash_below_zero(bank_account, from_day, doing="This"):
-    """Refuse a change that leaves a cash account holding less than nothing.
+# ─────────────────────────── The cash floor ─────────────────────────────────
+#
+# A box of notes cannot hold less than nothing. The rule used to be asked by
+# each screen that remembered to ask -- a manual withdrawal, a transfer, an
+# expense claim -- and every screen that forgot (a supplier bill paid from
+# petty cash, a payroll paid into it, a deleted top-up, a journal reversed on
+# the journal screen) took the box below zero without a word. It is asked
+# here instead, once, by JournalEntry.post itself: every entry that takes
+# money out of a cash account -- including a reversal, which is posted like
+# any other entry -- is checked as it posts, whichever screen wrote it.
+#
+# Which accounts: every ledger account of type CASH, and every ledger account
+# a PETTY_CASH bank account sits on (whatever its type). Bank accounts may go
+# overdrawn and are left alone.
+#
+# Till cash (1100, Cash on Hand). The till's own entries -- a cash ticket, a
+# cash refund, the variance booked at cash-up -- are NOT checked on the
+# drawer's account. The float a cashier opens with is counted into the drawer
+# but never booked to the ledger, so a refund paid from the float, or a short
+# count, can rightly take 1100 below what the ledger says it holds; the drawer
+# has its own rule (a refund cannot pay out more than the drawer's expected
+# cash) and the count at cash-up is the fact. Everything else that takes money
+# out of 1100 -- an expense claim paid from Cash on Hand, a journal, a
+# transfer -- is checked like any other box: nobody can hand over notes the
+# ledger says the company does not have. A till entry's other cash lines (say
+# an M-Pesa float kept on a Cash account and flagged for M-Pesa takings) are
+# checked too, because the float is not in that account either.
+#
+# When: at the close of the entry's own day and of every later day up to
+# today (or the entry's day, if later) on which the account moved, so a
+# back-dated spend cannot dig a hole under a top-up that came after it.
+#
+# Several entries as one change. Correcting a line re-books it: the old entry
+# is reversed and a new one posted. Checked one at a time, re-dating a deposit
+# would be refused at its reversal (for a moment the deposit is nowhere) and a
+# deposit moved to another account would only ever be checked on the account
+# it arrived at. A screen that makes such a change wraps it in
+# ``cash_floor(doing)``: the entries posted inside are remembered, and when
+# the block ends every account they took money from is checked from the
+# earliest date any of them touched it -- so both the old account and the new
+# are checked, from the earlier of the two dates. ``doing`` names the change
+# in the refusal ("Deleting this deposit would leave ..."). Raising undoes the
+# caller's transaction, so the change never half lands.
 
-    Called after the change is on the bank book (inside the caller's
-    transaction, so raising undoes it). The balance is checked at the close
-    of the change's own day and of every later day up to today on which the
-    box moved, so a back-dated spend cannot dig a hole under a top-up that
-    came later. Bank accounts are left alone: they may go overdrawn.
+_floor_state = threading.local()
+
+
+def cash_floor_account_ids(company, account_ids):
+    """Of these ledger accounts, the ones that may not go below zero.
+
+    CASH-type accounts, and any account a petty-cash bank account sits on.
     """
-    from apps.banking.models import BankTransaction
+    from apps.banking.models import BankAccount
 
-    if not is_cash_account(bank_account):
-        return
+    ids = set(account_ids)
+    if not ids:
+        return set()
+    found = set(Account.objects.filter(pk__in=ids, account_type="CASH")
+                .values_list("pk", flat=True))
+    found |= set(BankAccount.objects.filter(company=company, gl_account_id__in=ids,
+                                            account_type="PETTY_CASH")
+                 .values_list("gl_account_id", flat=True))
+    return found
+
+
+def _floor_name(company, account):
+    """What to call a cash account in a refusal: its bank account's name if it has one."""
+    from apps.banking.models import BankAccount
+
+    bank = (BankAccount.objects.filter(company=company, gl_account=account)
+            .order_by("-is_active", "created_at").first())
+    return bank.name if bank else f"{account.code} {account.name}"
+
+
+def _cash_taken_out(entry):
+    """{account_id: entry's posting date} for each cash-floor account the entry
+    takes money out of (nets a credit on). The till's own entries are not
+    checked on the drawer's account -- see the note above."""
+    nets = {}
+    for row in entry.lines.values("account_id").annotate(
+            dr=Sum("debit_amount"), cr=Sum("credit_amount")):
+        nets[row["account_id"]] = (row["dr"] or Decimal("0")) - (row["cr"] or Decimal("0"))
+    out = [pk for pk, net in nets.items() if net < 0]
+    exempt = getattr(entry, "till_drawer_account_id", None)
+    out = [pk for pk in out if pk != exempt]
+    return {pk: entry.posting_date for pk in cash_floor_account_ids(entry.company, out)}
+
+
+def refuse_cash_below_zero_from(company, account, from_day, doing="This"):
+    """Refuse when a cash ledger account is below zero at the close of `from_day`
+    or of any later day (up to today) on which it moved.
+
+    Read from the ledger -- posted lines only -- so it holds whether or not
+    the account has a bank account on the banking screen.
+    """
     today = timezone.localdate()
-    start = min(from_day, today) if from_day else today
-    days = {start} | set(
-        BankTransaction.objects.filter(
-            bank_account=bank_account, transaction_date__gt=start,
-            transaction_date__lte=today).values_list("transaction_date", flat=True))
-    for day in sorted(days):
-        held = bank_account.book_balance_at(day)
+    last = max(today, from_day)
+    lines = JournalEntryLine.objects.filter(
+        account=account, journal_entry__status="POSTED")
+    before = lines.filter(journal_entry__posting_date__lte=from_day).aggregate(
+        dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+    held = (before["dr"] or Decimal("0")) - (before["cr"] or Decimal("0"))
+    days = [(from_day, Decimal("0"))] + [
+        (row["journal_entry__posting_date"],
+         (row["dr"] or Decimal("0")) - (row["cr"] or Decimal("0")))
+        for row in lines.filter(journal_entry__posting_date__gt=from_day,
+                                journal_entry__posting_date__lte=last)
+        .values("journal_entry__posting_date")
+        .annotate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        .order_by("journal_entry__posting_date")]
+    for day, moved in days:
+        held += moved
         if held < 0:
             raise ValidationError(
-                f"{doing} would leave {bank_account.name} holding {held} at the close of "
-                f"{day:%d %b %Y}. A cash box cannot pay out notes it does not have -- "
-                "record the top-up that came first, or take the money from a bank account.")
+                f"{doing} would leave {_floor_name(company, account)} holding "
+                f"{held.quantize(Decimal('0.01'))} at the "
+                f"close of {day:%d %b %Y}. A cash box cannot pay out notes it does not have "
+                "-- record the top-up that came first, or take the money from a bank account.")
+
+
+def _check_floor(company, taken, doing):
+    for account in Account.objects.filter(pk__in=taken.keys()).order_by("code"):
+        refuse_cash_below_zero_from(company, account, taken[account.pk], doing)
+
+
+@contextmanager
+def cash_floor(doing=None):
+    """Check the cash floor once, for every entry posted inside the block.
+
+    See the note above. Nested blocks join the outermost one; its `doing`
+    names the change, or the first inner block's when the outer gave none.
+    Nothing is checked when the block raises -- the caller's transaction is
+    being undone anyway.
+    """
+    frame = getattr(_floor_state, "frame", None)
+    if frame is not None:
+        if doing and not frame["doing"]:
+            frame["doing"] = doing
+        yield frame
+        return
+    frame = {"company": None, "taken": {}, "doing": doing}
+    _floor_state.frame = frame
+    try:
+        yield frame
+    finally:
+        _floor_state.frame = None
+    if frame["taken"]:
+        _check_floor(frame["company"], frame["taken"], frame["doing"] or "This change")
+
+
+def check_cash_floor_on_post(entry):
+    """Called by JournalEntry.post as the entry posts (a reversal included).
+
+    Inside a ``cash_floor`` block the entry is remembered and checked when the
+    block ends; otherwise it is checked now, and raising undoes the post.
+    """
+    taken = _cash_taken_out(entry)
+    if not taken:
+        return
+    frame = getattr(_floor_state, "frame", None)
+    if frame is not None:
+        frame["company"] = entry.company
+        for pk, day in taken.items():
+            frame["taken"][pk] = min(day, frame["taken"].get(pk, day))
+        return
+    # A reversal is named after the entry it reverses (JournalEntry.reverse
+    # sets it); anything else after itself.
+    doing = getattr(entry, "cash_floor_doing", None) or f"Posting {entry.reference}"
+    _check_floor(entry.company, taken, doing)
+
+
+def keep_opening_beneath(bank_account, on_date, refuse=True):
+    """Keep a bank account's opening entry dated on or before its earliest line.
+
+    The bank book starts from the account's opening balance on every day; the
+    ledger only from the day the opening entry is dated. A line dated earlier
+    -- last week's spends typed into a petty-cash box opened today -- would
+    make the two disagree for every day between, the book counting an opening
+    the ledger has not booked yet, and a cash box would show negative in the
+    ledger on those days.
+
+    The rule chosen: the account's opening date is the day of its earliest
+    movement. The opening entry is already dated on the first day its ledger
+    account shows any movement (post_bank_opening); a line dated before it
+    moves the opening entry back to that line's day, so the opening keeps
+    sitting beneath everything on the account. Only the account's own OPENING
+    entry is re-dated, never a document's.
+
+    Refused (with refuse=True) when the move would cross a closed period --
+    the opening would leave, or enter, a month whose figures are final; the
+    message says to reopen it or date the line later. With refuse=False (the
+    bank-book feed, answering an entry some other screen already posted) the
+    opening is simply left where it is.
+    """
+    from apps.accounting.models import closed_period_refusal, period_for
+
+    entry = bank_account.opening_entry if bank_account.opening_entry_id else None
+    if (entry is None or on_date is None or entry.status != "POSTED"
+            or entry.reversed_by_id or on_date >= entry.posting_date):
+        return
+    target = period_for(bank_account.company, on_date)
+    refusal = (closed_period_refusal(entry.period, entry.posting_date, "OPENING")
+               if entry.period_id else "") or closed_period_refusal(target, on_date, "OPENING")
+    if refusal:
+        if not refuse:
+            return
+        raise ValidationError(
+            f"{bank_account.name} opened on {entry.posting_date:%d %b %Y} with "
+            f"{bank_account.currency} {bank_account.opening_balance}, and a line dated "
+            f"{on_date:%d %b %Y} would come before that opening. Its opening would have to "
+            f"move back to {on_date:%d %b %Y}, and {refusal}")
+    JournalEntry.objects.filter(pk=entry.pk).update(
+        posting_date=on_date, period=target, updated_at=timezone.now())
+    entry.posting_date, entry.period = on_date, target
 
 
 def ledger_opening_on(account):
@@ -1494,11 +1718,12 @@ def post_bank_transaction(txn, user=None) -> JournalEntry:
     amount = txn.amount or Decimal("0")
     if amount <= 0:
         raise ValidationError("A bank transaction moves an amount above zero.")
+    deposit = txn.transaction_type == "CREDIT"
+    keep_opening_beneath(bank, txn.transaction_date)
 
     foreign = _is_foreign(bank)
     rate = bank_rate(bank, txn.transaction_date)
     base = to_base(amount, rate)
-    deposit = txn.transaction_type == "CREDIT"
     label = txn.description or txn.reference or ("Deposit" if deposit else "Withdrawal")
     je = _new_je(
         company, "JE-BNK-", "MANUAL", txn.transaction_date,
@@ -1521,13 +1746,12 @@ def post_bank_transaction(txn, user=None) -> JournalEntry:
         _cr(je, bank.gl_account, base, f"{bank.name}: {label}"[:500])
     BankTransaction.objects.filter(pk=txn.pk).update(journal_entry=je)
     txn.journal_entry = je
-    # The line is already on the bank book, so the box's balance below
-    # includes it: a spend (or a deposit corrected downwards) that empties a
-    # cash box past nothing is refused before anything is posted.
-    refuse_cash_below_zero(
-        bank, txn.transaction_date,
-        "This correction" if deposit else "This withdrawal")
-    je.post(user=user)
+    # A spend that empties a cash box past nothing is refused as the entry
+    # posts (the cash floor, checked by JournalEntry.post); named here so the
+    # refusal says what was being done. Inside an edit's own cash_floor block
+    # the edit's name wins and the check waits for the whole correction.
+    with cash_floor("This correction" if deposit else "This withdrawal"):
+        je.post(user=user)
     return je
 
 
@@ -1616,6 +1840,8 @@ def post_bank_transfer(source, destination, amount_sent, on_date, *, amount_rece
     amount_received = Decimal(str(amount_received))
     if amount_sent <= 0 or amount_received <= 0:
         raise ValidationError("A transfer moves an amount above zero on both sides.")
+    keep_opening_beneath(source, on_date)
+    keep_opening_beneath(destination, on_date)
     if same_money and amount_received != amount_sent:
         raise ValidationError(
             "Both accounts keep the same currency, so what arrives is what left. Record any "
@@ -1647,11 +1873,12 @@ def post_bank_transfer(source, destination, amount_sent, on_date, *, amount_rece
     in_line = BankTransaction.objects.create(
         bank_account=destination, transaction_type="CREDIT", amount=amount_received,
         description=f"{label} (from {source.name})"[:500], **common)
-    # A transfer out of a cash box can only move notes the box holds.
-    refuse_cash_below_zero(source, on_date, f"Moving {source.currency} {amount_sent} out")
     # Not stamped with a source document type, for the same reason as a
     # manual line (see post_bank_transaction): the lines point at the entry.
-    je.post(user=user)
+    # A transfer out of a cash box can only move notes the box holds (the
+    # cash floor, checked as the entry posts).
+    with cash_floor(f"Moving {source.currency} {amount_sent} out"):
+        je.post(user=user)
     return je, out_line, in_line
 
 
@@ -2362,16 +2589,12 @@ def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -
         _dr(je, exp_acct, line.amount, line.description)
 
     _cr(je, cash_acct, claim.total_amount, f"Paid: {claim.reference}")
-    je.post(user=user)
-
-    # Posting has put the payment on the bank book; a petty-cash box cannot pay
-    # out notes it does not hold, so the caller's transaction is undone if it
-    # would go below zero (a bank account may go overdrawn).
-    from apps.banking.models import BankAccount
-    paying_from = bank_account or BankAccount.objects.filter(
-        company=company, gl_account=cash_acct, is_active=True).first()
-    if paying_from is not None:
-        refuse_cash_below_zero(paying_from, paid_on, f"Paying {claim.reference}")
+    # A cash box -- petty cash, or Cash on Hand when no account was chosen --
+    # cannot pay out notes it does not hold: the cash floor, checked as the
+    # entry posts, refuses it whether or not the box has a bank account on
+    # the banking screen (a bank account may go overdrawn).
+    with cash_floor(f"Paying {claim.reference}"):
+        je.post(user=user)
 
     # Link back to claim
     claim.journal_entry = je

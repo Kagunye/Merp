@@ -1501,7 +1501,14 @@ def bill_pay(request, pk):
         _book_exchange_difference(
             je, company, ap_base - bank_base,
             f"Realised exchange on {bill.reference}")
-        je.post(user=request.user)
+        try:
+            je.post(user=request.user)
+        except ValidationError as exc:
+            # Refused as it posts -- a cash box cannot pay out notes it does not
+            # hold (the cash floor) -- so nothing of the payment is kept.
+            transaction.set_rollback(True)
+            messages.error(request, f"{bill.reference} was not paid: {exc.messages[0]}")
+            return redirect("procurement:bill_detail", pk=pk)
         bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
         bill.outstanding_amount = bill.total_amount - bill.paid_amount - bill.credited_amount
         if bill.outstanding_amount <= 0:
