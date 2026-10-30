@@ -192,24 +192,40 @@ def rate_in_use(rate):
     its journal carries the figure. Revaluations count too -- each share they
     booked was priced at the rate of the revaluation's day.
     """
+    return window_in_use(rate.company, rate.currency, rate.effective_date)
+
+
+def window_in_use(company, currency, on_date, exclude_pk=None, later_only=False):
+    """The first posted entry a rate dated `on_date` would govern, as text, or "".
+
+    The stretch runs from `on_date` to the day before the next rate filed for
+    the currency (`exclude_pk` leaves out a rate being edited). Used for a
+    rate already on file, and for one about to be filed: a new rate slipped
+    in on a day before documents already booked would make the history say
+    those documents were worth something other than what the ledger carries.
+    """
     from apps.accounting.models import JournalEntry, RevaluationShare
 
-    code = rate.currency.code
-    following = (ExchangeRate.objects
-                 .filter(company=rate.company, currency=rate.currency,
-                         effective_date__gt=rate.effective_date)
-                 .order_by("effective_date").values_list("effective_date", flat=True)
-                 .first())
-    window = {"posting_date__gte": rate.effective_date}
+    code = currency.code
+    following = ExchangeRate.objects.filter(
+        company=company, currency=currency, effective_date__gt=on_date)
+    if exclude_pk:
+        following = following.exclude(pk=exclude_pk)
+    following = following.order_by("effective_date").values_list(
+        "effective_date", flat=True).first()
+    # `later_only` leaves out documents of the rate's own day. A rate filed
+    # for today after this morning's invoice is the day's rate moving, not a
+    # back-dated one: the invoice keeps the rate stamped on it.
+    window = {"posting_date__gt" if later_only else "posting_date__gte": on_date}
     if following:
         window["posting_date__lt"] = following
     entry = (JournalEntry.objects
-             .filter(company=rate.company, status="POSTED", source_currency=code, **window)
+             .filter(company=company, status="POSTED", source_currency=code, **window)
              .order_by("posting_date").first())
     if entry:
         return f"{entry.reference} ({entry.posting_date:%d %b %Y})"
     share = (RevaluationShare.objects
-             .filter(revaluation__company=rate.company, revaluation__status="POSTED",
+             .filter(revaluation__company=company, revaluation__status="POSTED",
                      currency=code,
                      **{f"revaluation__{key}": value for key, value in window.items()})
              .select_related("revaluation").order_by("revaluation__posting_date").first())

@@ -369,6 +369,13 @@ class AgedDebtorsView(LoginRequiredMixin, TemplateView):
         on_account = unapplied_receipts(company)
         grand_total = sum(totals.values())
         unapplied_total = sum((row["base"] for row in on_account), Decimal("0"))
+        # What 1300 holds that no invoice or receipt explains -- opening
+        # balances brought in by journal, above all. Not aged (nothing says
+        # when it fell due), but shown on its own line and counted in the net,
+        # so the report agrees with the control account. See
+        # apps.accounting.subledger.
+        from apps.accounting.subledger import OPENING_LINE_LABEL, unallocated
+        opening = unallocated(company, "receivable", grand_total - unapplied_total)
 
         ctx.update({
             "buckets": buckets,
@@ -378,7 +385,9 @@ class AgedDebtorsView(LoginRequiredMixin, TemplateView):
             "grand_total": grand_total,
             "unapplied": on_account,
             "unapplied_total": unapplied_total,
-            "net_total": grand_total - unapplied_total,
+            "net_total": grand_total - unapplied_total + opening,
+            "opening_unallocated": opening,
+            "opening_unallocated_label": OPENING_LINE_LABEL,
             "book": (company.currency or "").upper(),
             "today": today,
         })
@@ -424,10 +433,20 @@ class AgedCreditorsView(LoginRequiredMixin, TemplateView):
             buckets[bucket].append(bill)
             totals[bucket] += outstanding
 
+        # What 2100 holds that no bill explains (opening balances, a journal
+        # posted straight to it), on its own line so the total is the control
+        # account. See apps.accounting.subledger.
+        from apps.accounting.subledger import OPENING_LINE_LABEL, unallocated
+        bills_total = sum(totals.values())
+        opening = unallocated(company, "payable", bills_total)
+
         ctx.update({
             "buckets": buckets,
             "totals": totals,
-            "grand_total": sum(totals.values()),
+            "bills_total": bills_total,
+            "opening_unallocated": opening,
+            "opening_unallocated_label": OPENING_LINE_LABEL,
+            "grand_total": bills_total + opening,
             "book": (company.currency or "").upper(),
             "today": today,
         })

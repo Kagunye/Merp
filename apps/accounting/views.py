@@ -121,6 +121,13 @@ def account_deactivate(request, pk):
     """Retire an account. Its history stays in the ledger; it simply stops
     being offered on journal lines, bills and opening balances."""
     account = get_object_or_404(Account, pk=pk, company=request.active_company)
+    # The closes, the control accounts and the accounts settings point at come
+    # first: retiring one does not stop the postings, it sends them somewhere
+    # nobody chose (a month's profit into 3000, an invoice with no receivable).
+    refusal = account.retire_refusal()
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("accounting:account_edit", pk=account.pk)
     children = account.children.filter(is_active=True)
     if children.exists():
         messages.error(
@@ -621,7 +628,11 @@ class FiscalYearCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
                 fiscal_year=fy, name=f"P{n:02d} {current.strftime('%b %Y')}",
                 defaults={"start_date": current, "end_date": period_end, "status": "OPEN"},
             )
-            # advance to first day of next month
+            # advance to first day of next month. The form keeps a year well
+            # inside the calendar, but the loop stops at the last month the
+            # calendar has rather than asking for year 10000 if one slips by.
+            if period_end >= fy.end_date or period_end == date.max:
+                break
             if current.month == 12:
                 current = date(current.year + 1, 1, 1)
             else:
@@ -836,6 +847,11 @@ class OpeningBalanceView(LoginRequiredMixin, TemplateView):
             messages.error(
                 request, f"'{raw_date}' is not a real date. Pick the day the opening "
                 "balances are taken at, usually the first day of the fiscal year.")
+            return redirect("accounting:opening_balances")
+        from .models import book_date_refusal
+        refusal = book_date_refusal(posting_date, "Opening balances")
+        if refusal:
+            messages.error(request, "Nothing was posted. " + refusal)
             return redirect("accounting:opening_balances")
 
         line_data, problems = [], []
@@ -1218,6 +1234,16 @@ def revaluation_reverse(request):
             request,
             f"{entry.reference} is dated {entry.posting_date:%d %b %Y}; a reversal "
             "cannot be dated before the entry it answers.")
+        return redirect("accounting:revaluation")
+    if as_of and as_of > revaluation._today():
+        # A reversal dated next quarter leaves the revaluation standing on
+        # every balance sheet until then, yet the book already counts it as
+        # taken off: the next revaluation books the full difference again and
+        # 1350 carries it twice.
+        messages.error(
+            request,
+            f"{as_of:%d %b %Y} is still to come. A revaluation is taken off on or "
+            f"before today, and not before its own date ({entry.posting_date:%d %b %Y}).")
         return redirect("accounting:revaluation")
     try:
         # The releases made against it as documents were settled come off with

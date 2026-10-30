@@ -300,6 +300,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 (b.outstanding_base for b in Bill.objects.filter(
                     company=company, status__in=["RECEIVED", "PARTIAL", "OVERDUE"],
                     outstanding_amount__gt=Decimal("0"))), Decimal("0"))
+            # Plus what the control accounts hold that no document explains:
+            # opening balances typed in by journal on 1300 and 2100. Without
+            # it a company that brought in 75,000 of debtors showed 0 owed.
+            from apps.accounting.subledger import unallocated
+            accounts_receivable += unallocated(company, "receivable", accounts_receivable)
+            accounts_payable += unallocated(company, "payable", accounts_payable)
 
         except Exception:
             total_cash = Decimal("0")

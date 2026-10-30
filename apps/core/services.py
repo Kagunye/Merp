@@ -134,14 +134,17 @@ def _first_day_of_next_month(day):
 
 def create_chart_of_accounts(company):
     """Idempotently create the default chart. Returns {code: Account}."""
-    from apps.accounting.models import Account
+    from apps.accounting.models import SYSTEM_ACCOUNT_CODES, Account
 
     by_code = {}
     for code, name, acct_type, parent_code in CHART_OF_ACCOUNTS:
         parent = by_code.get(parent_code) if parent_code else None
+        # The accounts the ledger posts to by itself are flagged as such, so the
+        # chart refuses to retire them (see Account.retire_refusal).
         account, _ = Account.objects.get_or_create(
             company=company, code=code,
-            defaults={"name": name, "account_type": acct_type, "parent": parent},
+            defaults={"name": name, "account_type": acct_type, "parent": parent,
+                      "is_system": code in SYSTEM_ACCOUNT_CODES},
         )
         by_code[code] = account
     return by_code
@@ -167,6 +170,19 @@ def create_default_units(company):
     return by_abbrev
 
 
+def fiscal_year_name(start, end):
+    """What a fiscal year is called: "FY 2026" or "FY 2025/26".
+
+    A year that starts and ends inside one calendar year (January to December)
+    is named after that year alone. Calling it "FY 2026/27" told every reader
+    that it ran into 2027, which it does not. Only a year that straddles two
+    calendar years carries both.
+    """
+    if start.year == end.year:
+        return f"FY {start.year}"
+    return f"FY {start.year}/{str(end.year)[-2:]}"
+
+
 def create_fiscal_year(company):
     """Idempotently create the current fiscal year with 12 open monthly periods."""
     from apps.organizations.models import AccountingPeriod, FiscalYear
@@ -177,10 +193,14 @@ def create_fiscal_year(company):
     start = datetime.date(year, start_month, 1)
     end = datetime.date(year + 1, start_month, 1) - datetime.timedelta(days=1)
 
-    fy, _ = FiscalYear.objects.get_or_create(
-        company=company, name=f"FY {year}/{str(year + 1)[-2:]}",
-        defaults={"start_date": start, "end_date": end, "is_current": True},
-    )
+    # Found by its dates rather than its name: a book provisioned before the
+    # naming was corrected holds this year as "FY 2026/27", and looking it up
+    # by the new name would make a second, overlapping year beside it.
+    fy = (FiscalYear.objects.filter(company=company, start_date=start).first()
+          or FiscalYear.objects.get_or_create(
+              company=company, name=fiscal_year_name(start, end),
+              defaults={"start_date": start, "end_date": end, "is_current": True},
+          )[0])
     cursor, n = start, 1
     while cursor <= fy.end_date:
         last_day = calendar.monthrange(cursor.year, cursor.month)[1]
