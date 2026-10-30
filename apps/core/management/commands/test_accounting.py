@@ -1669,6 +1669,21 @@ class Command(BaseCommand):
             return
         self.expect("it points at the asset account it was mapped to",
                     bank.gl_account_id == bank_gl.pk)
+        # A bank account opened on a ledger account that already has history
+        # now has that history brought onto its bank book (bankbook.backfill),
+        # so the book agrees with the ledger from the first day. 1200 already
+        # carries earlier sections' postings here, so the counts below add
+        # those lines to the ones this section types: `brought` before the
+        # statement date, `brought_late` after it.
+        brought = bank.transactions.filter(
+            origin="LEDGER", transaction_date__lte=statement_date).count()
+        brought_late = bank.transactions.filter(
+            origin="LEDGER", transaction_date__gt=statement_date).count()
+        self.expect("the ledger account's history is on the new bank book, one line an entry",
+                    bank.transactions.count() == brought + brought_late
+                    and bank.statement_balance == bank.current_balance,
+                    f"{brought + brought_late} line(s), book {bank.statement_balance} / "
+                    f"ledger {bank.current_balance}")
 
         # A manual bank line now books its own ledger entry, so the form needs
         # the account on the other side: owner's capital for the money in,
@@ -1721,9 +1736,10 @@ class Command(BaseCommand):
         self.expect("the statement screen renders", page.status_code == 200, f"HTTP {page.status_code}")
         pending = list(ctx.get("pending") or [])
         self.expect("the three in-range items are offered for clearing",
-                    len(pending) == 3, f"{len(pending)} offered")
+                    len(pending) == 3 + brought, f"{len(pending)} offered")
         self.expect("an item dated after the statement is kept off the tick list",
-                    ctx.get("after_statement") == 1, str(ctx.get("after_statement")))
+                    ctx.get("after_statement") == 1 + brought_late,
+                    str(ctx.get("after_statement")))
         self.expect("an empty statement is out by the whole movement",
                     ctx.get("difference") == D("10000.00"), str(ctx.get("difference")))
         self.expect("the statement is not balanced yet", not ctx.get("is_balanced"))
@@ -1812,16 +1828,18 @@ class Command(BaseCommand):
         open_rows = client.get(
             reverse("banking:transaction_list") + "?reconciled=false").context["transactions"]
         self.expect("the outstanding filter returns uncleared rows only",
-                    open_rows.count() == 1 and not any(t.is_reconciled for t in open_rows),
+                    open_rows.count() == 1 + brought + brought_late
+                    and not any(t.is_reconciled for t in open_rows),
                     f"{open_rows.count()} rows")
         scoped = client.get(
             reverse("banking:transaction_list") + f"?account={bank.pk}").context["transactions"]
-        self.expect("the account filter is honoured", scoped.count() == 4, f"{scoped.count()} rows")
+        self.expect("the account filter is honoured",
+                    scoped.count() == 4 + brought + brought_late, f"{scoped.count()} rows")
         junk = client.get(reverse("banking:transaction_list") + "?account=not-a-uuid")
         self.expect("a hand-typed account id does not take the list down",
                     junk.status_code == 200, f"HTTP {junk.status_code}")
         self.expect("a hand-typed account id is ignored rather than trusted",
-                    junk.context["transactions"].count() == 4)
+                    junk.context["transactions"].count() == 4 + brought + brought_late)
         other_bank = BankAccount.objects.exclude(company=self.company).first()
         if other_bank:
             tampered = client.get(
@@ -1900,7 +1918,8 @@ class Command(BaseCommand):
         # Four, not three: the standing order released by the second statement
         # is outstanding again too, now that both statements are reversed.
         self.expect("the released items reappear on the outstanding list",
-                    open_rows.count() == 4, f"{open_rows.count()} rows")
+                    open_rows.count() == 4 + brought + brought_late,
+                    f"{open_rows.count()} rows")
         resp = client.post(reverse_url)
         self.expect_flash(client, resp, "Only a posted statement can be reversed",
                           "reversing twice is refused")

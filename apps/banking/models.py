@@ -1,6 +1,7 @@
 """Banking: Bank accounts, transactions, reconciliation."""
 from decimal import Decimal
 from django.db import models
+from django.db.models import Q
 from apps.core.models import BaseModel, NotesMixin
 
 
@@ -18,22 +19,77 @@ class BankAccount(BaseModel):
     branch = models.CharField(max_length=200, blank=True, default="")
     gl_account = models.ForeignKey("accounting.Account", on_delete=models.PROTECT, related_name="bank_accounts")
     opening_balance = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
+    # The entry that put the opening balance into the ledger: Dr this bank's
+    # ledger account / Cr opening equity (3100), or the other way round for an
+    # account that opened overdrawn. Without it the bank book starts from the
+    # opening balance while the ledger starts from nothing, and the two can
+    # never agree. Kept on the account so it is booked once, and so the
+    # account knows it has history the moment it is created.
+    opening_entry = models.ForeignKey(
+        "accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="bank_openings",
+    )
+    # Where the till's card slips and M-Pesa messages are banked. The money a
+    # card machine or a Lipa na M-Pesa till takes is settled into one real bank
+    # account, and the ticket's entry has to debit that account's ledger
+    # account or its statement will never reconcile. At most one account per
+    # company carries each flag; with none flagged the till falls back to the
+    # Bank ledger account (1200), which is how every company started.
+    receives_pos_card = models.BooleanField(
+        default=False, verbose_name="Receives POS card takings",
+        help_text="The till's card sales are banked here. Only one account per company.")
+    receives_pos_mpesa = models.BooleanField(
+        default=False, verbose_name="Receives POS M-Pesa takings",
+        help_text="The till's M-Pesa sales are banked here. Only one account per company.")
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company"], condition=Q(receives_pos_card=True),
+                name="bank_one_pos_card_account"),
+            models.UniqueConstraint(
+                fields=["company"], condition=Q(receives_pos_mpesa=True),
+                name="bank_one_pos_mpesa_account"),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.bank_name})"
 
     @property
+    def has_history(self):
+        """Has anything been recorded against this account yet?
+
+        A transaction on its bank book, a statement (even a draft or a reversed
+        one) or the entry that booked its opening balance. Once any of those
+        exists, the ledger account, the currency and the opening balance are
+        what that history was written in, and changing them would leave the
+        bank book and the ledger telling two different stories.
+        """
+        if self._state.adding:
+            return False
+        return bool(self.opening_entry_id) or self.transactions.exists()             or self.reconciliations.exists()
+
+    @property
     def current_balance(self):
-        """What the ledger account behind this bank account holds.
+        """What the ledger account behind this bank account holds today.
 
         The ledger is kept in the book's own currency, so for a foreign-currency
         bank account this is the book-currency value — show it labelled with
         the book's currency, never with this account's own.
+
+        As at today, not "every line the book holds": a receipt or payment
+        dated next week has not happened yet, and a balance that counted it
+        would be a forecast the bank statement can never agree with. Future
+        lines are listed separately on the account's page.
         """
-        return self.gl_account.current_balance
+        from django.utils import timezone
+        return self.gl_account.balance_as_at(timezone.localdate())
+
+    def future_transactions(self):
+        """Bank-book lines dated after today -- money that has not moved yet."""
+        from django.utils import timezone
+        return self.transactions.filter(transaction_date__gt=timezone.localdate())             .order_by("transaction_date", "created_at")
 
     @property
     def is_foreign(self):
@@ -46,11 +102,20 @@ class BankAccount(BaseModel):
         """The balance in the account's own currency, as the bank would print it.
 
         The opening balance plus every transaction recorded against the account
-        — those are entered in the account's own money — which is what a USD
-        statement has to be compared with.
+        up to today — those are entered in the account's own money — which is
+        what a USD statement has to be compared with. Dated as at today for the
+        same reason as current_balance: the two are compared with each other.
         """
+        from django.utils import timezone
+        return self.book_balance_at(timezone.localdate())
+
+    def book_balance_at(self, on_date):
+        """The bank book's balance at the close of `on_date`, in its own money."""
         from django.db.models import Case, DecimalField, F, Sum, Value, When
-        signed = self.transactions.aggregate(t=Sum(Case(
+        lines = self.transactions.all()
+        if on_date is not None:
+            lines = lines.filter(transaction_date__lte=on_date)
+        signed = lines.aggregate(t=Sum(Case(
             When(transaction_type="CREDIT", then=F("amount")),
             When(transaction_type="DEBIT", then=-F("amount")),
             default=Value(0),

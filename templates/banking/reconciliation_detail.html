@@ -18,16 +18,39 @@
   </div>
   <div class="no-print flex flex-wrap gap-2">
     {% if reconciliation.status == 'DRAFT' %}
-    <form method="post" action="{% url 'banking:reconciliation_post' reconciliation.pk %}">
+    {% can_do "banking:reconciliation_edit" "POST" as may_edit %}
+    {% can_do "banking:reconciliation_delete" "POST" as may_delete %}
+    {% can_do "banking:reconciliation_post" "POST" as may_post %}
+    {% if may_edit %}
+    <a href="{% url 'banking:reconciliation_edit' reconciliation.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Edit draft</a>
+    {% endif %}
+    {% if may_delete %}
+    <form method="post" action="{% url 'banking:reconciliation_delete' reconciliation.pk %}"
+          onsubmit="return confirm('Delete draft {{ reconciliation.reference }}? Anything ticked on it becomes outstanding again.');">
       {% csrf_token %}
+      <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold border border-red-200 text-red-700 bg-white hover:bg-red-50">Delete draft</button>
+    </form>
+    {% endif %}
+    {% if may_post %}
+    <form method="post" action="{% url 'banking:reconciliation_post' reconciliation.pk %}" class="flex flex-wrap items-center gap-2">
+      {% csrf_token %}
+      {% if not is_balanced %}
+      <input type="text" name="notes" value="{{ reconciliation.notes }}" maxlength="2000"
+             placeholder="Why the difference is accepted" aria-label="Notes: why the difference is accepted"
+             class="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-800 bg-white w-64">
+      {% endif %}
       <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Post statement</button>
     </form>
+    {% endif %}
     {% elif reconciliation.status == 'POSTED' %}
+    {% can_do "banking:reconciliation_reverse" "POST" as may_reverse %}
+    {% if may_reverse %}
     <form method="post" action="{% url 'banking:reconciliation_reverse' reconciliation.pk %}"
           onsubmit="return confirm('Reverse {{ reconciliation.reference }}? Every transaction it cleared becomes outstanding again.');">
       {% csrf_token %}
       <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold border border-red-200 text-red-700 bg-white hover:bg-red-50">Reverse</button>
     </form>
+    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -130,6 +153,25 @@
 
   {% if after_statement %}
   <p class="text-xs text-gray-500 mb-4">{{ after_statement }} transaction(s) dated after this statement are ignored — they belong to the next one.</p>
+  {% endif %}
+
+  {% if future_lines %}
+  <h2 class="text-sm font-semibold text-gray-700 mb-1">Dated after today</h2>
+  <p class="text-xs text-gray-500 mb-3">Recorded with a date that has not come yet, so no bank statement can show them. They are not offered for ticking and are left out of the account's balance until their day.</p>
+  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-6">
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-100">
+        {% for t in future_lines %}
+        <tr>
+          <td class="px-4 py-2 whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="hover:underline">{{ t.transaction_date|date:"d M Y" }}</a></td>
+          <td class="px-4 py-2">{{ t.description|default:"—" }}</td>
+          <td class="px-4 py-2 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
+          <td class="px-4 py-2 text-right font-mono {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ t.signed_amount|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 
   {% if reconciliation.status == 'DRAFT' %}

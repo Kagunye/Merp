@@ -41,6 +41,7 @@
         <div class="font-semibold {% if row.pending_count %}text-amber-700{% else %}text-green-700{% endif %}">
           {{ row.pending_count }} item(s){% if row.pending_count %} · {{ row.pending_value|floatformat:2 }}{% endif %}
         </div>
+        {% if row.future_count %}<div class="text-xs text-gray-500">{{ row.future_count }} dated after today, not yet due</div>{% endif %}
       </div>
     </div>
 

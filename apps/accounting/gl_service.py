@@ -961,7 +961,8 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
     cash = sale.payment_method == "CASH"
     counter = (
         _get_account_safe(company, "1100") if cash
-        else _get_account_safe(company, "1200", "1100")
+        else pos_takings_account(company, sale.payment_method)
+        or _get_account_safe(company, "1200", "1100")
         or _get_account_by_type(company, "BANK", "CASH")
     )
     default_revenue = (
@@ -1026,6 +1027,35 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
     _Sale.objects.filter(pk=sale.pk).update(journal_entry=je)
     sale.journal_entry = je
     return je
+
+
+# Which bank-account flag says where a till payment method is banked.
+POS_TAKINGS_FLAGS = {"CARD": "receives_pos_card", "MPESA": "receives_pos_mpesa"}
+
+
+def pos_takings_account(company, payment_method) -> Optional[Account]:
+    """The ledger account a till's card or M-Pesa takings are debited to.
+
+    A card machine settles into one bank account and a Lipa na M-Pesa till
+    into another (often the M-Pesa float itself), so each ticket has to land
+    on the account its money actually reaches -- otherwise one statement shows
+    money the ledger put somewhere else and neither ever reconciles. The bank
+    account flagged on the banking screen to receive that kind of takings
+    decides; with none flagged (or the flagged one retired) this returns None
+    and the caller falls back to the Bank ledger account, 1200, which is how
+    every till posted before the flags existed. A refund pays back through
+    the same account, so it comes out of the account the sale went into.
+    """
+    from apps.banking.models import BankAccount
+
+    flag = POS_TAKINGS_FLAGS.get((payment_method or "").upper())
+    if not flag:
+        return None
+    bank = (BankAccount.objects.filter(company=company, is_active=True, **{flag: True})
+            .select_related("gl_account").first())
+    if bank is None or not bank.gl_account.is_active:
+        return None
+    return bank.gl_account
 
 
 def _pos_day(moment):
@@ -1137,6 +1167,150 @@ def _is_foreign(bank_account):
     return bool(code) and code != book_currency(bank_account.company)
 
 
+def is_cash_account(bank_account):
+    """Is this a box of notes (petty cash, a till float) rather than a bank?
+
+    A bank can lend: an overdraft is a facility, and the statement simply
+    shows a negative balance. A cash box cannot -- nobody can take out notes
+    that are not in it -- so a cash account below zero is a recording error
+    (a spend entered twice, a top-up never entered), never a fact.
+    """
+    return (bank_account.gl_account.account_type == "CASH"
+            or bank_account.account_type == "PETTY_CASH")
+
+
+def refuse_cash_below_zero(bank_account, from_day, doing="This"):
+    """Refuse a change that leaves a cash account holding less than nothing.
+
+    Called after the change is on the bank book (inside the caller's
+    transaction, so raising undoes it). The balance is checked at the close
+    of the change's own day and of every later day up to today on which the
+    box moved, so a back-dated spend cannot dig a hole under a top-up that
+    came later. Bank accounts are left alone: they may go overdrawn.
+    """
+    from apps.banking.models import BankTransaction
+
+    if not is_cash_account(bank_account):
+        return
+    today = timezone.localdate()
+    start = min(from_day, today) if from_day else today
+    days = {start} | set(
+        BankTransaction.objects.filter(
+            bank_account=bank_account, transaction_date__gt=start,
+            transaction_date__lte=today).values_list("transaction_date", flat=True))
+    for day in sorted(days):
+        held = bank_account.book_balance_at(day)
+        if held < 0:
+            raise ValidationError(
+                f"{doing} would leave {bank_account.name} holding {held} at the close of "
+                f"{day:%d %b %Y}. A cash box cannot pay out notes it does not have -- "
+                "record the top-up that came first, or take the money from a bank account.")
+
+
+def ledger_opening_on(account):
+    """What OPENING entries already put on a ledger account, and the entries.
+
+    A book is often opened by hand as one journal (the opening-balances
+    screen, or a typed OPENING journal) before any bank account is set up on
+    the banking screen. That money is already the ledger's opening for the
+    account, so a bank account created on it later must open from the same
+    figure rather than book it a second time.
+    """
+    entries = list(JournalEntry.objects.filter(
+        company=account.company, status="POSTED", entry_type="OPENING",
+        reversed_by__isnull=True, lines__account=account).distinct())
+    lines = JournalEntryLine.objects.filter(journal_entry__in=entries, account=account)
+    net = ((lines.aggregate(t=Sum("debit_amount"))["t"] or Decimal("0"))
+           - (lines.aggregate(t=Sum("credit_amount"))["t"] or Decimal("0")))
+    return net, entries
+
+
+@transaction.atomic
+def post_bank_opening(bank, user=None) -> Optional[JournalEntry]:
+    """Put a new bank account's opening balance into the ledger.
+
+    An account that already held money                An account opened overdrawn
+    DR  the bank's ledger account   opening balance    DR  opening equity (3100)
+    CR  opening equity (3100)                          CR  the bank's ledger account
+
+    The bank book starts from the opening balance, so the ledger has to as
+    well or the two differ by it for ever. The other side is opening equity --
+    the same account opening stock is introduced against -- because money the
+    company already had when it started keeping these books came from before
+    them, not from this period's trading.
+
+    Dated on the first day the ledger account shows any movement (so the
+    opening sits beneath everything already there), or today for a fresh
+    account. A foreign account's opening is in its own money and is valued
+    at that day's filed rate. Booked once: an account that already has its
+    opening entry hands it back, and an opening balance of nothing books
+    nothing. The opening balance is locked once booked; a correction is a
+    deposit or a withdrawal against opening equity.
+
+    When the ledger account already carries an opening of its own (an
+    OPENING journal typed before this bank account existed) that is the
+    opening, and nothing is booked a second time. A shilling account then
+    opens from exactly that figure: left at nothing on the form it takes the
+    ledger's, and a different figure is refused, because one of the two is
+    wrong and only the bookkeeper knows which.
+
+    The entry is an OPENING entry, which the bank-book feed does not mirror:
+    the account's opening balance already stands for it on the bank book.
+    """
+    from apps.banking.models import BankAccount
+
+    if bank.opening_entry_id:
+        return bank.opening_entry
+    amount = bank.opening_balance or Decimal("0")
+    foreign = _is_foreign(bank)
+    already, typed = ledger_opening_on(bank.gl_account)
+    if already:
+        if foreign:
+            # The ledger holds shillings and the form dollars: they cannot be
+            # compared figure for figure, and the ledger's opening stands.
+            return None
+        if not amount:
+            BankAccount.objects.filter(pk=bank.pk).update(opening_balance=already)
+            bank.opening_balance = already
+            return None
+        if amount != already:
+            refs = ", ".join(e.reference for e in typed[:3])
+            raise ValidationError(
+                f"{bank.gl_account.code} {bank.gl_account.name} already opens at {already} "
+                f"in the ledger ({refs}). The bank account has to open from the same figure — "
+                f"enter {already} as its opening balance (or leave it at 0), or correct the "
+                "opening journal first.")
+        return None
+    if not amount:
+        return None
+    company = bank.company
+    first = (bank.gl_account.journal_lines.filter(journal_entry__status="POSTED")
+             .order_by("journal_entry__posting_date")
+             .values_list("journal_entry__posting_date", flat=True).first())
+    today = timezone.localdate()
+    on_date = min(first, today) if first else today
+    rate = bank_rate(bank, on_date)
+    base = to_base(abs(amount), rate)
+    equity = (_get_account_safe(company, OPENING_EQUITY[0])
+              or ensure_account(company, *OPENING_EQUITY))
+    je = _new_je(
+        company, "JE-OPEN-", "OPENING", on_date,
+        f"Opening balance of {bank.name}: {bank.currency} {amount}",
+        source_currency=bank.currency if foreign else "",
+        exchange_rate=rate if foreign else None,
+    )
+    if amount > 0:
+        _dr(je, bank.gl_account, base, f"Opening balance: {bank.name}")
+        _cr(je, equity, base, f"Opening balance brought in: {bank.name}")
+    else:
+        _dr(je, equity, base, f"Opening overdraft brought in: {bank.name}")
+        _cr(je, bank.gl_account, base, f"Opening overdraft: {bank.name}")
+    je.post(user=user)
+    BankAccount.objects.filter(pk=bank.pk).update(opening_entry=je)
+    bank.opening_entry = je
+    return je
+
+
 @transaction.atomic
 def post_bank_transaction(txn, user=None) -> JournalEntry:
     """Book a deposit or withdrawal typed on the banking screen.
@@ -1217,6 +1391,12 @@ def post_bank_transaction(txn, user=None) -> JournalEntry:
         _cr(je, bank.gl_account, base, f"{bank.name}: {label}"[:500])
     BankTransaction.objects.filter(pk=txn.pk).update(journal_entry=je)
     txn.journal_entry = je
+    # The line is already on the bank book, so the box's balance below
+    # includes it: a spend (or a deposit corrected downwards) that empties a
+    # cash box past nothing is refused before anything is posted.
+    refuse_cash_below_zero(
+        bank, txn.transaction_date,
+        "This correction" if deposit else "This withdrawal")
     je.post(user=user)
     return je
 
@@ -1337,6 +1517,8 @@ def post_bank_transfer(source, destination, amount_sent, on_date, *, amount_rece
     in_line = BankTransaction.objects.create(
         bank_account=destination, transaction_type="CREDIT", amount=amount_received,
         description=f"{label} (from {source.name})"[:500], **common)
+    # A transfer out of a cash box can only move notes the box holds.
+    refuse_cash_below_zero(source, on_date, f"Moving {source.currency} {amount_sent} out")
     # Not stamped with a source document type, for the same reason as a
     # manual line (see post_bank_transaction): the lines point at the entry.
     je.post(user=user)

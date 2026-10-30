@@ -15,7 +15,7 @@
     <div class="text-xs text-gray-500 mb-1">Balance per ledger</div>
     <div class="text-2xl font-bold">{{ book }} {{ account.current_balance|floatformat:2 }}</div>
     {% endif %}
-    <div class="text-xs text-gray-500 mt-2">{{ unreconciled }} transaction(s) still outstanding</div>
+    <div class="text-xs text-gray-500 mt-2">As at {{ today|date:"d M Y" }} · {{ unreconciled }} transaction(s) still outstanding</div>
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5">
     <div class="text-xs text-gray-500 mb-1">Account number</div>
@@ -68,6 +68,25 @@
     </tbody>
   </table>
 </div>
+
+{% if future %}
+<h2 class="text-sm font-semibold text-gray-700 mb-1">Dated after today</h2>
+<p class="text-xs text-gray-500 mb-3">Not in the balance above: these carry a date that has not come yet, so the money has not moved and no statement can show it.</p>
+<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-8">
+  <table class="w-full text-sm">
+    <tbody class="divide-y divide-gray-100">
+      {% for t in future %}
+      <tr>
+        <td class="px-4 py-3 whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="hover:underline">{{ t.transaction_date|date:"d M Y" }}</a></td>
+        <td class="px-4 py-3">{{ t.description|default:"—" }}</td>
+        <td class="px-4 py-3 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
+        <td class="px-4 py-3 text-right font-mono font-semibold {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{% if t.signed_amount >= 0 %}+{% else %}−{% endif %}{{ t.amount|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <h2 class="text-sm font-semibold text-gray-700 mb-3">Recent transactions</h2>
 <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">

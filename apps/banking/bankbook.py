@@ -39,6 +39,21 @@ Entries that are not money moving are not fed: an OPENING entry (the bank
 account's own opening balance stands for that), a period or year CLOSING, and
 an exchange REVALUATION (it restates the shilling value of dollars the bank
 still holds; the statement does not move).
+
+* A bank account opened on a ledger account that already has history —
+  say 1200, which the till has been debiting with card takings for months —
+  has a bank book that starts empty while the ledger does not. ``backfill``
+  walks the posted entries already on that ledger account and gives each the
+  line ``feed`` would have given it at the time, so the bank book and the
+  ledger agree from the first day. Same rules, same idempotence. (An OPENING
+  journal already on the ledger account is left out here too: the bank
+  account opens from that figure instead — see gl_service.post_bank_opening.)
+
+* The one OPENING entry the bank book does answer is a bank account's own
+  opening entry once it is reversed (from the journal screen, say). The
+  opening balance on the account still stands, so the reversal gets a line of
+  its own taking it back off — otherwise the bank book would keep the money
+  the ledger has just removed.
 """
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -145,6 +160,64 @@ def feed(entry):
     return added
 
 
+def backfill(bank):
+    """Bring a bank account's ledger history onto its bank book.
+
+    For every posted entry already on the bank's ledger account, add the line
+    ``feed`` would have added, on this bank account. A reversed entry and its
+    reversal are left out together — the bank never saw money that came and
+    went again before the bank book existed, exactly as ``unwind`` would have
+    removed both. An entry that already has a line on this account is left
+    alone, so running it twice adds nothing.
+
+    Returns the lines added.
+    """
+    from apps.accounting.models import JournalEntry
+    from .models import BankTransaction
+
+    if bank.gl_account_id is None:
+        return []
+    entries = (JournalEntry.objects
+               .filter(company=bank.company, status="POSTED",
+                       lines__account_id=bank.gl_account_id)
+               .exclude(entry_type__in=NOT_MONEY)
+               .distinct().order_by("posting_date", "created_at"))
+    have = set(BankTransaction.objects.filter(bank_account=bank)
+               .exclude(journal_entry__isnull=True)
+               .values_list("journal_entry_id", flat=True))
+    added = []
+    for entry in entries:
+        if entry.pk in have or entry.reversed_by_id or entry.is_reversal:
+            continue
+        net = _net_by_account(entry).get(bank.gl_account_id, ZERO)
+        if not net:
+            continue
+        line = _line_for(entry, bank, net)
+        if line is not None:
+            added.append(line)
+    return added
+
+
+def _answer_opening_reversal(entry, reversal):
+    """A bank account's opening entry was reversed: take it off the bank book too."""
+    from .models import BankAccount, BankTransaction
+
+    for bank in BankAccount.objects.filter(opening_entry=entry).select_related("company"):
+        if BankTransaction.objects.filter(journal_entry=reversal, bank_account=bank).exists():
+            continue
+        net = _net_by_account(reversal).get(bank.gl_account_id, ZERO)
+        if not net or not bank.opening_balance:
+            continue
+        # The opening balance itself, in the account's own money: that is the
+        # figure the bank book carries, whatever rate the ledger booked it at.
+        BankTransaction.objects.create(
+            bank_account=bank, transaction_date=reversal.posting_date,
+            transaction_type="CREDIT" if net > 0 else "DEBIT",
+            amount=abs(bank.opening_balance),
+            description=f"Reversal of the opening balance ({entry.reference})"[:500],
+            reference=reversal.reference[:200], origin="LEDGER", journal_entry=reversal)
+
+
 def unwind(entry):
     """Answer the bank book when a posted entry has been reversed.
 
@@ -155,7 +228,12 @@ def unwind(entry):
     from .models import BankTransaction
 
     reversal = entry.reversed_by
-    if reversal is None or entry.entry_type in NOT_MONEY:
+    if reversal is None:
+        return
+    if entry.entry_type == "OPENING":
+        _answer_opening_reversal(entry, reversal)
+        return
+    if entry.entry_type in NOT_MONEY:
         return
     nets = _net_by_account(entry)
     reversal_nets = _net_by_account(reversal)
