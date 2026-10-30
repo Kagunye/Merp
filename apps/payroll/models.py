@@ -39,6 +39,34 @@ PAYABLE_STATUSES = ["ACTIVE", "PROBATION", "ON_LEAVE"]
 # honest delay in paying a month, short enough to catch a mistyped year.
 PAYMENT_GRACE_DAYS = 60
 
+# The most a month's pension contributions may take off taxable pay, NSSF and
+# any private or occupational scheme added together. The Income Tax Act, as
+# amended by the Tax Laws (Amendment) Act of December 2024, allows registered
+# pension contributions up to KES 30,000 a month; anything above that is still
+# deducted from pay and paid into the scheme, but it is taxed first. A
+# part-month run gets the same share of the ceiling as it gets of the month.
+# Held here as a constant rather than a company setting: it is the law, not a
+# preference, and it changes only when Parliament changes it.
+PENSION_RELIEF_CAP = Decimal("30000")
+
+# The runs that are somebody's decision and are still standing. A contract that
+# paid one of these is history the ledger relies on, so its pay, dates and
+# employee are locked (see apps.hr.models.Contract.clean).
+APPROVED_RUNS = ["APPROVED", "POSTED"]
+
+
+def month_bounds(day):
+    """The first and last day of the calendar month `day` falls in."""
+    import calendar
+    last = calendar.monthrange(day.year, day.month)[1]
+    return day.replace(day=1), day.replace(day=last)
+
+
+def days_in_month(day):
+    """How many days the calendar month `day` falls in has."""
+    import calendar
+    return calendar.monthrange(day.year, day.month)[1]
+
 
 def normalise_code(code):
     """A statutory code as the payslip prints it: trimmed, in capitals."""
@@ -93,6 +121,13 @@ class StatutoryRule(BaseModel):
         default=False,
         help_text="A pension contribution is taken off the pay before income tax is "
                   "worked out; a health levy is not.")
+    is_pension = models.BooleanField(
+        default=False, verbose_name="Is a pension contribution",
+        help_text="A pension contribution (NSSF) shares the monthly ceiling on pension "
+                  "relief — KES 30,000 a month for NSSF and private schemes together — "
+                  "with every other pension deduction on the payslip. SHIF and the "
+                  "housing levy are allowed off taxable pay too, but they are not "
+                  "pensions and are not capped.")
     employee_minimum = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True, default=None,
         help_text="The least the employee pays in a month they earn anything — SHIF "
@@ -121,6 +156,11 @@ class StatutoryRule(BaseModel):
         # change to the table it names instead of a second pension charged on
         # top of the first.
         self.code = normalise_code(self.code)
+        # NSSF is the National Social Security Fund — a pension by statute —
+        # so every dated version of it shares the pension relief ceiling, even
+        # one typed without the box ticked.
+        if self.code == "NSSF":
+            self.is_pension = True
         super().save(*args, **kwargs)
 
     def clean(self):
@@ -179,7 +219,17 @@ class StatutoryRule(BaseModel):
         """The table's steps, lowest first."""
         return self.tax_bands.order_by("lower")
 
-    def employee_amount(self, basic, gross):
+    # Every monthly figure below takes a `fraction`: the share of a calendar
+    # month the run covers. A run is always inside one calendar month (see
+    # PayrollRun.clean), and a run for half of it applies half of every monthly
+    # figure the table holds — the pension ceiling, the SHIF minimum, a flat
+    # levy, the PAYE steps and the relief. That is what makes two half-month
+    # runs withhold what one full-month run would: the same pay, cut in two,
+    # meets the same table cut in two. Percentages are not scaled — 6% of half
+    # the pay is already half of 6% of the pay. A full month is fraction 1, and
+    # every figure is then exactly the table's own.
+
+    def employee_amount(self, basic, gross, fraction=Decimal("1")):
         """What comes off this employee's pay for this rule.
 
         A tiered table is not answered here: income tax is worked out on the
@@ -188,48 +238,65 @@ class StatutoryRule(BaseModel):
         """
         if self.method == "BANDS":
             return Decimal("0")
-        figure = self._figure(basic, gross, self.employee_percent, self.employee_flat)
+        figure = self._figure(basic, gross, self.employee_percent, self.employee_flat,
+                              fraction)
         # A floor is a minimum contribution for somebody who is paid at all: a
         # month with no pay owes nothing, but a month of very little pay still
         # owes the minimum the scheme charges, not 2.75% of very little.
-        if self.employee_minimum and self.basis_for(basic, gross) > 0:
-            figure = max(figure, money(self.employee_minimum))
+        if self.employee_minimum and self.basis_for(basic, gross, fraction) > 0:
+            figure = max(figure, money(self.employee_minimum * fraction))
         return figure
 
-    def employer_amount(self, basic, gross):
+    def employer_amount(self, basic, gross, fraction=Decimal("1")):
         if self.employer_percent == 0 and self.employer_flat == 0:
             return Decimal("0")
-        return self._figure(basic, gross, self.employer_percent, self.employer_flat)
+        return self._figure(basic, gross, self.employer_percent, self.employer_flat,
+                            fraction)
 
-    def basis_for(self, basic, gross):
+    def basis_for(self, basic, gross, fraction=Decimal("1")):
         """The pay this rule actually looks at, after any ceiling.
 
         Writing this figure on the line is what makes a payslip provable later:
-        '6% of 36,000' means something even if the pension ceiling moves.
+        '6% of 36,000' means something even if the pension ceiling moves. The
+        ceiling is a monthly one, so a run for part of a month caps the pay at
+        the same part of it.
         """
         basis = gross if self.basis == "GROSS" else basic
-        if self.basis_cap is not None and basis > self.basis_cap:
-            basis = self.basis_cap
+        if self.basis_cap is not None:
+            cap = money(self.basis_cap * fraction)
+            if basis > cap:
+                basis = cap
         return money(basis)
 
-    def _figure(self, basic, gross, percent, flat):
-        basis = self.basis_for(basic, gross)
+    def _figure(self, basic, gross, percent, flat, fraction=Decimal("1")):
+        basis = self.basis_for(basic, gross, fraction)
         if self.method == "FLAT":
-            # A fixed figure is the figure, whatever the pay — a floor charge is
-            # not scaled.
-            return money(flat)
-        return money(flat + basis * percent / Decimal("100"))
+            # A fixed figure is the figure for the month, whatever the pay — a
+            # floor charge is not scaled by pay, only by how much of the month
+            # the run covers.
+            return money(flat * fraction)
+        return money(flat * fraction + basis * percent / Decimal("100"))
 
-    def tax_on(self, amount):
-        """The tiered tax on this pay, before the monthly relief."""
+    def relief_for(self, fraction=Decimal("1")):
+        """The monthly relief, for the share of the month the run covers."""
+        return money(self.monthly_relief * fraction)
+
+    def tax_on(self, amount, fraction=Decimal("1")):
+        """The tiered tax on this pay, before the monthly relief.
+
+        The steps are monthly: a run for part of a month reads each step at the
+        same part of its width, so 24,000 at 10% becomes 12,000 at 10% for
+        half a month.
+        """
         if self.method != "BANDS":
             raise ValueError(f"{self.code} is not a tiered table.")
         tax = Decimal("0")
         for band in self.bands():
-            if amount <= band.lower:
+            lower = band.lower * fraction
+            if amount <= lower:
                 break
-            ceiling = band.upper if band.upper is not None else amount
-            slice_ = min(amount, ceiling) - band.lower
+            ceiling = band.upper * fraction if band.upper is not None else amount
+            slice_ = min(amount, ceiling) - lower
             if slice_ > 0:
                 tax += slice_ * band.percent / Decimal("100")
         return money(tax)
@@ -303,9 +370,17 @@ class SalaryComponent(BaseModel):
     reduces_taxable_pay = models.BooleanField(
         default=False, verbose_name="Reduces taxable pay",
         help_text="A deduction taken off the pay before income tax is worked out — a "
-                  "private pension contribution the tax authority allows. No ceiling "
-                  "is applied here: the whole deduction comes off, so check it is "
-                  "within the allowable limit before ticking this.")
+                  "registered pension contribution the tax authority allows. It shares "
+                  "the KES 30,000 monthly ceiling on pension relief with NSSF: whatever "
+                  "is above the ceiling is still deducted, but is taxed first.")
+    prorate_part_months = models.BooleanField(
+        default=True, verbose_name="Pro-rate in part months",
+        help_text="A fixed monthly figure is paid for the share of the month the "
+                  "person was employed, the way basic pay is: a joiner from the 16th "
+                  "of a 30-day month gets 15/30 of a monthly house allowance. Untick "
+                  "it for a figure that is the same however much of the month was "
+                  "worked — a loan repayment, say. Ignored for a share of pay, which "
+                  "already follows the pay it is measured on.")
     gl_account = models.ForeignKey(
         "accounting.Account", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="salary_components",
@@ -343,6 +418,51 @@ class SalaryComponent(BaseModel):
                 f"'{self.name}' takes money out of pay and holds it for somebody else "
                 "— a union, a bank, a scheme. It needs the account that debt sits in, "
                 "or the run will book money that owes nobody anything.")
+        problem = self.account_problem()
+        if problem:
+            raise ValidationError({"gl_account": problem})
+        if self.company_id and self.name:
+            # The database's own uniqueness check cannot see a company-wide
+            # row: (company, NULL, name) never equals another NULL in SQL, so
+            # two "House allowance" rows for everyone would both save and both
+            # be paid. One name per company-wide element, and one per person.
+            clash = SalaryComponent.objects.filter(
+                company_id=self.company_id, employee_id=self.employee_id,
+                name__iexact=self.name.strip()).exclude(pk=self.pk)
+            if clash.exists():
+                who = (f"{self.employee.full_name}" if self.employee_id
+                       else "everyone in the company")
+                raise ValidationError({"name": (
+                    f"'{self.name}' is already a pay element for {who}. Two of them "
+                    "would both be paid — edit the one that exists, or give this one "
+                    "a different name.")})
+
+    # Which kind of account each kind of element is booked to. An earning is a
+    # cost of employing somebody, so it is charged to an expense; a deduction
+    # is money kept back from pay and owed to somebody else, so it is credited
+    # to a liability. Anything else books nonsense: an allowance "charged" to
+    # the bank debits the bank, and a deduction "owed" to the bank credits it
+    # as though money had left.
+    EARNING_ACCOUNT_TYPES = ("EXPENSE",)
+    DEDUCTION_ACCOUNT_TYPES = ("LIABILITY",)
+
+    def account_problem(self, account=None):
+        """Why this element's account is the wrong kind, or "" when it is fine."""
+        account = account if account is not None else (
+            self.gl_account if self.gl_account_id else None)
+        if account is None:
+            return ""
+        if self.is_earning():
+            allowed, what = self.EARNING_ACCOUNT_TYPES, "an expense account"
+            why = "an earning is a cost of employing somebody"
+        else:
+            allowed, what = self.DEDUCTION_ACCOUNT_TYPES, "a liability account"
+            why = "a deduction is money kept back from pay and owed to somebody else"
+        if account.account_type in allowed:
+            return ""
+        return (f"{account.code} {account.name} is a "
+                f"{account.get_account_type_display().lower()} account, but {why}, so "
+                f"'{self.name}' has to be booked to {what}. Choose one of those.")
 
     def measure_on(self, basic, gross):
         """The pay a percentage element is measured against.
@@ -409,6 +529,11 @@ class PayrollRun(BaseModel, NotesMixin):
         "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="approved_payroll_runs")
     approved_at = models.DateTimeField(null=True, blank=True)
+    calculated_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the payslips were last worked out. A contract, pay element "
+                  "or table changed after this makes the figures out of date, and the "
+                  "run has to be recalculated before it is approved.")
     journal_entry = models.ForeignKey(
         "accounting.JournalEntry", on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -424,6 +549,22 @@ class PayrollRun(BaseModel, NotesMixin):
         # them validates the row with a blank half of the period in it.
         if self.period_start and self.period_end and self.period_end < self.period_start:
             raise ValidationError("A pay period cannot end before it starts.")
+        # One calendar month per run. Monthly pay, the PAYE steps, the pension
+        # ceiling and the SHIF minimum are all figures for a calendar month, so
+        # a run is worked out as a share of one: 1-15 December is 15/31 of
+        # December. A run from 16 November to 15 December would be half of
+        # two different months with no single table, rate or day count to read
+        # — pay it as two runs, one in each month.
+        if self.period_start and self.period_end and (
+                (self.period_start.year, self.period_start.month)
+                != (self.period_end.year, self.period_end.month)):
+            first, last = month_bounds(self.period_start)
+            raise ValidationError({"period_end": (
+                f"A pay run has to fall within one calendar month, and "
+                f"{self.period_start:%d %b %Y} to {self.period_end:%d %b %Y} spans two. "
+                f"End this run on {last:%d %b %Y} and raise another for the rest — "
+                "pay, tax steps and reliefs are monthly figures, worked out as a share "
+                "of the month the run is in.")})
         # The payment date is the date the whole month is booked on, so a typo
         # in it posts the month's pay into a different year. Pay is not handed
         # out before the period it is for has begun, and a month paid more than
@@ -453,6 +594,26 @@ class PayrollRun(BaseModel, NotesMixin):
         """Only a draft may be recalculated: an approved run is somebody else's
         decision and a posted one is in the ledger."""
         return self.status in ("DRAFT", "REVIEW")
+
+    @property
+    def month_days(self):
+        """Days in the calendar month this run falls in — what pay is divided by."""
+        return days_in_month(self.period_start)
+
+    @property
+    def run_days(self):
+        return (self.period_end - self.period_start).days + 1
+
+    @property
+    def month_fraction(self):
+        """The share of its calendar month this run covers: 1 for a whole month."""
+        if self.run_days >= self.month_days:
+            return Decimal("1")
+        return Decimal(self.run_days) / Decimal(self.month_days)
+
+    @property
+    def is_part_month(self):
+        return self.run_days < self.month_days
 
 
 class Payslip(BaseModel):
@@ -493,11 +654,14 @@ class Payslip(BaseModel):
         self.total_deductions = money(
             sum((l.amount for l in self.lines.filter(kind="DEDUCTION")), Decimal("0")))
         # Never below nought: allowable deductions bigger than the taxable pay
-        # leave nothing to tax, not a negative figure to tax.
+        # leave nothing to tax, not a negative figure to tax. What comes off is
+        # each line's own tax relief, not its whole amount: a pension above the
+        # monthly ceiling is deducted in full but only relieved up to it.
         self.taxable_pay = max(money(
             sum((l.amount for l in self.lines.filter(kind="EARNING", is_taxable=True)),
                 Decimal("0"))
-            - sum((l.amount for l in self.lines.filter(kind="DEDUCTION", reduces_tax=True)),
+            - sum((l.tax_relief for l in self.lines.filter(kind="DEDUCTION",
+                                                             reduces_tax=True)),
                   Decimal("0"))), Decimal("0.00"))
         self.employer_cost = money(
             sum((l.amount for l in self.lines.filter(kind="EMPLOYER")), Decimal("0")))
@@ -532,6 +696,11 @@ class PayslipLine(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     is_taxable = models.BooleanField(default=False)
     reduces_tax = models.BooleanField(default=False)
+    tax_relief = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0"),
+        help_text="How much of a deduction that reduces taxable pay was actually taken "
+                  "off it. The whole amount, except a pension contribution above the "
+                  "monthly ceiling on pension relief.")
     rule = models.ForeignKey(
         StatutoryRule, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="payslip_lines")

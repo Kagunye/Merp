@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Expenses" launcher_subtitle="Employee expense claims, approvals and reimbursements" %}
 
@@ -22,7 +23,9 @@
 <div class="launcher-grid">
   <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-sky">📄</div><span class="label">All Claims</span></a>
   <a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
+  {% can_do "hr:employee_list" as may_see_staff %}{% if may_see_staff %}
   <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Claimants</span></a>
+  {% endif %}
 </div>
 
 <div class="launcher-section-label">

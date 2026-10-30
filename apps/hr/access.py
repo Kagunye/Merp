@@ -40,9 +40,23 @@ def _is_superuser(user):
                 and (user.is_superuser or getattr(user, "is_system_admin", False)))
 
 
+# The roles that grant or refuse leave. Narrower than PEOPLE_ROLES: payroll
+# sees everybody's leave because unpaid leave changes a payslip, but deciding
+# who may be away is HR's call, and the role table (apps.core.access, rule
+# "hr:leave_approve") gives the approve screen to HR alone. Keeping the two in
+# step is what stops the leave list offering a payroll officer an Approve
+# button the role table then answers with a 403.
+LEAVE_DECIDERS = {"ADMIN", "HR_MANAGER"}
+
+
 def manages_people(user, company):
-    """May this user raise and decide leave, and see everybody's?"""
+    """May this user raise leave for anybody, and see everybody's?"""
     return _is_superuser(user) or role_of(user, company) in PEOPLE_ROLES
+
+
+def decides_leave(user, company):
+    """May this user approve or reject somebody's leave?"""
+    return _is_superuser(user) or role_of(user, company) in LEAVE_DECIDERS
 
 
 def manages_claims(user, company):

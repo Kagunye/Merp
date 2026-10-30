@@ -52,10 +52,19 @@ def describe_calculation(request, run):
     try:
         result = services.calculate(run)
     except ValidationError as exc:
-        messages.error(
-            request,
-            f"'{run.reference}' is saved as a draft, but nothing could be calculated: "
-            f"{exc.messages[0]}")
+        if run.is_editable:
+            messages.error(
+                request,
+                f"'{run.reference}' is saved as a draft, but nothing could be "
+                f"calculated: {exc.messages[0]}")
+        else:
+            # An approved, posted or cancelled run was never re-opened as a
+            # draft — telling the user it was "saved as a draft" would send
+            # them looking for a draft that does not exist.
+            messages.error(
+                request,
+                f"'{run.reference}' was not recalculated and is unchanged: "
+                f"{exc.messages[0]}")
         return None
     if result["count"]:
         messages.success(
@@ -223,6 +232,9 @@ class PayrollRunDetailView(LoginRequiredMixin, DetailView):
         ctx["lines"] = {slip.pk: list(slip.lines.all()) for slip in ctx["payslips"]}
         ctx["rules"] = services.rules_as_at(run.company, run.period_end)
         ctx["can_edit"] = run.is_editable
+        # Said before anybody presses Approve, not only when they do.
+        ctx["stale"] = services.stale_reason(run) if run.is_editable and \
+            run.payslips.exists() else ""
         if run.journal_entry_id:
             ctx["entry"] = run.journal_entry
         return ctx
@@ -262,6 +274,13 @@ def run_approve(request, pk):
             request,
             "There is nothing to approve: this run has no payslips. Recalculate it, or "
             "put the missing contracts in first.")
+        return redirect("payroll:run_detail", pk=run.pk)
+    stale = services.stale_reason(run)
+    if stale:
+        # Approval signs off figures, not a run: if a contract, pay element or
+        # table changed after the figures were worked out, what is on the
+        # screen is no longer what the month owes anybody.
+        messages.error(request, stale)
         return redirect("payroll:run_detail", pk=run.pk)
     run.status = "APPROVED"
     run.approved_by = request.user
@@ -388,17 +407,44 @@ class PayslipListView(LoginRequiredMixin, ListView):
             return Payslip.objects.none()
         qs = Payslip.objects.filter(payroll_run__company=company).select_related(
             "employee", "payroll_run")
-        run = self.request.GET.get("run")
-        if run:
+        run = self.selected_run()
+        if run is not None:
             qs = qs.filter(payroll_run_id=run)
+        elif (self.request.GET.get("run") or "").strip():
+            # A filter that names no run of this book — a mangled link, an id
+            # typed by hand — shows nothing rather than everybody's pay, and
+            # never a server error.
+            return Payslip.objects.none()
         return qs.order_by("employee__last_name", "employee__first_name")
+
+    def selected_run(self):
+        """The run the filter names, as a UUID, or None when it names none.
+
+        The run filter comes straight off the address bar, so anything at all
+        can arrive in it; the database is only asked about a well-formed id.
+        """
+        import uuid
+
+        raw = (self.request.GET.get("run") or "").strip()
+        if not raw:
+            return None
+        try:
+            return uuid.UUID(raw)
+        except (ValueError, AttributeError, TypeError):
+            return None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         company = self.request.active_company
         ctx["page_title"] = "Payslips"
         ctx["runs"] = PayrollRun.objects.filter(company=company).order_by("-period_end")
-        ctx["selected_run"] = self.request.GET.get("run", "")
+        selected = self.selected_run()
+        ctx["selected_run"] = str(selected) if selected else ""
+        if (self.request.GET.get("run") or "").strip() and selected is None:
+            messages.warning(
+                self.request,
+                "That is not a payroll run of this company, so no payslips are shown. "
+                "Choose a run from the list.")
         ctx["book"] = book_currency(company)
         return ctx
 
@@ -653,6 +699,16 @@ def rule_deactivate(request, pk):
     return redirect("payroll:rule_detail", pk=rule.pk)
 
 
+def touch_rule(rule):
+    """Mark a table as changed when one of its steps is added or taken out.
+
+    A band has no timestamp of its own, but changing one changes the tax every
+    draft run was worked out with. Stamping the table is what lets approval
+    notice that a draft calculated before the change is out of date.
+    """
+    StatutoryRule.objects.filter(pk=rule.pk).update(updated_at=timezone.now())
+
+
 def settled_table_refusal(request, rule):
     """Turn a change to a settled table's steps away, saying why and what to do.
 
@@ -695,6 +751,7 @@ class BandCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
 
     def form_valid(self, form):
         self.object = form.save()
+        touch_rule(self.rule)
         messages.success(self.request, f"Band '{self.object}' added to {self.rule.code}.")
         return redirect("payroll:rule_detail", pk=self.rule.pk)
 
@@ -716,6 +773,7 @@ def band_delete(request, pk):
     if rule.is_settled:
         return settled_table_refusal(request, rule)
     band.delete()
+    touch_rule(rule)
     messages.success(request, f"Band removed from {rule.code}.")
     return redirect("payroll:rule_detail", pk=rule.pk)
 

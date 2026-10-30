@@ -1880,10 +1880,33 @@ def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -
     closed — and the bank never agrees with the book. The claim date stays on
     the claim, and on the entry's narrative, as the date of the document.
 
+    The payment date is checked here as well as on the screen, because this is
+    where a wrong one does its damage: money cannot be paid back before it was
+    claimed, and a payment dated in the future books a bank movement the bank
+    has not made.
+
+    The entry is typed MANUAL — the ledger has no entry type for expense
+    claims, and adding one is the accounting module's call — but it is tagged
+    with the claim as its source document, so the journal screen's generic
+    Reverse button refuses it (JournalEntry.generic_reversal_refusal) and the
+    claim and the ledger can never be pulled apart.
+
     Returns the JournalEntry.
     """
+    from django.core.exceptions import ValidationError
+
     company = claim.company
     paid_on = payment_date or timezone.localdate()
+    if claim.claim_date and paid_on < claim.claim_date:
+        raise ValidationError(
+            f"{claim.reference} was claimed on {claim.claim_date:%d %b %Y}, so it cannot "
+            f"have been paid on {paid_on:%d %b %Y}. Enter the day the money actually "
+            "left — on or after the claim date.")
+    if paid_on > timezone.localdate():
+        raise ValidationError(
+            f"{paid_on:%d %b %Y} is in the future. A claim is recorded as paid on the "
+            "day the money leaves, so enter today or an earlier day once it has been "
+            "paid.")
 
     if bank_account and getattr(bank_account, "gl_account_id", None):
         cash_acct = bank_account.gl_account
@@ -1912,6 +1935,9 @@ def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -
         f"Expense Claim {claim.reference} (claimed {claim.claim_date:%d %b %Y}, "
         f"paid {paid_on:%d %b %Y})",
     )
+    je.source_document_type = "ExpenseClaim"
+    je.source_document_id = str(claim.pk)
+    je.save(update_fields=["source_document_type", "source_document_id"])
 
     for line in claim.lines.select_related("category", "category__gl_account"):
         exp_acct = (
@@ -2014,7 +2040,25 @@ def post_payroll_run(run, user=None) -> JournalEntry:
     debits, credits = {}, {}
     for line in PayslipLine.objects.filter(
             payslip__payroll_run=run).select_related(
-        "gl_account", "rule", "rule__payable_account", "payslip"):
+        "gl_account", "rule", "rule__payable_account", "payslip", "component"):
+        # A pay element's account is checked again here, where a wrong one does
+        # its damage: the form refuses it, but a component saved by a script or
+        # before the check existed could still charge an allowance to the bank
+        # (debiting the bank as if money had come in) or "owe" a deduction to
+        # it. An earning is a cost and a deduction is owed to somebody.
+        if line.gl_account_id and line.kind in ("EARNING", "DEDUCTION") and not line.rule_id:
+            wanted = (("EXPENSE",) if line.kind == "EARNING" else ("LIABILITY",))
+            if line.gl_account.account_type not in wanted:
+                raise ValueError(
+                    f"GL posting failed: '{line.description}' on "
+                    f"{line.payslip.employee.full_name}'s payslip is booked to "
+                    f"{line.gl_account.code} {line.gl_account.name}, a "
+                    f"{line.gl_account.get_account_type_display().lower()} account. "
+                    + ("An earning is charged to an expense account"
+                       if line.kind == "EARNING" else
+                       "A deduction is owed on a liability account")
+                    + " — correct the pay element's account, recalculate the run and "
+                      "approve it again.")
         if line.kind == "EARNING":
             charge(debits, line.gl_account or salary_acct, line.amount, line.description)
         elif line.kind == "DEDUCTION":
@@ -2035,11 +2079,17 @@ def post_payroll_run(run, user=None) -> JournalEntry:
             f"{total_credit}. The payslip lines contradict the run's own totals — "
             "recalculate the run before posting it.")
 
+    # Dated on the last day of the period, not the day the money leaves. Pay is
+    # a cost of the month it was earned in (accrual): October's salaries belong
+    # in October's profit and loss even when they are paid on 5 November, and
+    # the withholdings are owed to the authorities for October. The payment date
+    # stays on the run and on the entry's narrative; the bank side clears on
+    # the statement when the transfer goes through.
     je = _new_je(
-        company, "JE-PR-", "PAYROLL", run.payment_date,
+        company, "JE-PR-", "PAYROLL", run.period_end,
         f"Payroll {run.reference} "
         f"({run.period_start:%d %b} – {run.period_end:%d %b %Y}, "
-        f"{run.payslips.count()} payslip(s))",
+        f"{run.payslips.count()} payslip(s), paid {run.payment_date:%d %b %Y})",
     )
     for account, (amount, label) in sorted(debits.items(), key=lambda kv: kv[0].code):
         _dr(je, account, amount, label)

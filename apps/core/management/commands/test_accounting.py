@@ -1360,16 +1360,53 @@ class Command(BaseCommand):
         claim.refresh_from_db()
         self.expect("unapproved claim cannot be paid", claim.journal_entry_id is None)
 
-        self.post(client, "claim approve", reverse("expenses:claim_approve", args=[claim.pk]), {})
+        # Changed deliberately: a claim is now raised, approved and paid by
+        # three different people (segregation of duties), so the bookkeeper
+        # who typed it in hands it to two colleagues instead of approving and
+        # paying it alone.
+        approver = self.colleague("approver", "Abel")
+        payer = self.colleague("payer", "Pam")
+        self.post(client, "claim approve by its creator is refused",
+                  reverse("expenses:claim_approve", args=[claim.pk]), {})
+        claim.refresh_from_db()
+        self.expect("the person who raised a claim cannot approve it",
+                    claim.status == "SUBMITTED", claim.status)
+        self.post(approver, "claim approve", reverse("expenses:claim_approve", args=[claim.pk]), {})
         claim.refresh_from_db()
         self.expect("claim approved", claim.status == "APPROVED", claim.status)
 
-        resp = self.post(client, "claim pay", reverse("expenses:claim_pay", args=[claim.pk]),
+        approver.post(reverse("expenses:claim_pay", args=[claim.pk]), {"bank_account": ""})
+        claim.refresh_from_db()
+        self.expect("the approver cannot also pay it", claim.journal_entry_id is None,
+                    claim.status)
+        resp = self.post(payer, "claim pay", reverse("expenses:claim_pay", args=[claim.pk]),
                          {"bank_account": ""})
         claim.refresh_from_db()
         self.expect("claim paid and posted",
                    claim.status == "PAID" and claim.journal_entry_id is not None, claim.status)
-        self.expect_flash(client, resp, "posted to GL", "payment surfaced")
+        self.expect_flash(payer, resp, "posted to GL", "payment surfaced")
+        entry = claim.journal_entry
+        self.expect("the claim's entry belongs to the claim, so the journal's Reverse "
+                    "button refuses it",
+                    entry is not None and bool(entry.generic_reversal_refusal()),
+                    entry and entry.generic_reversal_refusal())
+
+    def colleague(self, tag, first):
+        """A second administrator of this book, signed in on their own client."""
+        from apps.accounts.models import User
+        from apps.organizations.models import CompanyMembership
+
+        user = User.objects.create(
+            username=f"{tag}.{self.stamp}", email=f"{tag}.{self.stamp}@smoke.local",
+            first_name=first, last_name="Colleague")
+        CompanyMembership.objects.create(company=self.company, user=user, role="ADMIN",
+                                         is_default=True)
+        other = Client()
+        other.force_login(user, backend="django.contrib.auth.backends.ModelBackend")
+        session = other.session
+        session["active_company_id"] = str(self.company.id)
+        session.save()
+        return other
 
     # ────────────────────────────── verification ─────────────────────────────
 
@@ -5037,12 +5074,27 @@ class Command(BaseCommand):
         grace.refresh_from_db()
         self.expect("the newer contract took the current flag off the older one",
                     not grace.is_current, str(grace.is_current))
-        self.post(client, "put this month's contract back",
-                  reverse("hr:contract_update", args=[grace.pk]), contract_form)
+        # Changed deliberately: contracts may no longer overlap, and an older
+        # contract is never made current over a later one. Re-opening this
+        # month's contract over next month's used to move the flag back; it is
+        # now refused, and the mistaken raise is corrected on the later
+        # contract itself (no run has used it yet, so it is not locked).
+        self.reject(client, "re-opening this month's contract over next month's",
+                    reverse("hr:contract_update", args=[grace.pk]), contract_form)
         grace.refresh_from_db()
-        self.expect("editing a contract moves the flag back with it",
-                    grace.is_current, str(grace.is_current))
-        self.expect("the contract that superseded it stays as history, unused",
+        self.expect("the older contract keeps the end date the raise gave it",
+                    not grace.is_current and grace.end_date == period_end,
+                    f"{grace.is_current}, ends {grace.end_date}")
+        later = Contract.objects.filter(employee=self.employee,
+                                        start_date=next_month).first()
+        self.post(client, "correct next month's contract to the same pay",
+                  reverse("hr:contract_update", args=[later.pk]),
+                  merge(contract_form, {"start_date": f"{next_month:{iso}}"}))
+        later.refresh_from_db()
+        self.expect("an unused contract can still be corrected",
+                    later.basic_salary == D("100000.00") and later.is_current,
+                    f"{later.basic_salary}, current {later.is_current}")
+        self.expect("both contracts stay as history, one of them current",
                     Contract.objects.filter(employee=self.employee).count() == 2
                     and Contract.objects.filter(employee=self.employee,
                                                 is_current=True).count() == 1)
@@ -5278,6 +5330,17 @@ class Command(BaseCommand):
         resp = client.post(reverse("payroll:run_post", args=[run.pk]), {})
         self.expect_flash(client, resp, "approved",
                           "pay does not reach the ledger before somebody has approved it")
+        # Changed deliberately: the PAYE steps were taken out and put back
+        # after the draft was worked out, so approval now refuses the draft as
+        # out of date until it is recalculated.
+        resp = client.post(reverse("payroll:run_approve", args=[run.pk]), {})
+        self.expect_flash(client, resp, "recalculate",
+                          "a draft worked out before its table changed is not approved")
+        self.post(client, "recalculate after the table changed",
+                  reverse("payroll:run_calculate", args=[run.pk]), {})
+        # Recalculating writes the payslips afresh, so the slip looked at above
+        # is replaced by a new row with the same figures.
+        slip = run.payslips.get(employee=self.employee)
         self.post(client, "approve the run",
                   reverse("payroll:run_approve", args=[run.pk]), {})
         run.refresh_from_db()
@@ -5312,8 +5375,10 @@ class Command(BaseCommand):
         self.expect("one entry for the whole run, typed as payroll",
                     entry.entry_type == "PAYROLL" and entry.status == "POSTED"
                     and entry.reference.startswith("JE-PR-"), entry.reference)
-        self.expect("dated the day the money leaves, not the day it was booked",
-                    entry.posting_date == run.payment_date
+        # Changed deliberately: the month's pay is a cost of the month worked,
+        # so the entry is dated on the period end, not the payment date.
+        self.expect("dated on the last day of the month the pay was earned in",
+                    entry.posting_date == run.period_end
                     and entry.period_id is not None,
                     f"{entry.posting_date}, period {entry.period_id}")
         dr, cr, ok = self.balanced(entry)
@@ -6185,7 +6250,13 @@ class Command(BaseCommand):
         self.expect("every line in the book was posted into its own company's accounts",
                     foreign_lines == 0, f"{foreign_lines} foreign lines")
 
+        from apps.expenses.models import ExpenseClaim
+
+        # Changed deliberately: an expense claim's payment entry now names the
+        # claim as its source document, so the journal's generic Reverse
+        # button refuses it — ExpenseClaim is a source this book knows.
         targets = {"FixedAsset": FixedAsset, "AssetDisposal": AssetDisposal,
+                   "ExpenseClaim": ExpenseClaim,
                    "ACCOUNTING_PERIOD": AccountingPeriod,
                    "FISCAL_YEAR": FiscalYear,
                    "EXCHANGE_REVALUATION": AccountingPeriod}

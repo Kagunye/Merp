@@ -14,11 +14,46 @@ def terminate_employee(employee, last_day, status="TERMINATED"):
     would only have started after the person left never pays anything and is
     left as written, so the history shows it.
 
+    Recording a leaving date a second time corrects the first. A later date
+    moves the end of the contract the first date ended out to the new day, so
+    the days in between are paid; without that the contract stayed ended on
+    the old date and payroll silently paid nothing for days the person did
+    work. It is refused when an approved or posted run already covers any of
+    those days — that month was settled without them, and is put right by
+    cancelling and re-running it first, not by changing the contract under it.
+
     Returns a list of plain-English warnings about runs that already paid the
     person beyond their last day: those runs are settled, so they are put right
     by cancelling and re-running, never by editing them here.
     """
-    from apps.payroll.models import Payslip
+    import datetime
+
+    from django.core.exceptions import ValidationError
+
+    from apps.payroll.models import APPROVED_RUNS, Payslip, PayrollRun
+
+    previous = employee.date_terminated
+    reopened = None
+    if previous and last_day > previous:
+        later_start = employee.contracts.filter(
+            start_date__gt=previous, start_date__lte=last_day).exists()
+        reopened = None if later_start else employee.contracts.filter(
+            end_date=previous, start_date__lte=previous).order_by("-start_date").first()
+        if reopened is not None:
+            settled = PayrollRun.objects.filter(
+                company_id=employee.company_id, status__in=APPROVED_RUNS,
+                period_start__lte=last_day,
+                period_end__gte=previous + datetime.timedelta(days=1),
+            ).order_by("period_start").first()
+            if settled:
+                raise ValidationError(
+                    f"{settled.reference} ({settled.period_start:%d %b} to "
+                    f"{settled.period_end:%d %b %Y}) is "
+                    f"{settled.get_status_display().lower()} and was worked out with "
+                    f"{employee.full_name} leaving on {previous:%d %b %Y}. Moving the "
+                    f"leaving date to {last_day:%d %b %Y} would leave the days in between "
+                    "unpaid in a settled month. Cancel that run first, then record the "
+                    "new date and run the month again.")
 
     employee.status = status
     employee.date_terminated = last_day
@@ -29,6 +64,10 @@ def terminate_employee(employee, last_day, status="TERMINATED"):
         contract.end_date = last_day
         # Contract.save takes the current flag off a contract that has ended.
         contract.save()
+    if reopened is not None:
+        # The contract the earlier leaving date ended now runs to the new one.
+        reopened.end_date = last_day
+        reopened.save()
 
     warnings = []
     paid_after = Payslip.objects.filter(

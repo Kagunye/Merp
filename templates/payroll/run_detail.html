@@ -1,6 +1,11 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ run.reference }} — Payroll — Mofisi{% endblock %}
 {% block content %}
+{% can_do "payroll:run_calculate" "POST" as may_calculate %}
+{% can_do "payroll:run_approve" "POST" as may_approve %}
+{% can_do "payroll:run_post" "POST" as may_post %}
+{% can_do "payroll:run_cancel" "POST" as may_cancel %}
 <div class="space-y-5">
   <div class="flex items-start justify-between flex-wrap gap-3">
     <div>
@@ -15,25 +20,25 @@
       </p>
     </div>
     <div class="flex items-center gap-2 no-print">
-      {% if can_edit %}
+      {% if can_edit and may_calculate %}
         <form method="post" action="{% url 'payroll:run_calculate' run.pk %}">
           {% csrf_token %}
           <button type="submit" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Recalculate</button>
         </form>
         <a href="{% url 'payroll:run_update' run.pk %}" class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Amend</a>
       {% endif %}
-      {% if run.status == 'DRAFT' or run.status == 'REVIEW' %}
+      {% if may_approve and run.status == 'DRAFT' or may_approve and run.status == 'REVIEW' %}
         <form method="post" action="{% url 'payroll:run_approve' run.pk %}">
           {% csrf_token %}
           <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">Approve</button>
         </form>
-      {% elif run.status == 'APPROVED' %}
+      {% elif may_post and run.status == 'APPROVED' %}
         <form method="post" action="{% url 'payroll:run_post' run.pk %}">
           {% csrf_token %}
           <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">Post to ledger</button>
         </form>
       {% endif %}
-      {% if run.status != 'CANCELLED' %}
+      {% if may_cancel and run.status != 'CANCELLED' %}
         <form method="post" action="{% url 'payroll:run_cancel' run.pk %}"
               onsubmit="return confirm('Cancel this run?{% if run.journal_entry %} Its journal entry will be reversed with an offsetting entry.{% endif %}');">
           {% csrf_token %}
@@ -42,6 +47,11 @@
       {% endif %}
     </div>
   </div>
+
+  {% if stale %}
+  <div class="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">{{ stale }}</div>
+  {% endif %}
+  <p class="text-xs text-gray-500">The month is booked on {{ run.period_end|date:"d M Y" }}, the last day of the period it pays for; statutory rates are the tables in force that day.</p>
 
   <!-- Workflow: calculated → approved → posted, and never a step skipped -->
   <div class="bg-white rounded-xl border border-gray-200 px-5 py-4">

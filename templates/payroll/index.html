@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Payroll" launcher_subtitle="Payroll runs, statutory tables, pay elements and the journal each month produces" %}
 
@@ -28,7 +29,9 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
+  {% can_do "hr:employee_list" as may_see_staff %}{% if may_see_staff %}
   <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Employees</span></a>
+  {% endif %}
   <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-mint">📅</div><span class="label">Leave Register</span></a>
   <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
 </div>
