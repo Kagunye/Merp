@@ -1930,7 +1930,7 @@ class Command(BaseCommand):
             f"cr_{self.account('3100').pk}": "5"})
         self.expect("opening balances dated 9999-12-31 are refused",
                     not JournalEntry.objects.filter(company=company, entry_type="OPENING").exists()
-                    and self.said(client, resp, "five years"), str(self.heard[-1:]))
+                    and self.said(client, resp, "years ahead"), str(self.heard[-1:]))
 
         past = self.past_year(self.year - 1)
         jan, feb, mar = list(past.periods.order_by("start_date")[:3])

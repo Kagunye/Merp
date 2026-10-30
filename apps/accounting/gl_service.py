@@ -2622,15 +2622,18 @@ def close_period(company, period, user=None):
         # report February's figures as final while January -- whose late
         # postings, accruals and corrections feed the same year-to-date
         # reports and the same current year profit -- can still change
-        # underneath them. An earlier month that holds no entry at all (not
-        # even a draft) has nothing to report or carry; it is closed along
-        # with this one, exactly as closing it first would have done, so a
-        # book that starts trading in October does not have to close nine
-        # empty months by hand. A month with anything in it is refused.
+        # underneath them, and its profit would reach 3300 after February's.
+        # An earlier month with no income or expense in it and no draft
+        # waiting has nothing to carry: closing it by hand would only flip
+        # its status, so it is closed along with this one (the order holds,
+        # and a book that starts trading in October need not click through
+        # nine empty months). A month with profit or loss to carry, or a
+        # draft still to post, has to be closed first.
         for month in earlier:
-            if JournalEntry.objects.filter(
-                    company=company, posting_date__gte=month.start_date,
-                    posting_date__lte=month.end_date).exclude(status="CANCELLED").exists():
+            has_draft = JournalEntry.objects.filter(
+                company=company, status="DRAFT", posting_date__gte=month.start_date,
+                posting_date__lte=month.end_date).exists()
+            if has_draft or period_activity(company, month.start_date, month.end_date):
                 raise ValidationError(
                     f"{month.name} is still open. Periods are closed in order, so close "
                     f"{month.name} before {period.name}.")

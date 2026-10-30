@@ -109,12 +109,12 @@ def book_date_refusal(on_date, what="An entry"):
     if on_date is None:
         return ""
     if on_date < EARLIEST_BOOK_DATE:
-        return (f"{what} dated {on_date:%d %b %Y} is before {EARLIEST_BOOK_DATE:%Y}, "
+        return (f"{what} dated {on_date:%d %b %Y}: that is before {EARLIEST_BOOK_DATE:%Y}, "
                 "which no book kept here reaches back to. Check the year and enter "
                 "the real date.")
     latest = latest_book_date()
     if on_date > latest:
-        return (f"{what} dated {on_date:%d %b %Y} is more than {YEARS_AHEAD} years "
+        return (f"{what} dated {on_date:%d %b %Y}: that is more than {YEARS_AHEAD} years "
                 f"ahead (the latest date accepted is {latest:%d %b %Y}). Check the "
                 "year and enter the real date.")
     return ""
