@@ -44,7 +44,7 @@
         <td class="px-4 py-3 text-gray-600">{{ c.industry|default:"—" }}</td>
         <td class="px-4 py-3 text-gray-600 font-mono text-xs">{{ c.tax_id|default:"—" }}</td>
         <td class="px-4 py-3 text-gray-600">{{ c.currency }}</td>
-        <td class="px-4 py-3 text-right"><a href="{% url 'organizations:company_edit' c.pk %}" class="text-xs" style="color: var(--primary);">Edit</a></td>
+        <td class="px-4 py-3 text-right">{% if c.pk in editable_ids %}<a href="{% url 'organizations:company_edit' c.pk %}" class="text-xs" style="color: var(--primary);">Edit</a>{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No companies yet. <a href="{% url 'organizations:company_create' %}" style="color: var(--primary);" class="font-semibold">Create your first</a>.</td></tr>

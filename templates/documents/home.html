@@ -1,5 +1,6 @@
 {% extends "base/base.html" %}
 {% block content %}
+{% load ui_extras %}
 {% include "_includes/launcher.html" with launcher_title="Documents" launcher_subtitle="Upload, categorise and retrieve company files" %}
 
 <div class="launcher-section-label">
@@ -7,10 +8,10 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">📤</div><span class="label">Upload Document</span></a>
-  <a href="{% url 'documents:category_create' %}" class="launcher-tile"><div class="ico ico-sky">🏷️</div><span class="label">New Category</span></a>
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">🔍</div><span class="label">Search Documents</span></a>
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📎</div><span class="label">Share Link</span></a>
+  {% can_do "documents:document_upload" as ok %}{% if ok %}<a href="{% url 'documents:document_upload' %}" class="launcher-tile"><div class="ico ico-mint">📤</div><span class="label">Upload Document</span></a>{% endif %}
+  {% can_do "documents:category_create" as ok %}{% if ok %}<a href="{% url 'documents:category_create' %}" class="launcher-tile"><div class="ico ico-sky">🏷️</div><span class="label">New Category</span></a>{% endif %}
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">🔍</div><span class="label">Search Documents</span></a>{% endif %}
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📎</div><span class="label">Share Link</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -18,9 +19,9 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">All Documents</span></a>
-  <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">⭐</div><span class="label">Recent Uploads</span></a>
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">All Documents</span></a>{% endif %}
+  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>{% endif %}
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">⭐</div><span class="label">Recent Uploads</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -28,8 +29,8 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Document Types</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">🔒</div><span class="label">Access Permissions</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💾</div><span class="label">Storage Settings</span></a>
+  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Document Types</span></a>{% endif %}
+  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">🔒</div><span class="label">Access Permissions</span></a>{% endif %}
+  {% can_do "organizations:home" as ok %}{% if ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💾</div><span class="label">Storage Settings</span></a>{% endif %}
 </div>
 {% endblock %}

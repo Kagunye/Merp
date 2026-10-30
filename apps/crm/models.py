@@ -1,4 +1,7 @@
 """CRM: Customers, Leads, Contacts."""
+import datetime
+
+from django.core.exceptions import ValidationError
 from django.db import models
 from apps.core.models import BaseModel, AddressMixin, ContactMixin, NotesMixin
 
@@ -29,6 +32,11 @@ class Customer(BaseModel, AddressMixin, ContactMixin, NotesMixin):
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        if self.credit_limit is not None and self.credit_limit < 0:
+            raise ValidationError({"credit_limit":
+                                   "A credit limit can't be negative. Enter 0 for no credit."})
 
     @property
     def outstanding_balance(self):
@@ -93,3 +101,18 @@ class Lead(BaseModel, ContactMixin, NotesMixin):
 
     def __str__(self):
         return self.name
+
+    # Older than any deal this book could hold: a close date before it is a
+    # typo (0024 for 2024), and it would sort to the top of every pipeline.
+    EARLIEST_CLOSE_DATE = datetime.date(2000, 1, 1)
+
+    def clean(self):
+        errors = {}
+        if self.estimated_value is not None and self.estimated_value < 0:
+            errors["estimated_value"] = "A lead's value can't be negative. Enter 0 or more, or leave it blank."
+        if self.expected_close_date and self.expected_close_date < self.EARLIEST_CLOSE_DATE:
+            errors["expected_close_date"] = (
+                f"{self.expected_close_date:%d %b %Y} looks like a typo. Enter a close date "
+                "from the year 2000 on.")
+        if errors:
+            raise ValidationError(errors)

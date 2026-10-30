@@ -2,6 +2,9 @@
 from .base import *  # noqa: F401, F403
 
 DEBUG = True
+# Open on a developer's machine only. Nothing here trusts the Host header for
+# anything that leaves the machine: emailed links come from SITE_URL, falling
+# back to the request only because DEBUG is on (apps.accounts.links).
 ALLOWED_HOSTS = ["*"]
 
 # Safely remove optional third-party apps not installed in dev

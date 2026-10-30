@@ -3,6 +3,10 @@ from django.db import models
 from apps.core.models import BaseModel, NotesMixin
 
 
+# Ticket numbers are issued from this per-company series.
+TICKET_PREFIX = "TKT-"
+
+
 class Ticket(BaseModel, NotesMixin):
     STATUS_CHOICES = [
         ("OPEN", "Open"),

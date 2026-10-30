@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
+{% load ui_extras %}
 {% url 'organizations:company_list' as back %}
-{% url 'organizations:company_edit' company.pk as pa_url %}
+{% if can_edit %}{% url 'organizations:company_edit' company.pk as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title=company.name subtitle=company.legal_name back_url=back action_label="Edit" action_url=pa_url %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -12,15 +13,15 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
   <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h3 class="text-sm font-semibold mb-3 flex justify-between">Branches <a href="{% url 'organizations:branch_create' %}" class="text-xs" style="color: var(--primary);">+ New</a></h3>
+    <h3 class="text-sm font-semibold mb-3 flex justify-between">Branches {% can_do "organizations:branch_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:branch_create' %}" class="text-xs" style="color: var(--primary);">+ New</a>{% endif %}</h3>
     {% for b in branches %}<div class="py-2 border-t text-sm"><a href="{% url 'organizations:branch_detail' b.pk %}" style="color: var(--primary);">{{ b.name }}</a>{% if b.is_headquarters %} <span class="badge bg-amber-50 text-amber-700 ml-1">HQ</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h3 class="text-sm font-semibold mb-3 flex justify-between">Departments <a href="{% url 'organizations:department_create' %}" class="text-xs" style="color: var(--primary);">+ New</a></h3>
+    <h3 class="text-sm font-semibold mb-3 flex justify-between">Departments {% can_do "organizations:department_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:department_create' %}" class="text-xs" style="color: var(--primary);">+ New</a>{% endif %}</h3>
     {% for d in departments %}<div class="py-2 border-t text-sm">{{ d.name }}{% if d.code %} <span class="text-xs text-gray-500">({{ d.code }})</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
   </div>
   <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h3 class="text-sm font-semibold mb-3 flex justify-between">Warehouses <a href="{% url 'organizations:warehouse_create' %}" class="text-xs" style="color: var(--primary);">+ New</a></h3>
+    <h3 class="text-sm font-semibold mb-3 flex justify-between">Warehouses {% can_do "organizations:warehouse_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:warehouse_create' %}" class="text-xs" style="color: var(--primary);">+ New</a>{% endif %}</h3>
     {% for w in warehouses %}<div class="py-2 border-t text-sm"><a href="{% url 'organizations:warehouse_detail' w.pk %}" style="color: var(--primary);">{{ w.name }}</a>{% if w.is_default %} <span class="badge bg-green-50 text-green-700 ml-1">Default</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
   </div>
 </div>

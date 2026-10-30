@@ -46,8 +46,32 @@ try:
 except ImportError:
     pass
 
+# Uploaded files are NOT served from /media/. A plain media route can't tell
+# who is asking: it would hand one company's contracts, CVs and receipts to
+# anybody holding the link. Each kind of upload has its own view that checks
+# the user's company and rights and sends the file as an attachment
+# (documents:document_download, documents:receipt_download,
+# recruitment:candidate_resume).
+#
+# The only exception, and only with DEBUG on (production has no media route
+# at all), is pictures that are shown inline on pages -- avatars, company and
+# customer logos, product images -- which are not confidential and which a
+# development server has no other way to show.
+PUBLIC_MEDIA_PREFIXES = ("users/avatars/", "companies/logos/", "customers/logos/",
+                         "products/images/")
+
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    import re as _re
+
+    from django.urls import re_path
+    from django.views.static import serve as _serve
+
+    _media = _re.escape(settings.MEDIA_URL.lstrip("/"))
+    _prefixes = "|".join(_re.escape(p) for p in PUBLIC_MEDIA_PREFIXES)
+    urlpatterns += [
+        re_path(rf"^{_media}(?P<path>(?:{_prefixes})[^/][^\\]*)$", _serve,
+                {"document_root": settings.MEDIA_ROOT}, name="public_media"),
+    ]
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     try:
         import debug_toolbar

@@ -1,5 +1,7 @@
 """Projects and Task management models."""
 from decimal import Decimal
+
+from django.core.exceptions import ValidationError
 from django.db import models
 from apps.core.models import BaseModel, NotesMixin
 
@@ -29,6 +31,17 @@ class Project(BaseModel, NotesMixin):
 
     def __str__(self):
         return f"{self.reference} — {self.name}"
+
+    def clean(self):
+        errors = {}
+        if self.budget is not None and self.budget < 0:
+            errors["budget"] = "A budget can't be negative. Enter 0 if there is no budget yet."
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            errors["end_date"] = (
+                f"The project can't end ({self.end_date:%d %b %Y}) before it starts "
+                f"({self.start_date:%d %b %Y}). Correct one of the dates.")
+        if errors:
+            raise ValidationError(errors)
 
     @property
     def progress_percent(self):
@@ -61,3 +74,8 @@ class Task(BaseModel, NotesMixin):
 
     def __str__(self):
         return self.title
+
+    def clean(self):
+        if self.estimated_hours is not None and self.estimated_hours < 0:
+            raise ValidationError({"estimated_hours":
+                                   "Estimated hours can't be negative. Enter 0 or more, or leave it blank."})

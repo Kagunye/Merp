@@ -11,9 +11,36 @@ from .base import *  # noqa: F401, F403
 
 DEBUG = os.environ.get("DEBUG", "0") == "1"
 
-# Allow Vercel preview/production hosts and any explicit ones from env.
-_allowed = os.environ.get("ALLOWED_HOSTS", "")
-ALLOWED_HOSTS = [h.strip() for h in _allowed.split(",") if h.strip()] or ["*"]
+# Hosts this deployment answers to.
+#
+# ALLOWED_HOSTS (comma-separated) wins when it is set -- set it to the custom
+# domain(s), e.g. "erp.example.co.ke,www.erp.example.co.ke". Otherwise the
+# deployment's own Vercel addresses are used: Vercel sets VERCEL_URL (this
+# deployment), VERCEL_BRANCH_URL and VERCEL_PROJECT_PRODUCTION_URL itself, and
+# the host of SITE_URL is added too. The old default of "*" accepted any Host
+# header, which is what let a forged Host end up in an emailed reset link.
+# Only if none of those is available does it fall back to *.vercel.app.
+def _host_of(url):
+    try:
+        return urlsplit(url if "://" in url else f"https://{url}").hostname or ""
+    except ValueError:
+        return ""
+
+
+_allowed = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
+if not _allowed:
+    _allowed = [
+        _host_of(os.environ.get(name, ""))
+        for name in ("VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL", "SITE_URL")
+    ]
+    _allowed = [h for h in dict.fromkeys(_allowed) if h] or [".vercel.app"]
+ALLOWED_HOSTS = _allowed
+
+# Emailed links (apps.accounts.links) need the public address. SITE_URL is the
+# setting to use; on Vercel the project's production address stands in for it
+# when it is not set, because Vercel provides that itself, not the request.
+if not SITE_URL and os.environ.get("VERCEL_PROJECT_PRODUCTION_URL"):  # noqa: F405
+    SITE_URL = "https://" + os.environ["VERCEL_PROJECT_PRODUCTION_URL"].strip().rstrip("/")
 
 CSRF_TRUSTED_ORIGINS = [
     "https://*.vercel.app",

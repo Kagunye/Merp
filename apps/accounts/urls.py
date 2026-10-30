@@ -14,6 +14,7 @@ urlpatterns = [
     path("password-reset/<uuid:token>/", views.PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
     path("users/", views.UserListView.as_view(), name="user_list"),
     path("users/create/", views.UserCreateView.as_view(), name="user_create"),
+    path("users/add-existing/", views.UserAddExistingView.as_view(), name="user_add_existing"),
     path("users/<uuid:pk>/", views.UserDetailView.as_view(), name="user_detail"),
     path("users/<uuid:pk>/edit/", views.UserEditView.as_view(), name="user_edit"),
     path("users/<uuid:pk>/toggle/", views.toggle_user_active, name="user_toggle"),

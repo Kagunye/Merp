@@ -48,6 +48,16 @@ class Branch(BaseModel, AddressMixin, ContactMixin):
     def __str__(self):
         return f"{self.company.name} — {self.name}"
 
+    def save(self, *args, **kwargs):
+        # A company has one head office. Marking a branch as headquarters moves
+        # the title to it rather than leaving two branches both claiming it --
+        # reports, letterheads and the default branch all read "the" HQ, and
+        # with two of them which one they picked would be an accident of order.
+        if self.is_headquarters and self.company_id:
+            Branch.objects.filter(company_id=self.company_id, is_headquarters=True).exclude(
+                pk=self.pk).update(is_headquarters=False)
+        super().save(*args, **kwargs)
+
 
 class Department(BaseModel):
     """Department within a company."""
@@ -81,6 +91,15 @@ class Warehouse(BaseModel, AddressMixin):
 
     def __str__(self):
         return f"{self.company.name} — {self.name}"
+
+    def save(self, *args, **kwargs):
+        # One default warehouse per company: it is where a sale or a receipt
+        # with no warehouse named draws from or lands in. Making another one
+        # the default hands the role over instead of leaving two candidates.
+        if self.is_default and self.company_id:
+            Warehouse.objects.filter(company_id=self.company_id, is_default=True).exclude(
+                pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
 
 
 class FiscalYear(BaseModel):

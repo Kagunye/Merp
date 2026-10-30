@@ -18,6 +18,14 @@ SECRET_KEY = env("SECRET_KEY", default="django-insecure-dev-key-change-in-produc
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 
+# The public address of this site, e.g. https://erp.example.co.ke (no trailing
+# slash). Links that go out by email -- password resets, "you've been added to
+# a company" -- are built from it, never from the request's Host header, which
+# whoever sends the request controls (apps.accounts.links). With DEBUG on and
+# SITE_URL unset the request is used, so a local install still works; in
+# production an unset SITE_URL means those emails are not sent.
+SITE_URL = env("SITE_URL", default="").rstrip("/")
+
 DJANGO_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -230,6 +238,10 @@ LOGGING = {
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+
+# Largest file any upload field accepts (documents, CVs, receipts, images).
+# Checked by apps.documents.validators.validate_upload.
+MAX_UPLOAD_SIZE = env.int("MAX_UPLOAD_SIZE", default=10 * 1024 * 1024)
 
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True

@@ -1,5 +1,6 @@
 {% extends "base/base.html" %}
 {% block content %}
+{% load ui_extras %}
 {% include "_includes/launcher.html" with launcher_title="CRM" launcher_subtitle="Customers, suppliers, leads and activity management" %}
 
 <div class="launcher-section-label">
@@ -7,14 +8,14 @@
   <span class="launcher-section-count">8 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">New Customer</span></a>
-  <a href="{% url 'crm:supplier_create' %}" class="launcher-tile"><div class="ico ico-amber">🏭</div><span class="label">New Supplier</span></a>
-  <a href="{% url 'crm:lead_create' %}" class="launcher-tile"><div class="ico ico-sky">🎯</div><span class="label">New Lead</span></a>
-  <a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-peach">💬</div><span class="label">Create Quotation</span></a>
-  <a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">🧾</div><span class="label">Invoice Customer</span></a>
-  <a href="{% url 'crm:lead_list' %}?stage=QUALIFIED" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">Qualify Leads</span></a>
-  <a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-rose">🎫</div><span class="label">Log Support Case</span></a>
-  <a href="{% url 'sms:index' %}" class="launcher-tile"><div class="ico ico-sky">💬</div><span class="label">Send SMS</span></a>
+  {% can_do "crm:customer_create" as ok %}{% if ok %}<a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">New Customer</span></a>{% endif %}
+  {% can_do "crm:supplier_create" as ok %}{% if ok %}<a href="{% url 'crm:supplier_create' %}" class="launcher-tile"><div class="ico ico-amber">🏭</div><span class="label">New Supplier</span></a>{% endif %}
+  {% can_do "crm:lead_create" as ok %}{% if ok %}<a href="{% url 'crm:lead_create' %}" class="launcher-tile"><div class="ico ico-sky">🎯</div><span class="label">New Lead</span></a>{% endif %}
+  {% can_do "sales:order_create" as ok %}{% if ok %}<a href="{% url 'sales:order_create' %}" class="launcher-tile"><div class="ico ico-peach">💬</div><span class="label">Create Quotation</span></a>{% endif %}
+  {% can_do "sales:invoice_create" as ok %}{% if ok %}<a href="{% url 'sales:invoice_create' %}" class="launcher-tile"><div class="ico ico-mint">🧾</div><span class="label">Invoice Customer</span></a>{% endif %}
+  {% can_do "crm:lead_list" as ok %}{% if ok %}<a href="{% url 'crm:lead_list' %}?stage=QUALIFIED" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">Qualify Leads</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_create" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-rose">🎫</div><span class="label">Log Support Case</span></a>{% endif %}
+  {% can_do "sms:index" as ok %}{% if ok %}<a href="{% url 'sms:index' %}" class="launcher-tile"><div class="ico ico-sky">💬</div><span class="label">Send SMS</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -22,10 +23,10 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">🧑‍🤝‍🧑</div><span class="label">Customers</span></a>
-  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-amber">🏢</div><span class="label">Suppliers</span></a>
-  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Leads</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-peach">📄</div><span class="label">Quotations</span></a>
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">🧑‍🤝‍🧑</div><span class="label">Customers</span></a>{% endif %}
+  {% can_do "crm:supplier_list" as ok %}{% if ok %}<a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-amber">🏢</div><span class="label">Suppliers</span></a>{% endif %}
+  {% can_do "crm:lead_list" as ok %}{% if ok %}<a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Leads</span></a>{% endif %}
+  {% can_do "sales:order_list" as ok %}{% if ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-peach">📄</div><span class="label">Quotations</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -33,10 +34,10 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">AR Aging</span></a>
-  <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-peach">⏱️</div><span class="label">AP Aging</span></a>
-  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Lead Pipeline</span></a>
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-sky">💰</div><span class="label">Revenue by Customer</span></a>
+  {% can_do "sales:ar_aging" as ok %}{% if ok %}<a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">AR Aging</span></a>{% endif %}
+  {% can_do "procurement:ap_aging" as ok %}{% if ok %}<a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-peach">⏱️</div><span class="label">AP Aging</span></a>{% endif %}
+  {% can_do "crm:lead_list" as ok %}{% if ok %}<a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Lead Pipeline</span></a>{% endif %}
+  {% can_do "reporting:profit_loss" as ok %}{% if ok %}<a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-sky">💰</div><span class="label">Revenue by Customer</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -44,9 +45,9 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Customer Groups</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">👔</div><span class="label">Sales Reps</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💱</div><span class="label">Price Lists</span></a>
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Templates</span></a>
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Customer Groups</span></a>{% endif %}
+  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">👔</div><span class="label">Sales Reps</span></a>{% endif %}
+  {% can_do "organizations:home" as ok %}{% if ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">💱</div><span class="label">Price Lists</span></a>{% endif %}
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Templates</span></a>{% endif %}
 </div>
 {% endblock %}
