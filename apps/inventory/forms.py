@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django import forms
 from apps.core.forms import date_input
+from .numbers import PlainNumbersMixin
 from .models import Product, StockMovement, ProductCategory, UnitOfMeasure
 
 
@@ -37,15 +38,24 @@ class ProductForm(forms.ModelForm):
         self.fields["unit_of_measure"].queryset = UnitOfMeasure.objects.filter(company=company, is_active=True)
         self.fields["tax_rate"].queryset = TaxRate.objects.filter(company=company, is_active=True)
         self.fields["tax_rate"].empty_label = "— Use default tax"
+        from apps.accounting.gl_service import stock_holding_accounts
         accounts = Account.objects.filter(company=company, is_active=True)
         for fname, acct_type in (
             ("income_account", "REVENUE"),
             ("cogs_account", "COST_OF_GOODS"),
-            ("inventory_account", "ASSET"),
         ):
             field = self.fields[fname]
             field.queryset = accounts.filter(account_type=acct_type)
             field.empty_label = "— System default"
+        # Stock is held only on an account that holds stock: 1400 and the
+        # accounts beside it (1410 Spares, say). Work in progress (1450) is
+        # where materials wait while they are being made into something; a
+        # product kept there would be drawn into production and out again on
+        # the same account. Banks, receivables, the receipt accrual, the
+        # revaluation and depreciation accounts and the headers above other
+        # accounts each answer for something else entirely.
+        self.fields["inventory_account"].queryset = stock_holding_accounts(company)
+        self.fields["inventory_account"].empty_label = "— System default"
         self.company = company
 
     def clean(self):
@@ -76,6 +86,8 @@ class ProductForm(forms.ModelForm):
         saved = Product.objects.filter(pk=product.pk).select_related("inventory_account").first()
         if saved is None:
             return cleaned
+        self._check_unit_change(saved, cleaned)
+        self._check_retracking(saved, cleaned)
         untracking = saved.track_inventory and not cleaned.get("track_inventory")
         default = Account.objects.filter(company=saved.company, code="1400").first()
         was = saved.inventory_account or default
@@ -121,7 +133,62 @@ class ProductForm(forms.ModelForm):
         return cleaned
 
 
-class StockMovementForm(forms.ModelForm):
+    def _check_unit_change(self, saved, cleaned):
+        """Refuse a new counting unit once the product has stock or history.
+
+        Every quantity on record — on the shelf, on each movement, on its order
+        lines and in the recipes that use it — is a number of the product's
+        unit. Changing the unit does not change those numbers, so 12 pieces on
+        the shelf would become 12 boxes with nothing having moved.
+        """
+        from .models import StockLevel, StockMovement
+        unit = cleaned.get("unit_of_measure")
+        if unit is None or unit.pk == saved.unit_of_measure_id:
+            return
+        has_stock = StockLevel.objects.filter(product=saved).exclude(quantity=0, value=0).exists()
+        if has_stock or StockMovement.objects.filter(product=saved).exists():
+            self.add_error(
+                "unit_of_measure",
+                f"{saved.name} already has stock or stock movements counted in "
+                f"{saved.unit_of_measure}, so its unit cannot change to {unit}: every quantity "
+                "on record would silently mean something else. Keep the unit, or set up "
+                "a new product counted in the new unit.")
+
+    def _check_retracking(self, saved, cleaned):
+        """Turning stock tracking ON has to start from an empty shelf.
+
+        While a product is untracked nothing it does reaches the inventory
+        account, so a shelf it still holds is not in the ledger. Tracking it
+        again would put that stock into the valuation with nothing behind it
+        in 1400 — so those shelves are emptied when tracking comes on (the
+        view does it, and says so), and the stock is counted on afresh.
+
+        Goods received on an order while the product was untracked, and not
+        yet billed, are refused outright: nothing was accrued for them, but
+        once the product is tracked "Bill this order" would clear an accrual
+        for them anyway, and the difference would land on the price variance.
+        Bill what arrived first, then turn tracking on.
+        """
+        self.retracking = (not saved.track_inventory) and bool(cleaned.get("track_inventory"))
+        if not self.retracking:
+            return
+        from apps.procurement.models import PurchaseOrderLine
+        unbilled = [l for l in PurchaseOrderLine.objects.filter(
+            product=saved, order__company=saved.company).exclude(
+            order__status="CANCELLED").select_related("order") if l.to_bill > 0]
+        if unbilled:
+            refs = ", ".join(sorted({l.order.reference for l in unbilled}))
+            self.add_error(
+                "track_inventory",
+                f"{saved.name} cannot start being stock-tracked while goods received on "
+                f"{refs} have not been billed: they arrived untracked, so nothing was "
+                "accrued for them, and the bill would clear an accrual that is not there. "
+                "Bill this order first, then turn tracking on.")
+
+    retracking = False
+
+
+class StockMovementForm(PlainNumbersMixin, forms.ModelForm):
     """A stock adjustment typed in by hand, outside any order.
 
     Only movements that make sense on their own are offered. A transfer has two
@@ -174,6 +241,7 @@ class StockMovementForm(forms.ModelForm):
         self.fields["unit_cost"].help_text = (
             "Cost of one unit coming in. Stock going out is always taken off at "
             "the shelf's average cost, so this is ignored for a decrease.")
+        self.company = company
         if not company:
             return
         from apps.organizations.models import Warehouse
@@ -182,11 +250,24 @@ class StockMovementForm(forms.ModelForm):
         self.fields["warehouse"].queryset = Warehouse.objects.filter(
             company=company, is_active=True)
 
+    company = None
+
     def clean_quantity(self):
         quantity = self.cleaned_data.get("quantity")
         if quantity is not None and quantity <= 0:
             raise forms.ValidationError("A movement has to move something — use a positive quantity.")
         return quantity
+
+    def clean_movement_date(self):
+        """An adjustment records a count already made: not tomorrow's, and not
+        one inside a month that has been closed."""
+        from .models import stock_date_refusal
+        day = self.cleaned_data.get("movement_date")
+        if day and self.company is not None:
+            refusal = stock_date_refusal(self.company, day, "An adjustment")
+            if refusal:
+                raise forms.ValidationError(refusal)
+        return day
 
     def clean_unit_cost(self):
         cost = self.cleaned_data.get("unit_cost")
@@ -246,7 +327,7 @@ class StockMovementForm(forms.ModelForm):
         return cleaned
 
 
-class UnitOfMeasureForm(forms.ModelForm):
+class UnitOfMeasureForm(PlainNumbersMixin, forms.ModelForm):
     """One counting unit. The conversion factor is what lets a warehouse count
     in bags while purchasing pays per kilogram."""
 
@@ -295,3 +376,38 @@ class UnitOfMeasureForm(forms.ModelForm):
         if kind not in valid:
             raise forms.ValidationError(f"Unknown unit kind '{kind}'.")
         return kind
+
+    def clean(self):
+        """A unit in use keeps its factor and its kind.
+
+        Products, recipe lines, order lines and stock movements all hold plain
+        numbers of a unit. Re-defining what the unit is worth (or what it
+        measures) does not touch those numbers, so it would silently rescale
+        them: a recipe calling for 2 kg would start drawing 2 tonnes. Once the
+        unit is used, a different size is a new unit.
+        """
+        from .models import unit_in_use
+        cleaned = super().clean()
+        unit = self.instance
+        if unit._state.adding or not unit.pk:
+            return cleaned
+        saved = UnitOfMeasure.objects.filter(pk=unit.pk).first()
+        if saved is None:
+            return cleaned
+        factor = cleaned.get("base_factor")
+        kind = cleaned.get("kind")
+        refactored = factor is not None and factor != saved.base_factor
+        rekinded = kind is not None and kind != saved.kind
+        rebased = "is_base" in cleaned and bool(cleaned.get("is_base")) != saved.is_base
+        if not (refactored or rekinded or rebased):
+            return cleaned
+        if unit_in_use(saved):
+            what = ("what it is worth" if refactored else
+                    "what it measures" if rekinded else "whether it is the base unit")
+            self.add_error(
+                None,
+                f"{saved.abbreviation} is already used by products, recipes, orders or "
+                f"stock movements, so {what} cannot change: every quantity on record in "
+                f"{saved.abbreviation} would silently be rescaled. Add a new unit with the "
+                "factor you need instead.")
+        return cleaned

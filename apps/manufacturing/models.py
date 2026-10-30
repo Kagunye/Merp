@@ -1,5 +1,6 @@
 """Manufacturing models: BOM, Work Orders."""
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.db import models
 from apps.core.models import BaseModel, NotesMixin
 
@@ -26,6 +27,27 @@ class BillOfMaterials(BaseModel, NotesMixin):
         return f"{self.name} v{self.version}"
 
 
+def scrap_refusal(scrap_percent):
+    """Why a recipe line's scrap allowance is not a real one, or "".
+
+    Scrap is the share of a component lost on the way into the product, so a
+    line draws quantity × (1 + scrap ÷ 100). Below nothing it would draw less
+    than the recipe uses — at -100% nothing at all, so the finished goods
+    would carry none of that material's cost. At 100% or more, as much again
+    (or more) is thrown away as goes in, which is a typing slip, not a recipe:
+    250% would draw three and a half times the materials.
+    """
+    if scrap_percent is None:
+        return ""
+    if scrap_percent < 0:
+        return ("Scrap cannot be negative: it is the share of the component lost on "
+                "the way in. Enter 0 if none is lost.")
+    if scrap_percent >= 100:
+        return (f"Scrap of {scrap_percent}% would throw away as much as the recipe uses, "
+                "or more. Enter a percentage from 0 up to (but not including) 100.")
+    return ""
+
+
 class BOMLine(models.Model):
     bom = models.ForeignKey(BillOfMaterials, on_delete=models.CASCADE, related_name="lines")
     component = models.ForeignKey("inventory.Product", on_delete=models.PROTECT, related_name="bom_usages")
@@ -40,6 +62,20 @@ class BOMLine(models.Model):
 
     def __str__(self):
         return f"{self.component.name} x {self.quantity}"
+
+    def clean(self):
+        super().clean()
+        error = scrap_refusal(self.scrap_percent)
+        if error:
+            raise ValidationError({"scrap_percent": error})
+
+    def save(self, *args, **kwargs):
+        # Checked on every save as well as in the form: a recipe line written
+        # by an import or a script draws materials through the same sum.
+        error = scrap_refusal(self.scrap_percent)
+        if error:
+            raise ValidationError({"scrap_percent": error})
+        super().save(*args, **kwargs)
 
     @property
     def effective_quantity(self):

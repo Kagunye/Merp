@@ -1985,6 +1985,69 @@ OPENING_EQUITY = ("3100", "Share Capital", "EQUITY", "3000")
 PRICE_VARIANCE = ("5400", "Purchase Price Variance", "COST_OF_GOODS", "5000")
 
 
+# Accounts the ledger keeps for one job of its own, by code: the foreign
+# exchange revaluations (1350 receivables, 2150 payables), work in progress,
+# the received-not-invoiced accrual and accumulated depreciation. Each is moved
+# only by the process that owns it; a bill or a product pointed at one would
+# put a figure there that process never wrote and cannot later explain.
+RESERVED_CODES = ("1350", "2150", WIP[0], NOT_BILLED[0], "1690")
+# Headers the ledger posts to itself when nothing more specific is chosen.
+DEFAULT_POSTING_CODES = ("1400", "5000", "6000")
+
+
+def reserved_accounts(company):
+    """Primary keys of the accounts nothing but the ledger's own machinery may
+    be charged to.
+
+    * the reserved codes above (revaluation, WIP, accrual, depreciation);
+    * contra accounts: every fixed-asset category's accumulated depreciation;
+    * control accounts: banks and cash, receivables, payables and tax, and any
+      account a bank account in the banking module is kept on — each of those
+      is proved against its own sub-ledger, which a stray charge would break;
+    * headers: an account with accounts under it is a heading on the report,
+      and its balance is meant to be the sum of theirs, not a figure of its
+      own. The exceptions are the few headers the ledger itself posts to by
+      default (DEFAULT_POSTING_CODES): 1400 Inventory, 5000 Cost of Goods Sold
+      and 6000 Operating Expenses, where a product or a typed bill with no
+      account of its own is booked — refusing them would refuse the default.
+    """
+    from apps.accounting.models import Account
+    from apps.banking.models import BankAccount
+    from apps.fixed_assets.models import AssetCategory
+
+    accounts = Account.objects.filter(company=company)
+    reserved = set(accounts.filter(code__in=RESERVED_CODES).values_list("pk", flat=True))
+    reserved |= set(accounts.filter(
+        account_type__in=["BANK", "CASH", "RECEIVABLE", "PAYABLE", "TAX"]).values_list("pk", flat=True))
+    reserved |= set(accounts.filter(children__isnull=False).exclude(
+        code__in=DEFAULT_POSTING_CODES).values_list("pk", flat=True))
+    reserved |= set(AssetCategory.objects.filter(
+        company=company, gl_accumulated_account__isnull=False,
+    ).values_list("gl_accumulated_account_id", flat=True))
+    reserved |= set(BankAccount.objects.filter(
+        gl_account__company=company).values_list("gl_account_id", flat=True))
+    return reserved
+
+
+def stock_holding_accounts(company):
+    """The accounts a product's stock may be held on.
+
+    Inventory (1400) and the asset accounts numbered beside it (14xx — 1410
+    Spares, 1420 Finished Goods), or kept under it, less every account the
+    ledger reserves for something else: work in progress above all, which is
+    where materials wait while being made into something, and headers. 1400
+    itself always stays on the list: it is where stock lands by default.
+    """
+    from django.db.models import Q
+    from apps.accounting.models import Account
+
+    reserved = reserved_accounts(company)
+    return (Account.objects.filter(company=company, is_active=True, account_type="ASSET")
+            .filter(Q(code="1400") | Q(code__startswith="14") | Q(parent__code="1400"))
+            .exclude(pk__in=reserved)
+            .order_by("code"))
+
+
 def goods_accrued(purchase_order) -> Decimal:
     """What has been received into stock against this order, in book money.
 
@@ -2168,6 +2231,48 @@ def post_stock_receipt(movement, user=None) -> Optional[JournalEntry]:
     _dr(je, inventory, value,
         f"Inventory in: {product.name} × {count}")
     _cr(je, credit, value, f"{reason}: {product.name} × {count}")
+    je.post(user=user)
+    return je
+
+
+@transaction.atomic
+def post_shelf_residue(movement, residue, user=None) -> Optional[JournalEntry]:
+    """Take off the value an emptied below-zero shelf would otherwise keep.
+
+    A product allowed to run negative issues goods it does not have, at the
+    shelf's average; the goods that later answer the shortfall arrive at their
+    own price. When they bring the shelf back to exactly nothing, the shelf's
+    value is set to nothing too (StockMovement._update_stock_level), and the
+    difference between the two prices is booked here, to the purchase price
+    variance, so the inventory account still equals the stock valuation:
+
+    residue > 0 (the goods cost more than they went out at):
+        DR 5400 Purchase Price Variance    residue
+        CR Inventory                       residue
+    residue < 0 (they cost less): the same lines the other way round.
+
+    The receipt itself is booked as usual — its full cost against the accrual
+    (or wherever it came from) — so the bill still clears exactly what arrived.
+    """
+    product = movement.product
+    company = product.company
+    inventory, _cogs = _stock_accounts(company, product)
+    amount = to_base(abs(residue), Decimal("1"))
+    if amount <= 0:
+        return None
+    variance = ensure_account(company, *PRICE_VARIANCE)
+    je = _new_je(
+        company, "JE-RECV-", "STOCK_ADJUSTMENT", movement.movement_date,
+        f"Shortfall answered at a different cost: {movement.reference or product.name}",
+    )
+    text = (f"{product.name}: below-zero shelf back to nothing, "
+            f"answered at a different cost than it was issued at")
+    if residue > 0:
+        _dr(je, variance, amount, text)
+        _cr(je, inventory, amount, text)
+    else:
+        _dr(je, inventory, amount, text)
+        _cr(je, variance, amount, text)
     je.post(user=user)
     return je
 

@@ -3,11 +3,11 @@ from decimal import Decimal
 
 from django import forms
 from apps.core.forms import date_input, is_new, pick_currency
-from apps.inventory.numbers import money
+from apps.inventory.numbers import PlainNumbersMixin, money
 from .models import Bill, PurchaseOrder, PurchaseRequisition
 
 
-class PurchaseRequisitionForm(forms.ModelForm):
+class PurchaseRequisitionForm(PlainNumbersMixin, forms.ModelForm):
     """The header of a request to buy: who wants it, by when, for which team.
 
     The lines — what, how many, roughly what it will cost — are added on the
@@ -52,7 +52,7 @@ class PurchaseRequisitionForm(forms.ModelForm):
         return reference
 
 
-class PurchaseOrderForm(forms.ModelForm):
+class PurchaseOrderForm(PlainNumbersMixin, forms.ModelForm):
     """A purchase order's header, in the money the supplier is paid in.
 
     The currency is chosen the way a bill's is, from the currencies the book
@@ -141,7 +141,16 @@ def chargeable_accounts(company):
     purchase order accrues there, and that order's own bill — raised with
     "Bill this order" — is what clears it. A typed bill coded to 2110 would
     debit an accrual no receipt ever credited.
+
+    Nor may it reach an account the ledger keeps for a job of its own
+    (gl_service.reserved_accounts): accumulated depreciation (1690) and any
+    other contra account, which only the depreciation run writes; a header
+    such as 1000 or 1600, whose balance is the sum of the accounts under it;
+    the exchange revaluation accounts (1350), which the revaluation posts and
+    reverses as a pair; and the control accounts (banks, receivables, payables,
+    tax), each proved against a sub-ledger a typed bill knows nothing about.
     """
+    from apps.accounting.gl_service import reserved_accounts
     from apps.accounting.models import Account
     from apps.inventory.models import Product
 
@@ -150,10 +159,11 @@ def chargeable_accounts(company):
     return (Account.objects.filter(company=company, is_active=True)
             .filter(account_type__in=["EXPENSE", "COST_OF_GOODS", "ASSET"])
             .exclude(code__in=["1400", "1450"]).exclude(pk__in=stock)
+            .exclude(pk__in=reserved_accounts(company))
             .order_by("code"))
 
 
-class BillForm(forms.ModelForm):
+class BillForm(PlainNumbersMixin, forms.ModelForm):
     """A supplier bill typed in from the paper.
 
     A new bill here is for something that was not ordered through a purchase

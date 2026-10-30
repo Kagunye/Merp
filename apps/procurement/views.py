@@ -874,10 +874,21 @@ def grn_record(request, pk):
             messages.error(request, "That warehouse does not belong to this company.")
             return redirect("procurement:grn", pk=pk)
     if not warehouse:
-        warehouse = (Warehouse.objects.filter(company=po.company, is_default=True).first()
-                     or Warehouse.objects.filter(company=po.company).first())
+        active = Warehouse.objects.filter(company=po.company, is_active=True)
+        warehouse = active.filter(is_default=True).first() or active.first()
     if not warehouse:
-        messages.error(request, "This company has no warehouse to receive goods into.")
+        messages.error(request, "This company has no active warehouse to receive goods "
+                                "into. Add one, or reactivate one, under Organization → "
+                                "Warehouses.")
+        return redirect("procurement:grn", pk=pk)
+    if not warehouse.is_active:
+        # A retired warehouse is outside every count and every pick list:
+        # goods received there would be in the book and nowhere anyone looks.
+        messages.error(
+            request,
+            f"{warehouse.name} is inactive, so goods cannot be received into it. Choose "
+            "an active warehouse on the receipt, or reactivate this one under "
+            "Organization → Warehouses first.")
         return redirect("procurement:grn", pk=pk)
 
     wanted = []
@@ -1453,62 +1464,82 @@ def bill_pay(request, pk):
         return redirect("procurement:bill_detail", pk=pk)
     bank_base = to_base(amount, payment_rate)
 
-    if not bill.journal_entry_id:
-        # Paying an unposted bill would debit AP with no matching credit. It is
-        # posted only once everything about the payment itself has checked out,
-        # so a mistyped account or date does not post a draft by accident.
+    # Posting a draft bill and paying it are one event. Both happen inside a
+    # single transaction, so a payment the ledger refuses — dated in a closed
+    # month, say — also takes back the bill's own posting: the bookkeeper is
+    # left with the draft exactly as it was, not a bill half on the ledger
+    # with no payment against it. The refusal is shown on the screen, in the
+    # ledger's own words, instead of failing the page.
+    posted_first = False
+    was_draft = not bill.journal_entry_id
+    try:
         with transaction.atomic():
-            if not _post_bill_to_gl(request, bill, request.user):
-                return redirect("procurement:bill_detail", pk=pk)
+            if not bill.journal_entry_id:
+                # Paying an unposted bill would debit AP with no matching
+                # credit. It is posted only once everything about the payment
+                # itself has checked out, so a mistyped account or date does
+                # not post a draft by accident.
+                from apps.accounting.gl_service import post_bill
+                try:
+                    post_bill(bill, user=request.user)
+                except ValidationError:
+                    raise
+                except Exception as exc:
+                    raise ValidationError(
+                        f"{bill.reference} could not be posted to the GL: {exc}")
+                posted_first = True
+            # Re-read the bill under a lock: two payments sent together must
+            # not both pass the outstanding check and pay the supplier twice.
+            bill = Bill.objects.select_for_update().get(pk=bill.pk)
+            if bill.status not in PAYABLE_BILL_STATUSES or amount > bill.outstanding_amount:
+                raise ValidationError(
+                    f"{bill.reference} is {bill.get_status_display().lower()} with "
+                    f"{money(bill.outstanding_amount)} outstanding, so {money(amount)} cannot "
+                    "be paid against it.")
+            # The payable comes off at its share of the bill's own book value:
+            # the balance before this payment less the balance after it, both
+            # at the bill's rate. Converting the payment on its own would, over
+            # a few part payments, leave a cent on AP for a bill paid in full.
+            ap_base = bill.settlement_base(amount)
+            ref = SequenceCounter.next_number(company, "JE-SPAY-")
+            je = JournalEntry.objects.create(
+                company=company,
+                reference=ref,
+                entry_type="PAYMENT",
+                posting_date=payment_date,
+                notes=f"Supplier payment for bill {bill.reference}",
+                source_currency=bill.currency,
+                exchange_rate=payment_rate,
+            )
+            JournalEntryLine.objects.create(
+                journal_entry=je, account=ap,
+                description=f"Pay {bill.supplier.name} — {bill.reference}",
+                debit_amount=ap_base, credit_amount=Decimal("0"),
+            )
+            JournalEntryLine.objects.create(
+                journal_entry=je, account=bank,
+                description=f"Pay {bill.supplier.name} — {bill.reference}",
+                debit_amount=Decimal("0"), credit_amount=bank_base,
+            )
+            _book_exchange_difference(
+                je, company, ap_base - bank_base,
+                f"Realised exchange on {bill.reference}")
+            je.post(user=request.user)
+            bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
+            bill.outstanding_amount = bill.total_amount - bill.paid_amount - bill.credited_amount
+            if bill.outstanding_amount <= 0:
+                bill.status = "PAID"
+            else:
+                bill.status = "PARTIAL"
+            bill.save(update_fields=["paid_amount", "outstanding_amount", "status"])
+    except ValidationError as exc:
+        messages.error(
+            request,
+            f"Could not pay {bill.reference}: {' '.join(exc.messages)} Nothing was recorded"
+            + (f" and {bill.reference} is still a draft." if was_draft else "."))
+        return redirect("procurement:bill_detail", pk=pk)
+    if posted_first:
         messages.info(request, f"Bill {bill.reference} was posted to the GL first.")
-
-    with transaction.atomic():
-        # Re-read the bill under a lock: two payments sent together must not
-        # both pass the outstanding check and pay the supplier twice.
-        bill = Bill.objects.select_for_update().get(pk=bill.pk)
-        if bill.status not in PAYABLE_BILL_STATUSES or amount > bill.outstanding_amount:
-            messages.error(
-                request,
-                f"{bill.reference} is {bill.get_status_display().lower()} with "
-                f"{money(bill.outstanding_amount)} outstanding, so {money(amount)} cannot be paid "
-                "against it. Nothing was recorded.")
-            return redirect("procurement:bill_detail", pk=pk)
-        # The payable comes off at its share of the bill's own book value: the
-        # balance before this payment less the balance after it, both at the
-        # bill's rate. Converting the payment on its own would, over a few part
-        # payments, leave a cent on AP for a bill that is paid in full.
-        ap_base = bill.settlement_base(amount)
-        ref = SequenceCounter.next_number(company, "JE-SPAY-")
-        je = JournalEntry.objects.create(
-            company=company,
-            reference=ref,
-            entry_type="PAYMENT",
-            posting_date=payment_date,
-            notes=f"Supplier payment for bill {bill.reference}",
-            source_currency=bill.currency,
-            exchange_rate=payment_rate,
-        )
-        JournalEntryLine.objects.create(
-            journal_entry=je, account=ap,
-            description=f"Pay {bill.supplier.name} — {bill.reference}",
-            debit_amount=ap_base, credit_amount=Decimal("0"),
-        )
-        JournalEntryLine.objects.create(
-            journal_entry=je, account=bank,
-            description=f"Pay {bill.supplier.name} — {bill.reference}",
-            debit_amount=Decimal("0"), credit_amount=bank_base,
-        )
-        _book_exchange_difference(
-            je, company, ap_base - bank_base,
-            f"Realised exchange on {bill.reference}")
-        je.post(user=request.user)
-        bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
-        bill.outstanding_amount = bill.total_amount - bill.paid_amount - bill.credited_amount
-        if bill.outstanding_amount <= 0:
-            bill.status = "PAID"
-        else:
-            bill.status = "PARTIAL"
-        bill.save(update_fields=["paid_amount", "outstanding_amount", "status"])
     messages.success(request, f"Payment {money(amount)} {bill.currency} recorded for "
                               f"{bill.reference}. GL entry {je.reference} posted.")
     if je.calendar_warning:

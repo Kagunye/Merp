@@ -2,11 +2,12 @@ from decimal import Decimal
 
 from django import forms
 from apps.core.forms import date_input
+from apps.inventory.numbers import PlainNumbersMixin
 from django.forms import inlineformset_factory
 from .models import BillOfMaterials, BOMLine, WorkOrder
 
 
-class BOMForm(forms.ModelForm):
+class BOMForm(PlainNumbersMixin, forms.ModelForm):
     class Meta:
         model = BillOfMaterials
         fields = ["name", "product", "version", "status", "production_quantity", "notes"]
@@ -30,7 +31,7 @@ class BOMForm(forms.ModelForm):
         return quantity
 
 
-class BOMLineForm(forms.ModelForm):
+class BOMLineForm(PlainNumbersMixin, forms.ModelForm):
     class Meta:
         model = BOMLine
         fields = ["component", "quantity", "unit_of_measure", "scrap_percent"]
@@ -48,6 +49,10 @@ class BOMLineForm(forms.ModelForm):
         unit = cleaned.get("unit_of_measure")
         if quantity is not None and quantity <= 0:
             self.add_error("quantity", "A BOM line has to consume something.")
+        from .models import scrap_refusal
+        scrap = scrap_refusal(cleaned.get("scrap_percent"))
+        if scrap and "scrap_percent" not in self._errors:
+            self.add_error("scrap_percent", scrap)
         if component and not unit:
             # Write the recipe in the unit the store already keeps the item in.
             cleaned["unit_of_measure"] = unit = component.unit_of_measure
@@ -70,7 +75,7 @@ BOMLineFormSet = inlineformset_factory(
 )
 
 
-class WorkOrderForm(forms.ModelForm):
+class WorkOrderForm(PlainNumbersMixin, forms.ModelForm):
     class Meta:
         model = WorkOrder
         fields = ["reference", "bom", "planned_quantity", "planned_start", "planned_end", "warehouse", "notes"]
@@ -95,7 +100,7 @@ class WorkOrderForm(forms.ModelForm):
         return quantity
 
 
-class CompleteWorkOrderForm(forms.Form):
+class CompleteWorkOrderForm(PlainNumbersMixin, forms.Form):
     # The finished goods carry the materials' cost divided by how many came
     # out, so a run that made nothing has no unit cost to put on the shelf.
     actual_quantity = forms.DecimalField(
