@@ -2364,6 +2364,15 @@ def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -
     _cr(je, cash_acct, claim.total_amount, f"Paid: {claim.reference}")
     je.post(user=user)
 
+    # Posting has put the payment on the bank book; a petty-cash box cannot pay
+    # out notes it does not hold, so the caller's transaction is undone if it
+    # would go below zero (a bank account may go overdrawn).
+    from apps.banking.models import BankAccount
+    paying_from = bank_account or BankAccount.objects.filter(
+        company=company, gl_account=cash_acct, is_active=True).first()
+    if paying_from is not None:
+        refuse_cash_below_zero(paying_from, paid_on, f"Paying {claim.reference}")
+
     # Link back to claim
     claim.journal_entry = je
     type(claim).objects.filter(pk=claim.pk).update(

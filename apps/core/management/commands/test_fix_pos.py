@@ -1059,6 +1059,16 @@ class Command(BaseCommand):
                                             status="APPROVED", total_amount=D("750"))
         ExpenseClaimLine.objects.create(claim=claim, category=category, description="tea",
                                         expense_date=today, amount=D("750"))
+        # A cash box cannot pay out notes it does not hold (refuse_cash_below_zero),
+        # so the box is topped up from the bank before the claim is paid from it.
+        top_up = JournalEntry.objects.create(company=self.company, reference=f"JNL-TOPUP-{self.stamp}",
+                                             entry_type="MANUAL", posting_date=today,
+                                             notes="Petty cash top-up")
+        JournalEntryLine.objects.create(journal_entry=top_up, account=self.petty.gl_account,
+                                        debit_amount=D("750"), credit_amount=D("0"))
+        JournalEntryLine.objects.create(journal_entry=top_up, account=self.account("1200"),
+                                        debit_amount=D("0"), credit_amount=D("750"))
+        top_up.post(user=self.admin)
         entry = gl_service.post_expense_claim(claim, bank_account=self.petty, user=self.admin)
         paid = BankTransaction.objects.filter(journal_entry=entry).first()
         self.expect("an expense claim paid from petty cash is on petty cash's book",
