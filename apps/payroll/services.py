@@ -271,6 +271,61 @@ def share_of_month(monthly, ranges, month_days):
     return money(total)
 
 
+def month_coverage(employee, day):
+    """How many days of `day`'s calendar month this person is paid for at all,
+    and the last of them — as (days, last_day), or (0, None).
+
+    Worked out from the contracts and the leaving date alone, whatever runs
+    happen to have been raised, so the same month gives the same answer
+    whether it is paid as one run or as several.
+    """
+    from .models import month_bounds
+
+    first, last = month_bounds(day)
+    ranges = [span for _, spans in contract_segments(employee, first, last)
+              for span in spans]
+    if not ranges:
+        return 0, None
+    return span_days(ranges), max(end for _, end in ranges)
+
+
+def person_fraction(paid_days, month_paid_days, run):
+    """The share of this person's month that a run pays, for the monthly figures
+    in the tables (PAYE steps, relief, pension ceiling, SHIF minimum).
+
+    A monthly run gives a joiner from the 21st the whole month's steps and
+    relief for their ten days of pay. A run for the second half of that month
+    has to do the same — it is the only run that pays them that month — so the
+    share is measured against the days the person is paid for in the month,
+    not against the calendar: the days this run pays them, out of all the days
+    the month pays them. For somebody employed the whole month that is simply
+    the run's share of the month, so two halves still add up to one month; for
+    a joiner or a leaver whose month is split across two runs, each run takes
+    its own part of their month and together they take the whole of it.
+    """
+    if month_paid_days <= 0 or paid_days >= month_paid_days:
+        return Decimal("1")
+    return Decimal(paid_days) / Decimal(month_paid_days)
+
+
+def charges_fixed_monthly(run, last_paid_day):
+    """Does this run charge the person's fixed monthly figures that are not
+    pro-rated — a loan repayment, a flat phone allowance?
+
+    Such a figure is owed once a calendar month, however the month is cut into
+    runs. It is charged on the run that pays the person's last paid day of the
+    month: the run that covers the month's last day for somebody still
+    employed, or the run that pays a leaver's final day. That choice depends on
+    nothing but the person's own dates, so it does not change when another run
+    in the month is cancelled or raised again, and a whole-month run always
+    charges it. A run that pays only the earlier part of the month leaves it to
+    the later one.
+    """
+    if last_paid_day is None:
+        return True
+    return run.period_start <= last_paid_day <= run.period_end
+
+
 def build_payslip(run, employee, rules):
     """One person's month, written out line by line from the tables.
 
@@ -286,17 +341,26 @@ def build_payslip(run, employee, rules):
     * The statutory tables are read as they stood on the period end. A rate
       that changes in the middle of a month applies to the whole of that month
       (the run is not split at the change); the slip names the table it used.
-    * A run for part of a month applies the same part of every monthly figure
-      in the tables — PAYE steps, relief, pension ceiling, SHIF minimum — so
-      two half-month runs withhold what one whole month would.
+    * A run for part of a month applies part of every monthly figure in the
+      tables — PAYE steps, relief, pension ceiling, SHIF minimum. The part is
+      this person's own: the days of the month they are paid for in this run,
+      out of the days of the month they are paid for at all (`person_fraction`).
+      Somebody employed all month gets the run's share of the month, so two
+      half-month runs withhold what one whole month would; a joiner or leaver
+      is taxed in halves exactly as a monthly run taxes them.
+    * A fixed monthly figure that is not pro-rated (a loan repayment, a flat
+      allowance) is charged once in the calendar month, on the run that pays
+      the person's last paid day of that month (`charges_fixed_monthly`).
     """
     segments = contract_segments(employee, run.period_start, run.period_end)
     if not segments:
         return None
     month_days = run.month_days
-    fraction = run.month_fraction
     paid_ranges = [span for _, spans in segments for span in spans]
     paid_days = span_days(paid_ranges)
+    month_paid_days, last_paid_day = month_coverage(employee, run.period_start)
+    fraction = person_fraction(paid_days, month_paid_days, run)
+    charge_fixed = charges_fixed_monthly(run, last_paid_day)
 
     slip = Payslip.objects.create(payroll_run=run, employee=employee)
     payslip_lines = []
@@ -347,6 +411,12 @@ def build_payslip(run, employee, rules):
         """One pay element on the slip, beside the pay its rate was read off."""
         nonlocal earned, statutory_gross
         description = component.name
+        if (component.calculation == "FIXED" and not component.prorate_part_months
+                and not charge_fixed):
+            # A figure for the whole month that is not shared out by days is
+            # charged once in the month, on the run that pays this person's
+            # last day of it — not again on every part-month run.
+            return
         if (component.calculation == "FIXED" and component.prorate_part_months
                 and paid_days < month_days):
             # A monthly figure for somebody paid for part of the month is
@@ -396,7 +466,7 @@ def build_payslip(run, employee, rules):
                    if row["kind"] == "EARNING" and row["is_taxable"]), Z)
     taxable -= sum((row.get("tax_relief", Z) for row in payslip_lines
                     if row["kind"] == "DEDUCTION" and row.get("reduces_tax")), Z)
-    part = (f" — steps and relief for {run.run_days} of {month_days} days"
+    part = (f" — steps and relief for {paid_days} of {month_days} days"
             if fraction < 1 else "")
     for rule in rules:
         employee_share = rule.employee_amount(basic, statutory_gross, fraction)

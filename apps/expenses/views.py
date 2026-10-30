@@ -186,7 +186,8 @@ class ExpenseClaimDetailView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["line_form"] = ExpenseClaimLineForm(company=self.request.active_company)
+        ctx["line_form"] = ExpenseClaimLineForm(company=self.request.active_company,
+                                                claim=self.object)
         ctx["is_own_claim"] = is_own_claim(self.request, self.object)
         # The buttons are hidden from whoever the segregation rule turns away,
         # so nobody is offered a step they will only be refused.
@@ -206,7 +207,8 @@ def claim_add_line(request, pk):
     if claim.status not in EDITABLE_STATUSES:
         messages.error(request, f"Claim {claim.reference} is {claim.get_status_display()}; lines are locked.")
         return redirect("expenses:claim_detail", pk=pk)
-    form = ExpenseClaimLineForm(request.POST, request.FILES, company=request.active_company)
+    form = ExpenseClaimLineForm(request.POST, request.FILES, company=request.active_company,
+                                claim=claim)
     if form.is_valid():
         line = form.save(commit=False)
         line.claim = claim
@@ -215,7 +217,11 @@ def claim_add_line(request, pk):
         claim.save(update_fields=["total_amount"])
         messages.success(request, "Line added.")
     else:
-        messages.error(request, "Could not add line. Check the inputs.")
+        # Say what was wrong: the line form is not shown again after a
+        # redirect, so a bare "check the inputs" leaves the claimant guessing.
+        problems = [str(e) for errors in form.errors.values() for e in errors]
+        messages.error(request, "Could not add line. " + (
+            " ".join(problems) if problems else "Check the inputs."))
     return redirect("expenses:claim_detail", pk=pk)
 
 

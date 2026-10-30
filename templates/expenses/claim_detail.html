@@ -42,7 +42,7 @@
         {% csrf_token %}
         <label for="id_bank_account" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Paid from</label>
         <select id="id_bank_account" name="bank_account" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-          <option value="">— Cash on Hand (1100)</option>
+          <option value="">— The main bank account</option>
           {% for acct in payment_accounts %}
             <option value="{{ acct.pk }}">{{ acct.name }} — {{ acct.bank_name }}</option>
           {% endfor %}
