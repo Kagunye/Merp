@@ -7,6 +7,8 @@ from django.views.generic import (
     CreateView, DetailView, ListView, TemplateView, UpdateView,
 )
 
+from apps.core.access import is_platform_admin
+
 from .forms import BranchForm, CompanyForm, DepartmentForm, WarehouseForm
 from .models import Branch, Company, Department, Warehouse
 
@@ -20,6 +22,23 @@ def companies_for_user(user):
     ).distinct()
 
 
+def companies_user_administers(user):
+    """The companies whose own record `user` may rewrite.
+
+    Being a member of a company is not the same as running it. The role table
+    (apps.core.access) is decided by the user's role in the *active* company,
+    so an ADMIN of company A who is only a VIEWER of company B would pass the
+    role check for B's edit page while working in A. Editing a company is
+    therefore limited here to the companies where the user's own membership
+    is ADMIN; platform admins keep the whole estate.
+    """
+    if user.is_system_admin or user.is_superuser:
+        return Company.objects.all()
+    return Company.objects.filter(
+        memberships__user=user, memberships__is_active=True, memberships__role="ADMIN",
+    ).distinct()
+
+
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
     template_name = "organizations/home.html"
 
@@ -27,6 +46,8 @@ class ModuleHomeView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Organizations"
         ctx["companies"] = companies_for_user(self.request.user)
+        ctx["editable_ids"] = set(
+            companies_user_administers(self.request.user).values_list("pk", flat=True))
         return ctx
 
 
@@ -39,12 +60,24 @@ class CompanyListView(LoginRequiredMixin, ListView):
     def get_queryset(self):
         return companies_for_user(self.request.user)
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # Only offer "Edit" on the companies this person actually runs.
+        ctx["editable_ids"] = set(
+            companies_user_administers(self.request.user).values_list("pk", flat=True))
+        return ctx
+
 
 class CompanyCreateView(LoginRequiredMixin, CreateView):
     model = Company
     form_class = CompanyForm
     template_name = "organizations/company_form.html"
     success_url = reverse_lazy("organizations:company_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["platform_admin"] = is_platform_admin(self.request.user)
+        return kwargs
 
     def form_valid(self, form):
         with transaction.atomic():
@@ -60,13 +93,24 @@ class CompanyCreateView(LoginRequiredMixin, CreateView):
 
 
 class CompanyUpdateView(LoginRequiredMixin, UpdateView):
+    """Edit a company's own record: only for that company's ADMIN.
+
+    The queryset is the companies the user administers, not every company
+    they belong to, so a VIEWER seat in another company gives no way in: the
+    page answers 404 there, exactly as for a company they never joined.
+    """
     model = Company
     form_class = CompanyForm
     template_name = "organizations/company_form.html"
     success_url = reverse_lazy("organizations:company_list")
 
     def get_queryset(self):
-        return companies_for_user(self.request.user)
+        return companies_user_administers(self.request.user)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["platform_admin"] = is_platform_admin(self.request.user)
+        return kwargs
 
 
 class CompanyDetailView(LoginRequiredMixin, DetailView):
@@ -82,6 +126,8 @@ class CompanyDetailView(LoginRequiredMixin, DetailView):
         ctx["branches"] = self.object.branches.all()
         ctx["departments"] = self.object.departments.all()
         ctx["warehouses"] = self.object.warehouses.all()
+        ctx["can_edit"] = companies_user_administers(self.request.user).filter(
+            pk=self.object.pk).exists()
         return ctx
 
 

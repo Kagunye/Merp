@@ -35,6 +35,14 @@ class User(AbstractUser):
     def __str__(self):
         return self.get_full_name() or self.email
 
+    def save(self, *args, **kwargs):
+        # Emails are stored lower-case. Sign-in already ignores case, and
+        # keeping one spelling means the unique index (case-sensitive on
+        # Postgres) actually stops Jane@ and jane@ becoming two accounts.
+        if self.email:
+            self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
     @property
     def full_name(self):
         return self.get_full_name() or self.email

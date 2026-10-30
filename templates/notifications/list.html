@@ -22,7 +22,7 @@
           </svg>
         </div>
         <div class="flex-1">
-          <p class="text-sm font-medium text-gray-900">{{ n.title }}</p>
+          <p class="text-sm font-medium text-gray-900">{% if n.action_url %}<a href="{{ n.action_url }}" class="hover:underline">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}</p>
           {% if n.message %}<p class="text-xs text-gray-500 mt-0.5">{{ n.message }}</p>{% endif %}
           <p class="text-xs text-gray-400 mt-1">{{ n.created_at|timesince }} ago</p>
         </div>

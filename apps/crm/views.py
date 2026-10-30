@@ -95,8 +95,16 @@ class CustomerDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = self.object.name
-        ctx["invoices"] = self.object.invoices.order_by("-invoice_date")[:10]
-        ctx["payments"] = self.object.payments.order_by("-payment_date")[:10]
+        # What the customer owes, and the invoices behind it, are sales
+        # ledger figures. Roles that may look a customer up (a till cashier
+        # checking a name) but may not open sales don't get them either: the
+        # template hides the section, and the rows aren't even fetched.
+        from apps.core.access import can
+        role = getattr(self.request, "company_role", None)
+        ctx["may_see_sales"] = can(self.request.user, role, "sales", "invoice_list")
+        if ctx["may_see_sales"]:
+            ctx["invoices"] = self.object.invoices.order_by("-invoice_date")[:10]
+            ctx["payments"] = self.object.payments.order_by("-payment_date")[:10]
         return ctx
 
 

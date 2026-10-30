@@ -1,5 +1,7 @@
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
@@ -135,6 +137,21 @@ class CandidateDetailView(LoginRequiredMixin, DetailView):
         if not company:
             return Candidate.objects.none()
         return Candidate.objects.filter(opening__company=company)
+
+
+@login_required
+def candidate_resume(request, pk):
+    """Download a candidate's CV.
+
+    A CV is personal data the company holds for recruiting, so it is served
+    only through here: the candidate must have applied to an opening of the
+    company the user is working in, and the role table limits recruitment to
+    HR (and audit). The file is always sent as an attachment.
+    """
+    from apps.documents.files import attachment_response
+    company = getattr(request, "active_company", None)
+    candidate = get_object_or_404(Candidate, pk=pk, opening__company=company)
+    return attachment_response(candidate.resume, filename=f"CV-{candidate.full_name}")
 
 
 # ---- Interviews ----

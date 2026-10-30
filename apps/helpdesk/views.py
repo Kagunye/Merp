@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from .forms import TicketCommentForm, TicketForm
-from .models import Ticket
+from .models import TICKET_PREFIX, Ticket
 
 
 def _is_admin(request):
@@ -77,10 +77,26 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        company = self.request.active_company
+        if company and not form.is_bound:
+            from apps.core.models import SequenceCounter
+            # A preview: the number is taken at save time (claim_number), so
+            # opening this form and leaving does not leave a gap in the series.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, TICKET_PREFIX)
+        return form
+
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
+        from apps.core.models import SequenceCounter
+        company = self.request.active_company
+        form.instance.company = company
         form.instance.raised_by = self.request.user
-        messages.success(self.request, "Ticket opened.")
+        # The number shown on the form was only a preview; it is taken here.
+        form.instance.reference = SequenceCounter.claim_number(
+            company, TICKET_PREFIX, form.instance.reference,
+            taken=lambda ref: Ticket.objects.filter(company=company, reference=ref).exists())
+        messages.success(self.request, f"Ticket {form.instance.reference} opened.")
         return super().form_valid(form)
 
     def get_success_url(self):
@@ -110,6 +126,12 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
 @require_POST
 def ticket_comment(request, pk):
     ticket = get_object_or_404(Ticket, pk=pk, company=request.active_company)
+    if ticket.status == "CLOSED":
+        # Closed means the conversation is over. A reply nobody is waiting
+        # for would sit on a ticket that no queue shows any more.
+        messages.error(request, f"Ticket {ticket.reference} is closed, so it can't take new "
+                                "replies. Open a new ticket if there is more to do.")
+        return redirect("helpdesk:ticket_detail", pk=pk)
     form = TicketCommentForm(request.POST)
     if form.is_valid():
         c = form.save(commit=False)
@@ -117,6 +139,9 @@ def ticket_comment(request, pk):
         c.author = request.user
         c.save()
         messages.success(request, "Reply posted.")
+    else:
+        messages.error(request, " ".join(
+            e for errs in form.errors.values() for e in errs) or "The reply could not be posted.")
     return redirect("helpdesk:ticket_detail", pk=pk)
 
 
@@ -127,6 +152,17 @@ def ticket_resolve(request, pk):
     if not can_resolve(request, t):
         messages.error(request, "Only the person this ticket is assigned to, or an admin, "
                                 "can mark it resolved. Ask them, or have it assigned to you.")
+        return redirect("helpdesk:ticket_detail", pk=pk)
+    # Resolving is a step on the way to closing, not a way back from it: a
+    # closed ticket "resolved" again would reappear as resolved with the
+    # original resolution time overwritten, and the history would lie about
+    # when the work was done. Re-resolving a resolved ticket is a no-op.
+    if t.status == "CLOSED":
+        messages.error(request, f"Ticket {t.reference} is already closed, so it can't be "
+                                "resolved again. Open a new ticket if the problem is back.")
+        return redirect("helpdesk:ticket_detail", pk=pk)
+    if t.status == "RESOLVED":
+        messages.info(request, f"Ticket {t.reference} is already resolved.")
         return redirect("helpdesk:ticket_detail", pk=pk)
     t.status = "RESOLVED"
     t.resolved_at = timezone.now()
@@ -142,6 +178,9 @@ def ticket_close(request, pk):
     if not can_close(request, t):
         messages.error(request, "Only the assignee, the person who raised this ticket, or an "
                                 "admin can close it.")
+        return redirect("helpdesk:ticket_detail", pk=pk)
+    if t.status == "CLOSED":
+        messages.error(request, f"Ticket {t.reference} is already closed.")
         return redirect("helpdesk:ticket_detail", pk=pk)
     t.status = "CLOSED"
     t.closed_at = timezone.now()

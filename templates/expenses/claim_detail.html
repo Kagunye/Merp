@@ -60,7 +60,7 @@
         <td class="px-4 py-3">{{ l.category }}</td>
         <td class="px-4 py-3">{{ l.description }}</td>
         <td class="px-4 py-3 text-right font-semibold">{{ l.amount|floatformat:2 }}</td>
-        <td class="px-4 py-3">{% if l.receipt %}<a href="{{ l.receipt.url }}" style="color: var(--primary);" class="text-xs">View</a>{% else %}—{% endif %}</td>
+        <td class="px-4 py-3">{% if l.receipt %}<a href="{% url 'documents:receipt_download' l.pk %}" style="color: var(--primary);" class="text-xs">View</a>{% else %}—{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500 text-sm">No line items yet.</td></tr>

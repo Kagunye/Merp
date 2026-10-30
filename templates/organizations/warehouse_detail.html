@@ -1,7 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
+{% load ui_extras %}
 {% url 'organizations:warehouse_list' as back %}
-{% url 'organizations:warehouse_edit' warehouse.pk as pa_url %}
+{% can_do "organizations:warehouse_edit" "POST" as may_edit %}{% if may_edit %}{% url 'organizations:warehouse_edit' warehouse.pk as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.company.name back_url=back action_label="Edit" action_url=pa_url %}
 <div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
   <div class="grid grid-cols-2 gap-5">

@@ -1,6 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'organizations:branch_create' as pa_url %}
+{% load ui_extras %}
+{% can_do "organizations:branch_create" "POST" as may_create %}{% can_do "organizations:branch_edit" "POST" as may_edit %}
+{% if may_create %}{% url 'organizations:branch_create' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Branches" subtitle="Physical and logical offices" action_label="New Branch" action_url=pa_url %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
@@ -12,7 +14,7 @@
         <td class="px-4 py-3">{{ b.company.name }}</td>
         <td class="px-4 py-3 font-mono text-xs">{{ b.code|default:"—" }}</td>
         <td class="px-4 py-3">{{ b.manager_name|default:"—" }}</td>
-        <td class="px-4 py-3 text-right"><a href="{% url 'organizations:branch_edit' b.pk %}" class="text-xs" style="color: var(--primary);">Edit</a></td>
+        <td class="px-4 py-3 text-right">{% if may_edit %}<a href="{% url 'organizations:branch_edit' b.pk %}" class="text-xs" style="color: var(--primary);">Edit</a>{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No branches yet.</td></tr>

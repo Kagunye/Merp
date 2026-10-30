@@ -168,6 +168,11 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         if "project_pk" in self.kwargs:
             form.instance.project = self.project
+        else:
+            # The standalone form adds a "project" picker that is not a model
+            # field of the form's Meta, so Django never copies it onto the
+            # task; without this the save fails on a task with no project.
+            form.instance.project = form.cleaned_data["project"]
         messages.success(self.request, f"Task '{form.instance.title}' added.")
         return super().form_valid(form)
 

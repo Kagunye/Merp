@@ -1,5 +1,6 @@
 {% extends "base/base.html" %}
 {% block content %}
+{% load ui_extras %}
 {% include "_includes/launcher.html" with launcher_title="Help Desk" launcher_subtitle="Support tickets, SLA tracking and knowledge base" %}
 
 <div class="launcher-section-label">
@@ -7,12 +8,12 @@
   <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-mint">🎫</div><span class="label">New Ticket</span></a>
-  <a href="{% url 'helpdesk:ticket_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-rose">🔥</div><span class="label">Open Tickets</span></a>
-  <a href="{% url 'helpdesk:ticket_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-amber">⚡</div><span class="label">In Progress</span></a>
-  <a href="{% url 'helpdesk:ticket_list' %}?priority=HIGH" class="launcher-tile"><div class="ico ico-rose">🚨</div><span class="label">High Priority</span></a>
-  <a href="{% url 'helpdesk:ticket_list' %}?status=RESOLVED" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Resolved</span></a>
-  <a href="{% url 'helpdesk:ticket_list' %}?assigned=me" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">My Tickets</span></a>
+  {% can_do "helpdesk:ticket_create" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_create' %}" class="launcher-tile"><div class="ico ico-mint">🎫</div><span class="label">New Ticket</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-rose">🔥</div><span class="label">Open Tickets</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?status=IN_PROGRESS" class="launcher-tile"><div class="ico ico-amber">⚡</div><span class="label">In Progress</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?priority=HIGH" class="launcher-tile"><div class="ico ico-rose">🚨</div><span class="label">High Priority</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?status=RESOLVED" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Resolved</span></a>{% endif %}
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}?assigned=me" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">My Tickets</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -20,9 +21,9 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-sky">📋</div><span class="label">All Tickets</span></a>
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">👥</div><span class="label">Customers</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Agents</span></a>
+  {% can_do "helpdesk:ticket_list" as ok %}{% if ok %}<a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-sky">📋</div><span class="label">All Tickets</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">👥</div><span class="label">Customers</span></a>{% endif %}
+  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Agents</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -30,8 +31,8 @@
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">📚</div><span class="label">Knowledge Base</span></a>
-  <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Ticket Categories</span></a>
-  <a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-peach">🔔</div><span class="label">Notification Rules</span></a>
+  {% can_do "documents:document_list" as ok %}{% if ok %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-mint">📚</div><span class="label">Knowledge Base</span></a>{% endif %}
+  {% can_do "documents:category_list" as ok %}{% if ok %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Ticket Categories</span></a>{% endif %}
+  {% can_do "notifications:list" as ok %}{% if ok %}<a href="{% url 'notifications:list' %}" class="launcher-tile"><div class="ico ico-peach">🔔</div><span class="label">Notification Rules</span></a>{% endif %}
 </div>
 {% endblock %}

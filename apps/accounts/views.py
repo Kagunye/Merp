@@ -12,10 +12,19 @@ from django.utils import timezone
 from django.views.generic import DetailView, ListView, TemplateView, UpdateView, View
 
 from .forms import (
-    ChangePasswordForm, LoginForm, PasswordResetConfirmForm,
-    PasswordResetRequestForm, RegisterForm, UserCreateForm, UserEditForm,
+    AddExistingUserForm, ChangePasswordForm, LoginForm, MemberEditForm,
+    PasswordResetConfirmForm, PasswordResetRequestForm, RegisterForm,
+    UserCreateForm, UserEditForm,
 )
+from .links import absolute_link
 from .models import LoginAttempt, PasswordResetToken, User
+
+# Sign-in throttling: this many failed attempts for one account, or from one
+# address, within the window locks further attempts out until the window has
+# passed. Guessing a password then takes years instead of minutes.
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_WINDOW = timedelta(minutes=15)
+LOCKED_OUT_REASON = "Locked out"
 
 
 def _get_client_ip(request):
@@ -23,6 +32,37 @@ def _get_client_ip(request):
     if x_forwarded:
         return x_forwarded.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR")
+
+
+def login_locked_out(email, ip):
+    """Whether sign-in for `email`, or from `ip`, is locked out right now.
+
+    Counts the real failures (not the refusals the lockout itself logs) in
+    the last LOGIN_LOCKOUT_WINDOW. For the account, only failures since its
+    last successful sign-in count, so the owner who finally remembers their
+    password starts again from zero. The address count is not reset by a
+    success: one person signing in to their own account must not clear the
+    way for guessing at everyone else's from the same machine.
+
+    The address comes from X-Forwarded-For where a proxy sets it, which a
+    client can forge; the per-account limit is the one that can't be
+    dodged, and it alone caps guessing at one account.
+    """
+    since = timezone.now() - LOGIN_LOCKOUT_WINDOW
+    failures = LoginAttempt.objects.filter(success=False, created_at__gte=since).exclude(
+        failure_reason=LOCKED_OUT_REASON)
+    if email:
+        last_ok = LoginAttempt.objects.filter(
+            email__iexact=email, success=True, created_at__gte=since).values_list(
+            "created_at", flat=True).first()
+        account = failures.filter(email__iexact=email)
+        if last_ok:
+            account = account.filter(created_at__gt=last_ok)
+        if account.count() >= LOGIN_MAX_FAILURES:
+            return True
+    if ip and failures.filter(ip_address=ip).count() >= LOGIN_MAX_FAILURES:
+        return True
+    return False
 
 
 class LoginView(View):
@@ -62,6 +102,26 @@ class LoginView(View):
             email = form.cleaned_data["email"]
             password = form.cleaned_data["password"]
             remember_me = form.cleaned_data.get("remember_me", False)
+
+            try:
+                locked = login_locked_out(email, ip)
+            except Exception as exc:  # never let the throttle itself block sign-in
+                log.warning("Login throttle check failed: %s", exc)
+                locked = False
+            if locked:
+                try:
+                    LoginAttempt.objects.create(
+                        email=email, ip_address=ip, user_agent=ua, success=False,
+                        failure_reason=LOCKED_OUT_REASON)
+                except Exception as exc:
+                    log.warning("LoginAttempt (lockout) audit write failed: %s", exc)
+                minutes = int(LOGIN_LOCKOUT_WINDOW.total_seconds() // 60)
+                form.add_error(None, (
+                    f"Too many failed sign-in attempts. Sign-in is paused for {minutes} "
+                    "minutes for this account and this device. Wait and try again, or "
+                    "reset your password."))
+                ctx = {"form": form, "features": features, **self._demo_context()}
+                return render(request, self.template_name, ctx, status=429)
 
             def _try_auth():
                 return authenticate(request, username=email, password=password)
@@ -241,25 +301,34 @@ class PasswordResetRequestView(View):
     def post(self, request):
         form = PasswordResetRequestForm(request.POST)
         if form.is_valid():
-            email = form.cleaned_data["email"]
-            try:
-                user = User.objects.get(email=email, is_active=True)
-                token = PasswordResetToken.objects.create(
-                    user=user,
-                    expires_at=timezone.now() + timedelta(hours=24),
-                )
-                reset_url = request.build_absolute_uri(f"/auth/password-reset/{token.token}/")
-                # Send email (using Django's built-in mechanism)
+            email = form.cleaned_data["email"].strip()
+            # Emails are matched without regard to case, exactly as sign-in
+            # matches them: "Jane@Acme.com" asking for a reset is jane@acme.com.
+            user = User.objects.filter(email__iexact=email, is_active=True).first()
+            if user is not None:
                 from django.core.mail import send_mail
-                send_mail(
-                    subject="Password Reset Request — Mofisi",
-                    message=f"Click to reset your password: {reset_url}\n\nThis link expires in 24 hours.",
-                    from_email=None,
-                    recipient_list=[email],
-                    fail_silently=True,
-                )
-            except User.DoesNotExist:
-                pass  # Don't reveal whether email exists
+                from django.db import transaction
+                with transaction.atomic():
+                    # Only the newest link works. Every earlier unused link is
+                    # spent now, so a link sitting in an old email (or one an
+                    # attacker asked for) stops working the moment the owner
+                    # asks again.
+                    PasswordResetToken.objects.filter(user=user, used=False).update(used=True)
+                    token = PasswordResetToken.objects.create(
+                        user=user,
+                        expires_at=timezone.now() + timedelta(hours=24),
+                    )
+                # Built from SITE_URL, never from the request's Host header.
+                reset_url = absolute_link(f"/auth/password-reset/{token.token}/", request)
+                if reset_url:
+                    send_mail(
+                        subject="Password Reset Request — Mofisi",
+                        message=f"Click to reset your password: {reset_url}\n\nThis link expires in 24 hours.",
+                        from_email=None,
+                        recipient_list=[user.email],
+                        fail_silently=True,
+                    )
+            # The same answer either way: don't reveal whether the email exists.
             messages.success(request, "If an account exists with that email, you will receive a reset link.")
             return redirect("accounts:login")
         return render(request, self.template_name, {"form": form})
@@ -274,7 +343,7 @@ class PasswordResetConfirmView(View):
             messages.error(request, "This reset link has expired or already been used.")
             return redirect("accounts:password_reset")
         return render(request, self.template_name, {
-            "form": PasswordResetConfirmForm(),
+            "form": PasswordResetConfirmForm(user=reset_token.user),
             "token": token,
         })
 
@@ -283,12 +352,12 @@ class PasswordResetConfirmView(View):
         if not reset_token.is_valid():
             messages.error(request, "This reset link has expired.")
             return redirect("accounts:password_reset")
-        form = PasswordResetConfirmForm(request.POST)
+        form = PasswordResetConfirmForm(request.POST, user=reset_token.user)
         if form.is_valid():
             reset_token.user.set_password(form.cleaned_data["password"])
             reset_token.user.save()
-            reset_token.used = True
-            reset_token.save()
+            # Spend this link and any other still outstanding for the account.
+            PasswordResetToken.objects.filter(user=reset_token.user, used=False).update(used=True)
             messages.success(request, "Password reset successfully. Please log in.")
             return redirect("accounts:login")
         return render(request, self.template_name, {"form": form, "token": token})
@@ -416,8 +485,15 @@ class UserEditView(LoginRequiredMixin, View):
 
     def _form(self, request, user, data=None, files=None):
         from apps.core.access import is_platform_admin
-        form = UserEditForm(data, files, instance=user)
+        from apps.organizations.models import CompanyMembership
         company = getattr(request, "active_company", None)
+        membership = (CompanyMembership.objects.filter(user=user, company=company).select_related(
+            "company", "user").first() if company is not None else None)
+        if membership is not None:
+            form = MemberEditForm(data, files, instance=user)
+            form.add_role_field(membership, editing_self=(user.pk == request.user.pk))
+        else:
+            form = UserEditForm(data, files, instance=user)
         shared = (company is not None and not is_platform_admin(request.user)
                   and user.pk != request.user.pk
                   and user.memberships.filter(is_active=True).exclude(company=company).exists())
@@ -439,10 +515,64 @@ class UserEditView(LoginRequiredMixin, View):
         user = self._target(request, pk)
         form = self._form(request, user, request.POST, request.FILES)
         if form.is_valid():
-            form.save()
+            from django.db import transaction
+            with transaction.atomic():
+                form.save()
+                membership = getattr(form, "membership", None)
+                role = form.cleaned_data.get("company_role")
+                if membership is not None and role and role != membership.role:
+                    old = membership.get_role_display()
+                    membership.role = role
+                    membership.save(update_fields=["role"])
+                    messages.success(request, f"{user.full_name}'s role in {membership.company.name} "
+                                              f"changed from {old} to {membership.get_role_display()}.")
             messages.success(request, "User updated successfully.")
             return redirect("accounts:user_detail", pk=pk)
         return render(request, self.template_name, {"form": form, "profile_user": user})
+
+
+class UserAddExistingView(LoginRequiredMixin, View):
+    """Give somebody who already has a login a seat in the active company.
+
+    People work for more than one company; creating a second account for
+    them is impossible (the email is taken) and would split their history in
+    two anyway. The admin names them by the email they sign in with and picks
+    their role; they are told by email, with a link built from SITE_URL.
+    """
+    template_name = "accounts/user_form.html"
+
+    def get(self, request):
+        return render(request, self.template_name, {
+            "form": AddExistingUserForm(company=request.active_company),
+            "page_title": "Add an existing user",
+        })
+
+    def post(self, request):
+        from apps.organizations.models import CompanyMembership
+        company = request.active_company
+        if company is None:
+            messages.error(request, "Switch to a company before adding people to it.")
+            return redirect("accounts:user_list")
+        form = AddExistingUserForm(request.POST, company=company)
+        if not form.is_valid():
+            return render(request, self.template_name, {
+                "form": form, "page_title": "Add an existing user"})
+        user = form.user
+        membership = CompanyMembership.objects.create(
+            user=user, company=company, role=form.cleaned_data["company_role"], is_active=True)
+        link = absolute_link("/auth/login/", request)
+        if link:
+            from django.core.mail import send_mail
+            send_mail(
+                subject=f"You've been added to {company.name} — Mofisi",
+                message=(f"{request.user.full_name} added you to {company.name} as "
+                         f"{membership.get_role_display()}.\n\nSign in with your usual "
+                         f"email and password: {link}"),
+                from_email=None, recipient_list=[user.email], fail_silently=True,
+            )
+        messages.success(request, f"{user.full_name} added to {company.name} as "
+                                  f"{membership.get_role_display()}.")
+        return redirect("accounts:user_detail", pk=user.pk)
 
 
 @login_required

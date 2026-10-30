@@ -1,8 +1,12 @@
+import mimetypes
 import os
+import uuid
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import redirect
+from django.contrib.auth.decorators import login_required
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.views.generic import (
     CreateView, DeleteView, DetailView, ListView, TemplateView,
@@ -51,7 +55,12 @@ class DocumentListView(LoginRequiredMixin, ListView):
         qs = Document.objects.filter(company=company).select_related("category", "uploaded_by")
         cat = self.request.GET.get("category")
         if cat:
-            qs = qs.filter(category_id=cat)
+            # A hand-edited or stale link (?category=abc) is not a category
+            # id at all; ignore the filter rather than fail the whole page.
+            try:
+                qs = qs.filter(category_id=uuid.UUID(str(cat)))
+            except (ValueError, TypeError):
+                pass
         q = self.request.GET.get("q")
         if q:
             qs = qs.filter(name__icontains=q)
@@ -85,7 +94,10 @@ class DocumentUploadView(LoginRequiredMixin, CreateView):
         upload = form.cleaned_data.get("file")
         if upload:
             form.instance.file_size = upload.size
-            form.instance.mime_type = getattr(upload, "content_type", "")
+            # The type the uploader's browser claimed is theirs to choose; the
+            # one recorded is worked out from the (whitelisted) file name.
+            form.instance.mime_type = (
+                mimetypes.guess_type(upload.name)[0] or "application/octet-stream")
         messages.success(self.request, "Document uploaded.")
         return super().form_valid(form)
 
@@ -168,6 +180,48 @@ class CategoryCreateView(LoginRequiredMixin, CreateView):
     template_name = "documents/category_form.html"
     success_url = reverse_lazy("documents:category_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
     def form_valid(self, form):
         form.instance.company = self.request.active_company
         return super().form_valid(form)
+
+
+@login_required
+def document_download(request, pk):
+    """Download one document from the active company's library.
+
+    This is the only way to a stored document: /media/ is not served. The
+    document must belong to the company the user is working in (404
+    otherwise, exactly like a document that does not exist, so another
+    company's file ids reveal nothing), and the role table decides who may
+    read the library at all. The file always arrives as an attachment.
+    """
+    from .files import attachment_response
+    company = getattr(request, "active_company", None)
+    if company is None:
+        raise Http404("Switch to a company to open its documents.")
+    doc = get_object_or_404(Document, pk=pk, company=company)
+    return attachment_response(doc.file, filename=doc.name)
+
+
+@login_required
+def receipt_download(request, pk):
+    """Download the receipt attached to an expense claim line.
+
+    A receipt is part of somebody's claim, so it is visible exactly where the
+    claim is: `apps.expenses.views.visible_claims` decides (the claimant
+    sees their own; whoever manages claims sees the company's). Anything else
+    is a 404.
+    """
+    from apps.expenses.models import ExpenseClaimLine
+    from apps.expenses.views import visible_claims
+    from .files import attachment_response
+    line = get_object_or_404(
+        ExpenseClaimLine.objects.select_related("claim").filter(
+            claim__in=visible_claims(request)), pk=pk)
+    return attachment_response(
+        line.receipt, filename=f"receipt-{line.claim.reference}-{line.pk}")

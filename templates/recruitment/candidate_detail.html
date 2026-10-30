@@ -12,7 +12,7 @@
     <div><div class="text-xs text-gray-500">Stage</div><div><span class="badge bg-gray-100 text-gray-700">{{ candidate.get_stage_display }}</span></div></div>
     <div><div class="text-xs text-gray-500">Expected salary</div><div class="font-semibold">{{ candidate.expected_salary|default:"—" }}</div></div>
     <div><div class="text-xs text-gray-500">Rating</div><div class="font-semibold">{{ candidate.rating }} / 5</div></div>
-    {% if candidate.resume %}<div class="col-span-2"><div class="text-xs text-gray-500">Resume</div><a href="{{ candidate.resume.url }}" style="color: var(--primary);" class="font-semibold text-sm">Download &rarr;</a></div>{% endif %}
+    {% if candidate.resume %}<div class="col-span-2"><div class="text-xs text-gray-500">Resume</div><a href="{% url 'recruitment:candidate_resume' candidate.pk %}" style="color: var(--primary);" class="font-semibold text-sm">Download &rarr;</a></div>{% endif %}
   </div>
 
   <h3 class="text-sm font-semibold mt-6 mb-3">Interviews</h3>

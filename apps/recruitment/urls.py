@@ -14,6 +14,7 @@ urlpatterns = [
     path("candidates/", views.CandidateListView.as_view(), name="candidate_list"),
     path("candidates/new/", views.CandidateCreateView.as_view(), name="candidate_create"),
     path("candidates/<uuid:pk>/", views.CandidateDetailView.as_view(), name="candidate_detail"),
+    path("candidates/<uuid:pk>/resume/", views.candidate_resume, name="candidate_resume"),
     # Interviews
     path("interviews/", views.InterviewListView.as_view(), name="interview_list"),
     path("interviews/new/", views.InterviewCreateView.as_view(), name="interview_create"),

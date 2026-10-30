@@ -1,6 +1,8 @@
 {% extends "base/base.html" %}
 {% block content %}
-{% url 'organizations:department_create' as pa_url %}
+{% load ui_extras %}
+{% can_do "organizations:department_create" "POST" as may_create %}{% can_do "organizations:department_edit" "POST" as may_edit %}
+{% if may_create %}{% url 'organizations:department_create' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Departments" subtitle="Functional groups inside each company" action_label="New Department" action_url=pa_url %}
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
   <table class="w-full text-sm">
@@ -13,7 +15,7 @@
         <td class="px-4 py-3">{{ d.branch|default:"—" }}</td>
         <td class="px-4 py-3 font-mono text-xs">{{ d.code|default:"—" }}</td>
         <td class="px-4 py-3">{{ d.parent|default:"—" }}</td>
-        <td class="px-4 py-3 text-right"><a href="{% url 'organizations:department_edit' d.pk %}" class="text-xs" style="color: var(--primary);">Edit</a></td>
+        <td class="px-4 py-3 text-right">{% if may_edit %}<a href="{% url 'organizations:department_edit' d.pk %}" class="text-xs" style="color: var(--primary);">Edit</a>{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No departments yet.</td></tr>
