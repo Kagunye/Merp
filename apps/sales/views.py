@@ -90,6 +90,56 @@ def _first_message(exc):
     return str(exc)
 
 
+def _reference_in_use(model, company):
+    """A `taken` test for SequenceCounter.claim_number, whatever the case.
+
+    A number is in use when any document of the same kind already carries it,
+    however it was capitalised: inv-00007 typed by hand and INV-00007 issued by
+    the counter would be two papers a customer cannot tell apart.
+    """
+    return lambda ref: model.objects.filter(company=company, reference__iexact=ref).exists()
+
+
+def _claim_reference(model, company, prefix, typed):
+    """The number a new document is saved under, taken at the moment it is saved.
+
+    Blank takes the next number in the series; the series preview the form
+    showed (or any number typed in the same shape) is issued as it stands and
+    the counter moves up to it, so the next blank document can never be given
+    it again; a number already in use by then is replaced by the next free
+    one. Anything else is the user's own reference and is kept as typed — the
+    form has already refused it if another document carries it.
+    """
+    return SequenceCounter.claim_number(
+        company, prefix, typed, taken=_reference_in_use(model, company))
+
+
+def _renumbered(typed, claimed, kind):
+    """A note for the reader when the previewed number went to someone else."""
+    typed = (typed or "").strip()
+    if typed and typed != claimed:
+        return (f"{typed} was used by another {kind} while this form was open, so this "
+                f"{kind} is numbered {claimed}.")
+    return ""
+
+
+def _too_big_in_book(form, formset):
+    """Why the document's total cannot be held in the book's money, or None.
+
+    The lines formset has already checked the total fits in the document's own
+    money. A foreign document is also stored and posted at its rate: a total
+    that fits in dollars can still overflow once multiplied into shillings.
+    """
+    from .forms import MONEY_CEILING
+    total = getattr(formset, "lines_total", None)
+    rate = getattr(form.instance, "exchange_rate", None) or Decimal("1")
+    if total is None or abs(total * rate) < MONEY_CEILING:
+        return None
+    return (f"At {rate:f} the lines come to about {total * rate:,.0f} in the book's "
+            f"money, more than the ledger can carry (under {MONEY_CEILING:,.0f}). "
+            "Check the quantities and prices, or split the sale over several invoices.")
+
+
 def _may_post_invoices(request):
     """Whether this person may put an invoice in the ledger themselves.
 
@@ -266,6 +316,16 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        company = self.request.active_company
+        if company and not form.is_bound:
+            # A preview only: the number is taken when the invoice is saved
+            # (claim_number), so opening the form and walking away leaves no
+            # gap in the series.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "INV-")
+        return form
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         form_kwargs = {"company": self.request.active_company}
@@ -291,14 +351,20 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         formset = InvoiceLineFormSet(self.request.POST, prefix="lines", form_kwargs=form_kwargs)
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        too_big = _too_big_in_book(form, formset)
+        if too_big:
+            form.add_error(None, too_big)
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
         if not tokens.spend(self.request, "invoice_create"):
             messages.warning(self.request, tokens.ALREADY_SENT)
             return redirect("sales:invoice_list")
-        if not form.instance.reference:
-            form.instance.reference = SequenceCounter.next_number(company, "INV-")
+        typed = form.instance.reference
         may_post = _may_post_invoices(self.request)
-        short = []
+        problem = ""
         with transaction.atomic():
+            # The number is taken inside the same transaction as the invoice,
+            # so an invoice that is not kept gives its number back too.
+            form.instance.reference = _claim_reference(Invoice, company, "INV-", typed)
             self.object = form.save()
             formset.instance = self.object
             formset.save()
@@ -309,22 +375,36 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
                 # Goods that are not on the shelf cannot be sold off it. Checked
                 # before anything is kept, so the form comes back with the
                 # shortage named rather than a draft nobody can post.
-                from apps.accounting.gl_service import stock_shortages
+                from apps.accounting.gl_service import post_invoice, stock_shortages
                 short = stock_shortages(self.object)
                 if short:
-                    transaction.set_rollback(True)
+                    problem = (
+                        "Not enough stock to invoice: " + "; ".join(short) + ". Receive "
+                        "the goods first, choose a warehouse that holds them, or raise a "
+                        "sales order and deliver when the stock arrives.")
                 else:
-                    posted = self._post_to_gl(self.object)
-        if short:
+                    # Saved and posted together, or not at all. An invoice
+                    # kept after its posting failed (a closed month, a missing
+                    # rate) looked finished to the person who raised it while
+                    # the ledger had never heard of it.
+                    try:
+                        post_invoice(self.object, user=self.request.user)
+                    except Exception as exc:
+                        problem = (f"The invoice was not saved, because it could not be "
+                                   f"posted to the GL: {_first_message(exc)}")
+                if problem:
+                    transaction.set_rollback(True)
+        if problem:
             # Drawn outside the rolled-back block, so the new form ticket the
             # page carries is kept.
-            form.add_error(None, (
-                "Not enough stock to invoice: " + "; ".join(short) + ". Receive the "
-                "goods first, choose a warehouse that holds them, or raise a sales "
-                "order and deliver when the stock arrives."))
+            form.add_error(None, problem)
             form.instance.pk = None
             form.instance._state.adding = True
+            form.instance.reference = typed
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        note = _renumbered(typed, self.object.reference, "invoice")
+        if note:
+            messages.info(self.request, note)
         if not may_post:
             messages.info(
                 self.request,
@@ -332,30 +412,11 @@ class InvoiceCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
                 f"{_money(self.object.total_amount)} {self.object.currency}. Posting it "
                 "to the ledger is a finance step: an accountant or finance manager "
                 "checks it and presses Post to GL.")
-        elif posted and not self.object.journal_entry_id:
+        elif not self.object.journal_entry_id:
             messages.success(self.request, _posted_message(self.object))
-        elif posted:
-            messages.success(self.request, f"Invoice '{self.object.reference}' created and posted to the GL.")
         else:
-            messages.info(
-                self.request,
-                f"Invoice '{self.object.reference}' is still DRAFT. Use Post to GL once the issue above is fixed.",
-            )
+            messages.success(self.request, f"Invoice '{self.object.reference}' created and posted to the GL.")
         return redirect("sales:invoice_detail", pk=self.object.pk)
-
-    def _post_to_gl(self, invoice):
-        """Post to GL, surfacing failures: a silent skip would leave an
-        invoice that looks complete but has no ledger entry."""
-        try:
-            from apps.accounting.gl_service import post_invoice
-            post_invoice(invoice, user=self.request.user)
-            return True
-        except Exception as exc:
-            messages.error(
-                self.request,
-                f"Invoice '{invoice.reference}' saved, but GL posting failed: {_first_message(exc)}",
-            )
-            return False
 
 
 class InvoiceDetailView(LoginRequiredMixin, DetailView):
@@ -476,6 +537,14 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        company = self.request.active_company
+        if company and not form.is_bound:
+            # A preview; the number is taken when the receipt is saved.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "PAY-")
+        return form
+
     def chosen_customer(self):
         """Whose papers to show — from the post, or from the strip above the form."""
         company = self.request.active_company
@@ -584,35 +653,43 @@ class CustomerPaymentCreateView(LoginRequiredMixin, CompanyRequiredMixin, Create
             return redirect(self.success_url)
 
         form.instance.company = company
-        if not form.instance.reference:
-            form.instance.reference = SequenceCounter.next_number(company, "PAY-")
-
+        typed = form.instance.reference
+        problem = ""
         with transaction.atomic():
+            # Saved and posted together, or not at all. A receipt kept after its
+            # posting failed (a closed month, an exchange release that falls in
+            # one) stood as RECEIVED with no entry: it showed on the customer's
+            # statement as money in, held its M-Pesa code against re-entry, and
+            # could be neither reversed nor applied, because it was never in
+            # the book. The number is taken inside the same block, so a receipt
+            # that is not kept gives it back.
+            form.instance.reference = _claim_reference(CustomerPayment, company, "PAY-", typed)
             self.object = form.save()
-            posted = self._post_to_gl(self.object, allocations)
+            try:
+                from apps.accounting.gl_service import post_customer_payment
+                post_customer_payment(self.object, user=self.request.user,
+                                      invoice_allocations=allocations)
+            except Exception as exc:
+                problem = (f"The receipt was not recorded, because it could not be posted "
+                           f"to the GL: {_first_message(exc)}")
+                transaction.set_rollback(True)
+        if problem:
+            form.add_error(None, problem)
+            form.instance.pk = None
+            form.instance._state.adding = True
+            form.instance.reference = typed
+            return self.form_invalid(form)
 
-        if posted:
-            settled = (f" settled against {len(allocations)} paper(s)"
-                       if allocations else " applied to the oldest open papers")
-            messages.success(
-                self.request,
-                f"Payment '{self.object.reference}' recorded and posted to the GL —"
-                f"{settled}.")
+        note = _renumbered(typed, self.object.reference, "receipt")
+        if note:
+            messages.info(self.request, note)
+        settled = (f" settled against {len(allocations)} paper(s)"
+                   if allocations else " applied to the oldest open papers")
+        messages.success(
+            self.request,
+            f"Payment '{self.object.reference}' recorded and posted to the GL —"
+            f"{settled}.")
         return redirect(self.success_url)
-
-    def _post_to_gl(self, payment, allocations=None):
-        """Post to GL, surfacing failures instead of silently skipping."""
-        try:
-            from apps.accounting.gl_service import post_customer_payment
-            post_customer_payment(payment, user=self.request.user,
-                                  invoice_allocations=allocations)
-            return True
-        except Exception as exc:
-            messages.error(
-                self.request,
-                f"Payment '{payment.reference}' saved, but GL posting failed: {_first_message(exc)}",
-            )
-            return False
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1102,6 +1179,14 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        company = self.request.active_company
+        if company and not form.is_bound:
+            # A preview; the number is taken when the order is saved.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "SO-")
+        return form
+
     def get_line_formset(self):
         form_kwargs = {"company": self.request.active_company}
         if self.request.POST:
@@ -1112,22 +1197,34 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
         ctx = super().get_context_data(**kwargs)
         ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
         ctx["page_title"] = "New Sales Order"
+        # A fresh one-time ticket each time the form is drawn: the same order
+        # form sent twice (a double click, a refresh) books one order.
+        ctx["form_token"] = tokens.issue(self.request, "order_create")
         return ctx
 
     def form_valid(self, form):
         company = self.request.active_company
         form.instance.company = company
-        if not form.instance.reference:
-            from apps.core.models import SequenceCounter
-            form.instance.reference = SequenceCounter.next_number(company, "SO-")
         formset = self.get_line_formset()
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        too_big = _too_big_in_book(form, formset)
+        if too_big:
+            form.add_error(None, too_big)
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        if not tokens.spend(self.request, "order_create"):
+            messages.warning(self.request, tokens.ALREADY_SENT)
+            return redirect("sales:order_list")
+        typed = form.instance.reference
         with transaction.atomic():
+            form.instance.reference = _claim_reference(SalesOrder, company, "SO-", typed)
             self.object = form.save()
             formset.instance = self.object
             formset.save()
             self.object.calculate_totals()
+        note = _renumbered(typed, self.object.reference, "order")
+        if note:
+            messages.info(self.request, note)
         messages.success(
             self.request,
             f"Sales order '{self.object.reference}' created — total "
@@ -1174,6 +1271,9 @@ class SalesDeliveryView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["warehouses"] = self.object.company.warehouses.filter(is_active=True).order_by("name")
         ctx["book"] = book_currency(self.object.company)
+        # The delivery form is a one-time ticket: posted twice, it would take
+        # the goods off the shelf twice and charge their cost twice.
+        ctx["form_token"] = tokens.issue(self.request, "order_deliver")
         return ctx
 
 
@@ -1269,6 +1369,21 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
     def form_valid(self, form):
         formset = self.get_line_formset()
         if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        too_big = _too_big_in_book(form, formset)
+        if too_big:
+            form.add_error(None, too_big)
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        order = form.instance.sales_order if form.instance.sales_order_id else None
+        if order is not None and (form.instance.customer_id != order.customer_id
+                                  or (form.instance.currency or "").upper()
+                                  != (order.currency or "").upper()):
+            # The form shows both fixed; this is the last word for a post
+            # that tries anyway.
+            form.add_error(None, (
+                f"This draft was raised from order {order.reference}, so it bills "
+                f"{order.customer.name} in {order.currency}. Raise a direct invoice "
+                "to bill anyone else or in another currency."))
             return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
         with transaction.atomic():
             # Checked again under a lock: the draft may have been posted from
@@ -1404,12 +1519,23 @@ def _order_cancel_refusal(order):
     if any((line.delivered_quantity or Decimal("0")) > 0 for line in order.lines.all()):
         return (f"Order {order.reference} cannot be cancelled: goods have already been "
                 "delivered against it. Take the goods back as a return instead.")
-    live = order.invoices.exclude(status="CANCELLED").exclude(
-        original_invoice__isnull=False).values_list("reference", flat=True)
+    # An invoice credited in full bills nothing any more, so it does not hold
+    # the order either (see SalesOrder.billed_quantities). One credited only
+    # in part still bills the rest.
+    live = [invoice.reference for invoice in order.invoices.exclude(status="CANCELLED")
+            .exclude(original_invoice__isnull=False)
+            if not _fully_credited(invoice)]
     if live:
-        return (f"Order {order.reference} cannot be cancelled: it has been invoiced "
-                f"({', '.join(live)}). Cancel or credit those invoices first.")
+        return (f"Order {order.reference} cannot be cancelled: it is still billed on "
+                f"{', '.join(live)}. Cancel those invoices, or credit them in full, "
+                "first.")
     return None
+
+
+def _fully_credited(invoice):
+    """Whether credit notes have given back everything this invoice billed."""
+    return bool(invoice.credited_amount and invoice.credited_amount > 0
+                and invoice.credited_amount >= invoice.total_amount)
 
 
 @login_required
@@ -1518,6 +1644,25 @@ def order_deliver(request, pk):
     today = datetime.date.today()
     try:
         with transaction.atomic():
+            # Locked, and the ticket spent, before anything leaves the shelf.
+            # The same delivery form posted twice (a double click, a refresh,
+            # "back" and send again) used to deliver twice: each copy was a
+            # perfectly valid delivery of what was still outstanding. The
+            # ticket tells the copy apart; spent inside the block, a delivery
+            # that is then refused gives it back.
+            order = SalesOrder.objects.select_for_update().get(pk=order.pk)
+            if not tokens.spend(request, "order_deliver"):
+                messages.warning(request, tokens.ALREADY_SENT)
+                return redirect("sales:order_detail", pk=pk)
+            fresh = {line.pk: line for line in order.lines.select_related("product")}
+            for line, qty in wanted:
+                current = fresh[line.pk]
+                left = current.quantity - (current.delivered_quantity or Decimal("0"))
+                if qty > left:
+                    raise ValidationError(
+                        f"only {_qty(left)} of {current.product.name} is still to "
+                        "deliver — somebody delivered against this order meanwhile.")
+            wanted = [(fresh[line.pk], qty) for line, qty in wanted]
             for line, qty in wanted:
                 if line.product.track_inventory:
                     # Left at no cost on purpose: the movement takes the value
@@ -1577,11 +1722,18 @@ def order_to_invoice(request, pk):
     order = get_object_or_404(
         SalesOrder.objects.filter(company=request.active_company).select_related("customer"),
         pk=pk)
+    if order.status == "INVOICED":
+        # Counted again first: an invoice credited in full since the order was
+        # last counted no longer bills it, and the order may be billable again.
+        with transaction.atomic():
+            SalesOrder.objects.select_for_update().get(pk=order.pk).sync_invoiced_quantities()
+        order.refresh_from_db()
     if order.status in ("DRAFT", "CANCELLED", "INVOICED"):
         messages.error(
             request,
             f"Order {order.reference} is {order.get_status_display()}: "
-            + ("it is already invoiced — nothing is left to invoice."
+            + ("it is already invoiced — its invoices bill everything on it. To bill "
+               "it again, cancel the invoice or credit it in full first."
                if order.status == "INVOICED" else
                "confirm it before invoicing."))
         return redirect("sales:order_detail", pk=pk)
@@ -1605,7 +1757,9 @@ def order_to_invoice(request, pk):
 
         invoice = Invoice(
             company=order.company, customer=order.customer, sales_order=order,
-            reference=SequenceCounter.next_number(order.company, "INV-"),
+            # Taken the same way as on the invoice form, so a number somebody
+            # typed into the INV- series by hand is never issued again here.
+            reference=_claim_reference(Invoice, order.company, "INV-", ""),
             invoice_date=today, due_date=today + datetime.timedelta(days=30),
             currency=order.currency, exchange_rate=None,
             status="DRAFT", notes=f"Raised from order {order.reference}",
@@ -1717,6 +1871,15 @@ def invoice_credit_note(request, pk):
         messages.error(request, f"'{raw_date}' is not a date; pick the credit note's date "
                        "with the date picker.")
         return redirect("sales:invoice_detail", pk=pk)
+    if note_date > datetime.date.today():
+        # A note dated ahead takes revenue and VAT out of a month that has not
+        # happened yet, while the invoice ages today as if the credit were
+        # already given. A credit is dated the day it is agreed.
+        messages.error(
+            request,
+            f"A credit note cannot be dated {note_date:%d %b %Y}, which is still to "
+            "come. Date it today, or on the day the credit was agreed.")
+        return redirect("sales:invoice_detail", pk=pk)
     if note_date < original.invoice_date:
         messages.error(
             request,
@@ -1762,7 +1925,7 @@ def invoice_credit_note(request, pk):
         note = Invoice(
             company=original.company, customer=original.customer,
             sales_order_id=None, original_invoice=original,
-            reference=SequenceCounter.next_number(original.company, "CN-"),
+            reference=_claim_reference(Invoice, original.company, "CN-", ""),
             invoice_date=note_date, due_date=note_date,
             currency=original.currency, exchange_rate=original.exchange_rate,
             status="CREDIT_NOTE", goods_returned=goods_returned,
@@ -1804,6 +1967,9 @@ def invoice_credit_note(request, pk):
         note.save(update_fields=["credited_amount", "outstanding_amount", "updated_at"])
         original.credited_amount = (original.credited_amount or Decimal("0")) + note.total_amount
         original.save()
+        # An invoice credited in full no longer bills its order, which can
+        # then be invoiced again or cancelled.
+        _resync_order(original)
 
     messages.success(
         request,

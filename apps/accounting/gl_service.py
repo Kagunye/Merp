@@ -431,6 +431,11 @@ def issue_invoice_stock(invoice, user=None):
     issues the goods), for a credit note, or twice for the same invoice. Short
     stock is refused with a ValidationError naming what is missing, and the
     posting it is part of rolls back with it.
+
+    Each line remembers the movement it made (InvoiceLine.stock_movement).
+    "Already issued" is read from those links, never from the invoice number:
+    two invoices that once shared a number made the second one look issued,
+    so its goods never left the shelf.
     """
     from apps.inventory.models import StockMovement
     if invoice.sales_order_id or invoice.original_invoice_id:
@@ -438,9 +443,7 @@ def issue_invoice_stock(invoice, user=None):
     lines = _stocked_lines(invoice)
     if not lines:
         return []
-    if StockMovement.objects.filter(
-            product__company=invoice.company, movement_type="DELIVERY",
-            sales_order__isnull=True, reference=invoice.reference).exists():
+    if any(line.stock_movement_id for line in lines):
         return []
     warehouse = _issue_warehouse(invoice)
     short = stock_shortages(invoice, warehouse)
@@ -451,21 +454,29 @@ def issue_invoice_stock(invoice, user=None):
             "raise a sales order and deliver when the stock arrives.")
     movements = []
     for line in lines:
-        movements.append(StockMovement.objects.create(
+        movement = StockMovement.objects.create(
             product=line.product, warehouse=warehouse, movement_type="DELIVERY",
             quantity=line.quantity, movement_date=invoice.invoice_date,
             reference=invoice.reference, performed_by=user,
             notes=f"Issued on invoice {invoice.reference}",
-        ))
+        )
+        line.stock_movement = movement
+        line.save(update_fields=["stock_movement"])
+        movements.append(movement)
     return movements
 
 
 def _direct_issues(invoice):
-    """The DELIVERY movements a direct invoice's own posting made."""
+    """The DELIVERY movements a direct invoice's own posting made.
+
+    Read through the invoice's own lines, which point at the movement each
+    one made, so another document that happens to carry the same number can
+    never be mistaken for this one.
+    """
     from apps.inventory.models import StockMovement
     return StockMovement.objects.filter(
-        product__company=invoice.company, movement_type="DELIVERY",
-        sales_order__isnull=True, reference=invoice.reference)
+        pk__in=invoice.lines.filter(stock_movement__isnull=False)
+        .values("stock_movement"), movement_type="DELIVERY")
 
 
 def unissue_invoice_stock(invoice, user=None):
@@ -485,25 +496,32 @@ def unissue_invoice_stock(invoice, user=None):
     charged, so the pair nets to nothing.
 
     Nothing is done for an invoice raised from an order (its goods left on the
-    order's delivery, which a return answers) or twice for the same invoice.
-    Returns the movements made.
+    order's delivery, which a return answers) or twice for the same invoice:
+    each line's issue is answered once, and the line keeps the return it got
+    (InvoiceLine.stock_return). Only this invoice's own issues are touched —
+    they are found through its lines, not its number. Returns the movements
+    made.
     """
     from apps.inventory.models import StockMovement
     if invoice.sales_order_id or invoice.original_invoice_id:
         return []
-    if StockMovement.objects.filter(
-            product__company=invoice.company, movement_type="RETURN_IN",
-            sales_order__isnull=True, reference=invoice.reference).exists():
-        return []
     back = []
-    for issue in _direct_issues(invoice).select_related("product", "warehouse"):
-        back.append(StockMovement.objects.create(
+    for line in invoice.lines.filter(
+            stock_movement__isnull=False, stock_return__isnull=True).select_related(
+            "stock_movement__product", "stock_movement__warehouse"):
+        issue = line.stock_movement
+        if issue.movement_type != "DELIVERY":
+            continue
+        movement = StockMovement.objects.create(
             product=issue.product, warehouse=issue.warehouse, movement_type="RETURN_IN",
             quantity=issue.quantity, unit_cost=issue.unit_cost,
             movement_date=invoice.invoice_date, reference=invoice.reference,
             performed_by=user,
             notes=f"Back on the shelf: invoice {invoice.reference} cancelled",
-        ))
+        )
+        line.stock_return = movement
+        line.save(update_fields=["stock_return"])
+        back.append(movement)
     return back
 
 
@@ -511,14 +529,14 @@ def _issues_for(invoice, product):
     """The movements that took this invoice's goods of `product` off the shelf.
 
     Goods on an order's invoice left with the order's deliveries; goods on a
-    direct invoice left on the invoice's own issue, which carries its number.
+    direct invoice left on the invoice's own issue, which its lines point at.
     """
     from apps.inventory.models import StockMovement
     qs = StockMovement.objects.filter(movement_type="DELIVERY", product=product)
     if invoice.sales_order_id:
         return qs.filter(sales_order_id=invoice.sales_order_id)
-    return qs.filter(sales_order__isnull=True, reference=invoice.reference,
-                     product__company=invoice.company)
+    return qs.filter(pk__in=invoice.lines.filter(
+        product=product, stock_movement__isnull=False).values("stock_movement"))
 
 
 def return_credit_note_stock(note, user=None):
@@ -535,7 +553,7 @@ def return_credit_note_stock(note, user=None):
     and earlier ones would bring back more than was issued.
     """
     from apps.inventory.models import StockMovement
-    from apps.sales.models import Invoice as _Invoice
+    from apps.sales.models import Invoice as _Invoice, InvoiceLine
     original = note.original_invoice
     # Goods on an order's invoices all left through the order's deliveries,
     # which belong to the order and not to any one of its invoices. So the
@@ -551,9 +569,14 @@ def return_credit_note_stock(note, user=None):
     else:
         earlier = _Invoice.objects.filter(original_invoice=original)
         source = original.reference
-    earlier_notes = list(earlier.filter(
-        status="CREDIT_NOTE", goods_returned=True,
-    ).exclude(pk=note.pk).values_list("reference", flat=True))
+    # What earlier notes brought back is read from their own lines, each of
+    # which points at the return it made — never from note numbers.
+    earlier_returns = StockMovement.objects.filter(
+        movement_type="RETURN_IN",
+        pk__in=InvoiceLine.objects.filter(
+            invoice__in=earlier.filter(status="CREDIT_NOTE", goods_returned=True)
+            .exclude(pk=note.pk),
+            stock_movement__isnull=False).values("stock_movement"))
     returned = []
     for line in _stocked_lines(note):
         product = line.product
@@ -564,9 +587,8 @@ def return_credit_note_stock(note, user=None):
                 f"No {product.name} has left the warehouse against {original.reference}, "
                 "so there is nothing to take back into stock. Untick 'goods returned' "
                 "to credit the price only, or deliver the order first.")
-        back_already = sum((m.quantity for m in StockMovement.objects.filter(
-            movement_type="RETURN_IN", product=product, reference__in=earlier_notes,
-            product__company=original.company)), Decimal("0"))
+        back_already = sum((m.quantity for m in earlier_returns.filter(product=product)),
+                           Decimal("0"))
         # Two lines of the same product on this one note are one return.
         back_already += sum((m.quantity for m in returned if m.product_id == product.pk),
                             Decimal("0"))
@@ -578,13 +600,16 @@ def return_credit_note_stock(note, user=None):
                 "'goods returned' to credit the price only.")
         issued_value = sum((m.total_cost or Decimal("0") for m in issues), Decimal("0"))
         unit_cost = (issued_value / issued_qty).quantize(Decimal("0.0001"))
-        returned.append(StockMovement.objects.create(
+        movement = StockMovement.objects.create(
             product=product, warehouse=issues[0].warehouse, movement_type="RETURN_IN",
             quantity=line.quantity, unit_cost=unit_cost,
             movement_date=note.invoice_date, reference=note.reference,
             performed_by=user,
             notes=f"Returned on credit note {note.reference} against {original.reference}",
-        ))
+        )
+        line.stock_movement = movement
+        line.save(update_fields=["stock_movement"])
+        returned.append(movement)
     return returned
 
 
@@ -811,6 +836,23 @@ def post_debit_note(note, user=None) -> JournalEntry:
 
 # ──────────────────────── Customer Payment GL ────────────────────────────────
 
+def settlement_base(invoice, amount):
+    """The book value a settlement of `amount` clears off `invoice` in AR.
+
+    A slice that leaves something owed is worth its own amount at the
+    invoice's rate. The slice that brings the invoice to nil is worth exactly
+    what AR still holds for it (Invoice.ledger_remainder_base): a USD 464
+    invoice at 131.255 went in at KES 60,902.32, and two receipts of USD 232
+    each worth KES 30,451.16 at that rate would clear 60,902.32 between them
+    only by luck — here they cleared 60,902.31 and left one cent in AR on a
+    paid invoice. The last slice takes the remainder instead; whatever the
+    cash was worth beyond it is realised exchange, as it always was.
+    """
+    if amount >= invoice.outstanding_amount and invoice.journal_entry_id:
+        return invoice.ledger_remainder_base()
+    return to_base(amount, invoice.rate)
+
+
 @transaction.atomic
 def post_customer_payment(payment, user=None, invoice_allocations=None) -> JournalEntry:
     """
@@ -890,7 +932,7 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
                         "Correct the date, or leave it on account and apply it once the "
                         "invoice exists.")
                 allocations.append(
-                    (inv, alloc_amount, to_base(alloc_amount, inv.rate)))
+                    (inv, alloc_amount, settlement_base(inv, alloc_amount)))
     else:
         outstanding = (
             _Invoice.objects
@@ -914,7 +956,7 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
                 break
             allocate = min(remaining, inv.outstanding_amount)
             if allocate > 0:
-                allocations.append((inv, allocate, to_base(allocate, inv.rate)))
+                allocations.append((inv, allocate, settlement_base(inv, allocate)))
                 remaining -= allocate
 
     ar_base = sum((base for _inv, _amt, base in allocations), Decimal("0"))
@@ -993,6 +1035,15 @@ def apply_customer_credit(payment, invoice_allocations, on_date, user=None):
         raise ValidationError(
             f"Credit from {payment.reference} cannot be applied on {on_date:%d %b %Y}: "
             f"the money only arrived on {payment.payment_date:%d %b %Y}.")
+    # The application is a posting in its own right, dated `on_date`: at the
+    # same rate it books no entry, so JournalEntry.post never gets the chance
+    # to refuse a closed month. The allocation would still change what the
+    # invoices in that month say they were owed, after the month was signed
+    # off. So the period is checked here, whether or not an entry follows.
+    from apps.accounting.models import closed_period_refusal, period_for
+    refusal = closed_period_refusal(period_for(company, on_date), on_date)
+    if refusal:
+        raise ValidationError(f"Credit cannot be applied on {on_date:%d %b %Y}: {refusal}")
     before = unapplied_amount(payment)
     wanted = [(inv, amt) for inv, amt in invoice_allocations if amt and amt > 0]
     if not wanted:
@@ -1024,7 +1075,7 @@ def apply_customer_credit(payment, invoice_allocations, on_date, user=None):
             raise ValidationError(
                 f"{inv.reference} is dated {inv.invoice_date:%d %b %Y}; credit cannot "
                 f"settle it on {on_date:%d %b %Y}, before it existed.")
-        rows.append((inv, amount, to_base(amount, inv.rate)))
+        rows.append((inv, amount, settlement_base(inv, amount)))
 
     rate = payment.rate
     # Released as the difference of the two remainders, so whatever stays on

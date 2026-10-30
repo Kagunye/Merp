@@ -103,16 +103,24 @@ class SalesOrder(BaseModel, NotesMixin):
     def billed_quantities(self, lines=None, exclude_invoice=None):
         """How much of each order line the live invoices bill, as {line pk: qty}.
 
-        Live means everything raised from this order except cancelled invoices
-        and credit notes. `exclude_invoice` leaves one invoice out, so a draft
-        being edited can be measured against what the *other* invoices have
-        already billed.
+        Live means everything raised from this order except cancelled invoices,
+        credit notes, and invoices credited in full. An invoice whose credit
+        notes gave back everything it billed bills nothing any more: left
+        counted, an order whose only invoice was credited in full stayed
+        INVOICED for ever — it could neither be billed again nor cancelled.
+        A part credit still counts as billed (it corrects the price or takes
+        some goods back; the order was billed all the same). `exclude_invoice`
+        leaves one invoice out, so a draft being edited can be measured
+        against what the *other* invoices have already billed.
         """
+        from django.db.models import F
         lines = list(self.lines.all()) if lines is None else lines
         billed = {line.pk: Decimal("0") for line in lines}
         live = InvoiceLine.objects.filter(
             invoice__sales_order=self, invoice__original_invoice__isnull=True,
-        ).exclude(invoice__status__in=["CANCELLED", "CREDIT_NOTE"])
+        ).exclude(invoice__status__in=["CANCELLED", "CREDIT_NOTE"]).exclude(
+            invoice__credited_amount__gt=0,
+            invoice__credited_amount__gte=F("invoice__total_amount"))
         if exclude_invoice is not None:
             live = live.exclude(invoice_id=exclude_invoice.pk)
         for invoice_line in live:
@@ -131,8 +139,9 @@ class SalesOrder(BaseModel, NotesMixin):
         billable again. Counting the live invoices each time — everything raised
         from this order except cancelled ones — is what keeps the two in step;
         adding and subtracting on each event drifts as soon as one event is
-        missed. Credit notes are not counted here: a credit corrects an invoice,
-        it does not un-bill the order.
+        missed. Part credits are not counted here: a credit corrects an
+        invoice, it does not un-bill the order. An invoice credited in full is
+        the exception (see billed_quantities): it no longer bills anything.
 
         An invoice line knows the order line it came from. Lines written before
         that link existed fall back to the order line for the same product,
@@ -280,9 +289,41 @@ class Invoice(BaseModel, NotesMixin):
 
     @property
     def outstanding_base(self):
-        """What is still owed in the ledger's own currency."""
+        """What is still owed in the ledger's own currency.
+
+        For an invoice nothing has touched yet this is simply what is owed at
+        the invoice's rate. Once a receipt or a credit note has taken a slice
+        off it, it is what AR still holds for it: the value it was posted at,
+        less the book value of every live slice that cleared part of it. The
+        two can differ by a cent — USD 232 at 131.255 twice is not USD 464 at
+        the same rate once — and a report that added up the first while the
+        ledger held the second would never agree with AR 1300.
+        """
         from apps.accounting.currency import display_rate, to_base
+        if self.outstanding_amount <= 0:
+            return to_base(self.outstanding_amount, display_rate(self, self.invoice_date))
+        if self.journal_entry_id and (self.paid_amount or self.credited_amount):
+            return self.ledger_remainder_base()
         return to_base(self.outstanding_amount, display_rate(self, self.invoice_date))
+
+    def ledger_remainder_base(self):
+        """What AR 1300 still holds for this invoice, in the book's money.
+
+        The invoice went into AR at `total_amount_base`. Every allocation of a
+        live receipt took its `base_amount` back out, and every credit note
+        against it took its own posted value out. What is left is the figure a
+        settlement to nil has to clear exactly — nothing more, nothing less —
+        so that a fully paid invoice leaves no stray cent behind in AR.
+        Allocations of a receipt that was given back no longer count: the
+        reversal put their value back on the invoice.
+        """
+        from django.db.models import Sum
+        cleared = (PaymentAllocation.objects.filter(invoice_id=self.pk)
+                   .exclude(payment__status="REVERSED")
+                   .aggregate(t=Sum("base_amount"))["t"] or Decimal("0"))
+        credited = (Invoice.objects.filter(original_invoice_id=self.pk, status="CREDIT_NOTE")
+                    .aggregate(t=Sum("total_amount_base"))["t"] or Decimal("0"))
+        return cents((self.total_amount_base or Decimal("0")) - cleared - credited)
 
     def clean(self):
         from apps.accounting.currency import stamp_document
@@ -350,6 +391,20 @@ class InvoiceLine(models.Model):
     credited_line = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="credit_lines")
+    # The stock this line moved, so the goods are always traced through the
+    # document itself and never through its number. Two invoices once shared
+    # the number INV-00001: the second found "INV-00001 already issued" and
+    # never took its own goods off the shelf, and cancelling it brought the
+    # first invoice's goods back. `stock_movement` is the issue a direct
+    # invoice's line made when it was posted, or the return a goods-returned
+    # credit note's line made; `stock_return` is the movement that put a
+    # cancelled direct invoice's goods back on the shelf.
+    stock_movement = models.ForeignKey(
+        "inventory.StockMovement", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    stock_return = models.ForeignKey(
+        "inventory.StockMovement", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
 
     @property
     def line_total(self):

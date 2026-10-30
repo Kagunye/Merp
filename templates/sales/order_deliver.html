@@ -19,6 +19,7 @@
 
 <form method="post" action="{% url 'sales:order_deliver_record' order.pk %}">
   {% csrf_token %}
+  {% if form_token %}<input type="hidden" name="form_token" value="{{ form_token }}">{% endif %}
   <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
     <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
       <h2 class="text-sm font-semibold text-gray-700">What leaves the shelf today</h2>
