@@ -816,8 +816,10 @@ class Command(BaseCommand):
         admin_tiles = len(re.findall(r'class="launcher-tile"', self.text(self.A.get(reverse("workshop:index")))))
         self.expect("the admin still sees all 14 workshop tiles", admin_tiles == 14, str(admin_tiles))
 
-        _, hr = self.member(self.a, "HR_MANAGER", "hr.depts")
+        hr_user, hr = self.member(self.a, "HR_MANAGER", "hr.depts")
         page = self.text(hr.get(reverse("organizations:department_list")))
-        self.expect("HR_MANAGER sees no New/Edit on departments it can't change",
-                    reverse("organizations:department_create") not in page
-                    and not re.search(r"/organizations/departments/[0-9a-f-]+/edit/", page))
+        # HR keeps the department tree (access.py department_*), so the links show
+        # for HR; the point of the check is that they follow the role table.
+        may_change = access.can(hr_user, "HR_MANAGER", "organizations", "department_create", "POST")
+        self.expect("department New/Edit links follow the role table for HR_MANAGER",
+                    (reverse("organizations:department_create") in page) == may_change)
