@@ -9,19 +9,19 @@
 {% endblock %}
 
 {% block top_right %}
-<div class="segmented theme-toggle" role="group" aria-label="Colour theme">
+<div class="seg theme-toggle" role="group" aria-label="Colour theme">
   <button type="button" data-theme-set="light" aria-label="Light mode" title="Light mode">{% include "_includes/icon.html" with name="sun" cls="h-3.5 w-3.5" stroke="2" %}</button>
   <button type="button" data-theme-set="dark" aria-label="Dark mode" title="Dark mode">{% include "_includes/icon.html" with name="moon" cls="h-3.5 w-3.5" stroke="2" %}</button>
 </div>
-<div class="segmented lang-toggle" role="group" aria-label="Language">
+<div class="seg lang-toggle" role="group" aria-label="Language">
   <a href="#" data-lang-set="en" class="is-active" lang="en">English</a>
   <a href="#" data-lang-set="sw" lang="sw">Kiswahili</a>
 </div>
 {% endblock %}
 
 {% block content %}
-<h1 class="text-2xl font-bold tracking-tight text-ink sm:text-3xl" data-i18n="title">Sign in</h1>
-<p class="mb-6 mt-1.5 text-sm text-ink-muted" data-i18n="subtitle">Enter your details to continue.</p>
+<h1 class="text-[1.625rem] font-extrabold tracking-tight" data-i18n="title">Sign in</h1>
+<p class="auth-sub mb-8 mt-1.5 text-[0.9375rem]" data-i18n="subtitle">Enter your details to continue.</p>
 
 {% if form.non_field_errors %}
 <div class="alert alert-danger mb-5" role="alert">
@@ -30,29 +30,29 @@
 </div>
 {% endif %}
 
-<form method="post" novalidate class="no-card space-y-4">
+<form method="post" novalidate class="no-card space-y-6">
   {% csrf_token %}
   <div class="form-field">
-    <div class="mb-1.5 flex items-baseline justify-between gap-3">
-      <label for="id_email" class="form-label mb-0" data-i18n="label_email">Email address or user ID</label>
-      <a href="{% url 'accounts:password_reset' %}" class="link text-xs" data-i18n="forgot_id">Forgot ID?</a>
+    <div class="flex items-baseline justify-between gap-3">
+      <label for="id_email" class="auth-label" data-i18n="label_email">Email address or user ID</label>
+      <a href="{% url 'accounts:password_reset' %}" class="auth-link" data-i18n="forgot_id">Forgot ID?</a>
     </div>
     <input type="text" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
            placeholder="you@company.com" autofocus autocomplete="username"
-           class="input py-2.5{% if form.email.errors %} is-invalid{% endif %}"{% if form.email.errors %} aria-invalid="true" aria-describedby="id_email_error"{% endif %}>
+           class="input-line{% if form.email.errors %} is-invalid{% endif %}"{% if form.email.errors %} aria-invalid="true" aria-describedby="id_email_error"{% endif %}>
     {% if form.email.errors %}<p class="form-error" id="id_email_error">{{ form.email.errors.0 }}</p>{% endif %}
   </div>
 
   <div class="form-field">
-    <div class="mb-1.5 flex items-baseline justify-between gap-3">
-      <label for="id_password" class="form-label mb-0" data-i18n="label_password">Password</label>
-      <a href="{% url 'accounts:password_reset' %}" class="link text-xs" data-i18n="forgot_password">Forgot password?</a>
+    <div class="flex items-baseline justify-between gap-3">
+      <label for="id_password" class="auth-label" data-i18n="label_password">Password</label>
+      <a href="{% url 'accounts:password_reset' %}" class="auth-link" data-i18n="forgot_password">Forgot password?</a>
     </div>
     <div class="relative">
       <input type="password" name="password" id="id_password" placeholder="Enter your password"
              autocomplete="current-password"
-             class="input py-2.5 pr-20{% if form.password.errors %} is-invalid{% endif %}"{% if form.password.errors %} aria-invalid="true" aria-describedby="id_password_error"{% endif %}>
-      <button type="button" class="show-btn btn btn-ghost btn-sm absolute right-1.5 top-1/2 -translate-y-1/2" onclick="togglePwd(this)" aria-pressed="false" aria-controls="id_password">Show</button>
+             class="input-line pr-16{% if form.password.errors %} is-invalid{% endif %}"{% if form.password.errors %} aria-invalid="true" aria-describedby="id_password_error"{% endif %}>
+      <button type="button" class="show-btn auth-link absolute right-0 top-1/2 -translate-y-1/2 px-1 py-2" onclick="togglePwd(this)" aria-pressed="false" aria-controls="id_password">Show</button>
     </div>
     {% if form.password.errors %}<p class="form-error" id="id_password_error">{{ form.password.errors.0 }}</p>{% endif %}
   </div>
@@ -62,32 +62,32 @@
     <span data-i18n="remember">Remember this device for 30 days</span>
   </label>
 
-  <div class="grid grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2">
-    <button type="submit" class="btn btn-primary btn-lg" data-i18n="sign_in">Sign in</button>
-    <a href="{% url 'accounts:register' %}" class="btn btn-secondary btn-lg" data-i18n="register">Register</a>
+  <div class="grid grid-cols-2 gap-3 pt-2">
+    <button type="submit" class="btn btn-primary" data-i18n="sign_in">Sign in</button>
+    <a href="{% url 'accounts:register' %}" class="btn btn-secondary" data-i18n="register">Register</a>
   </div>
 </form>
 
-<p class="mt-6 text-sm text-ink-muted">
+<p class="auth-sub mt-6 text-center text-sm">
   <span data-i18n="new_to">New to Mofisi?</span>
   <a href="{% url 'accounts:register' %}" class="link" data-i18n="open_account">Open an account online</a>
 </p>
 
 {% if demo_email and demo_password %}
 {# Demo credentials (view-gated via SHOW_DEMO_CREDENTIALS; never rendered unless the view passes both). #}
-<div class="mt-6 rounded-xl border border-dashed border-line-strong bg-surface-2 p-4" id="demo-panel">
-  <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
+<div class="auth-demo mt-6 p-4" id="demo-panel">
+  <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
     <span class="badge badge-brand">DEMO</span> Sign in with the seeded admin
   </div>
-  <button type="button" class="demo-row flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-3" onclick="prefillDemo(this)"
+  <button type="button" class="demo-row flex w-full items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-left text-sm" onclick="prefillDemo(this)"
           data-email="{{ demo_email }}" data-password="{{ demo_password }}">
     <span class="text-ink-muted">Email</span><span class="mono truncate text-ink">{{ demo_email }}</span>
   </button>
-  <button type="button" class="demo-row flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-3" onclick="prefillDemo(this)"
+  <button type="button" class="demo-row flex w-full items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-left text-sm" onclick="prefillDemo(this)"
           data-email="{{ demo_email }}" data-password="{{ demo_password }}">
     <span class="text-ink-muted">Password</span><span class="mono truncate text-ink">{{ demo_password }}</span>
   </button>
-  <p class="mt-2 text-xs text-ink-muted">Click a row to prefill. Rotate with the <code class="mono">ADMIN_EMAIL</code> / <code class="mono">ADMIN_PASSWORD</code> env vars.</p>
+  <p class="auth-sub mt-2 text-xs">Click a row to prefill. Rotate with the <code class="mono">ADMIN_EMAIL</code> / <code class="mono">ADMIN_PASSWORD</code> env vars.</p>
 </div>
 {% endif %}
 {% endblock %}

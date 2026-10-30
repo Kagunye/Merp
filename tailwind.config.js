@@ -2,7 +2,7 @@
 // Design tokens live as CSS variables in static/css/tailwind.input.css (one set
 // for light, one for [data-theme="dark"]). The colours below point at those
 // variables, so `bg-surface`, `text-ink-muted`, `border-line` etc. switch theme
-// on their own. See docs/UI.md.
+// on their own. Palette: Caritas Online (docs/DESIGN-cmfb.md). See docs/UI.md.
 const v = (name) => `rgb(var(--c-${name}) / <alpha-value>)`
 
 module.exports = {
@@ -21,27 +21,54 @@ module.exports = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: v('brand'), light: '#E8304E', dark: v('brand-hover'),
+          DEFAULT: v('brand'), light: v('brand'), dark: v('brand-hover'),
           50: v('brand-50'), 100: v('brand-100'),
         },
-        brand: { DEFAULT: v('brand'), hover: v('brand-hover'), 50: v('brand-50'), 100: v('brand-100'), ink: v('brand-ink') },
+        brand: {
+          DEFAULT: v('brand'), hover: v('brand-hover'), strong: v('brand-hover'), deep: v('brand-deep'),
+          tint: v('brand-50'), 50: v('brand-50'), 100: v('brand-100'), ink: v('brand-ink'),
+        },
         canvas: v('canvas'),
         surface: { DEFAULT: v('surface'), 2: v('surface-2'), 3: v('surface-3') },
-        line: { DEFAULT: v('line'), strong: v('line-strong') },
+        chip: v('chip'),
+        'icon-bg': v('icon-bg'),
+        line: { DEFAULT: v('line'), strong: v('line-strong'), divider: v('divider') },
+        divider: v('divider'),
         border: { DEFAULT: v('line'), dark: v('line-strong') },
-        ink: { DEFAULT: v('ink'), 2: v('ink-2'), muted: v('ink-muted') },
+        ink: { DEFAULT: v('ink'), 2: v('ink-2'), muted: v('ink-muted'), subtle: v('ink-subtle'), faint: v('ink-faint') },
         text: { primary: v('ink'), secondary: v('ink-2'), muted: v('ink-muted') },
+        credit: { DEFAULT: v('credit'), bg: v('success-bg') },
         success: { DEFAULT: v('success'), bg: v('success-bg'), line: v('success-line') },
         warning: { DEFAULT: v('warning'), bg: v('warning-bg'), line: v('warning-line') },
         danger: { DEFAULT: v('danger'), bg: v('danger-bg'), line: v('danger-line') },
         info: { DEFAULT: v('info'), bg: v('info-bg'), line: v('info-line') },
+        hero: {
+          DEFAULT: v('hero'), 2: v('hero-2'),
+          ink: v('on-hero'), muted: v('on-hero-muted'), credit: v('on-hero-credit'),
+        },
       },
-      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        accent: ['"Playfair Display"', 'Georgia', '"Times New Roman"', 'serif'],
+        mono: ['ui-monospace', '"Cascadia Mono"', 'Consolas', '"SF Mono"', 'Menlo', 'monospace'],
+      },
+      borderRadius: {
+        // Brief radii: sm 10, base 12, md 14, lg 16, xl 20, 2xl 22.
+        ctl: '12px',
+        card: '20px',
+        hero: '22px',
+      },
       boxShadow: {
-        card: '0 1px 2px 0 rgba(16,24,40,0.05)',
-        'card-hover': '0 4px 12px 0 rgba(16,24,40,0.08)',
-        pop: '0 12px 32px -4px rgba(16,24,40,0.16), 0 4px 8px -2px rgba(16,24,40,0.06)',
-        sidebar: '1px 0 0 0 rgba(16,24,40,0.04)',
+        card: 'none',
+        'card-hover': '0 6px 18px -8px rgba(21,21,21,.14)',
+        chip: '0 1px 2px rgba(21,21,21,.08)',
+        primary: '0 6px 16px rgba(198,39,43,.22)',
+        pop: '0 16px 40px -8px rgba(26,20,22,.22), 0 4px 10px -4px rgba(26,20,22,.10)',
+        sidebar: 'none',
+      },
+      transitionTimingFunction: {
+        standard: 'cubic-bezier(.2,0,0,1)',
+        enter: 'cubic-bezier(.05,.7,.1,1)',
       },
     },
   },

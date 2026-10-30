@@ -23,7 +23,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@1,500;1,600;1,700&display=swap" rel="stylesheet">
 
   <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -41,7 +41,7 @@
 <!-- ============================ SIDEBAR ============================ -->
 <aside id="sidebar" class="fixed bottom-0 left-0 top-0 flex flex-col" aria-label="Main navigation">
 
-  <div class="sidebar-head flex shrink-0 items-center gap-2 px-3">
+  <div class="sidebar-head flex shrink-0 items-center gap-2">
     <a href="{% url 'dashboard:index' %}" class="sidebar-brand flex min-w-0 flex-1 items-center" aria-label="Mofisi — dashboard">
       <img src="{% static 'merp/images/mofisi-mark.png' %}" alt="" class="sidebar-brand-mark theme-light-only">
       <img src="{% static 'merp/images/mofisi-mark-white.png' %}" alt="" class="sidebar-brand-mark theme-dark-only">
@@ -49,12 +49,12 @@
       <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="" class="sidebar-brand-lockup theme-dark-only">
     </a>
     <button type="button" onclick="toggleSidebar()" aria-label="Collapse or expand the sidebar"
-            class="sidebar-collapse-btn flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+            class="sidebar-collapse-btn flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
       {% include "_includes/icon.html" with name="chevron-left" cls="h-4 w-4" stroke="2" %}
     </button>
   </div>
 
-  <nav id="sidebar-nav" class="flex-1 space-y-0.5 px-3 py-3" aria-label="Modules">
+  <nav id="sidebar-nav" class="flex-1" aria-label="Modules">
     {% with ns=request.resolver_match.namespace %}
 
     {% if nav.dashboard %}{% include "base/_nav_item.html" with href="/dashboard/" key="dashboard" label="Dashboard" icon="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" %}{% endif %}
@@ -96,7 +96,7 @@
   </nav>
 
   {% if nav.control_panel %}
-  <div class="sidebar-foot shrink-0 px-3 py-2">
+  <div class="sidebar-foot shrink-0">
     {% with ns=request.resolver_match.namespace %}
     {% include "base/_nav_item.html" with href="/control-panel/" key="control_panel" label="Control Panel" icon="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" icon2="M15 12a3 3 0 11-6 0 3 3 0 016 0z" %}
     {% endwith %}
@@ -107,7 +107,7 @@
 <!-- ============================ MAIN ============================ -->
 <div id="main-wrapper" class="flex min-h-screen flex-col">
 
-  <header id="topbar" class="fixed right-0 top-0 z-30 flex items-center gap-2 px-3 sm:gap-3 sm:px-5">
+  <header id="topbar" class="fixed right-0 top-0 z-30 flex items-center gap-2 px-3 sm:gap-3 sm:px-6">
 
     <button type="button" onclick="toggleSidebar()" aria-label="Open navigation menu" class="topbar-btn md:hidden">
       {% include "_includes/icon.html" with name="menu" cls="h-5 w-5" stroke="2" %}
@@ -116,7 +116,7 @@
     <div class="topbar-search">
       <form method="get" action="{% url 'dashboard:search' %}" class="relative" role="search">
         <label for="global-search" class="sr-only">Search</label>
-        {% include "_includes/icon.html" with name="search" cls="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" stroke="2" %}
+        {% include "_includes/icon.html" with name="search" cls="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-ink-muted" stroke="2" %}
         <input type="search" id="global-search" name="q" value="{{ request.GET.q|default:'' }}"
                placeholder="Search invoices, customers, products…" autocomplete="off">
       </form>
@@ -131,7 +131,7 @@
       <div class="relative">
         <button type="button" class="topbar-chip" data-menu="menu-company" aria-haspopup="true" aria-expanded="false"
                 aria-label="Switch company or branch (current: {{ active_company.name }}{% if active_branch %}, {{ active_branch.name }}{% endif %})">
-          <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-white">{{ active_company.name|first|upper }}</span>
+          <span class="topbar-chip-mark">{{ active_company.name|first|upper }}</span>
           <span class="hidden min-w-0 text-left leading-tight md:block">
             <span class="block max-w-[11rem] truncate text-[13px] font-semibold text-ink">{{ active_company.name }}</span>
             {% if active_branch %}<span class="block max-w-[11rem] truncate text-[11px] text-ink-muted">{{ active_branch.name }}</span>{% endif %}
@@ -143,7 +143,7 @@
           {% for co in user_companies %}
           <a href="{% url 'dashboard:switch_company' co.id %}?next={{ request.path }}" role="menuitem"
              class="menu-item{% if co == active_company %} menu-item-active{% endif %}"{% if co == active_company %} aria-current="true"{% endif %}>
-            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold {% if co == active_company %}bg-brand text-white{% else %}bg-surface-3 text-ink-2{% endif %}">{{ co.name|first|upper }}</span>
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-extrabold {% if co == active_company %}bg-brand text-white{% else %}bg-chip text-ink-2{% endif %}">{{ co.name|first|upper }}</span>
             <span class="min-w-0 flex-1 truncate">{{ co.name }}</span>
             {% if co == active_company %}{% include "_includes/icon.html" with name="check" cls="h-4 w-4 text-brand-ink" stroke="2" %}{% endif %}
           </a>
@@ -180,13 +180,13 @@
           {% if unread_notifications_count %}<span class="topbar-dot" aria-hidden="true"></span>{% endif %}
         </button>
         <div id="menu-notifications" class="menu hidden w-[min(22rem,calc(100vw-1.5rem))] py-0">
-          <div class="flex items-center justify-between border-b border-line px-4 py-3">
-            <span class="text-sm font-semibold text-ink">Notifications</span>
+          <div class="flex items-center justify-between border-b border-divider px-4 py-3">
+            <span class="text-sm font-bold text-ink">Notifications</span>
             {% if unread_notifications_count %}<span class="badge badge-brand">{{ unread_notifications_count }} new</span>{% endif %}
           </div>
           <div class="max-h-80 overflow-y-auto">
             {% for n in recent_notifications %}
-            <a href="{{ n.action_url|default:'#' }}" class="flex gap-3 px-4 py-3 hover:bg-surface-2{% if not n.is_read %} bg-brand-50/60{% endif %}">
+            <a href="{{ n.action_url|default:'#' }}" class="flex gap-3 rounded-[10px] px-3 py-3 hover:bg-surface-2{% if not n.is_read %} bg-brand-50/60{% endif %}">
               <span class="list-row-icon {% if n.notification_type == 'success' %}tone-success{% elif n.notification_type == 'warning' %}tone-warning{% elif n.notification_type == 'error' %}tone-danger{% else %}tone-info{% endif %}">
                 {% include "_includes/icon.html" with name="info" cls="h-4 w-4" %}
               </span>
@@ -199,7 +199,7 @@
             <div class="px-4 py-8 text-center text-sm text-ink-muted">You're all caught up.</div>
             {% endfor %}
           </div>
-          <div class="border-t border-line px-4 py-2.5">
+          <div class="border-t border-divider px-4 py-3">
             <a href="{% url 'notifications:list' %}" class="link text-sm">View all notifications</a>
           </div>
         </div>
@@ -207,7 +207,7 @@
 
       <!-- User menu -->
       <div class="relative">
-        <button type="button" class="flex items-center gap-2 rounded-lg p-1 hover:bg-surface-3 md:pr-2" data-menu="menu-user"
+        <button type="button" class="topbar-user" data-menu="menu-user"
                 aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ request.user.full_name }}">
           <span class="avatar">{% if request.user.avatar %}<img src="{{ request.user.avatar.url }}" alt="">{% else %}{{ request.user.initials }}{% endif %}</span>
           <span class="hidden text-left leading-tight lg:block">
@@ -217,7 +217,7 @@
           {% include "_includes/icon.html" with name="chevron-down" cls="hidden h-3.5 w-3.5 text-ink-muted lg:block" stroke="2" %}
         </button>
         <div id="menu-user" class="menu hidden w-60" role="menu">
-          <div class="border-b border-line px-4 pb-3 pt-2">
+          <div class="mb-1 border-b border-divider px-3 pb-3 pt-2">
             <p class="truncate text-sm font-semibold text-ink">{{ request.user.full_name }}</p>
             <p class="truncate text-xs text-ink-muted">{{ request.user.email }}</p>
           </div>
@@ -266,7 +266,7 @@
       {% block page_actions %}{% endblock %}
 
       {% if messages %}
-      <div class="mb-5 space-y-2" aria-live="polite">
+      <div class="mb-6 space-y-2.5" aria-live="polite">
         {% for message in messages %}
         <div class="alert {% if 'error' in message.tags %}alert-danger{% elif 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% else %}alert-info{% endif %}" role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}">
           {% if 'error' in message.tags %}{% include "_includes/icon.html" with name="x-circle" cls="h-4 w-4" %}{% elif 'success' in message.tags %}{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4" %}{% elif 'warning' in message.tags %}{% include "_includes/icon.html" with name="warning" cls="h-4 w-4" %}{% else %}{% include "_includes/icon.html" with name="info" cls="h-4 w-4" %}{% endif %}

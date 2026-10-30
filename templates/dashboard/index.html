@@ -13,19 +13,30 @@
 </div>
 {% else %}
 
-{# ── Header ────────────────────────────────────────────────────────────── #}
-<header class="page-header">
-  <div class="page-header-main">
-    <p class="page-eyebrow">{{ request.active_company.name }}</p>
-    <h1 class="page-title">Welcome back, {{ request.user.first_name|default:request.user.email }}</h1>
-    <p class="page-subtitle">{% now "l, j F Y" %} · here's what's happening across your business today.</p>
+{# ── Hero: company, tagline, cash on hand (only for a role that may open the bank accounts), quick actions ── #}
+<section class="hero hero-sheets mb-6" aria-label="Overview">
+  <div class="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
+    <div class="min-w-0 flex-[1_1_20rem]">
+      <p class="hero-eyebrow">{{ request.active_company.name }}</p>
+      <h1 class="hero-title">Welcome back, {{ request.user.first_name|default:request.user.email }}</h1>
+      <p class="hero-tagline">Twaimarisha Biashara</p>
+      <p class="hero-text">{% now "l, j F Y" %} · here's what's happening across your business today.</p>
+    </div>
+    {% if show.cash %}
+    {% url 'banking:account_list' as cash_url %}
+    <div class="min-w-0 flex-[0_1_auto] sm:text-right">
+      <p class="hero-label">Cash on hand</p>
+      <p class="hero-figure">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>
+      <p class="mt-2 text-[0.8125rem] text-hero-muted">All bank and cash accounts · <a href="{{ cash_url }}">View accounts</a></p>
+    </div>
+    {% endif %}
   </div>
   {% if quick_actions %}
   {# Quick actions: the view lists only forms this role may open AND save (page_rights). #}
-  <div class="page-actions no-print">
+  <div class="hero-actions no-print">
     {% for url, label in quick_actions %}
     {% if forloop.counter < 4 %}
-    <a href="{{ url }}" class="btn {% if forloop.first %}btn-primary{% else %}btn-secondary hidden md:inline-flex{% endif %}">
+    <a href="{{ url }}" class="btn btn-sm {% if forloop.first %}btn-primary{% else %}btn-ghost hidden md:inline-flex{% endif %}">
       {% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}{{ label }}
     </a>
     {% endif %}
@@ -33,7 +44,7 @@
     {% if quick_actions|length > 1 %}
     {# Everything after the primary action, so phones (and the 4th+ action) are covered too. #}
     <div class="relative">
-      <button type="button" class="btn btn-secondary" data-menu="menu-quick" aria-haspopup="true" aria-expanded="false">
+      <button type="button" class="btn btn-ghost btn-sm" data-menu="menu-quick" aria-haspopup="true" aria-expanded="false">
         More {% include "_includes/icon.html" with name="chevron-down" cls="h-4 w-4" stroke="2" %}
       </button>
       <div id="menu-quick" class="menu left-0 right-auto hidden w-56 sm:left-auto sm:right-0" role="menu">
@@ -45,13 +56,11 @@
     {% endif %}
   </div>
   {% endif %}
-</header>
+</section>
 
 {# ── KPI tiles: each one only for a role that may open the page it summarises (`show`) ── #}
-{% if show.cash or show.receivables or show.payables or show.trading %}
-<section aria-label="Key figures" class="stat-grid mb-6">
-  {% if show.cash %}{% url 'banking:account_list' as u %}
-    {% include "_includes/stat.html" with label="Cash on hand" value=total_cash money=True currency=book meta="All bank and cash accounts" icon="cash" tone="info" url=u only %}{% endif %}
+{% if show.receivables or show.payables or show.trading %}
+<section aria-label="Key figures" class="stat-grid mb-6 2xl:grid-cols-5">
   {% if show.receivables %}{% url 'sales:ar_aging' as u %}
     {% include "_includes/stat.html" with label="Receivables" value=accounts_receivable money=True currency=book meta="Owed to you · see aging" icon="receipt" tone="brand" url=u only %}{% endif %}
   {% if show.payables %}{% url 'procurement:ap_aging' as u %}
@@ -71,7 +80,7 @@
 {# ── Charts (each follows its data endpoint's own rule in access.py) ────── #}
 {% can_do "dashboard:sales_chart" as may_sales_chart %}{% can_do "dashboard:cashflow_chart" as may_cash_chart %}
 {% if may_sales_chart or may_cash_chart %}
-<div class="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-3">
+<div class="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
   {% if may_sales_chart %}
   <section class="card {% if may_cash_chart %}xl:col-span-2{% else %}xl:col-span-3{% endif %}">
     <div class="card-header">
@@ -91,10 +100,10 @@
 </div>
 {% endif %}
 
-<div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+<div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
 
   {# ── Main column: open documents ── #}
-  <div class="min-w-0 space-y-5 xl:col-span-2">
+  <div class="min-w-0 space-y-6 xl:col-span-2">
     {% if show.open_invoices %}
     <section class="card overflow-hidden">
       <div class="card-header">
@@ -156,10 +165,10 @@
     {% if shortcuts %}
     <section class="card">
       <div class="card-header"><h2 class="card-title">Go to</h2></div>
-      <div class="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 xl:grid-cols-5">
+      <div class="grid grid-cols-2 gap-1 p-3 sm:grid-cols-3">
         {% for href, label, path in shortcuts %}
-        <a href="{{ href }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-2 hover:bg-surface-3 hover:text-ink">
-          <span class="list-row-icon tone-neutral"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ path }}"/></svg></span>
+        <a href="{{ href }}" class="flex items-center gap-3 rounded-[14px] px-3 py-2.5 text-sm font-semibold text-ink hover:bg-surface-2">
+          <span class="icon-tile icon-tile-sm"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ path }}"/></svg></span>
           <span class="truncate">{{ label }}</span>
         </a>
         {% endfor %}
@@ -169,7 +178,7 @@
   </div>
 
   {# ── Side column ── #}
-  <div class="min-w-0 space-y-5">
+  <div class="min-w-0 space-y-6">
     {% if show.approvals %}
     <section class="card">
       <div class="card-header"><h2 class="card-title">Waiting for your approval</h2></div>
@@ -210,7 +219,7 @@
     {% if show.inventory or show.sales_orders or show.purchase_orders or may_staff %}
     <section class="card">
       <div class="card-header"><h2 class="card-title">Operations</h2></div>
-      <dl class="dl-rows px-5 py-1">
+      <dl class="dl-rows px-5 py-1 sm:px-6">
         {% if show.inventory %}
         <div><dt><a href="{% url 'inventory:product_list' %}" class="hover:underline">Stock value</a></dt><dd>{{ inventory_value|money }} <span class="text-xs font-normal text-ink-muted">{{ book }}</span></dd></div>
         <div><dt>Products tracked</dt><dd>{{ total_products|default:0 }}</dd></div>
@@ -265,12 +274,12 @@
   const c = (name, a) => `rgb(${css.getPropertyValue('--c-' + name).trim()}${a !== undefined ? ' / ' + a : ''})`;
   const fmt = new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 });
   const fmt2 = new Intl.NumberFormat('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+  Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
   Chart.defaults.font.size = 12;
   Chart.defaults.color = c('ink-muted');
-  Chart.defaults.borderColor = c('line');
-  const tooltip = { callbacks: { label: (ctx) => `${ctx.dataset.label || 'Balance'}: ${fmt2.format(ctx.parsed.y)}` } };
-  const yAxis = { beginAtZero: true, ticks: { callback: (v) => fmt.format(v) }, grid: { color: c('line') }, border: { display: false } };
+  Chart.defaults.borderColor = c('divider');
+  const tooltip = { backgroundColor: c('hero'), titleColor: '#fff', bodyColor: c('on-hero-muted'), padding: 10, cornerRadius: 10, boxPadding: 4, callbacks: { label: (ctx) => `${ctx.dataset.label || 'Balance'}: ${fmt2.format(ctx.parsed.y)}` } };
+  const yAxis = { beginAtZero: true, ticks: { callback: (v) => fmt.format(v) }, grid: { color: c('divider') }, border: { display: false } };
   const xAxis = { grid: { display: false }, border: { display: false } };
 
   const sales = document.getElementById('chart-sales');
@@ -278,11 +287,12 @@
     fetch("{% url 'dashboard:sales_chart' %}", { headers: { Accept: 'application/json' } })
       .then(r => r.ok ? r.json() : null).then(d => {
         if (!d) return;
-        const tones = [c('brand'), c('ink-muted', 0.55)];
+        // Brand palette: revenue red, expenses warm neutral.
+        const tones = [c('brand'), c('line-strong')];
         new Chart(sales, {
           type: 'bar',
           data: { labels: d.labels, datasets: d.datasets.map((s, i) => ({
-            label: s.label, data: s.data, backgroundColor: tones[i % 2], borderRadius: 4, maxBarThickness: 18 })) },
+            label: s.label, data: s.data, backgroundColor: tones[i % 2], borderRadius: 6, maxBarThickness: 16 })) },
           options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } }, tooltip },
             scales: { x: xAxis, y: yAxis } },
@@ -296,8 +306,8 @@
         if (!d) return;
         new Chart(cash, {
           type: 'line',
-          data: { labels: d.labels, datasets: [{ label: 'Cash', data: d.data, borderColor: c('info'), backgroundColor: c('info', 0.08),
-            fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: c('info') }] },
+          data: { labels: d.labels, datasets: [{ label: 'Cash', data: d.data, borderColor: c('credit'), backgroundColor: c('credit', 0.10),
+            fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: c('credit') }] },
           options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip },
             scales: { x: xAxis, y: Object.assign({}, yAxis, { beginAtZero: false }) } },
         });

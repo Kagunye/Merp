@@ -7,7 +7,11 @@ attribute exactly that):
   <div class="launcher-grid">
     <a href="…" class="launcher-tile"><div class="ico ico-mint">…</div><span class="label">Name</span></a>
   </div>
-Tone classes: mint rose amber sky violet teal peach slate.
+Each tile is a card (radius 20, 1px border) with the `.ico` drawn as a 44px
+icon tile on the warm icon-bg; it turns red-tint on hover. Prefer an
+_includes/icon.html SVG inside `.ico` over an emoji. The tone classes
+(mint rose amber sky violet teal peach slate) are kept so old markup still
+renders, but they all draw the same neutral tile in this look.
 Styles live in static/css/tailwind.input.css (section "Launcher").
 {% endcomment %}
 <div class="launcher-header">
@@ -15,7 +19,7 @@ Styles live in static/css/tailwind.input.css (section "Launcher").
     <h1>{{ launcher_title }}</h1>
     <p>{{ launcher_subtitle }}</p>
   </div>
-  <div class="datebox">
+  <div class="datebox no-print">
     <div>{% now "l, F j, Y" %}</div>
     <div>{% now "H:i" %}</div>
   </div>
