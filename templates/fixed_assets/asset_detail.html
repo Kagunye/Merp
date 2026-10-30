@@ -1,228 +1,174 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ asset.code }} — Fixed Assets — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <nav class="text-sm text-gray-500 mb-1">
-      <a href="{% url 'fixed_assets:asset_list' %}" class="hover:underline">Fixed Assets</a> /
-      <span class="text-gray-900 font-medium">{{ asset.code }}</span>
-    </nav>
-    <h1 class="text-2xl font-bold text-gray-900">{{ asset.name }}</h1>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <a href="{% url 'fixed_assets:asset_edit' asset.pk %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Edit</a>
-    {% if asset.status == 'ACTIVE' and next_period %}
-    <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Run Depreciation</a>
-    {% endif %}
-    {% if asset.status == 'ACTIVE' %}
-    <a href="{% url 'fixed_assets:asset_dispose' asset.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-700 hover:bg-gray-800">Dispose Asset</a>
-    {% endif %}
-  </div>
-</div>
+{% url 'fixed_assets:asset_list' as back %}
+{% include "_includes/page_header.html" with title=asset.name eyebrow=asset.code back_url=back back_label="Fixed Assets" actions_template="fixed_assets/_asset_detail_actions.html" %}
+{% can_do "fixed_assets:asset_edit" "POST" as may_edit %}{% can_do "fixed_assets:asset_depreciate" "POST" as may_dep %}
+{% can_do "fixed_assets:acquisition_reverse" "POST" as may_rev_acq %}{% can_do "fixed_assets:depreciation_reverse" "POST" as may_rev_dep %}{% can_do "fixed_assets:disposal_reverse" "POST" as may_rev_disp %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-  <!-- Asset Info -->
-  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Asset Information</h2>
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-      <div><dt class="text-gray-500">Code</dt><dd class="font-medium text-gray-900">{{ asset.code }}</dd></div>
-      <div><dt class="text-gray-500">Category</dt><dd class="text-gray-900">{{ asset.category.name|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Serial Number</dt><dd class="text-gray-900">{{ asset.serial_number|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Location</dt><dd class="text-gray-900">{{ asset.location|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Purchase Date</dt><dd class="text-gray-900">{{ asset.purchase_date }}</dd></div>
-      <div><dt class="text-gray-500">Warranty Expiry</dt><dd class="text-gray-900">{{ asset.warranty_expiry|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Supplier</dt><dd class="text-gray-900">{{ asset.supplier.name|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Status</dt>
-        <dd>
-          <span class="badge {% if asset.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif asset.status == 'DISPOSED' %}bg-gray-100 text-gray-600{% else %}bg-amber-50 text-amber-700{% endif %}">
-            {{ asset.get_status_display }}
-          </span>
-        </dd>
-      </div>
-      <div><dt class="text-gray-500">Depreciation Method</dt><dd class="text-gray-900">{{ asset.get_depreciation_method_display }}</dd></div>
-      <div><dt class="text-gray-500">Useful Life</dt><dd class="text-gray-900">{{ asset.useful_life_years }} years</dd></div>
-    </dl>
-    {% if asset.notes %}
-    <div class="mt-4 pt-4 border-t border-gray-100">
-      <p class="text-sm text-gray-500">Notes</p>
-      <p class="text-sm text-gray-900 mt-1">{{ asset.notes }}</p>
+<div class="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <section class="card lg:col-span-2">
+    <div class="card-header">
+      <h2 class="card-title">Asset Information</h2>
+      {% status_badge asset.status asset.get_status_display %}
     </div>
-    {% endif %}
-  </div>
+    <div class="card-body">
+      <dl class="dl">
+        <div><dt>Code</dt><dd class="mono">{{ asset.code }}</dd></div>
+        <div><dt>Category</dt><dd>{{ asset.category.name|default:"—" }}</dd></div>
+        <div><dt>Serial Number</dt><dd class="mono">{{ asset.serial_number|default:"—" }}</dd></div>
+        <div><dt>Location</dt><dd>{{ asset.location|default:"—" }}</dd></div>
+        <div><dt>Purchase Date</dt><dd>{{ asset.purchase_date|date:"d M Y" }}</dd></div>
+        <div><dt>Warranty Expiry</dt><dd>{{ asset.warranty_expiry|date:"d M Y"|default:"—" }}</dd></div>
+        <div><dt>Supplier</dt><dd>{{ asset.supplier.name|default:"—" }}</dd></div>
+        <div><dt>Status</dt><dd>{% status_badge asset.status asset.get_status_display %}</dd></div>
+        <div><dt>Depreciation Method</dt><dd>{{ asset.get_depreciation_method_display }}</dd></div>
+        <div><dt>Useful Life</dt><dd>{{ asset.useful_life_years }} years</dd></div>
+        {% if asset.notes %}<div class="dl-full"><dt>Notes</dt><dd>{{ asset.notes }}</dd></div>{% endif %}
+      </dl>
+    </div>
+  </section>
 
-  <!-- Financials -->
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Financials</h2>
-    <div class="space-y-3">
-      <div class="flex justify-between items-center py-2 border-b border-gray-100">
-        <span class="text-sm text-gray-500">Purchase Cost</span>
-        <span class="font-semibold text-gray-900">{{ asset.purchase_cost|floatformat:2 }}</span>
-      </div>
-      <div class="flex justify-between items-center py-2 border-b border-gray-100">
-        <span class="text-sm text-gray-500">Residual Value</span>
-        <span class="text-gray-700">{{ asset.residual_value|floatformat:2 }}</span>
-      </div>
-      <div class="flex justify-between items-center py-2 border-b border-gray-100">
-        <span class="text-sm text-gray-500">Accumulated Depreciation</span>
-        <span class="text-red-600">{{ asset.accumulated_depreciation|floatformat:2 }}</span>
-      </div>
-      <div class="flex justify-between items-center py-2">
-        <span class="text-sm font-semibold text-gray-700">{% if asset.status == 'DISPOSED' %}Net Book Value at Disposal{% else %}Net Book Value{% endif %}</span>
-        <span class="text-xl font-bold text-gray-900">{{ asset.book_value|floatformat:2 }}</span>
-      </div>
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Financials</h2></div>
+    <dl class="dl-rows px-5 py-2">
+      <div><dt>Purchase Cost</dt><dd class="num font-semibold">{{ asset.purchase_cost|money }}</dd></div>
+      <div><dt>Residual Value</dt><dd class="num">{{ asset.residual_value|money }}</dd></div>
+      <div><dt>Accumulated Depreciation</dt><dd class="num">({{ asset.accumulated_depreciation|money }})</dd></div>
+      <div class="border-t-2 border-line-strong"><dt class="font-semibold text-ink">{% if asset.status == 'DISPOSED' %}Net Book Value at Disposal{% else %}Net Book Value{% endif %}</dt><dd class="num text-lg font-bold">{{ asset.book_value|money }}</dd></div>
       {% if asset.status == 'ACTIVE' %}
-      <div class="flex justify-between items-center py-2 border-t border-gray-100">
-        <span class="text-sm text-gray-500">Monthly Charge</span>
-        <span class="text-gray-700">{{ asset.monthly_charge|floatformat:2 }}</span>
-      </div>
-      <div class="flex justify-between items-center py-2">
-        <span class="text-sm text-gray-500">Left to Charge</span>
-        <span class="text-gray-700">{{ asset.remaining_depreciable|floatformat:2 }}</span>
-      </div>
-      <div class="flex justify-between items-center py-1">
-        <span class="text-sm text-gray-500">Last Depreciated</span>
-        <span class="text-gray-700">{{ asset.last_depreciated|date:"M Y"|default:"Never" }}</span>
-      </div>
+      <div><dt>Monthly Charge</dt><dd class="num">{{ asset.monthly_charge|money }}</dd></div>
+      <div><dt>Left to Charge</dt><dd class="num">{{ asset.remaining_depreciable|money }}</dd></div>
+      <div><dt>Last Depreciated</dt><dd>{{ asset.last_depreciated|date:"M Y"|default:"Never" }}</dd></div>
       {% endif %}
-    </div>
-  </div>
+    </dl>
+  </section>
 </div>
 
-<!-- What the ledger carries -->
-<div class="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-  <div class="flex items-center justify-between mb-4">
-    <h2 class="text-base font-semibold text-gray-900">In the Ledger</h2>
-    {% if asset.journal_entry and not asset.journal_entry.reversed_by_id and asset.status == 'ACTIVE' %}
-    <form method="post" action="{% url 'fixed_assets:acquisition_reverse' asset.pk %}" class="inline-flex items-center gap-1"
+<section class="card mb-5">
+  <div class="card-header">
+    <h2 class="card-title">In the Ledger</h2>
+    {% if asset.journal_entry and not asset.journal_entry.reversed_by_id and asset.status == 'ACTIVE' and may_rev_acq %}
+    <form method="post" action="{% url 'fixed_assets:acquisition_reverse' asset.pk %}" class="inline-flex items-center gap-2 no-print"
           onsubmit="return confirm('Stand the acquisition down? The cost goes back to the account it was paid out of, and the asset leaves the register.');">
       {% csrf_token %}
-      <input type="text" name="reason" maxlength="255" placeholder="why"
-             class="px-2 py-1 text-xs border border-gray-200 rounded-md w-24 focus:outline-none focus:border-red-400" />
-      <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Reverse acquisition</button>
+      <input type="text" name="reason" maxlength="255" placeholder="why" aria-label="Reason for reversing the acquisition" class="input input-sm w-28">
+      <button type="submit" class="btn btn-danger-ghost btn-sm">Reverse acquisition</button>
     </form>
     {% endif %}
   </div>
-  {% if asset.journal_entry %}
-  <p class="text-sm text-gray-700">
-    Bought through
-    <a href="{% url 'accounting:journal_entry_detail' asset.journal_entry.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ asset.journal_entry.reference }}</a>,
-    dated {{ asset.journal_entry.posting_date }}.
-    {% if asset.journal_entry.reversed_by_id %}
-    <span class="badge bg-gray-100 text-gray-600">Stood down by {{ asset.journal_entry.reversed_by.reference }}</span>
+  <div class="card-body text-sm">
+    {% if asset.journal_entry %}
+    <p>
+      Bought through
+      <a href="{% url 'accounting:journal_entry_detail' asset.journal_entry.pk %}" class="link mono">{{ asset.journal_entry.reference }}</a>,
+      dated {{ asset.journal_entry.posting_date|date:"d M Y" }}.
+      {% if asset.journal_entry.reversed_by_id %}<span class="badge badge-neutral">Stood down by {{ asset.journal_entry.reversed_by.reference }}</span>{% endif %}
+    </p>
+    {% else %}
+    <div class="alert alert-warning" role="status">
+      {% include "_includes/icon.html" with name="warning" only %}
+      <div class="alert-body">This asset has never been posted, so the ledger is carrying nothing for it.
+        {% if may_edit %}<a href="{% url 'fixed_assets:asset_edit' asset.pk %}" class="link">Save it</a> to bring it in.{% endif %}</div>
+    </div>
     {% endif %}
-  </p>
-  {% else %}
-  <p class="text-sm text-amber-700">This asset has never been posted, so the ledger is carrying nothing for it.
-    <a href="{% url 'fixed_assets:asset_edit' asset.pk %}" class="font-medium hover:underline" style="color:var(--primary)">Save it</a> to bring it in.</p>
-  {% endif %}
 
-  {% if next_period %}
-  <div class="mt-4 pt-4 border-t border-gray-100">
-    <p class="text-sm text-gray-700">Next charge: <strong>{{ next_period|date:"F Y" }}</strong></p>
-    <ul class="mt-2 text-sm text-gray-700 space-y-1">
-      {% for side, account, amount in preview %}
-      <li class="flex justify-between max-w-sm">
-        <span>{{ side }} {{ account.code }} {{ account.name }}</span>
-        <span class="font-mono">{{ amount|floatformat:2 }}</span>
-      </li>
-      {% endfor %}
-    </ul>
-    <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="inline-block mt-2 text-sm font-medium hover:underline" style="color:var(--primary)">Post it →</a>
-  </div>
-  {% elif asset.status == 'ACTIVE' and asset.is_fully_depreciated %}
-  <p class="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
-    Written down to its residual value of {{ asset.residual_value|floatformat:2 }}, which is
-    where it stays. There is nothing left to charge.</p>
-  {% elif asset.status == 'ACTIVE' %}
-  <p class="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
-    Up to date through {{ asset.last_depreciated|date:"M Y"|default:"the month it arrived" }}.
-    The next month's charge can be posted once that month has come round.</p>
-  {% endif %}
-</div>
-
-<!-- Depreciation History -->
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-    <h2 class="text-base font-semibold text-gray-900">Depreciation History</h2>
-    {% if asset.status == 'ACTIVE' and next_period %}
-    <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Run Depreciation</a>
+    {% if next_period %}
+    <div class="mt-4 border-t border-line pt-4">
+      <p>Next charge: <strong>{{ next_period|date:"F Y" }}</strong></p>
+      <dl class="dl-rows mt-2 max-w-md">
+        {% for side, account, amount in preview %}
+        <div><dt>{{ side }} <span class="mono text-xs">{{ account.code }}</span> {{ account.name }}</dt><dd class="num">{{ amount|money }}</dd></div>
+        {% endfor %}
+      </dl>
+      {% if may_dep %}<a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="btn btn-ghost btn-sm mt-2">Post it →</a>{% endif %}
+    </div>
+    {% elif asset.status == 'ACTIVE' and asset.is_fully_depreciated %}
+    <p class="mt-4 border-t border-line pt-4 text-ink-muted">
+      Written down to its residual value of {{ asset.residual_value|money }}, which is
+      where it stays. There is nothing left to charge.</p>
+    {% elif asset.status == 'ACTIVE' %}
+    <p class="mt-4 border-t border-line pt-4 text-ink-muted">
+      Up to date through {{ asset.last_depreciated|date:"M Y"|default:"the month it arrived" }}.
+      The next month's charge can be posted once that month has come round.</p>
     {% endif %}
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Period</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Depreciation</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Accumulated</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Book Value After</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Journal Entry</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700"></th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for dep in depreciations %}
-      <tr class="hover:bg-gray-50 {% if dep.is_reversed %}text-gray-400{% endif %}">
-        <td class="px-4 py-3 text-gray-900">{{ dep.period_date|date:"M Y" }}</td>
-        <td class="px-4 py-3 text-right font-mono">{{ dep.depreciation_amount|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono">{{ dep.accumulated_depreciation|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold">{{ dep.book_value_after|floatformat:2 }}</td>
-        <td class="px-4 py-3">
-          {% if dep.journal_entry %}
-          <a href="{% url 'accounting:journal_entry_detail' dep.journal_entry.pk %}" class="text-sm hover:underline" style="color:var(--primary)">{{ dep.journal_entry.reference }}</a>
-          {% if dep.is_reversed %}<span class="badge bg-gray-100 text-gray-600 ml-1">Stood down</span>{% endif %}
-          {% else %}<span class="text-gray-400">—</span>{% endif %}
-        </td>
-        <td class="px-4 py-3 text-right whitespace-nowrap">
-          {% if asset.status == 'ACTIVE' and dep.journal_entry and not dep.is_reversed and dep.period_date == latest_charged %}
-          <form method="post" action="{% url 'fixed_assets:depreciation_reverse' dep.pk %}" class="inline-flex items-center gap-1"
-                onsubmit="return confirm('Stand this month down? An offsetting entry is booked in the same month and the register goes back.');">
-            {% csrf_token %}
-            <input type="text" name="reason" maxlength="255" placeholder="why"
-                   class="px-2 py-1 text-xs border border-gray-200 rounded-md w-24 focus:outline-none focus:border-red-400" />
-            <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Reverse</button>
-          </form>
-          {% else %}<span class="text-xs text-gray-300">—</span>{% endif %}
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No depreciation records yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+</section>
+
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Depreciation History</h2>
+    {% if asset.status == 'ACTIVE' and next_period and may_dep %}
+    <a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="plus" stroke="2" only %}Run Depreciation</a>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Period</th><th class="num">Depreciation</th><th class="num">Accumulated</th><th class="num">Book Value After</th><th>Journal Entry</th><th><span class="sr-only">Actions</span></th></tr>
+      </thead>
+      <tbody>
+        {% for dep in depreciations %}
+        <tr{% if dep.is_reversed %} class="text-ink-muted"{% endif %}>
+          <td class="whitespace-nowrap">{{ dep.period_date|date:"M Y" }}</td>
+          <td class="num">{{ dep.depreciation_amount|money }}</td>
+          <td class="num">{{ dep.accumulated_depreciation|money }}</td>
+          <td class="num font-semibold">{{ dep.book_value_after|money }}</td>
+          <td class="whitespace-nowrap">
+            {% if dep.journal_entry %}
+            <a href="{% url 'accounting:journal_entry_detail' dep.journal_entry.pk %}" class="link mono text-xs">{{ dep.journal_entry.reference }}</a>
+            {% if dep.is_reversed %}<span class="badge badge-neutral ml-1">Stood down</span>{% endif %}
+            {% else %}<span class="text-ink-muted">—</span>{% endif %}
+          </td>
+          <td class="actions">
+            {% if asset.status == 'ACTIVE' and dep.journal_entry and not dep.is_reversed and dep.period_date == latest_charged and may_rev_dep %}
+            <form method="post" action="{% url 'fixed_assets:depreciation_reverse' dep.pk %}" class="inline-flex items-center gap-2"
+                  onsubmit="return confirm('Stand this month down? An offsetting entry is booked in the same month and the register goes back.');">
+              {% csrf_token %}
+              <input type="text" name="reason" maxlength="255" placeholder="why" aria-label="Reason for reversing this month" class="input input-sm w-28">
+              <button type="submit" class="btn btn-danger-ghost btn-sm">Reverse</button>
+            </form>
+            {% else %}<span class="text-xs text-ink-muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clock" title="No depreciation records yet." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% if disposal %}
-<div class="bg-amber-50 border border-amber-200 rounded-xl p-6">
-  <div class="flex items-center justify-between mb-3">
-    <h2 class="text-base font-semibold text-amber-900">Disposal Record</h2>
-    {% if not disposal.is_reversed and disposal.journal_entry %}
-    <form method="post" action="{% url 'fixed_assets:disposal_reverse' asset.pk %}" class="inline-flex items-center gap-1"
+<section class="card">
+  <div class="card-header">
+    <h2 class="card-title">Disposal Record</h2>
+    {% if not disposal.is_reversed and disposal.journal_entry and may_rev_disp %}
+    <form method="post" action="{% url 'fixed_assets:disposal_reverse' asset.pk %}" class="inline-flex items-center gap-2 no-print"
           onsubmit="return confirm('Bring the asset back? The disposal entry is offset and the asset returns to the register at the value it stood at.');">
       {% csrf_token %}
-      <input type="text" name="reason" maxlength="255" placeholder="why"
-             class="px-2 py-1 text-xs border border-amber-200 rounded-md w-24 bg-white focus:outline-none" />
-      <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-white border border-red-100 rounded-md hover:bg-red-50">Bring it back</button>
+      <input type="text" name="reason" maxlength="255" placeholder="why" aria-label="Reason for bringing the asset back" class="input input-sm w-28">
+      <button type="submit" class="btn btn-danger-ghost btn-sm">Bring it back</button>
     </form>
     {% endif %}
   </div>
-  <dl class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
-    <div><dt class="text-amber-700">Date</dt><dd class="font-medium text-amber-900">{{ disposal.disposal_date }}</dd></div>
-    <div><dt class="text-amber-700">Type</dt><dd class="text-amber-900">{{ disposal.get_disposal_type_display }}</dd></div>
-    <div><dt class="text-amber-700">Proceeds into</dt><dd class="text-amber-900">{{ disposal.received_into.code|default:"1200" }} {{ disposal.received_into.name|default:"Bank" }}</dd></div>
-    <div><dt class="text-amber-700">Proceeds</dt><dd class="text-amber-900">{{ disposal.proceeds|floatformat:2 }}</dd></div>
-    <div><dt class="text-amber-700">Gain / Loss</dt>
-      <dd class="font-semibold {% if disposal.gain_loss >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
-        {{ disposal.gain_loss|floatformat:2 }}
-      </dd>
-    </div>
-    <div><dt class="text-amber-700">Entry</dt><dd class="text-amber-900">
-      {% if disposal.journal_entry %}
-      <a href="{% url 'accounting:journal_entry_detail' disposal.journal_entry.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ disposal.journal_entry.reference }}</a>
-      {% if disposal.is_reversed %}<span class="badge bg-gray-100 text-gray-600 ml-1">Brought back by {{ disposal.reversal.reference }}</span>{% endif %}
-      {% else %}—{% endif %}
-    </dd></div>
-    {% if disposal.notes %}<div class="md:col-span-3"><dt class="text-amber-700">Notes</dt><dd class="text-amber-900">{{ disposal.notes }}</dd></div>{% endif %}
-  </dl>
-</div>
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>Date</dt><dd>{{ disposal.disposal_date|date:"d M Y" }}</dd></div>
+      <div><dt>Type</dt><dd>{{ disposal.get_disposal_type_display }}</dd></div>
+      <div><dt>Proceeds into</dt><dd>{{ disposal.received_into.code|default:"1200" }} {{ disposal.received_into.name|default:"Bank" }}</dd></div>
+      <div><dt>Proceeds</dt><dd class="tabular-nums">{{ disposal.proceeds|money }}</dd></div>
+      <div><dt>Gain / Loss</dt><dd class="font-semibold tabular-nums {% if disposal.gain_loss >= 0 %}pos{% endif %}">{{ disposal.gain_loss|money }}</dd></div>
+      <div><dt>Entry</dt><dd>
+        {% if disposal.journal_entry %}
+        <a href="{% url 'accounting:journal_entry_detail' disposal.journal_entry.pk %}" class="link mono">{{ disposal.journal_entry.reference }}</a>
+        {% if disposal.is_reversed %}<span class="badge badge-neutral ml-1">Brought back by {{ disposal.reversal.reference }}</span>{% endif %}
+        {% else %}—{% endif %}
+      </dd></div>
+      {% if disposal.notes %}<div class="dl-full"><dt>Notes</dt><dd>{{ disposal.notes }}</dd></div>{% endif %}
+    </dl>
+  </div>
+</section>
 {% endif %}
 {% endblock %}

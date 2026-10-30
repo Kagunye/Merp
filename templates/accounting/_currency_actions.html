@@ -1,0 +1,3 @@
+{% load ui_extras %}{% can_do "accounting:revaluation" "GET" as may_revalue %}
+{% if may_register %}<a href="{% url 'accounting:currency_create' %}" class="btn btn-secondary">Register a Currency</a>{% endif %}
+{% if may_revalue %}<a href="{% url 'accounting:revaluation' %}" class="btn btn-secondary">Revalue Open Balances</a>{% endif %}

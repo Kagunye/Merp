@@ -1,0 +1,3 @@
+{% load ui_extras %}{% can_do "banking:account_edit" "POST" as may_edit %}{% can_do "banking:reconciliation_create" "POST" as may_reconcile %}
+{% if may_edit %}<a href="{% url 'banking:account_edit' account.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" only %}Edit</a>{% endif %}
+{% if may_reconcile %}<a href="{% url 'banking:reconciliation_create' %}?account={{ account.pk }}" class="btn btn-primary">{% include "_includes/icon.html" with name="check-circle" only %}Reconcile statement</a>{% endif %}

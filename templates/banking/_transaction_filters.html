@@ -1,0 +1,17 @@
+<div class="form-field">
+  <label for="id_account" class="form-label">Account</label>
+  <select id="id_account" name="account" class="select">
+    <option value="">All accounts</option>
+    {% for a in bank_accounts %}
+      <option value="{{ a.pk }}" {% if selected_account == a.pk|stringformat:"s" %}selected{% endif %}>{{ a.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="form-field">
+  <label for="id_reconciled" class="form-label">Clearing state</label>
+  <select id="id_reconciled" name="reconciled" class="select">
+    <option value="">Any</option>
+    <option value="false" {% if reconciled_filter == 'false' %}selected{% endif %}>Outstanding</option>
+    <option value="true" {% if reconciled_filter == 'true' %}selected{% endif %}>Cleared</option>
+  </select>
+</div>

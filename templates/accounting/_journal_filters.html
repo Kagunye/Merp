@@ -1,0 +1,9 @@
+<div class="form-field">
+  <label for="id_status" class="form-label">Status</label>
+  <select id="id_status" name="status" class="select">
+    <option value="">All Statuses</option>
+    {% for val, label in status_choices %}
+      <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</div>

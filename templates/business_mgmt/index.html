@@ -9,12 +9,12 @@
 </div>
 <div class="launcher-grid">
   {% for tile in section.tiles %}
-  <a href="{{ tile.url }}" class="launcher-tile"><div class="ico ico-{{ tile.colour }}">{{ tile.icon }}</div><span class="label">{{ tile.label }}</span></a>
+  <a href="{{ tile.url }}" class="launcher-tile"><div class="ico ico-{{ tile.colour }}">{% include "_includes/icon.html" with name=tile.icon cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">{{ tile.label }}</span></a>
   {% endfor %}
 </div>
 {% empty %}
-<div class="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500">
-  None of the finance screens gathered here are open to your role. Ask your company administrator if you need one of them.
-</div>
+<section class="card mt-6">
+  {% include "_includes/empty_state.html" with icon="lock" title="Nothing here for your role" text="None of the finance screens gathered here are open to your role. Ask your company administrator if you need one of them." only %}
+</section>
 {% endfor %}
 {% endblock %}

@@ -1,50 +1,48 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-{% url 'banking:account_create' as pa_url %}
-{% url 'banking:reconciliation_list' as rec_url %}
+{% can_do "banking:account_create" "POST" as may_create %}{% can_do "banking:account_edit" "POST" as may_edit %}
+{% can_do "banking:reconciliation_create" "POST" as may_reconcile %}{% can_do "banking:reconciliation_list" as may_recs %}{% can_do "banking:transaction_list" as may_txns %}
+{% if may_create %}{% url 'banking:account_create' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Bank Accounts" subtitle="All bank accounts across the business" action_label="New Account" action_url=pa_url %}
 
-<div class="flex flex-wrap gap-2 mb-4 no-print">
-  <a href="{{ rec_url }}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 bg-white hover:bg-gray-50">Reconciliations</a>
-  <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="px-3 py-1.5 rounded-lg text-xs font-medium text-amber-700 border border-amber-200 bg-amber-50 hover:bg-amber-100">Outstanding transactions</a>
+{% if may_recs or may_txns %}
+<div class="toolbar no-print mb-4">
+  <div class="toolbar-group">
+    {% if may_recs %}<a href="{% url 'banking:reconciliation_list' %}" class="btn btn-secondary btn-sm">Reconciliations</a>{% endif %}
+    {% if may_txns %}<a href="{% url 'banking:transaction_list' %}?reconciled=false" class="btn btn-secondary btn-sm">{% include "_includes/icon.html" with name="clock" cls="h-3.5 w-3.5" only %}Outstanding transactions</a>{% endif %}
+  </div>
 </div>
+{% endif %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr>
-        <th class="px-4 py-3 text-left">Account name</th>
-        <th class="px-4 py-3 text-left">Bank</th>
-        <th class="px-4 py-3 text-left">Number</th>
-        <th class="px-4 py-3 text-left">Ledger</th>
-        <th class="px-4 py-3 text-right">Balance</th>
-        <th class="px-4 py-3"></th>
-      </tr>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Account name</th><th>Bank</th><th>Number</th><th>Ledger</th><th class="num">Balance</th><th><span class="sr-only">Actions</span></th></tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% for a in accounts %}
       <tr style="{% account_row a %}">
-        <td class="px-4 py-3 text-gray-900 font-medium">
-          <a href="{% url 'banking:account_detail' a.pk %}" class="hover:underline">{{ a.name }}</a>
-          <div class="text-xs text-gray-500 font-normal">{{ a.get_account_type_display }}</div>
+        <td>
+          <a href="{% url 'banking:account_detail' a.pk %}" class="row-link">{{ a.name }}</a>
+          <div class="text-xs text-ink-muted">{{ a.get_account_type_display }}</div>
         </td>
-        <td class="px-4 py-3 text-gray-700">{{ a.bank_name }}</td>
-        <td class="px-4 py-3 text-gray-700 font-mono text-xs">{{ a.account_number }}</td>
-        <td class="px-4 py-3">
+        <td class="text-ink-2">{{ a.bank_name }}</td>
+        <td class="mono text-xs text-ink-2">{{ a.account_number }}</td>
+        <td class="whitespace-nowrap">
           {% if a.gl_account %}
-            <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="{% account_chip a %}">{{ a.gl_account.code }}</span>
-            <span class="text-xs text-gray-500">{{ a.gl_account.name }}</span>
-          {% else %}<span class="text-xs text-red-600">unmapped</span>{% endif %}
+            <span class="mono rounded px-1.5 py-0.5 text-xs" style="{% account_chip a %}">{{ a.gl_account.code }}</span>
+            <span class="text-xs text-ink-muted">{{ a.gl_account.name }}</span>
+          {% else %}<span class="badge badge-danger">unmapped</span>{% endif %}
         </td>
-        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{% if a.is_foreign %}{{ a.currency }} {{ a.statement_balance|floatformat:2 }}<div class="text-xs text-gray-500 font-normal">ledger {{ book }} {{ a.current_balance|floatformat:2 }}</div>{% else %}{{ book }} {{ a.current_balance|floatformat:2 }}{% endif %}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap">
-          <a href="{% url 'banking:reconciliation_create' %}?account={{ a.pk }}" class="text-sm font-medium" style="color: var(--primary);">Reconcile</a>
-          <a href="{% url 'banking:account_edit' a.pk %}" class="text-xs text-gray-500 hover:text-gray-800 ml-3">Edit</a>
+        <td class="num font-semibold">{% if a.is_foreign %}{{ a.statement_balance|money:a.currency }}<div class="text-xs font-normal text-ink-muted">ledger {{ a.current_balance|money:book }}</div>{% else %}{{ a.current_balance|money:book }}{% endif %}</td>
+        <td class="actions">
+          {% if may_reconcile %}<a href="{% url 'banking:reconciliation_create' %}?account={{ a.pk }}" class="btn btn-ghost btn-sm">Reconcile</a>{% endif %}
+          {% if may_edit %}<a href="{% url 'banking:account_edit' a.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-12 text-center text-gray-500">No bank accounts yet. <a href="{% url 'banking:account_create' %}" class="font-semibold" style="color: var(--primary);">Add one</a>.</td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="bank" title="No bank accounts yet." text="Add the bank and cash accounts money moves through." action_label="Add one" action_url=pa_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

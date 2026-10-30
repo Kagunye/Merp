@@ -1,0 +1,3 @@
+{% load ui_extras %}{% can_do "accounting:exchange_rate_create" "POST" as may_file %}
+<a href="{% url 'accounting:currency_list' %}" class="btn btn-secondary">Currencies &amp; Rates</a>
+{% if may_file %}<a href="{% url 'accounting:exchange_rate_create' %}" class="btn btn-secondary">File a Rate</a>{% endif %}

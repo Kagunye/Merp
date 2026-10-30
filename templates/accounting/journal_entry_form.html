@@ -1,96 +1,106 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'accounting:journal_entry_list' as back_url %}
-{% include "_includes/page_header.html" with title=page_title back_url=back_url %}
+{% include "_includes/page_header.html" with title=page_title back_url=back_url back_label="Journal Entries" hide_print=True %}
 
-<form method="post" id="je-form" class="je-form">
+<form method="post" id="je-form" class="no-card mx-auto w-full max-w-6xl" novalidate>
   {% csrf_token %}
 
-  <!-- Unified card -->
-  <div class="je-card">
+  {% if form.non_field_errors or line_formset.non_form_errors %}
+  <div class="alert alert-danger mb-5" role="alert">
+    {% include "_includes/icon.html" with name="warning" only %}
+    <div class="alert-body">
+      {% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}
+      {% for e in line_formset.non_form_errors %}<p>{{ e }}</p>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
-    <!-- Header section -->
-    <div class="je-section">
-      <div class="je-section-title">Entry Details</div>
-      <div class="je-head-grid">
-        <div class="je-field">
-          <label class="je-label" for="{{ form.reference.id_for_label }}">Reference</label>
-          <input type="text" id="{{ form.reference.id_for_label }}" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:form.reference.field.initial }}" class="je-input je-mono" readonly>
-          <p class="je-hint">{% if form.reference.field.disabled %}Locked — a reference never changes once the entry exists.{% else %}Mofisi numbers this for you when the draft is saved.{% endif %}</p>
-          {% if form.reference.errors %}<p class="je-err">{{ form.reference.errors.0 }}</p>{% endif %}
+  <section class="card overflow-hidden">
+    <div class="card-body">
+      <p class="form-section">Entry Details</p>
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div class="form-field">
+          <label class="form-label" for="{{ form.reference.id_for_label }}">Reference</label>
+          <input type="text" id="{{ form.reference.id_for_label }}" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:form.reference.field.initial }}" class="input mono bg-surface-2 text-ink-muted" readonly>
+          <p class="form-help">{% if form.reference.field.disabled %}Locked — a reference never changes once the entry exists.{% else %}Mofisi numbers this for you when the draft is saved.{% endif %}</p>
+          {% if form.reference.errors %}<p class="form-error">{{ form.reference.errors.0 }}</p>{% endif %}
         </div>
-        <div class="je-field">
-          <label for="{{ form.entry_type.id_for_label }}" class="je-label">Entry Type</label>
-          <select id="{{ form.entry_type.id_for_label }}" name="{{ form.entry_type.html_name }}" class="je-input">
+        <div class="form-field">
+          <label for="{{ form.entry_type.id_for_label }}" class="form-label">Entry Type</label>
+          <select id="{{ form.entry_type.id_for_label }}" name="{{ form.entry_type.html_name }}" class="select{% if form.entry_type.errors %} is-invalid{% endif %}">
             {% for val, label in form.entry_type.field.choices %}
               <option value="{{ val }}" {% if form.entry_type.value == val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+          {% if form.entry_type.errors %}<p class="form-error">{{ form.entry_type.errors.0 }}</p>{% endif %}
         </div>
-        <div class="je-field">
-          <label class="je-label">Posting Date <span class="je-req">*</span></label>
-          <input type="date" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:''|date:'Y-m-d' }}" class="je-input" required>
-          {% if form.posting_date.errors %}<p class="je-err">{{ form.posting_date.errors.0 }}</p>{% endif %}
+        <div class="form-field">
+          <label for="{{ form.posting_date.id_for_label }}" class="form-label">Posting Date<span class="form-required" aria-hidden="true">*</span></label>
+          <input type="date" id="{{ form.posting_date.id_for_label }}" name="{{ form.posting_date.html_name }}" value="{{ form.posting_date.value|default:''|date:'Y-m-d' }}" class="input{% if form.posting_date.errors %} is-invalid{% endif %}" required>
+          {% if form.posting_date.errors %}<p class="form-error">{{ form.posting_date.errors.0 }}</p>{% endif %}
         </div>
-        <div class="je-field je-field-wide">
-          <label for="{{ form.notes.id_for_label }}" class="je-label">Notes</label>
-          <textarea id="{{ form.notes.id_for_label }}" name="{{ form.notes.html_name }}" rows="2" class="je-input je-textarea" placeholder="Short narration for this journal entry">{{ form.notes.value|default:'' }}</textarea>
+        <div class="form-field md:col-span-3">
+          <label for="{{ form.notes.id_for_label }}" class="form-label">Notes</label>
+          <textarea id="{{ form.notes.id_for_label }}" name="{{ form.notes.html_name }}" rows="2" class="textarea" placeholder="Short narration for this journal entry">{{ form.notes.value|default:'' }}</textarea>
+          {% if form.notes.errors %}<p class="form-error">{{ form.notes.errors.0 }}</p>{% endif %}
         </div>
       </div>
     </div>
 
-    <!-- Lines section -->
-    <div class="je-section je-section-lines">
-      <div class="je-section-head">
-        <div class="je-section-title">Journal Lines</div>
-        <div class="je-totals">
-          <span>Total Dr <span id="total-dr" class="je-mono je-total-num">0.00</span></span>
-          <span>Total Cr <span id="total-cr" class="je-mono je-total-num">0.00</span></span>
-          <span id="balance-indicator" class="je-badge je-badge-ok">Balanced</span>
+    <div class="card-body border-t border-line">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p class="form-section mb-0">Journal Lines</p>
+        <div class="flex flex-wrap items-center gap-4 text-xs text-ink-muted">
+          <span>Total Dr <span id="total-dr" class="ml-1 font-semibold tabular-nums text-ink">0.00</span></span>
+          <span>Total Cr <span id="total-cr" class="ml-1 font-semibold tabular-nums text-ink">0.00</span></span>
+          <span id="balance-indicator" class="badge badge-success" role="status">Balanced</span>
         </div>
       </div>
 
       {{ line_formset.management_form }}
 
-      <div class="je-table-wrap">
-        <table class="je-table">
+      <div class="table-wrap shadow-none">
+        <table class="table table-compact">
           <thead>
             <tr>
-              <th style="width:34%">Account</th>
+              <th class="w-[34%]">Account</th>
               <th>Description</th>
-              <th style="width:140px" class="t-right">Debit</th>
-              <th style="width:140px" class="t-right">Credit</th>
-              <th style="width:40px"></th>
+              <th class="num w-36">Debit</th>
+              <th class="num w-36">Credit</th>
+              <th class="w-10"><span class="sr-only">Remove</span></th>
             </tr>
           </thead>
           <tbody id="lines-tbody">
             {% for line_form in line_formset %}
-              <tr class="line-row" data-index="{{ forloop.counter0 }}">
+              <tr class="line-row align-top" data-index="{{ forloop.counter0 }}">
                 {% for hidden in line_form.hidden_fields %}{{ hidden }}{% endfor %}
                 <td>
-                  <select name="{{ line_form.account.html_name }}" class="je-cell je-cell-select">
+                  <select name="{{ line_form.account.html_name }}" class="select input-sm min-w-[14rem]{% if line_form.account.errors %} is-invalid{% endif %}" aria-label="Account">
                     <option value="">— Select account</option>
                     {% for acc in accounts %}
                       <option value="{{ acc.id }}" {% if line_form.account.value|stringformat:"s" == acc.id|stringformat:"s" %}selected{% endif %}>{{ acc.code }} — {{ acc.name }}</option>
                     {% endfor %}
                   </select>
+                  {% if line_form.account.errors %}<p class="form-error">{{ line_form.account.errors.0 }}</p>{% endif %}
+                  {% if line_form.non_field_errors %}<p class="form-error">{{ line_form.non_field_errors.0 }}</p>{% endif %}
                 </td>
                 <td>
-                  <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}" class="je-cell" placeholder="Line description">
+                  <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}" class="input input-sm min-w-[10rem]" placeholder="Line description" aria-label="Description">
                 </td>
                 <td>
-                  <input type="number" name="{{ line_form.debit_amount.html_name }}" value="{{ line_form.debit_amount.value|default:'0' }}" step="0.01" min="0" class="je-cell je-cell-num line-debit" oninput="updateTotals()">
+                  <input type="number" name="{{ line_form.debit_amount.html_name }}" value="{{ line_form.debit_amount.value|default:'0' }}" step="0.01" min="0" class="input input-sm line-debit min-w-[7rem] text-right tabular-nums{% if line_form.debit_amount.errors %} is-invalid{% endif %}" aria-label="Debit" oninput="updateTotals()">
+                  {% if line_form.debit_amount.errors %}<p class="form-error">{{ line_form.debit_amount.errors.0 }}</p>{% endif %}
                 </td>
                 <td>
-                  <input type="number" name="{{ line_form.credit_amount.html_name }}" value="{{ line_form.credit_amount.value|default:'0' }}" step="0.01" min="0" class="je-cell je-cell-num line-credit" oninput="updateTotals()">
+                  <input type="number" name="{{ line_form.credit_amount.html_name }}" value="{{ line_form.credit_amount.value|default:'0' }}" step="0.01" min="0" class="input input-sm line-credit min-w-[7rem] text-right tabular-nums{% if line_form.credit_amount.errors %} is-invalid{% endif %}" aria-label="Credit" oninput="updateTotals()">
+                  {% if line_form.credit_amount.errors %}<p class="form-error">{{ line_form.credit_amount.errors.0 }}</p>{% endif %}
                 </td>
-                <td class="t-center">
+                <td class="text-center">
                   {% if line_form.DELETE %}
                     <input type="checkbox" name="{{ line_form.DELETE.html_name }}" class="delete-checkbox" hidden>
-                    <button type="button" onclick="deleteLine(this)" class="je-rowdel" title="Remove line">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                      </svg>
+                    <button type="button" onclick="deleteLine(this)" class="btn btn-danger-ghost btn-sm btn-icon" title="Remove line" aria-label="Remove line">
+                      {% include "_includes/icon.html" with name="x" stroke="2" only %}
                     </button>
                   {% endif %}
                 </td>
@@ -100,223 +110,24 @@
         </table>
       </div>
 
-      <div class="je-addline">
-        <button type="button" onclick="addLine()" class="je-addbtn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-          </svg>
+      <div class="pt-3">
+        <button type="button" onclick="addLine()" class="btn btn-secondary btn-sm">
+          {% include "_includes/icon.html" with name="plus" stroke="2" only %}
           Add line
         </button>
       </div>
     </div>
 
-    <!-- Actions -->
-    <div class="je-actions">
+    <div class="card-footer flex flex-wrap justify-end gap-2">
       {% if editing %}
-      <a href="{% url 'accounting:journal_entry_detail' form.instance.pk %}" class="je-btn je-btn-ghost">Back to entry</a>
+      <a href="{% url 'accounting:journal_entry_detail' form.instance.pk %}" class="btn btn-ghost">Back to entry</a>
       {% else %}
-      <a href="{% url 'accounting:journal_entry_list' %}" class="je-btn je-btn-ghost">Cancel</a>
+      <a href="{% url 'accounting:journal_entry_list' %}" class="btn btn-ghost">Cancel</a>
       {% endif %}
-      <button type="submit" class="je-btn je-btn-primary">{% if editing %}Save changes{% else %}Save Draft{% endif %}</button>
+      <button type="submit" class="btn btn-primary">{% if editing %}Save changes{% else %}Save Draft{% endif %}</button>
     </div>
-  </div>
+  </section>
 </form>
-
-<style>
-  .je-form { width: 100%; max-width: 1120px; margin: 0 auto; }
-  .je-card {
-    background: #fff;
-    border: 1px solid #EEF0F3;
-    border-radius: 16px;
-    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05);
-    overflow: hidden;
-  }
-
-  .je-section { padding: 24px 28px; }
-  .je-section + .je-section { border-top: 1px solid #F3F4F6; }
-  .je-section-head {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 14px;
-    gap: 12px; flex-wrap: wrap;
-  }
-  .je-section-title {
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.09em; text-transform: uppercase;
-    color: #9CA3AF;
-    margin-bottom: 14px;
-  }
-  .je-section-head .je-section-title { margin-bottom: 0; }
-
-  /* Head grid: reference / type / date in one row, notes full-width */
-  .je-head-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px 20px;
-  }
-  @media (max-width: 720px) { .je-head-grid { grid-template-columns: 1fr; } }
-  .je-field-wide { grid-column: 1 / -1; }
-
-  .je-label {
-    display: block; font-size: 13px; font-weight: 500;
-    color: #374151; margin-bottom: 6px;
-  }
-  .je-req { color: var(--primary); margin-left: 2px; font-weight: 600; }
-  .je-input {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #E5E7EB;
-    border-radius: 10px;
-    font-size: 14px; line-height: 1.4;
-    color: #111827;
-    background: #fff;
-    box-sizing: border-box;
-    transition: border-color 0.15s, box-shadow 0.15s;
-    font-family: inherit;
-  }
-  .je-input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(200,16,46,0.1);
-  }
-  .je-input::placeholder { color: #9CA3AF; }
-  .je-textarea { min-height: 72px; resize: vertical; padding: 10px 12px; }
-  .je-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
-  select.je-input {
-    appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239CA3AF'%3e%3cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 16px;
-    padding-right: 36px;
-  }
-  .je-err { font-size: 12.5px; color: #B91C1C; margin: 6px 0 0; }
-  .je-hint { font-size: 11.5px; color: #9CA3AF; margin: 6px 0 0; }
-  .je-input[readonly] { background: #F9FAFB; color: #6B7280; }
-
-  /* Lines totals / balanced badge */
-  .je-totals {
-    display: inline-flex; align-items: center; gap: 20px;
-    font-size: 12.5px; color: #6B7280;
-  }
-  .je-total-num { color: #111827; font-weight: 600; margin-left: 6px; }
-  .je-badge {
-    display: inline-flex; align-items: center;
-    padding: 3px 10px; border-radius: 999px;
-    font-size: 11.5px; font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-  .je-badge-ok { background: #ECFDF5; color: #047857; }
-  .je-badge-bad { background: #FEF2F2; color: #B91C1C; }
-
-  /* Lines table */
-  .je-table-wrap {
-    border: 1px solid #EEF0F3;
-    border-radius: 12px;
-    overflow: hidden;
-  }
-  .je-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .je-table thead th {
-    background: #F9FAFB;
-    text-align: left;
-    padding: 10px 12px;
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.07em; text-transform: uppercase;
-    color: #6B7280;
-    border-bottom: 1px solid #EEF0F3;
-  }
-  .je-table thead th.t-right { text-align: right; }
-  .je-table tbody td {
-    padding: 6px 10px;
-    border-bottom: 1px solid #F3F4F6;
-    vertical-align: top;
-  }
-  .je-table tbody tr:last-child td { border-bottom: none; }
-  .je-table tbody tr:hover { background: #FAFAFB; }
-  .je-table tbody tr.hidden { display: none; }
-
-  .je-cell {
-    width: 100%;
-    padding: 7px 9px;
-    border: 1px solid transparent;
-    background: transparent;
-    border-radius: 8px;
-    font-size: 13px;
-    color: #111827;
-    font-family: inherit;
-    box-sizing: border-box;
-    transition: border-color 0.1s, background 0.1s;
-  }
-  .je-cell:hover { background: #F9FAFB; }
-  .je-cell:focus {
-    outline: none;
-    background: #fff;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(200,16,46,0.08);
-  }
-  .je-cell-num { text-align: right; font-variant-numeric: tabular-nums; }
-  .je-cell-select {
-    appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239CA3AF'%3e%3cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    background-size: 14px;
-    padding-right: 28px;
-  }
-  .je-rowdel {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px;
-    border: none; background: transparent; color: #9CA3AF;
-    border-radius: 6px; cursor: pointer;
-    transition: background 0.1s, color 0.1s;
-  }
-  .je-rowdel:hover { background: #FEF2F2; color: #B91C1C; }
-  .t-center { text-align: center; }
-
-  /* Add-line button */
-  .je-addline { padding: 14px 0 0; }
-  .je-addbtn {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 7px 12px;
-    background: transparent;
-    border: 1px dashed #D1D5DB;
-    border-radius: 10px;
-    font-size: 13px; font-weight: 500;
-    color: #6B7280;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
-  }
-  .je-addbtn:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-    background: #FEF2F2;
-  }
-
-  /* Actions bar */
-  .je-actions {
-    display: flex; justify-content: flex-end; gap: 10px;
-    padding: 18px 28px;
-    background: #FAFBFC;
-    border-top: 1px solid #F3F4F6;
-  }
-  .je-btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 10px 20px;
-    font-size: 14px; font-weight: 600;
-    border-radius: 10px;
-    cursor: pointer; text-decoration: none;
-    border: 1px solid transparent;
-  }
-  .je-btn-primary {
-    background: var(--primary);
-    color: #fff;
-    box-shadow: 0 1px 2px rgba(200,16,46,0.2);
-  }
-  .je-btn-primary:hover { background: var(--primary-dark, #9B000E); }
-  .je-btn-ghost {
-    background: transparent; color: #6B7280;
-  }
-  .je-btn-ghost:hover { background: #F3F4F6; color: #374151; }
-</style>
 
 <script>
 function updateTotals() {
@@ -335,10 +146,10 @@ function updateTotals() {
   const balanced = Math.abs(dr - cr) < 0.01;
   if (balanced) {
     ind.textContent = 'Balanced';
-    ind.className = 'je-badge je-badge-ok';
+    ind.className = 'badge badge-success';
   } else {
     ind.textContent = 'Out by ' + Math.abs(dr - cr).toFixed(2);
-    ind.className = 'je-badge je-badge-bad';
+    ind.className = 'badge badge-danger';
   }
 }
 
@@ -363,6 +174,8 @@ function addLine() {
     else if (el.type !== 'checkbox') el.value = '';
     if (el.type === 'checkbox') el.checked = false;
   });
+  newRow.querySelectorAll('.form-error').forEach(el => el.remove());
+  newRow.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
   newRow.classList.remove('hidden');
   tbody.appendChild(newRow);
   totalForms.value = idx + 1;

@@ -1,79 +1,89 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'accounting:fiscal_year_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Fiscal Years & Periods" subtitle="Closing posts a journal entry; reopening reverses it" action_label="New Fiscal Year" action_url=pa_url %}
+{% can_do "accounting:fiscal_year_create" "POST" as may_create %}
+{% can_do "accounting:fiscal_year_close" "POST" as may_close_year %}{% can_do "accounting:fiscal_year_reopen" "POST" as may_reopen_year %}
+{% can_do "accounting:period_close" "POST" as may_close_period %}{% can_do "accounting:period_reopen" "POST" as may_reopen_period %}
+{% if may_create %}{% url 'accounting:fiscal_year_create' as pa_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Fiscal Years & Periods" subtitle="Closing posts a journal entry; reopening reverses it" action_label="New Fiscal Year" action_url=pa_url hide_print=True %}
 
-<div class="rounded-xl border px-4 py-3 text-sm" style="background:#F8FAFC;border-color:#E2E8F0;color:#475569">
-  Closing a period empties its revenue, cost and expense balances into
-  <strong>Current Year Profit (3300)</strong> with a posted closing entry, and year end sweeps that into
-  <strong>Retained Earnings (3200)</strong>. Reopening reverses the entry instead of editing history, so the
-  audit trail keeps both sides. Bookings dated inside a closed period are still allowed but flagged on the entry.
+<div class="alert alert-info mb-5" role="note">
+  {% include "_includes/icon.html" with name="info" only %}
+  <div class="alert-body">
+    Closing a period empties its revenue, cost and expense balances into
+    <strong>Current Year Profit (3300)</strong> with a posted closing entry, and year end sweeps that into
+    <strong>Retained Earnings (3200)</strong>. Reopening reverses the entry instead of editing history, so the
+    audit trail keeps both sides. Bookings dated inside a closed period are still allowed but flagged on the entry.
+  </div>
 </div>
 
-<div class="space-y-4">
+<div class="space-y-5">
   {% for fy in fiscal_years %}
-  <div class="bg-white rounded-xl border border-gray-200">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-      <div class="flex items-center gap-3">
+  <section class="card overflow-hidden">
+    <div class="card-header flex-wrap gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <div>
-          <h3 class="font-semibold text-gray-900">{{ fy.name }}</h3>
-          <p class="text-xs text-gray-500">{{ fy.start_date|date:"d M Y" }} → {{ fy.end_date|date:"d M Y" }}</p>
+          <h2 class="card-title">{{ fy.name }}</h2>
+          <p class="card-subtitle">{{ fy.start_date|date:"d M Y" }} → {{ fy.end_date|date:"d M Y" }}</p>
         </div>
-        {% if fy.is_current %}<span class="badge bg-emerald-50 text-emerald-700 text-xs px-2 py-0.5">Current</span>{% endif %}
-        {% if fy.is_closed %}<span class="badge bg-gray-100 text-gray-500 text-xs px-2 py-0.5">Closed</span>{% else %}<span class="badge bg-blue-50 text-blue-700 text-xs px-2 py-0.5">Open</span>{% endif %}
+        {% if fy.is_current %}<span class="badge badge-success">Current</span>{% endif %}
+        {% if fy.is_closed %}{% status_badge "CLOSED" "Closed" %}{% else %}{% status_badge "OPEN" "Open" %}{% endif %}
       </div>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2 no-print">
         {% if fy.is_closed %}
-        <form method="post" action="{% url 'accounting:fiscal_year_reopen' fy.pk %}" onsubmit="return confirm('Reopen this fiscal year?');">
+        {% if may_reopen_year %}
+        <form method="post" action="{% url 'accounting:fiscal_year_reopen' fy.pk %}" class="inline" onsubmit="return confirm('Reopen this fiscal year?');">
           {% csrf_token %}
-          <button type="submit" class="px-3 py-1.5 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Reopen</button>
+          <button type="submit" class="btn btn-secondary btn-sm">Reopen</button>
         </form>
+        {% endif %}
         {% elif fy.end_date > today %}
-        <span class="px-3 py-1.5 text-xs text-gray-400" title="A year is closed once it has ended.">Closes after {{ fy.end_date|date:"d M Y" }}</span>
-        {% else %}
-        <form method="post" action="{% url 'accounting:fiscal_year_close' fy.pk %}" onsubmit="return confirm('Close {{ fy.name }}? Every open period is closed and the year\'s result carried to retained earnings.');">
+        <span class="text-xs text-ink-muted" title="A year is closed once it has ended.">Closes after {{ fy.end_date|date:"d M Y" }}</span>
+        {% elif may_close_year %}
+        <form method="post" action="{% url 'accounting:fiscal_year_close' fy.pk %}" class="inline" onsubmit="return confirm('Close {{ fy.name|escapejs }}? Every open period is closed and the year\'s result carried to retained earnings.');">
           {% csrf_token %}
-          <button type="submit" class="px-3 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Close Year</button>
+          <button type="submit" class="btn btn-danger btn-sm">Close Year</button>
         </form>
         {% endif %}
       </div>
     </div>
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-        <tr><th class="px-5 py-2 text-left">Period</th><th class="px-5 py-2 text-left">Start</th><th class="px-5 py-2 text-left">End</th><th class="px-5 py-2 text-left">Status</th><th class="px-5 py-2 text-right">Actions</th></tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for p in fy.periods.all %}
-        <tr>
-          <td class="px-5 py-2 font-medium">{{ p.name }}</td>
-          <td class="px-5 py-2 text-gray-600">{{ p.start_date|date:"d M Y" }}</td>
-          <td class="px-5 py-2 text-gray-600">{{ p.end_date|date:"d M Y" }}</td>
-          <td class="px-5 py-2"><span class="badge {% if p.status == 'OPEN' %}bg-blue-50 text-blue-700{% elif p.status == 'CLOSED' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ p.get_status_display }}</span></td>
-          <td class="px-5 py-2 text-right">
-            {% if p.status == 'OPEN' and p.end_date > today %}
-            <span class="text-xs text-gray-400" title="A period is closed once it has ended.">Open until {{ p.end_date|date:"d M" }}</span>
-            {% elif p.status == 'OPEN' %}
-            <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline" onsubmit="return confirm('Close {{ p.name }}? Its revenue and expenses move to current year profit in a closing entry.');">
-              {% csrf_token %}<button type="submit" class="text-xs text-amber-700 hover:underline">Close</button>
-            </form>
-            {% else %}
-            <form method="post" action="{% url 'accounting:period_reopen' p.pk %}" class="inline">
-              {% csrf_token %}<button type="submit" class="text-xs text-blue-700 hover:underline">Reopen</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="5" class="px-5 py-4 text-center text-gray-400 text-sm">No periods generated yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Period</th><th>Start</th><th>End</th><th>Status</th><th class="text-right">Actions</th></tr></thead>
+        <tbody>
+          {% for p in fy.periods.all %}
+          <tr>
+            <td class="font-medium">{{ p.name }}</td>
+            <td class="whitespace-nowrap text-ink-2">{{ p.start_date|date:"d M Y" }}</td>
+            <td class="whitespace-nowrap text-ink-2">{{ p.end_date|date:"d M Y" }}</td>
+            <td>{% status_badge p.status p.get_status_display %}</td>
+            <td class="actions">
+              {% if p.status == 'OPEN' and p.end_date > today %}
+              <span class="text-xs text-ink-muted" title="A period is closed once it has ended.">Open until {{ p.end_date|date:"d M" }}</span>
+              {% elif p.status == 'OPEN' %}
+              {% if may_close_period %}
+              <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline" onsubmit="return confirm('Close {{ p.name|escapejs }}? Its revenue and expenses move to current year profit in a closing entry.');">
+                {% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm">Close</button>
+              </form>
+              {% endif %}
+              {% elif may_reopen_period %}
+              <form method="post" action="{% url 'accounting:period_reopen' p.pk %}" class="inline">
+                {% csrf_token %}<button type="submit" class="btn btn-ghost btn-sm">Reopen</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr class="empty-row"><td colspan="5">No periods generated yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
   {% empty %}
-  <div class="bg-white rounded-xl border border-gray-200 p-10 text-center">
-    <p class="text-gray-500 text-sm mb-4">No fiscal years yet.</p>
-    <a href="{% url 'accounting:fiscal_year_create' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Create your first fiscal year</a>
-  </div>
+  <section class="card">
+    {% include "_includes/empty_state.html" with icon="calendar" title="No fiscal years yet." text="A fiscal year carries the twelve periods entries are booked into." action_label="Create your first fiscal year" action_url=pa_url only %}
+  </section>
   {% endfor %}
 </div>
 {% endblock %}

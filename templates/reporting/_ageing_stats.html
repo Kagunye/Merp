@@ -1,0 +1,10 @@
+{% comment %}Bucket totals as stat tiles. Needs `totals` (bucket → amount) and `book`.{% endcomment %}
+<div class="stat-grid mb-5">
+  {% for bucket, total in totals.items %}
+  {% if bucket == 'Current' %}
+  {% include "_includes/stat.html" with label="Current (not yet due)" value=total money=True currency=book icon="clock" tone="success" only %}
+  {% else %}
+  {% with lbl=bucket|add:" days overdue" %}{% include "_includes/stat.html" with label=lbl value=total money=True currency=book icon="warning" tone="warning" only %}{% endwith %}
+  {% endif %}
+  {% endfor %}
+</div>

@@ -1,49 +1,39 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Cash Flow — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Cash Flow Summary</h1>
-    <p class="text-sm text-gray-500 mt-1">{{ date_from }} — {{ date_to }}</p>
-  </div>
-  <div class="flex items-center gap-2">
-    {% include "_includes/print_button.html" %}
-    <a href="{% url 'reporting:index' %}" class="no-print px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
-  </div>
-</div>
+{% url 'reporting:index' as reports_url %}
+{% with f=date_from|date:"d M Y" t=date_to|date:"d M Y" %}{% with sub=f|add:" — "|add:t %}
+{% include "_includes/page_header.html" with title="Cash Flow Summary" subtitle=sub secondary_label="All Reports" secondary_url=reports_url %}
+{% endwith %}{% endwith %}
 
-<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="no-print flex flex-wrap gap-3">
-    <div><label for="id_date_from" class="text-xs text-gray-500">From</label><input id="id_date_from" type="date" name="date_from" value="{{ date_from|date:'Y-m-d' }}" class="block border border-gray-300 rounded-lg px-3 py-1.5 text-sm"></div>
-    <div><label for="id_date_to" class="text-xs text-gray-500">To</label><input id="id_date_to" type="date" name="date_to" value="{{ date_to|date:'Y-m-d' }}" class="block border border-gray-300 rounded-lg px-3 py-1.5 text-sm"></div>
-    <div class="self-end"><button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Run</button></div>
-  </form>
-</div>
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="reporting/_date_range.html" submit_label="Run" %}
 
 {% if error %}
-<div class="mb-4 px-4 py-3 rounded-lg text-sm font-medium bg-red-50 text-red-800 border border-red-200">{{ error }}</div>
-{% else %}
-<div class="max-w-lg bg-white rounded-xl border border-gray-200 p-6">
-  <div class="space-y-4">
-    <div class="flex justify-between items-center py-3 border-b border-gray-100">
-      <div>
-        <p class="text-sm font-semibold text-gray-700">Total Cash Inflows</p>
-        <p class="text-xs text-gray-500">Debits to cash/bank accounts</p>
-      </div>
-      <span class="text-xl font-bold text-green-700 font-mono">{{ total_in|floatformat:2 }}</span>
-    </div>
-    <div class="flex justify-between items-center py-3 border-b border-gray-100">
-      <div>
-        <p class="text-sm font-semibold text-gray-700">Total Cash Outflows</p>
-        <p class="text-xs text-gray-500">Credits from cash/bank accounts</p>
-      </div>
-      <span class="text-xl font-bold text-red-600 font-mono">{{ total_out|floatformat:2 }}</span>
-    </div>
-    <div class="flex justify-between items-center py-4 border-t-2 border-gray-300">
-      <p class="text-base font-bold text-gray-900">Net Cash Flow</p>
-      <span class="text-2xl font-bold font-mono {% if net_cash_flow >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ net_cash_flow|floatformat:2 }}</span>
-    </div>
-  </div>
+<div class="alert alert-danger mb-5" role="alert">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">{{ error }}</div>
 </div>
+{% else %}
+<section class="card max-w-2xl overflow-hidden">
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Cash movement</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><p class="font-semibold">Total Cash Inflows</p><p class="text-xs text-ink-muted">Debits to cash/bank accounts</p></td>
+          <td class="num pos font-semibold">{{ total_in|money }}</td>
+        </tr>
+        <tr>
+          <td><p class="font-semibold">Total Cash Outflows</p><p class="text-xs text-ink-muted">Credits from cash/bank accounts</p></td>
+          <td class="num font-semibold">({{ total_out|money }})</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr class="text-lg"><td class="border-t-4 border-double border-line-strong font-bold">Net Cash Flow</td><td class="num border-t-4 border-double border-line-strong font-bold">{{ net_cash_flow|money }}</td></tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
 {% endif %}
 {% endblock %}

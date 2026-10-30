@@ -1,91 +1,46 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Fixed Assets — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Fixed Assets Register</h1>
-    <p class="text-sm text-gray-500 mt-1">Track assets, depreciation schedules and disposals</p>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <a href="{% url 'fixed_assets:category_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Categories</a>
-    <a href="{% url 'fixed_assets:depreciation_run' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Run Depreciation</a>
-    <a href="{% url 'fixed_assets:asset_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Asset</a>
-  </div>
-</div>
+{% can_do "fixed_assets:asset_create" "POST" as may_create %}
+{% if may_create %}{% url 'fixed_assets:asset_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Fixed Assets Register" subtitle="Track assets, depreciation schedules and disposals" action_label="New Asset" action_url=new_url actions_template="fixed_assets/_asset_list_actions.html" %}
 
-<!-- Filters -->
-<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="flex gap-3 flex-wrap">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search code or name..."
-           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
-    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-      <option value="">All Statuses</option>
-      {% for val, label in status_choices %}
-      <option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
-    {% if q or status_filter %}<a href="{% url 'fixed_assets:asset_list' %}" class="px-4 py-2 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">Clear</a>{% endif %}
-  </form>
-</div>
+{% include "_includes/filter_bar.html" with search_placeholder="Search code or name..." search_value=q extra_template="fixed_assets/_asset_filters.html" %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-200">
+<div class="table-wrap">
+  <table class="table">
+    <thead>
       <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Category</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Cost</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Accum. Depr.</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Book Value</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Ledger</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Purchase Date</th>
+        <th>Code</th><th>Name</th><th>Category</th>
+        <th class="num">Cost</th><th class="num">Accum. Depr.</th><th class="num">Book Value</th>
+        <th>Status</th><th>Ledger</th><th>Purchase Date</th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% for asset in assets %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3">
-          <a href="{% url 'fixed_assets:asset_detail' asset.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ asset.code }}</a>
-        </td>
-        <td class="px-4 py-3 text-gray-900">{{ asset.name }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ asset.category.name|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ asset.purchase_cost|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ asset.accumulated_depreciation|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ asset.book_value|floatformat:2 }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if asset.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif asset.status == 'DISPOSED' %}bg-gray-100 text-gray-600{% elif asset.status == 'WRITTEN_OFF' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
-            {{ asset.get_status_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3 text-gray-600">
+      <tr>
+        <td class="mono"><a href="{% url 'fixed_assets:asset_detail' asset.pk %}" class="row-link">{{ asset.code }}</a></td>
+        <td>{{ asset.name }}</td>
+        <td class="text-ink-2">{{ asset.category.name|default:"—" }}</td>
+        <td class="num">{{ asset.purchase_cost|money }}</td>
+        <td class="num text-ink-2">{{ asset.accumulated_depreciation|money }}</td>
+        <td class="num font-semibold">{{ asset.book_value|money }}</td>
+        <td>{% status_badge asset.status asset.get_status_display %}</td>
+        <td class="whitespace-nowrap">
           {% if asset.journal_entry %}
-          <a href="{% url 'accounting:journal_entry_detail' asset.journal_entry.pk %}" class="text-sm hover:underline" style="color:var(--primary)">{{ asset.journal_entry.reference }}</a>
-          {% if asset.journal_entry.reversed_by_id %}<span class="badge bg-gray-100 text-gray-600 ml-1">Stood down</span>{% endif %}
-          {% else %}<span class="badge bg-amber-50 text-amber-700">Not posted</span>{% endif %}
+          <a href="{% url 'accounting:journal_entry_detail' asset.journal_entry.pk %}" class="link mono text-xs">{{ asset.journal_entry.reference }}</a>
+          {% if asset.journal_entry.reversed_by_id %}<span class="badge badge-neutral ml-1">Stood down</span>{% endif %}
+          {% else %}<span class="badge badge-warning">Not posted</span>{% endif %}
         </td>
-        <td class="px-4 py-3 text-gray-600">{{ asset.purchase_date }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ asset.purchase_date|date:"d M Y" }}</td>
       </tr>
       {% empty %}
-      <tr>
-        <td colspan="9" class="px-4 py-12 text-center text-gray-400">
-          No assets found. <a href="{% url 'fixed_assets:asset_create' %}" style="color:var(--primary)" class="font-medium">Add first asset</a>
-        </td>
-      </tr>
+      <tr><td colspan="9" class="p-0">{% include "_includes/empty_state.html" with icon="building" title="No assets found." text="Assets you buy are charged to the ledger and depreciated from here." action_label="Add first asset" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
-{% if page_obj.has_other_pages %}
-<div class="flex items-center justify-between mt-4">
-  <p class="text-sm text-gray-500">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</p>
-  <div class="flex gap-1">
-    {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Prev</a>{% endif %}
-    {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Next</a>{% endif %}
-  </div>
-</div>
-{% endif %}
+{% include "_includes/pagination.html" %}
 {% endblock %}

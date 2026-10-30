@@ -1,58 +1,52 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Banking" launcher_subtitle="Bank accounts, transactions, transfers and reconciliation" %}
 
 {% if accounts %}
-<div class="flex flex-wrap gap-3 mb-2 text-sm">
-  <span class="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600">{{ accounts|length }} bank account(s)</span>
-  <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="px-3 py-1.5 rounded-lg border {% if unreconciled_count %}border-amber-200 bg-amber-50 text-amber-800{% else %}border-green-200 bg-green-50 text-green-800{% endif %}">
-    {{ unreconciled_count }} transaction(s) awaiting clearing
-  </a>
+{% can_do "banking:account_list" as may_accounts %}{% can_do "banking:transaction_list" as may_list %}
+{% if may_accounts %}{% url 'banking:account_list' as accounts_url %}{% endif %}
+{% if may_list %}{% url 'banking:transaction_list' as txn_url %}{% endif %}
+<div class="stat-grid mb-2">
+  {% include "_includes/stat.html" with label="Bank accounts" value=accounts|length meta="bank account(s)" icon="bank" tone="brand" url=accounts_url only %}
+  {% if unreconciled_count %}
+  {% include "_includes/stat.html" with label="Awaiting clearing" value=unreconciled_count meta="transaction(s) awaiting clearing" icon="clock" tone="warning" url=txn_url only %}
+  {% else %}
+  {% include "_includes/stat.html" with label="Awaiting clearing" value=unreconciled_count meta="transaction(s) awaiting clearing" icon="check-circle" tone="success" url=txn_url only %}
+  {% endif %}
 </div>
 {% endif %}
 
-<div class="launcher-section-label">
-  Processing
-  <span class="launcher-section-count">7 modules</span>
-</div>
+<div class="launcher-section-label">Processing</div>
 <div class="launcher-grid">
-  <a href="{% url 'banking:transaction_create' %}" class="launcher-tile"><div class="ico ico-mint">💳</div><span class="label">New Transaction</span></a>
-  <a href="{% url 'banking:transaction_create' %}?type=DEPOSIT" class="launcher-tile"><div class="ico ico-mint">📥</div><span class="label">Deposit</span></a>
-  <a href="{% url 'banking:transaction_create' %}?type=WITHDRAWAL" class="launcher-tile"><div class="ico ico-rose">📤</div><span class="label">Withdrawal</span></a>
-  <a href="{% url 'banking:transfer_create' %}" class="launcher-tile"><div class="ico ico-sky">🔁</div><span class="label">Transfer</span></a>
-  <a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-amber">⚖️</div><span class="label">Reconcile</span></a>
-  <a href="{% url 'banking:account_create' %}" class="launcher-tile"><div class="ico ico-peach">🏦</div><span class="label">New Bank Account</span></a>
-  <a href="{% url 'sales:payment_create' %}" class="launcher-tile"><div class="ico ico-violet">💵</div><span class="label">Customer Receipt</span></a>
+  {% can_do "banking:transaction_create" as g_get %}{% can_do "banking:transaction_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'banking:transaction_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Transaction</span></a>{% endif %}
+  {% can_do "banking:transaction_create" as g_get %}{% can_do "banking:transaction_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'banking:transaction_create' %}?type=DEPOSIT" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="download" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Deposit</span></a>{% endif %}
+  {% can_do "banking:transaction_create" as g_get %}{% can_do "banking:transaction_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'banking:transaction_create' %}?type=WITHDRAWAL" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Withdrawal</span></a>{% endif %}
+  {% can_do "banking:transfer_create" as g_get %}{% can_do "banking:transfer_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'banking:transfer_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Transfer</span></a>{% endif %}
+  {% can_do "banking:reconciliation_list" as g_get %}{% if g_get %}<a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Reconcile</span></a>{% endif %}
+  {% can_do "banking:account_create" as g_get %}{% can_do "banking:account_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'banking:account_create' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Bank Account</span></a>{% endif %}
+  {% can_do "sales:payment_create" as g_get %}{% can_do "sales:payment_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'sales:payment_create' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customer Receipt</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Lists
-  <span class="launcher-section-count">3 modules</span>
-</div>
+<div class="launcher-section-label">Lists</div>
 <div class="launcher-grid">
-  <a href="{% url 'banking:account_list' %}" class="launcher-tile"><div class="ico ico-sky">🏦</div><span class="label">Bank Accounts</span></a>
-  <a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-slate">📜</div><span class="label">All Transactions</span></a>
-  <a href="{% url 'accounting:journal_entry_list' %}?type=PAYMENT" class="launcher-tile"><div class="ico ico-mint">📚</div><span class="label">Posted Entries</span></a>
+  {% can_do "banking:account_list" as g_get %}{% if g_get %}<a href="{% url 'banking:account_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Bank Accounts</span></a>{% endif %}
+  {% can_do "banking:transaction_list" as g_get %}{% if g_get %}<a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">All Transactions</span></a>{% endif %}
+  {% can_do "accounting:journal_entry_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:journal_entry_list' %}?type=PAYMENT" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Posted Entries</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Reports
-  <span class="launcher-section-count">4 modules</span>
-</div>
+<div class="launcher-section-label">Reports</div>
 <div class="launcher-grid">
-  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">💧</div><span class="label">Cash Flow</span></a>
-  <a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-peach">📊</div><span class="label">Balance Sheet</span></a>
-  <a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-sky">📑</div><span class="label">Statements</span></a>
-  <a href="{% url 'banking:transaction_list' %}?reconciled=false" class="launcher-tile"><div class="ico ico-amber">⚠️</div><span class="label">Unreconciled</span></a>
+  {% can_do "reporting:cash_flow" as g_get %}{% if g_get %}<a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cash Flow</span></a>{% endif %}
+  {% can_do "reporting:balance_sheet" as g_get %}{% if g_get %}<a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Balance Sheet</span></a>{% endif %}
+  {% can_do "banking:reconciliation_list" as g_get %}{% if g_get %}<a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Statements</span></a>{% endif %}
+  {% can_do "banking:transaction_list" as g_get %}{% if g_get %}<a href="{% url 'banking:transaction_list' %}?reconciled=false" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="warning" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Unreconciled</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Maintenance
-  <span class="launcher-section-count">3 modules</span>
-</div>
+<div class="launcher-section-label">Maintenance</div>
 <div class="launcher-grid">
-  <a href="{% url 'accounting:account_list' %}?type=BANK" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">GL Mapping</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-mint">💱</div><span class="label">Currencies</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-rose">⚙️</div><span class="label">Bank Rules</span></a>
+  {% can_do "accounting:account_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:account_list' %}?type=BANK" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">GL Mapping</span></a>{% endif %}
+  {% can_do "accounting:currency_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:currency_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Currencies</span></a>{% endif %}
+  {% can_do "organizations:home" as g_get %}{% if g_get %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Bank Rules</span></a>{% endif %}
 </div>
 {% endblock %}

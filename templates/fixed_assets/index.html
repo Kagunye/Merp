@@ -1,25 +1,31 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Fixed Assets" launcher_subtitle="Manage fixed assets, depreciation, and disposals" %}
 
-<div class="launcher-section-label">
-  Processing
-  <span class="launcher-section-count">3 modules</span>
+{% can_do "fixed_assets:asset_list" as may_assets %}
+{% if may_assets and asset_count is not None %}
+{% url 'fixed_assets:asset_list' as assets_url %}
+<div class="stat-grid mb-2">
+  {% include "_includes/stat.html" with label="Active assets" value=asset_count icon="building" tone="brand" url=assets_url only %}
+  {% include "_includes/stat.html" with label="Gross cost" value=totals.gross_value|default:0 money=True icon="cash" tone="neutral" only %}
+  {% include "_includes/stat.html" with label="Depreciation charged" value=totals.accumulated|default:0 money=True icon="trending-down" tone="warning" only %}
+  {% include "_includes/stat.html" with label="Net book value" value=totals.net_book_value|default:0 money=True icon="chart" tone="success" only %}
 </div>
+{% endif %}
+
+<div class="launcher-section-label">Processing</div>
 <div class="launcher-grid">
-  <a href="{% url 'fixed_assets:depreciation_run' %}" class="launcher-tile"><div class="ico ico-sky">🔄</div><span class="label">Run Depreciation</span></a>
-  <a href="{% url 'fixed_assets:asset_list' %}?status=DISPOSED" class="launcher-tile"><div class="ico ico-rose">🗑️</div><span class="label">Assets Disposal</span></a>
-  <a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-rose">📄</div><span class="label">Asset Reports</span></a>
+  {% can_do "fixed_assets:depreciation_run" as g_get %}{% can_do "fixed_assets:depreciation_run" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'fixed_assets:depreciation_run' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Run Depreciation</span></a>{% endif %}
+  {% can_do "fixed_assets:asset_list" as g_get %}{% if g_get %}<a href="{% url 'fixed_assets:asset_list' %}?status=DISPOSED" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="trash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Assets Disposal</span></a>{% endif %}
+  {% can_do "reporting:index" as g_get %}{% if g_get %}<a href="{% url 'reporting:index' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Asset Reports</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Maintenance
-  <span class="launcher-section-count">4 modules</span>
-</div>
+<div class="launcher-section-label">Maintenance</div>
 <div class="launcher-grid">
-  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-peach">📁</div><span class="label">Assets</span></a>
-  <a href="{% url 'fixed_assets:category_list' %}" class="launcher-tile"><div class="ico ico-amber">🏷️</div><span class="label">Asset Types</span></a>
-  <a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-amber">💳</div><span class="label">Expense Types</span></a>
-  <a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-sky">📍</div><span class="label">Locations</span></a>
+  {% can_do "fixed_assets:asset_list" as g_get %}{% if g_get %}<a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Assets</span></a>{% endif %}
+  {% can_do "fixed_assets:category_list" as g_get %}{% if g_get %}<a href="{% url 'fixed_assets:category_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Asset Types</span></a>{% endif %}
+  {% can_do "expenses:category_list" as g_get %}{% if g_get %}<a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Expense Types</span></a>{% endif %}
+  {% can_do "organizations:warehouse_list" as g_get %}{% if g_get %}<a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Locations</span></a>{% endif %}
 </div>
 {% endblock %}

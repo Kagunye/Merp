@@ -12,51 +12,41 @@
 {% if editing %}
 {% elif preview_account %}
 <div class="mf-shell">
-  <div class="w-full max-w-[720px] bg-white rounded-2xl border border-gray-200 overflow-hidden mt-2">
-    <div class="px-5 py-4 border-b border-gray-100">
-      <h3 class="font-semibold text-gray-800">
-        {% account_dot preview_account as dot %}
-        <span class="inline-block w-2.5 h-2.5 rounded-full align-middle mr-2" style="{{ dot }}"></span>
-        Open items on {{ preview_account.name }}
-      </h3>
-      <p class="text-sm text-gray-500 mt-1">Carried forward opening balance: <span class="font-mono">{{ preview_opening|floatformat:2 }}</span></p>
+  <section class="card mt-2 w-full max-w-[720px] overflow-hidden">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">
+          {% account_dot preview_account as dot %}<span class="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle" style="{{ dot }}"></span>Open items on {{ preview_account.name }}
+        </h2>
+        <p class="card-subtitle">Carried forward opening balance: <span class="tabular-nums">{{ preview_opening|money }}</span></p>
+      </div>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-          <tr>
-            <th class="px-4 py-2 text-left">Date</th>
-            <th class="px-4 py-2 text-left">Description</th>
-            <th class="px-4 py-2 text-left">Reference</th>
-            <th class="px-4 py-2 text-right">Amount</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Date</th><th>Description</th><th>Reference</th><th class="num">Amount</th></tr></thead>
+        <tbody>
           {% for t in preview_items %}
           <tr>
-            <td class="px-4 py-2 whitespace-nowrap">{{ t.transaction_date|date:"d M Y" }}</td>
-            <td class="px-4 py-2">{{ t.description|default:"—" }}</td>
-            <td class="px-4 py-2 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
-            <td class="px-4 py-2 text-right font-mono {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{{ t.signed_amount|floatformat:2 }}</td>
+            <td class="whitespace-nowrap">{{ t.transaction_date|date:"d M Y" }}</td>
+            <td>{{ t.description|default:"—" }}</td>
+            <td class="mono text-xs text-ink-muted">{{ t.reference|default:"—" }}</td>
+            <td class="num{% if t.signed_amount > 0 %} pos{% endif %}">{{ t.signed_amount|money }}</td>
           </tr>
           {% empty %}
-          <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">Everything on this account is already cleared.</td></tr>
+          <tr class="empty-row"><td colspan="4">Everything on this account is already cleared.</td></tr>
           {% endfor %}
         </tbody>
         <tfoot>
-          <tr class="bg-gray-50 font-semibold">
-            <td colspan="3" class="px-4 py-3">Net movement still to clear</td>
-            <td class="px-4 py-3 text-right font-mono">{{ preview_value|floatformat:2 }}</td>
-          </tr>
+          <tr><td colspan="3">Net movement still to clear</td><td class="num">{{ preview_value|money }}</td></tr>
         </tfoot>
       </table>
     </div>
     {% if preview_future %}
-    <p class="px-5 py-3 text-xs text-gray-500 border-t border-gray-100">{{ preview_future|length }} transaction(s) dated after today are not listed — no statement can show them yet.</p>
+    <p class="card-footer text-xs text-ink-muted">{{ preview_future|length }} transaction(s) dated after today are not listed — no statement can show them yet.</p>
     {% endif %}
-  </div>
+  </section>
 </div>
 {% else %}
-<p class="text-sm text-gray-500 mt-4">Choose a bank account above to see the items waiting on it.</p>
+<p class="mt-4 text-center text-sm text-ink-muted">Choose a bank account above to see the items waiting on it.</p>
 {% endif %}
 {% endblock %}
