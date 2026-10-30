@@ -1356,22 +1356,25 @@ def is_cash_account(bank_account):
 # money out of a cash account -- including a reversal, which is posted like
 # any other entry -- is checked as it posts, whichever screen wrote it.
 #
-# Which accounts: every ledger account of type CASH, and every ledger account
-# a PETTY_CASH bank account sits on (whatever its type). Bank accounts may go
-# overdrawn and are left alone.
+# Which accounts: every ledger account of type CASH except the till's own
+# (1100), and every ledger account a PETTY_CASH bank account sits on (whatever
+# its type, 1100 included). Bank accounts may go overdrawn and are left alone.
 #
-# Till cash (1100, Cash on Hand). The till's own entries -- a cash ticket, a
-# cash refund, the variance booked at cash-up -- are NOT checked on the
-# drawer's account. The float a cashier opens with is counted into the drawer
-# but never booked to the ledger, so a refund paid from the float, or a short
-# count, can rightly take 1100 below what the ledger says it holds; the drawer
-# has its own rule (a refund cannot pay out more than the drawer's expected
-# cash) and the count at cash-up is the fact. Everything else that takes money
-# out of 1100 -- an expense claim paid from Cash on Hand, a journal, a
-# transfer -- is checked like any other box: nobody can hand over notes the
-# ledger says the company does not have. A till entry's other cash lines (say
-# an M-Pesa float kept on a Cash account and flagged for M-Pesa takings) are
-# checked too, because the float is not in that account either.
+# Till cash (1100, Cash on Hand) is NOT held to the floor. The float a cashier
+# opens with is counted into the drawer but never booked to the ledger, so a
+# refund paid from the float, or a short count written off at cash-up, can
+# rightly take 1100 below what the ledger says it holds; the drawer has its own
+# rule instead (a refund cannot pay out more than the drawer's expected cash)
+# and the count at cash-up is the fact. 1100 is also the book's catch-all
+# "cash" -- an asset bought, a claim paid or a receipt taken with no account
+# named lands there -- and it is reconciled by counting the drawer, not by a
+# running balance. A company that keeps 1100 as a real petty-cash box says so
+# by putting a PETTY_CASH bank account on it, and then it is held to the floor
+# like any other box. The till's own entries (a cash ticket, a cash refund,
+# the variance) also carry the drawer's account as exempt, for a book whose
+# till falls back to another Cash account; their other cash lines (say an
+# M-Pesa float kept on a Cash account and flagged for M-Pesa takings) are
+# checked, because that float is not in the drawer.
 #
 # When: at the close of the entry's own day and of every later day up to
 # today (or the entry's day, if later) on which the account moved, so a
@@ -1392,10 +1395,15 @@ def is_cash_account(bank_account):
 _floor_state = threading.local()
 
 
+# The till's cash account, left out of the cash floor (see the note above).
+TILL_CASH_CODE = "1100"
+
+
 def cash_floor_account_ids(company, account_ids):
     """Of these ledger accounts, the ones that may not go below zero.
 
-    CASH-type accounts, and any account a petty-cash bank account sits on.
+    CASH-type accounts other than till cash (1100), and any account a
+    petty-cash bank account sits on.
     """
     from apps.banking.models import BankAccount
 
@@ -1403,7 +1411,7 @@ def cash_floor_account_ids(company, account_ids):
     if not ids:
         return set()
     found = set(Account.objects.filter(pk__in=ids, account_type="CASH")
-                .values_list("pk", flat=True))
+                .exclude(code=TILL_CASH_CODE).values_list("pk", flat=True))
     found |= set(BankAccount.objects.filter(company=company, gl_account_id__in=ids,
                                             account_type="PETTY_CASH")
                  .values_list("gl_account_id", flat=True))
@@ -2589,10 +2597,10 @@ def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -
         _dr(je, exp_acct, line.amount, line.description)
 
     _cr(je, cash_acct, claim.total_amount, f"Paid: {claim.reference}")
-    # A cash box -- petty cash, or Cash on Hand when no account was chosen --
-    # cannot pay out notes it does not hold: the cash floor, checked as the
-    # entry posts, refuses it whether or not the box has a bank account on
-    # the banking screen (a bank account may go overdrawn).
+    # A cash box cannot pay out notes it does not hold: the cash floor,
+    # checked as the entry posts, refuses it whether or not the box has a bank
+    # account on the banking screen (a bank account may go overdrawn, and
+    # till cash, 1100, is counted at the drawer instead -- see "The cash floor").
     with cash_floor(f"Paying {claim.reference}"):
         je.post(user=user)
 
