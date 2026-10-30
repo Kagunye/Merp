@@ -1,136 +1,137 @@
 {% extends "base/base.html" %}
 {% block content %}
-<div class="max-w-4xl">
-  <div class="flex items-center gap-3 mb-6">
-    <a href="{% url 'sales:order_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-    </a>
-    <h1 class="text-xl font-bold text-gray-900">{{ page_title }}</h1>
+{% url 'sales:order_list' as back %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Take an order: the customer, the delivery and the lines" back_url=back back_label="Sales Orders" hide_print=True %}
+
+<form method="post" id="order-form" class="no-card space-y-5" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+  <div class="alert alert-danger" role="alert">
+    {% include "_includes/icon.html" with name="warning" only %}
+    <div class="alert-body">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
   </div>
+  {% endif %}
 
-  <form method="post" id="order-form">
-    {% csrf_token %}
-
-    <!-- Header -->
-    <div class="bg-white rounded-xl border border-gray-200 p-6 mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div>
-        <label for="{{ form.reference.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Reference</label>
-        <input id="{{ form.reference.id_for_label }}" type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
-          placeholder="Auto-generated if blank">
-      </div>
-      <div>
-        <label for="{{ form.order_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Order Date *</label>
-        <input id="{{ form.order_date.id_for_label }}" type="date" name="{{ form.order_date.html_name }}" value="{{ form.order_date.value|default:''|date:'Y-m-d' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
-        {% if form.order_date.errors %}<p class="text-xs text-red-600 mt-1">{{ form.order_date.errors.0 }}</p>{% endif %}
-      </div>
-      <div>
-        <label for="{{ form.delivery_date.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Delivery Date</label>
-        <input id="{{ form.delivery_date.id_for_label }}" type="date" name="{{ form.delivery_date.html_name }}" value="{{ form.delivery_date.value|default:''|date:'Y-m-d' }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
-      </div>
-      <div class="md:col-span-2">
-        <label for="{{ form.customer.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Customer *</label>
-        <select id="{{ form.customer.id_for_label }}" name="{{ form.customer.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-          <option value="">— Select customer</option>
-          {% for c in form.customer.field.queryset %}
-            <option value="{{ c.pk }}" {% if form.customer.value|stringformat:"s" == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
-        {% if form.customer.errors %}<p class="text-xs text-red-600 mt-1">{{ form.customer.errors.0 }}</p>{% endif %}
-      </div>
-      <div>
-        <label for="{{ form.currency.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Currency</label>
-        <select id="{{ form.currency.id_for_label }}" name="{{ form.currency.html_name }}"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-          {% for code, label in form.currency.field.choices %}
-            <option value="{{ code }}" {% if form.currency.value == code %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <p class="text-xs text-gray-500 mt-1">{{ form.currency.help_text }}</p>
-      </div>
-      <div>
-        <label for="{{ form.warehouse.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Warehouse</label>
-        <select id="{{ form.warehouse.id_for_label }}" name="{{ form.warehouse.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-          <option value="">— Any warehouse</option>
-          {% for w in form.warehouse.field.queryset %}
-            <option value="{{ w.pk }}" {% if form.warehouse.value|stringformat:"s" == w.pk|stringformat:"s" %}selected{% endif %}>{{ w.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label for="{{ form.branch.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Branch</label>
-        <select id="{{ form.branch.id_for_label }}" name="{{ form.branch.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-          <option value="">— None</option>
-          {% for b in form.branch.field.queryset %}
-            <option value="{{ b.pk }}" {% if form.branch.value|stringformat:"s" == b.pk|stringformat:"s" %}selected{% endif %}>{{ b.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label for="{{ form.sales_rep.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Sales Rep</label>
-        <select id="{{ form.sales_rep.id_for_label }}" name="{{ form.sales_rep.html_name }}" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-          <option value="">— Unassigned</option>
-          {% for r in form.sales_rep.field.queryset %}
-            <option value="{{ r.pk }}" {% if form.sales_rep.value|stringformat:"s" == r.pk|stringformat:"s" %}selected{% endif %}>{{ r.get_full_name|default:r.email }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5" for="order-disc">Order Discount %</label>
-        <input type="number" name="{{ form.discount_percent.html_name }}" value="{{ form.discount_percent.value|default:'0' }}"
-          step="0.01" min="0" max="100" id="order-disc" oninput="updateOrderTotals()"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono">
-      </div>
-      <div class="md:col-span-2">
-        <label for="{{ form.notes.id_for_label }}" class="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Notes</label>
-        <textarea id="{{ form.notes.id_for_label }}" name="{{ form.notes.html_name }}" rows="2"
-          class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none">{{ form.notes.value|default:'' }}</textarea>
+  {# ── Header ── #}
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Customer and delivery</h2></div>
+    <div class="card-body">
+      <div class="form-grid lg:grid-cols-3">
+        <div class="form-field">
+          <label for="{{ form.reference.id_for_label }}" class="form-label">Reference</label>
+          <input id="{{ form.reference.id_for_label }}" type="text" name="{{ form.reference.html_name }}" value="{{ form.reference.value|default:'' }}" class="input font-mono{% if form.reference.errors %} is-invalid{% endif %}" placeholder="Auto-generated if blank">
+          {% for e in form.reference.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.order_date.id_for_label }}" class="form-label">Order Date<span class="form-required" aria-hidden="true">*</span></label>
+          <input id="{{ form.order_date.id_for_label }}" type="date" name="{{ form.order_date.html_name }}" value="{{ form.order_date.value|default:''|date:'Y-m-d' }}" class="input{% if form.order_date.errors %} is-invalid{% endif %}">
+          {% for e in form.order_date.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.delivery_date.id_for_label }}" class="form-label">Delivery Date</label>
+          <input id="{{ form.delivery_date.id_for_label }}" type="date" name="{{ form.delivery_date.html_name }}" value="{{ form.delivery_date.value|default:''|date:'Y-m-d' }}" class="input{% if form.delivery_date.errors %} is-invalid{% endif %}">
+          {% for e in form.delivery_date.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field lg:col-span-2">
+          <label for="{{ form.customer.id_for_label }}" class="form-label">Customer<span class="form-required" aria-hidden="true">*</span></label>
+          <select id="{{ form.customer.id_for_label }}" name="{{ form.customer.html_name }}" class="select{% if form.customer.errors %} is-invalid{% endif %}">
+            <option value="">— Select customer</option>
+            {% for c in form.customer.field.queryset %}
+              <option value="{{ c.pk }}" {% if form.customer.value|stringformat:"s" == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+          {% for e in form.customer.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.currency.id_for_label }}" class="form-label">Currency</label>
+          <select id="{{ form.currency.id_for_label }}" name="{{ form.currency.html_name }}" class="select">
+            {% for code, label in form.currency.field.choices %}
+              <option value="{{ code }}" {% if form.currency.value == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if form.currency.help_text %}<p class="form-help">{{ form.currency.help_text }}</p>{% endif %}
+          {% for e in form.currency.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.warehouse.id_for_label }}" class="form-label">Warehouse</label>
+          <select id="{{ form.warehouse.id_for_label }}" name="{{ form.warehouse.html_name }}" class="select{% if form.warehouse.errors %} is-invalid{% endif %}">
+            <option value="">— Any warehouse</option>
+            {% for w in form.warehouse.field.queryset %}
+              <option value="{{ w.pk }}" {% if form.warehouse.value|stringformat:"s" == w.pk|stringformat:"s" %}selected{% endif %}>{{ w.name }}</option>
+            {% endfor %}
+          </select>
+          {% for e in form.warehouse.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.branch.id_for_label }}" class="form-label">Branch</label>
+          <select id="{{ form.branch.id_for_label }}" name="{{ form.branch.html_name }}" class="select{% if form.branch.errors %} is-invalid{% endif %}">
+            <option value="">— None</option>
+            {% for b in form.branch.field.queryset %}
+              <option value="{{ b.pk }}" {% if form.branch.value|stringformat:"s" == b.pk|stringformat:"s" %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+          {% for e in form.branch.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label for="{{ form.sales_rep.id_for_label }}" class="form-label">Sales Rep</label>
+          <select id="{{ form.sales_rep.id_for_label }}" name="{{ form.sales_rep.html_name }}" class="select{% if form.sales_rep.errors %} is-invalid{% endif %}">
+            <option value="">— Unassigned</option>
+            {% for r in form.sales_rep.field.queryset %}
+              <option value="{{ r.pk }}" {% if form.sales_rep.value|stringformat:"s" == r.pk|stringformat:"s" %}selected{% endif %}>{{ r.get_full_name|default:r.email }}</option>
+            {% endfor %}
+          </select>
+          {% for e in form.sales_rep.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="order-disc">Order Discount %</label>
+          <input type="number" name="{{ form.discount_percent.html_name }}" value="{{ form.discount_percent.value|default:'0' }}" step="0.01" min="0" max="100" id="order-disc" oninput="updateOrderTotals()" class="input text-right font-mono{% if form.discount_percent.errors %} is-invalid{% endif %}">
+          {% for e in form.discount_percent.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="form-field form-field-full lg:col-span-3">
+          <label for="{{ form.notes.id_for_label }}" class="form-label">Notes</label>
+          <textarea id="{{ form.notes.id_for_label }}" name="{{ form.notes.html_name }}" rows="2" class="textarea resize-none">{{ form.notes.value|default:'' }}</textarea>
+          {% for e in form.notes.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+        </div>
       </div>
     </div>
+  </section>
 
-    <!-- Line Items -->
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="font-semibold text-gray-800">Line Items</h3>
-        <span class="text-xs text-gray-500">At least one line is required</span>
-      </div>
+  {# ── Line items ── #}
+  <section class="card overflow-hidden">
+    <div class="card-header">
+      <h2 class="card-title">Line Items</h2>
+      <span class="text-xs text-ink-muted">At least one line is required</span>
+    </div>
 
-      {% if form.non_field_errors %}
-        <div class="px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700">
-          {% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}
-        </div>
-      {% endif %}
-      {% if line_formset.non_form_errors %}
-        <div class="px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700">
-          {% for e in line_formset.non_form_errors %}<p>{{ e }}</p>{% endfor %}
-        </div>
-      {% endif %}
+    {% if line_formset.non_form_errors %}
+    <div class="alert alert-danger m-4" role="alert">
+      {% include "_includes/icon.html" with name="warning" only %}
+      <div class="alert-body">{% for e in line_formset.non_form_errors %}<p>{{ e }}</p>{% endfor %}</div>
+    </div>
+    {% endif %}
 
-      {{ line_formset.management_form }}
+    {{ line_formset.management_form }}
 
-      <table class="w-full text-sm">
+    <div class="table-wrap">
+      <table class="table table-compact">
         <thead>
-          <tr class="bg-gray-50/50 border-b border-gray-100">
-            <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-1/4">Product *</th>
-            <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Description</th>
-            <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-20">Qty</th>
-            <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-28">Unit Price</th>
-            <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-20">Disc %</th>
-            <th class="text-right px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-20">Line Total</th>
-            <th class="text-left px-3 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider w-32">Tax</th>
-            <th class="w-8"></th>
+          <tr>
+            <th class="min-w-[12rem]">Product<span class="form-required" aria-hidden="true">*</span></th>
+            <th class="min-w-[10rem]">Description</th>
+            <th class="num w-24">Qty</th>
+            <th class="num w-32">Unit Price</th>
+            <th class="num w-24">Disc %</th>
+            <th class="num w-28">Line Total</th>
+            <th class="min-w-[9rem]">Tax</th>
+            <th class="w-10"><span class="sr-only">Remove</span></th>
           </tr>
         </thead>
         <tbody id="lines-tbody">
           {% for line_form in line_formset %}
-          <tr class="line-row border-b border-gray-50">
+          <tr class="line-row align-top">
             {% for hidden in line_form.hidden_fields %}{{ hidden }}{% endfor %}
-            <td class="px-3 py-2 align-top">
-              <select name="{{ line_form.product.html_name }}"
-                class="line-product w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
-                onchange="fillFromProduct(this)">
+            <td>
+              <select name="{{ line_form.product.html_name }}" aria-label="Product" class="line-product select input-sm{% if line_form.product.errors %} is-invalid{% endif %}" onchange="fillFromProduct(this)">
                 <option value="">— Select product</option>
                 {% for p in line_form.product.field.queryset %}
                   <option value="{{ p.pk }}" data-price="{{ p.selling_price }}" data-name="{{ p.name }}"
@@ -140,38 +141,32 @@
                   </option>
                 {% endfor %}
               </select>
-              {% if line_form.product.errors %}<p class="text-[10px] text-red-600 mt-0.5">{{ line_form.product.errors.0 }}</p>{% endif %}
+              {% for e in line_form.product.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
             </td>
-            <td class="px-3 py-2">
-              <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}"
-                class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="Item description">
+            <td>
+              <input type="text" name="{{ line_form.description.html_name }}" value="{{ line_form.description.value|default:'' }}" aria-label="Description" class="input input-sm{% if line_form.description.errors %} is-invalid{% endif %}" placeholder="Item description">
+              {% for e in line_form.description.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
             </td>
-            <td class="px-3 py-2">
-              <input type="number" name="{{ line_form.quantity.html_name }}" value="{{ line_form.quantity.value|default:'1' }}"
-                step="0.0001" min="0"
-                class="line-qty w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
-                oninput="updateLineTotal(this)">
+            <td>
+              <input type="number" name="{{ line_form.quantity.html_name }}" value="{{ line_form.quantity.value|default:'1' }}" step="0.0001" min="0" aria-label="Quantity"
+                class="line-qty input input-sm text-right font-mono{% if line_form.quantity.errors %} is-invalid{% endif %}" oninput="updateLineTotal(this)">
+              {% for e in line_form.quantity.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
             </td>
-            <td class="px-3 py-2">
-              <input type="number" name="{{ line_form.unit_price.html_name }}" value="{{ line_form.unit_price.value|default:'0' }}"
-                step="0.0001" min="0"
-                class="line-price w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
-                oninput="updateLineTotal(this)">
+            <td>
+              <input type="number" name="{{ line_form.unit_price.html_name }}" value="{{ line_form.unit_price.value|default:'0' }}" step="0.0001" min="0" aria-label="Unit price"
+                class="line-price input input-sm text-right font-mono{% if line_form.unit_price.errors %} is-invalid{% endif %}" oninput="updateLineTotal(this)">
+              {% for e in line_form.unit_price.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
             </td>
-            <td class="px-3 py-2">
-              <input type="number" name="{{ line_form.discount_percent.html_name }}" value="{{ line_form.discount_percent.value|default:'0' }}"
-                step="0.01" min="0" max="100"
-                class="line-disc w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 text-right font-mono"
-                oninput="updateLineTotal(this)">
+            <td>
+              <input type="number" name="{{ line_form.discount_percent.html_name }}" value="{{ line_form.discount_percent.value|default:'0' }}" step="0.01" min="0" max="100" aria-label="Discount percent"
+                class="line-disc input input-sm text-right font-mono{% if line_form.discount_percent.errors %} is-invalid{% endif %}" oninput="updateLineTotal(this)">
+              {% for e in line_form.discount_percent.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
             </td>
-            <td class="px-3 py-2 text-right">
-              <span class="line-total font-mono font-semibold text-gray-900 text-xs">0.00</span>
+            <td class="num pt-3">
+              <span class="line-total font-mono font-semibold text-ink">0.00</span>
             </td>
-            <td class="px-3 py-2">
-              <select name="{{ line_form.tax_rate.html_name }}"
-                class="line-tax w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
-                onchange="updateLineTotal(this)">
+            <td>
+              <select name="{{ line_form.tax_rate.html_name }}" aria-label="Tax rate" class="line-tax select input-sm{% if line_form.tax_rate.errors %} is-invalid{% endif %}" onchange="updateLineTotal(this)">
                 {% if line_form.tax_rate.field.empty_label %}<option value="" data-rate="0">{{ line_form.tax_rate.field.empty_label }}</option>{% endif %}
                 {% for t in line_form.tax_rate.field.queryset %}
                   <option value="{{ t.pk }}" data-rate="{{ t.rate }}"
@@ -180,13 +175,13 @@
                   </option>
                 {% endfor %}
               </select>
-              {% if line_form.tax_rate.errors %}<p class="text-[10px] text-red-600 mt-0.5">{{ line_form.tax_rate.errors.0 }}</p>{% endif %}
+              {% for e in line_form.tax_rate.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
             </td>
-            <td class="px-3 py-2 text-center">
+            <td class="text-center">
               {% if line_form.DELETE %}
                 <input type="checkbox" name="{{ line_form.DELETE.html_name }}" class="delete-checkbox hidden">
-                <button type="button" onclick="deleteLine(this)" class="text-gray-300 hover:text-red-500">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <button type="button" onclick="deleteLine(this)" class="btn btn-ghost btn-sm btn-icon text-ink-muted hover:text-danger" aria-label="Remove this line">
+                  {% include "_includes/icon.html" with name="x" cls="h-4 w-4" stroke="2" only %}
                 </button>
               {% endif %}
             </td>
@@ -194,38 +189,26 @@
           {% endfor %}
         </tbody>
       </table>
-      <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between gap-6">
-        <button type="button" onclick="addLine()" class="text-sm text-primary hover:underline flex items-center gap-1">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Add Line
-        </button>
-        <div class="w-64 text-sm space-y-1.5">
-          <div class="flex justify-between text-gray-600">
-            <span>Subtotal</span>
-            <span id="order-subtotal" class="font-mono text-gray-900">0.00</span>
-          </div>
-          <div class="flex justify-between text-gray-600">
-            <span>Order discount</span>
-            <span id="order-discount" class="font-mono text-gray-900">0.00</span>
-          </div>
-          <div class="flex justify-between text-gray-600">
-            <span>Tax</span>
-            <span id="order-tax" class="font-mono text-gray-900">0.00</span>
-          </div>
-          <div class="flex justify-between pt-1.5 mt-1 border-t border-gray-100 font-semibold text-gray-800">
-            <span>Grand Total</span>
-            <span id="order-grand" class="font-mono text-gray-900">0.00</span>
-          </div>
-        </div>
-      </div>
     </div>
 
-    <div class="flex items-center justify-end gap-3">
-      <a href="{% url 'sales:order_list' %}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</a>
-      <button type="submit" class="px-5 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Create Order</button>
+    <div class="flex flex-col gap-4 border-t border-line px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+      <button type="button" onclick="addLine()" class="btn btn-secondary btn-sm self-start">
+        {% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" only %}Add Line
+      </button>
+      <dl class="dl-rows w-full sm:max-w-xs">
+        <div><dt>Subtotal</dt><dd id="order-subtotal" class="font-mono">0.00</dd></div>
+        <div><dt>Order discount</dt><dd id="order-discount" class="font-mono">0.00</dd></div>
+        <div><dt>Tax</dt><dd id="order-tax" class="font-mono">0.00</dd></div>
+        <div><dt class="font-semibold text-ink">Grand Total</dt><dd id="order-grand" class="font-mono text-base font-bold">0.00</dd></div>
+      </dl>
     </div>
-  </form>
-</div>
+  </section>
+
+  <div class="form-actions mt-0 border-t-0 pt-0">
+    <a href="{{ back }}" class="btn btn-ghost">Cancel</a>
+    <button type="submit" class="btn btn-primary">Create Order</button>
+  </div>
+</form>
 
 <script>
 function fillFromProduct(sel) {

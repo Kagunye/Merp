@@ -1,0 +1,22 @@
+{% load ui_extras %}
+{% can_do "sales:invoice_cancel" "POST" as may_cancel %}
+{% can_do "sales:invoice_post" "POST" as may_post %}
+{% can_do "sales:invoice_edit" "POST" as may_edit %}
+{% can_do "sales:payment_create" "POST" as may_pay %}
+{% if invoice.status != 'PAID' and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
+  {% if may_edit %}<a href="{% url 'sales:invoice_edit' invoice.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" cls="h-4 w-4" only %}Edit</a>{% endif %}
+  {% if may_pay %}<a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="btn btn-secondary">{% include "_includes/icon.html" with name="cash" cls="h-4 w-4" only %}Record Payment</a>{% endif %}
+{% endif %}
+{% comment %}Cancel is offered wherever the view accepts it: nothing paid or credited yet, and the role may cancel. A zero-value invoice is settled the moment it is posted, but its goods can still be called back.{% endcomment %}
+{% if may_cancel and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' and not invoice.original_invoice_id and invoice.paid_amount <= 0 and invoice.credited_amount <= 0 %}
+<form method="post" action="{% url 'sales:invoice_cancel' invoice.pk %}" onsubmit="return confirm('Cancel this invoice? If it is posted, an offsetting entry is created — the original is never erased.');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel</button>
+</form>
+{% endif %}
+{% if may_post and invoice.status == 'DRAFT' and not invoice.journal_entry_id %}
+<form method="post" action="{% url 'sales:invoice_post' invoice.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" only %}Post to GL</button>
+</form>
+{% endif %}

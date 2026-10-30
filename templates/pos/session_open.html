@@ -1,27 +1,28 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'pos:home' as back %}
-{% include "_includes/page_header.html" with title="Open the Till" subtitle="Count the float and start the shift" back_url=back %}
+{% include "_includes/page_header.html" with title="Open the Till" subtitle="Count the float and start the shift" back_url=back back_label="Point of Sale" hide_print=True %}
 
-<form method="post" class="max-w-xl bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+<form method="post" class="card no-card card-body max-w-xl">
   {% csrf_token %}
-  <div>
-    <label class="text-xs text-gray-500 block mb-1">Trading from</label>
-    <select name="branch" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-      {% if not default_branch %}<option value="">— Choose a branch —</option>{% endif %}
-      {% for b in branches %}<option value="{{ b.pk }}" {% if default_branch and b.pk == default_branch.pk %}selected{% endif %}>{{ b.name }}</option>{% endfor %}
-    </select>
-    <p class="text-xs text-gray-400 mt-1">The branch decides which shelf a sale takes its goods from.</p>
+  <div class="form-grid sm:grid-cols-1">
+    <div class="form-field">
+      <label class="form-label" for="open-branch">Trading from</label>
+      <select id="open-branch" name="branch" class="select">
+        {% if not default_branch %}<option value="">— Choose a branch —</option>{% endif %}
+        {% for b in branches %}<option value="{{ b.pk }}" {% if default_branch and b.pk == default_branch.pk %}selected{% endif %}>{{ b.name }}</option>{% endfor %}
+      </select>
+      <p class="form-help">The branch decides which shelf a sale takes its goods from.</p>
+    </div>
+    <div class="form-field">
+      <label class="form-label" for="open-cash">Cash in the drawer before the first customer ({{ book }})</label>
+      <input type="number" step="0.01" min="0" inputmode="decimal" id="open-cash" name="opening_cash" value="0" class="input text-right font-mono text-base">
+      <p class="form-help">The cash-up at the end of the shift is measured against this float plus what the till took.</p>
+    </div>
   </div>
-  <div>
-    <label class="text-xs text-gray-500 block mb-1">Cash in the drawer before the first customer ({{ book }})</label>
-    <input type="number" step="0.01" min="0" name="opening_cash" value="0"
-      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
-    <p class="text-xs text-gray-400 mt-1">The cash-up at the end of the shift is measured against this float plus what the till took.</p>
-  </div>
-  <div class="flex items-center gap-3 pt-2">
-    <button type="submit" class="px-5 py-2.5 text-sm font-semibold text-white rounded-xl" style="background: var(--primary);">Open Till</button>
-    <a href="{{ back }}" class="text-sm text-gray-500">Cancel</a>
+  <div class="form-actions">
+    <a href="{{ back }}" class="btn btn-ghost">Cancel</a>
+    <button type="submit" class="btn btn-primary btn-lg">Open Till</button>
   </div>
 </form>
 {% endblock %}

@@ -1,0 +1,27 @@
+{% load ui_extras %}
+{% can_do "sales:order_confirm" "POST" as may_confirm %}
+{% can_do "sales:order_deliver_record" "POST" as may_deliver %}
+{% can_do "sales:order_invoice" "POST" as may_invoice %}
+{% can_do "sales:order_cancel" "POST" as may_cancel %}
+{% if may_cancel and can_cancel %}
+<form method="post" action="{% url 'sales:order_cancel' order.pk %}"
+      onsubmit="return confirm('Cancel this order? It stays on file as cancelled and can no longer be delivered or invoiced.');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel Order</button>
+</form>
+{% endif %}
+{% if may_deliver and order.status != 'DRAFT' and order.status != 'CANCELLED' %}
+<a href="{% url 'sales:order_deliver' order.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="box" cls="h-4 w-4" only %}Deliver Goods</a>
+{% endif %}
+{% if may_confirm and order.status == 'DRAFT' %}
+<form method="post" action="{% url 'sales:order_confirm' order.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" only %}Confirm Order</button>
+</form>
+{% endif %}
+{% if may_invoice and order.status == 'CONFIRMED' or may_invoice and order.status == 'PARTIALLY_DELIVERED' %}
+<form method="post" action="{% url 'sales:order_invoice' order.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="receipt" cls="h-4 w-4" only %}Convert to Invoice</button>
+</form>
+{% endif %}

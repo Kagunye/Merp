@@ -1,247 +1,176 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-<div class="space-y-5">
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <a href="{% url 'sales:invoice_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-      </a>
-      <div>
-        <div class="flex items-center gap-2">
-          <h1 class="text-xl font-bold text-gray-900 font-mono">{{ invoice.reference }}</h1>
-          <span class="badge {% if invoice.status == 'PAID' %}bg-green-50 text-green-700{% elif invoice.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif invoice.status == 'PARTIAL' %}bg-blue-50 text-blue-700{% elif invoice.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif invoice.status == 'SENT' %}bg-yellow-50 text-yellow-700{% else %}bg-gray-100 text-gray-500{% endif %}">
-            {{ invoice.get_status_display }}
-          </span>
-        </div>
-        <p class="text-sm text-gray-500 mt-0.5">{{ invoice.customer.name }} · {{ invoice.invoice_date|date:"d F Y" }}</p>
+{% url 'sales:invoice_list' as back %}
+{% with sub=invoice.customer.name|add:" · "|add:invoice.get_status_display %}
+{% include "_includes/page_header.html" with title=invoice.reference subtitle=sub back_url=back back_label="Invoices" actions_template="sales/_invoice_actions.html" %}
+{% endwith %}
+
+<div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+  {# ── The document: parties, dates, lines, totals ── #}
+  <section class="card overflow-hidden xl:col-span-2">
+    <div class="card-header">
+      <div class="flex min-w-0 items-center gap-2">
+        <h2 class="card-title">{% if invoice.status == 'CREDIT_NOTE' %}Credit note{% else %}Invoice{% endif %} <span class="mono">{{ invoice.reference }}</span></h2>
+        {% status_badge invoice.status invoice.get_status_display %}
       </div>
+      <span class="text-xs text-ink-muted">{{ invoice.invoice_date|date:"d F Y" }}</span>
     </div>
-    <div class="flex gap-2 flex-wrap no-print">
-      {% include "_includes/print_button.html" %}
-      {% can_do "sales:invoice_cancel" "POST" as may_cancel %}
-      {% can_do "sales:invoice_post" "POST" as may_post %}
-      {% if invoice.status != 'PAID' and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
-      <a href="{% url 'sales:invoice_edit' invoice.pk %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
-      <a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Record Payment</a>
-      {% endif %}
-      {% comment %}Cancel is offered wherever the view accepts it: nothing paid or credited yet, and the role may cancel. A zero-value invoice is settled the moment it is posted, but its goods can still be called back.{% endcomment %}
-      {% if may_cancel and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' and not invoice.original_invoice_id and invoice.paid_amount <= 0 and invoice.credited_amount <= 0 %}
-      <form method="post" action="{% url 'sales:invoice_cancel' invoice.pk %}" onsubmit="return confirm('Cancel this invoice? If it is posted, an offsetting entry is created — the original is never erased.');">
-        {% csrf_token %}
-        <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
-      </form>
-      {% endif %}
-      {% if may_post and invoice.status == 'DRAFT' and not invoice.journal_entry_id %}
-      <form method="post" action="{% url 'sales:invoice_post' invoice.pk %}">
-        {% csrf_token %}
-        <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">
-          Post to GL
-        </button>
-      </form>
-      {% endif %}
+    <div class="card-body">
+      <dl class="dl dl-3">
+        <div><dt>Bill to</dt><dd class="font-medium">{{ invoice.customer.name }}{% if invoice.customer.tax_id %}<span class="mono block text-xs text-ink-muted">PIN {{ invoice.customer.tax_id }}</span>{% endif %}</dd></div>
+        <div><dt>Invoice date</dt><dd>{{ invoice.invoice_date|date:"d M Y" }}</dd></div>
+        <div><dt>Due date</dt><dd>{{ invoice.due_date|date:"d M Y" }}</dd></div>
+        <div><dt>Currency</dt><dd class="mono">{{ invoice.currency }}</dd></div>
+        {% if invoice.currency != active_company.currency %}
+        <div><dt>Exchange rate</dt><dd class="mono">{% with r=invoice.known_rate %}{% if r %}1 {{ invoice.currency }} = {{ r|floatformat:4 }} {{ active_company.currency }}{% else %}No {{ invoice.currency }} rate filed for this date{% endif %}{% endwith %}</dd></div>
+        {% if invoice.journal_entry %}
+        <div><dt>In the ledger</dt><dd class="mono">{{ active_company.currency }} {{ invoice.total_amount_base|money }}</dd></div>
+        {% endif %}
+        {% endif %}
+        {% if invoice.original_invoice %}
+        <div><dt>Answers</dt><dd><a class="link mono" href="{% url 'sales:invoice_detail' invoice.original_invoice.pk %}">{{ invoice.original_invoice.reference }}</a></dd></div>
+        {% endif %}
+        {% if invoice.sales_order %}
+        {% can_do "sales:order_detail" as may_order %}
+        <div><dt>From order</dt><dd>{% if may_order %}<a class="link mono" href="{% url 'sales:order_detail' invoice.sales_order.pk %}">{{ invoice.sales_order.reference }}</a>{% else %}<span class="mono">{{ invoice.sales_order.reference }}</span>{% endif %}</dd></div>
+        {% endif %}
+        <div><dt>GL Entry</dt><dd>{% if invoice.journal_entry %}<span class="badge badge-info mono">{{ invoice.journal_entry.reference }}</span>{% else %}<span class="text-xs italic text-ink-muted">Not posted</span>{% endif %}</dd></div>
+      </dl>
     </div>
-  </div>
 
-  <!-- KPIs -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Subtotal</p>
-      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ invoice.subtotal|floatformat:2 }}</p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Tax</p>
-      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ invoice.tax_amount|floatformat:2 }}</p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Amount</p>
-      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ invoice.currency }} {{ invoice.total_amount|floatformat:2 }}</p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4 {% if invoice.outstanding_amount > 0 %}border-orange-200 bg-orange-50{% endif %}">
-      <p class="text-xs uppercase tracking-wider font-semibold {% if invoice.outstanding_amount > 0 %}text-orange-600{% else %}text-gray-500{% endif %}">Outstanding</p>
-      <p class="text-xl font-bold font-mono mt-1 {% if invoice.outstanding_amount > 0 %}text-orange-700{% else %}text-green-600{% endif %}">
-        {{ invoice.outstanding_amount|floatformat:2 }}
-      </p>
-    </div>
-  </div>
-
-  <!-- Line items + payments side by side -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-    <div class="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Invoice Lines</h3></div>
-      <table class="w-full text-sm">
+    <div class="table-wrap border-t border-line">
+      <table class="table">
         <thead>
-          <tr class="bg-gray-50/50 border-b border-gray-100">
-            <th class="text-left px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Description</th>
-            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Qty</th>
-            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Unit Price</th>
-            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Disc</th>
-            <th class="text-right px-4 py-2 font-semibold text-gray-600 text-xs uppercase tracking-wider">Total</th>
-          </tr>
+          <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Disc</th><th class="num">Total</th></tr>
         </thead>
-        <tbody class="divide-y divide-gray-50">
+        <tbody>
           {% for line in lines %}
           <tr>
-            <td class="px-4 py-3">
-              <p class="font-medium text-gray-900">{{ line.description }}</p>
-              {% if line.product %}<p class="text-xs text-gray-400 font-mono">{{ line.product.sku }}</p>{% endif %}
+            <td>
+              <p class="font-medium">{{ line.description }}</p>
+              {% if line.product %}<p class="mono text-xs text-ink-muted">{{ line.product.sku }}{% if line.tax_rate %} · {{ line.tax_rate.name }}{% endif %}</p>{% endif %}
             </td>
-            <td class="px-4 py-3 text-right font-mono text-gray-700">{% if line.product %}{{ line.quantity|with_unit:line.product.unit_of_measure }}{% else %}{{ line.quantity|trim_qty }}{% endif %}</td>
-            <td class="px-4 py-3 text-right font-mono text-gray-700">{{ line.unit_price|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right text-gray-500 text-xs">{% if line.discount_percent > 0 %}{{ line.discount_percent|trim_qty }}%{% else %}—{% endif %}</td>
-            <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ line.line_total|floatformat:2 }}</td>
+            <td class="num">{% if line.product %}{{ line.quantity|with_unit:line.product.unit_of_measure }}{% else %}{{ line.quantity|trim_qty }}{% endif %}</td>
+            <td class="num">{{ line.unit_price|money }}</td>
+            <td class="num text-xs text-ink-muted">{% if line.discount_percent > 0 %}{{ line.discount_percent|trim_qty }}%{% else %}—{% endif %}</td>
+            <td class="num font-semibold">{{ line.line_total|money }}</td>
           </tr>
           {% empty %}
-          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No lines</td></tr>
+          <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No lines" compact=True only %}</td></tr>
           {% endfor %}
         </tbody>
-        <tfoot>
-          <tr class="bg-gray-50/50 border-t border-gray-200">
-            <td colspan="4" class="px-4 py-3 text-right font-semibold text-gray-700">Subtotal</td>
-            <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ invoice.subtotal|floatformat:2 }}</td>
-          </tr>
-          {% if invoice.tax_amount > 0 %}
-          <tr class="bg-gray-50/50">
-            <td colspan="4" class="px-4 py-2 text-right text-gray-600">Tax</td>
-            <td class="px-4 py-2 text-right font-mono text-gray-700">{{ invoice.tax_amount|floatformat:2 }}</td>
-          </tr>
-          {% endif %}
-          <tr class="bg-gray-50/50 border-t border-gray-300">
-            <td colspan="4" class="px-4 py-3 text-right font-bold text-gray-900">Total</td>
-            <td class="px-4 py-3 text-right font-mono font-bold text-lg text-gray-900">{{ invoice.total_amount|floatformat:2 }}</td>
-          </tr>
-        </tfoot>
       </table>
     </div>
 
-    <!-- Details + Payments -->
-    <div class="space-y-4">
-      <div class="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-        <h3 class="font-semibold text-gray-800 text-sm">Invoice Details</h3>
-        <div class="space-y-2 text-sm">
-          <div class="flex justify-between"><span class="text-gray-500">Customer</span><span class="font-medium text-gray-900">{{ invoice.customer.name }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Invoice Date</span><span class="text-gray-700">{{ invoice.invoice_date|date:"d M Y" }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Due Date</span><span class="text-gray-700">{{ invoice.due_date|date:"d M Y" }}</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Currency</span><span class="font-mono text-gray-700">{{ invoice.currency }}</span></div>
-          {% if invoice.currency != active_company.currency %}
-          <div class="flex justify-between"><span class="text-gray-500">Exchange rate</span><span class="font-mono text-gray-700">{% with r=invoice.known_rate %}{% if r %}1 {{ invoice.currency }} = {{ r|floatformat:4 }} {{ active_company.currency }}{% else %}No {{ invoice.currency }} rate filed for this date{% endif %}{% endwith %}</span></div>
-          {% if invoice.journal_entry %}
-          <div class="flex justify-between"><span class="text-gray-500">In the ledger</span><span class="font-mono text-gray-700">{{ active_company.currency }} {{ invoice.total_amount_base|floatformat:2 }}</span></div>
-          {% endif %}
-          {% endif %}
-          <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono font-semibold text-green-700">{{ invoice.paid_amount|floatformat:2 }}</span></div>
-          {% if invoice.credited_amount > 0 %}
-          <div class="flex justify-between"><span class="text-gray-500">Credited</span><span class="font-mono font-semibold text-amber-700">{{ invoice.credited_amount|floatformat:2 }}</span></div>
-          {% endif %}
-          {% if invoice.original_invoice %}
-          <div class="flex justify-between"><span class="text-gray-500">Answers</span><a class="font-mono text-xs hover:underline" style="color: var(--primary);" href="{% url 'sales:invoice_detail' invoice.original_invoice.pk %}">{{ invoice.original_invoice.reference }}</a></div>
-          {% endif %}
-          {% if invoice.journal_entry %}
-          <div class="flex justify-between pt-1 border-t border-gray-100 mt-1">
-            <span class="text-gray-500">GL Entry</span>
-            <span class="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{{ invoice.journal_entry.reference }}</span>
-          </div>
-          {% else %}
-          <div class="flex justify-between pt-1 border-t border-gray-100 mt-1">
-            <span class="text-gray-500">GL Entry</span>
-            <span class="text-xs text-gray-400 italic">Not posted</span>
-          </div>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <h3 class="font-semibold text-gray-800 text-sm">Payments</h3>
-          <a href="{% url 'sales:payment_create' %}" class="text-xs text-primary hover:underline">+ Record</a>
-        </div>
-        <div class="divide-y divide-gray-50">
-          {% for alloc in payments %}
-          <div class="px-4 py-3 text-sm {% if alloc.payment.status == 'REVERSED' %}bg-gray-50/70{% endif %}">
-            <div class="flex justify-between items-baseline gap-2">
-              <span class="font-mono text-xs {% if alloc.payment.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-gray-500{% endif %}">{{ alloc.payment.reference }}</span>
-              <span class="font-mono font-semibold {% if alloc.payment.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-green-700{% endif %}">{{ alloc.allocated_amount|floatformat:2 }}</span>
-            </div>
-            <div class="text-xs text-gray-400">
-              {% if alloc.payment.status == 'REVERSED' %}
-                <span class="badge bg-rose-50 text-rose-700 mr-1">reversed</span>
-              {% endif %}
-              {{ alloc.payment.payment_date|date:"d M Y" }} · {{ alloc.payment.get_payment_method_display }}
-            </div>
-          </div>
-          {% empty %}
-          <div class="px-4 py-4 text-sm text-center text-gray-400">No payments yet</div>
-          {% endfor %}
-        </div>
-      </div>
+    <div class="flex justify-end border-t border-line px-5 py-3">
+      <dl class="dl-rows w-full sm:max-w-xs">
+        <div><dt>Subtotal</dt><dd>{{ invoice.subtotal|money }}</dd></div>
+        <div><dt>Tax</dt><dd>{{ invoice.tax_amount|money }}</dd></div>
+        <div><dt class="font-semibold text-ink">Total</dt><dd class="text-lg font-bold">{{ invoice.currency }} {{ invoice.total_amount|money }}</dd></div>
+        <div><dt>Paid</dt><dd class="text-success">{{ invoice.paid_amount|money }}</dd></div>
+        {% if invoice.credited_amount > 0 %}<div><dt>Credited</dt><dd class="text-warning">{{ invoice.credited_amount|money }}</dd></div>{% endif %}
+        <div><dt class="font-semibold text-ink">Outstanding</dt><dd class="font-bold{% if invoice.outstanding_amount > 0 %} text-warning{% else %} text-success{% endif %}">{{ invoice.outstanding_amount|money }}</dd></div>
+      </dl>
     </div>
-  </div>
+    {% if invoice.notes %}<p class="border-t border-line px-5 py-3 text-sm text-ink-2"><span class="section-title mb-1 block">Notes</span>{{ invoice.notes|linebreaksbr }}</p>{% endif %}
+  </section>
 
-  {% if invoice.credit_notes.exists %}
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800 text-sm">Credit notes issued against this invoice</h3></div>
-    <table class="w-full text-sm">
-      <tbody class="divide-y divide-gray-50">
+  {# ── Payments against it ── #}
+  <section class="card self-start overflow-hidden">
+    <div class="card-header">
+      <h2 class="card-title">Payments <span class="tab-count ml-1">{{ payments|length }}</span></h2>
+      {% can_do "sales:payment_create" "POST" as may_pay %}{% if may_pay %}<a href="{% url 'sales:payment_create' %}?customer={{ invoice.customer.pk }}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" only %}Record</a>{% endif %}
+    </div>
+    <ul class="list">
+      {% for alloc in payments %}
+      <li class="list-row items-start py-3">
+        <div class="min-w-0 flex-1">
+          <p class="mono text-xs{% if alloc.payment.status == 'REVERSED' %} text-ink-muted line-through{% else %} text-ink-2{% endif %}">{{ alloc.payment.reference }}</p>
+          <p class="mt-0.5 text-xs text-ink-muted">{% if alloc.payment.status == 'REVERSED' %}<span class="badge badge-neutral mr-1">reversed</span>{% endif %}{{ alloc.payment.payment_date|date:"d M Y" }} · {{ alloc.payment.get_payment_method_display }}</p>
+        </div>
+        <span class="num font-semibold{% if alloc.payment.status == 'REVERSED' %} text-ink-muted line-through{% else %} text-success{% endif %}">{{ alloc.allocated_amount|money }}</span>
+      </li>
+      {% empty %}
+      <li class="px-5 py-6 text-center text-sm text-ink-muted">No payments yet</li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+{% if invoice.credit_notes.exists %}
+<section class="card mt-5 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Credit notes issued against this invoice</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Reference</th><th>Date</th><th>Reason</th><th class="num">Amount</th></tr></thead>
+      <tbody>
         {% for cn in invoice.credit_notes.all %}
         <tr>
-          <td class="px-4 py-2 font-mono"><a href="{% url 'sales:invoice_detail' cn.pk %}" style="color: var(--primary);">{{ cn.reference }}</a></td>
-          <td class="px-4 py-2 text-gray-500">{{ cn.invoice_date|date:"d M Y" }}</td>
-          <td class="px-4 py-2 text-gray-500">{{ cn.notes }}</td>
-          <td class="px-4 py-2 text-right font-mono font-semibold">{{ cn.currency }} {{ cn.total_amount|floatformat:2 }}</td>
+          <td class="mono whitespace-nowrap"><a href="{% url 'sales:invoice_detail' cn.pk %}" class="row-link">{{ cn.reference }}</a></td>
+          <td class="whitespace-nowrap text-ink-2">{{ cn.invoice_date|date:"d M Y" }}</td>
+          <td class="text-ink-2">{{ cn.notes }}</td>
+          <td class="num font-semibold">{{ cn.currency }} {{ cn.total_amount|money }}</td>
         </tr>
         {% endfor %}
       </tbody>
-      <tfoot><tr class="bg-gray-50/50 border-t border-gray-200"><td colspan="3" class="px-4 py-2 text-right text-gray-600">Credited so far</td><td class="px-4 py-2 text-right font-mono font-semibold">{{ invoice.credited_amount|floatformat:2 }}</td></tr></tfoot>
+      <tfoot><tr><td colspan="3" class="text-right">Credited so far</td><td class="num">{{ invoice.credited_amount|money }}</td></tr></tfoot>
     </table>
   </div>
-  {% endif %}
+</section>
+{% endif %}
 
-  {% if invoice.journal_entry_id and invoice.outstanding_amount > 0 and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
-  <form method="post" action="{% url 'sales:invoice_credit_note' invoice.pk %}" class="no-print bg-white rounded-xl border border-gray-200 overflow-hidden">
-    {% csrf_token %}
-    <input type="hidden" name="form_token" value="{{ credit_token }}">
-    <div class="px-4 py-3 border-b border-gray-100">
-      <h3 class="font-semibold text-gray-800 text-sm">Issue a credit note</h3>
-      <p class="text-xs text-gray-500 mt-1">Enter the quantity of each line being returned or corrected. A new document is raised with its own offsetting journal entry — this invoice and its entry stay exactly as they are.</p>
+{% can_do "sales:invoice_credit_note" "POST" as may_credit %}
+{% if may_credit and invoice.journal_entry_id and invoice.outstanding_amount > 0 and invoice.status != 'CANCELLED' and invoice.status != 'CREDIT_NOTE' %}
+<form method="post" action="{% url 'sales:invoice_credit_note' invoice.pk %}" class="card no-card no-print mt-5 overflow-hidden">
+  {% csrf_token %}
+  <input type="hidden" name="form_token" value="{{ credit_token }}">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Issue a credit note</h2>
+      <p class="card-subtitle">Enter the quantity of each line being returned or corrected. A new document is raised with its own offsetting journal entry — this invoice and its entry stay exactly as they are.</p>
     </div>
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
-        <tr><th class="px-4 py-2 text-left">Line</th><th class="px-4 py-2 text-right">Billed</th><th class="px-4 py-2 text-right">Unit price</th><th class="px-4 py-2 text-right">Quantity to credit</th></tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Line</th><th class="num">Billed</th><th class="num">Unit price</th><th class="num">Quantity to credit</th></tr></thead>
+      <tbody>
         {% for line in lines %}
         <tr>
-          <td class="px-4 py-2">{{ line.description }}</td>
-          <td class="px-4 py-2 text-right font-mono text-gray-500">{{ line.quantity }}</td>
-          <td class="px-4 py-2 text-right font-mono text-gray-500">{{ line.unit_price|floatformat:2 }}</td>
-          <td class="px-4 py-2 text-right">
+          <td>{{ line.description }}</td>
+          <td class="num text-ink-muted">{{ line.quantity|trim_qty }}</td>
+          <td class="num text-ink-muted">{{ line.unit_price|money }}</td>
+          <td class="num">
             <input type="number" step="0.0001" min="0" max="{{ line.quantity }}" name="credit_qty_{{ line.pk }}" value="0"
-              class="w-28 px-2 py-1 text-right text-sm border border-gray-300 rounded-lg font-mono" />
+              aria-label="Quantity of {{ line.description }} to credit" class="input input-sm ml-auto w-28 text-right font-mono">
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between gap-4 flex-wrap">
-      <label class="text-xs text-gray-500 flex-1 min-w-[220px]">
-        Reason (goes on the credit note)
-        <input type="text" name="reason" maxlength="500" class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="Goods returned / overcharged / price agreed down">
-      </label>
-      <label class="text-xs text-gray-500">
-        Credit note date
-        <input type="date" name="credit_date" value="{{ credit_date_default|date:'Y-m-d' }}" min="{{ invoice.invoice_date|date:'Y-m-d' }}" class="mt-1 block px-3 py-2 text-sm border border-gray-300 rounded-lg">
-      </label>
+  </div>
+  <div class="card-body border-t border-line">
+    <div class="form-grid">
+      <div class="form-field">
+        <label class="form-label" for="cn-reason">Reason (goes on the credit note)</label>
+        <input type="text" id="cn-reason" name="reason" maxlength="500" class="input" placeholder="Goods returned / overcharged / price agreed down">
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="cn-date">Credit note date</label>
+        <input type="date" id="cn-date" name="credit_date" value="{{ credit_date_default|date:'Y-m-d' }}" min="{{ invoice.invoice_date|date:'Y-m-d' }}" class="input">
+      </div>
       {% if has_stock_lines %}
-      <label class="text-xs text-gray-600 flex items-center gap-2">
-        <input type="checkbox" name="goods_returned" value="1" class="rounded border-gray-300">
-        Goods returned to stock
-        <span class="text-gray-400">(tick when the units came back; leave clear for a price-only credit)</span>
-      </label>
+      <div class="form-field form-field-full">
+        <label class="check" for="cn-returned"><input type="checkbox" id="cn-returned" name="goods_returned" value="1" class="checkbox"> Goods returned to stock</label>
+        <p class="form-help">Tick when the units came back; leave clear for a price-only credit.</p>
+      </div>
       {% endif %}
-      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Credit Note</button>
     </div>
-    <p class="px-4 pb-3 text-xs text-gray-500">At most {{ invoice.outstanding_amount }} {{ invoice.currency }} can be credited — what is still owed on this invoice. Money already paid is settled by a refund, not by a credit note.</p>
-  </form>
-  {% endif %}
-</div>
+    <p class="mt-4 text-xs text-ink-muted">At most {{ invoice.outstanding_amount|money }} {{ invoice.currency }} can be credited — what is still owed on this invoice. Money already paid is settled by a refund, not by a credit note.</p>
+  </div>
+  <div class="card-footer">
+    <button type="submit" class="btn btn-primary">Post Credit Note</button>
+  </div>
+</form>
+{% endif %}
 {% endblock %}

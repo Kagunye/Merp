@@ -3,95 +3,82 @@
 {% block content %}
 {% comment %}Giving a receipt back is the finance manager's step (access table: payment_reverse); other roles see the receipt without the button.{% endcomment %}
 {% can_do "sales:payment_reverse" "POST" as may_reverse %}
-<div class="space-y-5">
-  <div class="flex items-center justify-between">
-    <div><h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1></div>
-    <div class="flex flex-wrap gap-2">
-      <a href="{% url 'sales:invoice_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Invoices</a>
-      <a href="{% url 'sales:payment_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        Record Payment
-      </a>
-    </div>
-  </div>
+{% can_do "sales:payment_create" "POST" as may_create %}{% if may_create %}{% url 'sales:payment_create' as new_url %}{% endif %}
+{% can_do "sales:invoice_list" as may_invoices %}{% if may_invoices %}{% url 'sales:invoice_list' as invoices_url %}{% endif %}
+{% can_do "accounting:journal_entry_detail" as may_entry %}
+{% can_do "sales:payment_apply" "POST" as may_apply %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Money received from customers, and what it settled" action_label="Record Payment" action_url=new_url secondary_label="Invoices" secondary_url=invoices_url %}
 
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="w-full text-sm" style="min-width: 900px">
-      <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Reference</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Customer</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Method</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Received</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Settled against</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
-        {% for p in payments %}
-        <tr class="hover:bg-gray-50/50 {% if p.status == 'REVERSED' %}bg-gray-50/60{% endif %}">
-          <td class="px-4 py-3 align-top">
-            <div class="font-mono font-semibold {% if p.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-gray-700{% endif %}">{{ p.reference }}</div>
-            {% if p.transaction_reference %}<div class="text-xs text-gray-400 font-mono">{{ p.transaction_reference }}</div>{% endif %}
-            {% if p.journal_entry %}
-              <a href="{% url 'accounting:journal_entry_detail' p.journal_entry.pk %}" class="text-xs text-primary hover:underline">{{ p.journal_entry.reference }}</a>
-            {% else %}
-              <span class="text-xs text-amber-600">not posted</span>
-            {% endif %}
-            {% if p.journal_entry.reversed_by %}
-              <a href="{% url 'accounting:journal_entry_detail' p.journal_entry.reversed_by.pk %}" class="block text-xs text-rose-600 hover:underline">{{ p.journal_entry.reversed_by.reference }}</a>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 align-top font-medium text-gray-900">{{ p.customer.name }}</td>
-          <td class="px-4 py-3 align-top text-gray-600">{{ p.payment_date|date:"d M Y" }}</td>
-          <td class="px-4 py-3 align-top">
-            <span class="badge bg-gray-100 text-gray-600">{{ p.get_payment_method_display }}</span>
-            {% if p.bank_account %}<div class="text-xs text-gray-400 mt-1">{{ p.bank_account.name }}</div>{% endif %}
-          </td>
-          <td class="px-4 py-3 align-top text-right font-mono font-semibold {% if p.status == 'REVERSED' %}text-gray-400 line-through{% else %}text-gray-900{% endif %}">
-            {{ p.amount|floatformat:2 }} <span class="text-xs font-sans font-normal text-gray-400">{{ p.currency }}</span>
-          </td>
-          <td class="px-4 py-3 align-top text-right">
-            {% if p.settled_count %}
-              <div class="font-mono text-gray-700">{{ p.settled_amount|floatformat:2 }}</div>
-              <div class="text-xs text-gray-400">{{ p.settled_count }} paper{{ p.settled_count|pluralize }}</div>
-            {% else %}
-              <div class="text-xs text-gray-400">on account</div>
-            {% endif %}
-            {% if p.unapplied > 0 %}<div class="text-xs text-sky-600">{{ p.unapplied|floatformat:2 }} unapplied</div>{% endif %}
-            {% if p.can_apply %}<a href="{% url 'sales:payment_apply' p.pk %}" class="text-xs font-medium hover:underline" style="color: var(--primary);">Apply credit</a>{% endif %}
-          </td>
-          <td class="px-4 py-3 align-top">
-            {% if p.status == 'REVERSED' %}
-              <span class="badge bg-rose-50 text-rose-700">Reversed</span>
-            {% else %}
-              <span class="badge bg-green-50 text-green-700">Received</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 align-top text-right whitespace-nowrap">
-            {% if may_reverse and p.status == 'RECEIVED' and p.journal_entry %}
-              <form method="post" action="{% url 'sales:payment_reverse' p.pk %}" class="inline-flex items-center gap-1"
-                    onsubmit="return confirm('Give this receipt back? The invoices it settled become owed again and an offsetting entry is booked in the same period.');">
-                {% csrf_token %}
-                <input type="text" name="reason" maxlength="255" placeholder="why"
-                       class="px-2 py-1 text-xs border border-gray-200 rounded-md w-24 focus:outline-none focus:border-red-400" />
-                <button type="submit" class="px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-md hover:bg-red-100">Reverse</button>
-              </form>
-            {% else %}
-              <span class="text-xs text-gray-300">—</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="8" class="px-4 py-12 text-center text-gray-500">No payments recorded.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <p class="text-xs text-gray-400">A receipt that settles no paper stays in receivables as money on account — it is credited against the customer's control account, not against the ledger. Reversing a receipt books an offsetting entry and puts the invoices it had settled back on account.</p>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Reference</th>
+        <th>Customer</th>
+        <th>Date</th>
+        <th>Method</th>
+        <th class="num">Received</th>
+        <th class="num">Settled against</th>
+        <th>Status</th>
+        <th><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td class="align-top">
+          <div class="mono font-semibold{% if p.status == 'REVERSED' %} text-ink-muted line-through{% endif %}">{{ p.reference }}</div>
+          {% if p.transaction_reference %}<div class="mono text-xs text-ink-muted">{{ p.transaction_reference }}</div>{% endif %}
+          {% if p.journal_entry %}
+            {% if may_entry %}<a href="{% url 'accounting:journal_entry_detail' p.journal_entry.pk %}" class="link text-xs">{{ p.journal_entry.reference }}</a>{% else %}<span class="mono text-xs text-ink-muted">{{ p.journal_entry.reference }}</span>{% endif %}
+          {% else %}
+            <span class="text-xs text-warning">not posted</span>
+          {% endif %}
+          {% if p.journal_entry.reversed_by %}
+            {% if may_entry %}<a href="{% url 'accounting:journal_entry_detail' p.journal_entry.reversed_by.pk %}" class="block text-xs text-danger hover:underline">{{ p.journal_entry.reversed_by.reference }}</a>{% else %}<span class="block text-xs text-danger">{{ p.journal_entry.reversed_by.reference }}</span>{% endif %}
+          {% endif %}
+        </td>
+        <td class="align-top font-medium">{{ p.customer.name }}</td>
+        <td class="align-top whitespace-nowrap text-ink-2">{{ p.payment_date|date:"d M Y" }}</td>
+        <td class="align-top">
+          <span class="badge">{{ p.get_payment_method_display }}</span>
+          {% if p.bank_account %}<div class="mt-1 text-xs text-ink-muted">{{ p.bank_account.name }}</div>{% endif %}
+        </td>
+        <td class="num align-top font-semibold{% if p.status == 'REVERSED' %} text-ink-muted line-through{% else %} text-success{% endif %}">
+          {{ p.amount|money }} <span class="text-xs font-normal text-ink-muted">{{ p.currency }}</span>
+        </td>
+        <td class="num align-top">
+          {% if p.settled_count %}
+            <div>{{ p.settled_amount|money }}</div>
+            <div class="text-xs text-ink-muted">{{ p.settled_count }} paper{{ p.settled_count|pluralize }}</div>
+          {% else %}
+            <div class="text-xs text-ink-muted">on account</div>
+          {% endif %}
+          {% if p.unapplied > 0 %}<div class="text-xs text-info">{{ p.unapplied|money }} unapplied</div>{% endif %}
+          {% if may_apply and p.can_apply %}<a href="{% url 'sales:payment_apply' p.pk %}" class="link text-xs">Apply credit</a>{% endif %}
+        </td>
+        <td class="align-top">{% status_badge p.status p.get_status_display %}</td>
+        <td class="actions align-top">
+          {% if may_reverse and p.status == 'RECEIVED' and p.journal_entry %}
+            <form method="post" action="{% url 'sales:payment_reverse' p.pk %}" class="inline-flex items-center gap-1"
+                  onsubmit="return confirm('Give this receipt back? The invoices it settled become owed again and an offsetting entry is booked in the same period.');">
+              {% csrf_token %}
+              <label for="reason-{{ p.pk }}" class="sr-only">Reason for reversing {{ p.reference }}</label>
+              <input type="text" id="reason-{{ p.pk }}" name="reason" maxlength="255" placeholder="why" class="input input-sm w-24">
+              <button type="submit" class="btn btn-danger-ghost btn-sm">Reverse</button>
+            </form>
+          {% else %}
+            <span class="text-xs text-ink-muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="p-0">{% include "_includes/empty_state.html" with icon="cash" title="No payments recorded" text="Customer receipts you record appear here." action_label="Record Payment" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% include "_includes/pagination.html" %}
+
+<p class="mt-4 text-xs text-ink-muted">A receipt that settles no paper stays in receivables as money on account — it is credited against the customer's control account, not against the ledger. Reversing a receipt books an offsetting entry and puts the invoices it had settled back on account.</p>
 {% endblock %}

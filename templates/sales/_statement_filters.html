@@ -1,0 +1,18 @@
+{# Statement window for the filter_bar; GET names stay from / to / currency. #}
+<div class="form-field">
+  <label class="form-label" for="id_from">From</label>
+  <input id="id_from" type="date" name="from" value="{{ from_date }}" class="input">
+</div>
+<div class="form-field">
+  <label class="form-label" for="id_to">To</label>
+  <input id="id_to" type="date" name="to" value="{{ to_date }}" class="input">
+</div>
+<div class="form-field">
+  <label class="form-label" for="id_currency">Currency</label>
+  <select id="id_currency" name="currency" class="select">
+    <option value="">Every currency</option>
+    {% for code in currencies %}
+    <option value="{{ code }}" {% if code == currency %}selected{% endif %}>{{ code }}</option>
+    {% endfor %}
+  </select>
+</div>
