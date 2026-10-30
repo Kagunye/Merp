@@ -1,65 +1,67 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
+{% can_do "inventory:stock_transfer" "POST" as may_transfer %}{% if may_transfer %}{% url 'inventory:stock_transfer' as transfer_url %}{% endif %}
+{% can_do "inventory:inventory_count" "POST" as may_count %}{% if may_count %}{% url 'inventory:inventory_count' warehouse.pk as count_url %}{% endif %}
 {% url 'inventory:stock_levels' as back_url %}
-{% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.code back_url=back_url %}
+{% include "_includes/page_header.html" with title=warehouse.name eyebrow="Warehouse" subtitle=warehouse.code back_url=back_url back_label="Stock Levels" action_label="Transfer Stock" action_url=transfer_url action_icon="refresh" secondary_label="Cycle Count" secondary_url=count_url %}
 
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-  <div class="bg-white rounded-xl border p-4">
-    <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">SKUs on hand</p>
-    <p class="text-2xl font-bold mt-1">{{ stock_levels|length }}</p>
-  </div>
-  <div class="bg-white rounded-xl border p-4">
-    <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Stock Value</p>
-    <p class="text-2xl font-bold mt-1 font-mono">{{ total_value|floatformat:2 }}</p>
-  </div>
-  <div class="bg-white rounded-xl border p-4 {% if low_stock %}border-amber-200 bg-amber-50{% endif %}">
-    <p class="text-xs {% if low_stock %}text-amber-700{% else %}text-gray-500{% endif %} uppercase tracking-wider font-semibold">Low Stock Items</p>
-    <p class="text-2xl font-bold mt-1 {% if low_stock %}text-amber-700{% endif %}">{{ low_stock|length }}</p>
-  </div>
-  <div class="bg-white rounded-xl border p-4 flex items-center justify-center">
-    <div class="flex gap-2 flex-wrap justify-center">
-      <a href="{% url 'inventory:stock_transfer' %}" class="px-3 py-2 text-xs font-semibold text-white rounded-lg" style="background:var(--primary)">Transfer Stock</a>
-      <a href="{% url 'inventory:inventory_count' warehouse.pk %}" class="px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cycle Count</a>
-    </div>
-  </div>
+<div class="mb-5 grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
+  {% include "_includes/stat.html" with label="SKUs on hand" value=stock_levels|length icon="box" tone="info" only %}
+  {% include "_includes/stat.html" with label="Stock value" value=total_value money=True icon="cash" tone="success" only %}
+  {% if low_stock %}
+  {% include "_includes/stat.html" with label="Low stock items" value=low_stock|length icon="warning" tone="warning" value_class="text-warning" only %}
+  {% else %}
+  {% include "_includes/stat.html" with label="Low stock items" value=0 icon="check-circle" tone="neutral" only %}
+  {% endif %}
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-  <div class="lg:col-span-2 bg-white rounded-xl border overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Stock on Hand</h3></div>
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-2 text-left">SKU</th><th class="px-4 py-2 text-left">Product</th><th class="px-4 py-2 text-right">Quantity</th><th class="px-4 py-2 text-right">Reorder</th></tr></thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for sl in stock_levels %}
-        <tr class="{% if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level %}bg-amber-50/40{% endif %}">
-          <td class="px-4 py-2 font-mono text-xs text-gray-500">{{ sl.product.sku }}</td>
-          <td class="px-4 py-2 font-medium">{{ sl.product.name }}</td>
-          <td class="px-4 py-2 text-right font-mono">{{ sl.quantity|with_unit:sl.product.unit_of_measure }}</td>
-          <td class="px-4 py-2 text-right text-xs text-gray-500">{{ sl.product.reorder_level|trim_qty }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No stock in this warehouse yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="bg-white rounded-xl border overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800">Recent Movements</h3></div>
-    <div class="divide-y divide-gray-100 max-h-[480px] overflow-auto">
-      {% for m in recent_movements %}
-      <div class="px-4 py-2 text-sm">
-        <div class="flex justify-between">
-          <span class="font-medium">{{ m.product.name }}</span>
-          <span class="font-mono {% if 'OUT' in m.movement_type or 'MINUS' in m.movement_type or 'DELIVERY' in m.movement_type %}text-red-600{% else %}text-green-700{% endif %}">{{ m.quantity|with_unit:m.product.unit_of_measure }}</span>
-        </div>
-        <div class="text-xs text-gray-400">{{ m.get_movement_type_display }} · {{ m.movement_date|date:"d M Y" }} · {{ m.reference }}</div>
-      </div>
-      {% empty %}
-      <p class="px-4 py-4 text-center text-sm text-gray-400">No movements recorded.</p>
-      {% endfor %}
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <section class="card overflow-hidden lg:col-span-2">
+    <div class="card-header"><h2 class="card-title">Stock on hand</h2></div>
+    <div class="table-wrap rounded-none border-0 shadow-none">
+      <table class="table">
+        <thead><tr><th>SKU</th><th>Product</th><th class="num">Quantity</th><th class="num">Reorder</th></tr></thead>
+        <tbody>
+          {% for sl in stock_levels %}
+          {% if sl.product.reorder_level and sl.quantity <= sl.product.reorder_level %}
+          <tr>
+            <td class="mono text-xs text-ink-2">{{ sl.product.sku }}</td>
+            <td class="font-medium">{{ sl.product.name }} <span class="badge badge-warning ml-1">Low</span></td>
+            <td class="num text-warning font-semibold">{{ sl.quantity|with_unit:sl.product.unit_of_measure }}</td>
+            <td class="num text-xs text-ink-muted">{{ sl.product.reorder_level|trim_qty }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="mono text-xs text-ink-2">{{ sl.product.sku }}</td>
+            <td class="font-medium">{{ sl.product.name }}</td>
+            <td class="num">{{ sl.quantity|with_unit:sl.product.unit_of_measure }}</td>
+            <td class="num text-xs text-ink-muted">{{ sl.product.reorder_level|trim_qty }}</td>
+          </tr>
+          {% endif %}
+          {% empty %}
+          <tr><td colspan="4" class="p-0">{% include "_includes/empty_state.html" with icon="box" title="No stock in this warehouse yet" compact=True only %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-  </div>
+  </section>
+
+  <section class="card overflow-hidden">
+    <div class="card-header"><h2 class="card-title">Recent movements</h2></div>
+    <ul class="list max-h-[480px] overflow-auto">
+      {% for m in recent_movements %}
+      <li class="list-row flex-col items-stretch gap-0.5 py-2.5">
+        <div class="flex justify-between gap-3 text-sm">
+          <span class="truncate font-medium text-ink">{{ m.product.name }}</span>
+          <span class="whitespace-nowrap tabular-nums {% if 'OUT' in m.movement_type or 'MINUS' in m.movement_type or 'DELIVERY' in m.movement_type %}text-danger{% else %}text-success{% endif %}">{{ m.quantity|with_unit:m.product.unit_of_measure }}</span>
+        </div>
+        <p class="text-xs text-ink-muted">{{ m.get_movement_type_display }} · {{ m.movement_date|date:"d M Y" }}{% if m.reference %} · {{ m.reference }}{% endif %}</p>
+      </li>
+      {% empty %}
+      <li class="px-5 py-6 text-center text-sm text-ink-muted">No movements recorded.</li>
+      {% endfor %}
+    </ul>
+  </section>
 </div>
 {% endblock %}

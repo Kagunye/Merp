@@ -1,0 +1,9 @@
+{# One step of a workflow trail. Params: num, label, state ("done" | "current" | "todo"), last (True drops the connector). Include with `only`. #}
+<li class="flex items-center gap-2"{% if state == "current" %} aria-current="step"{% endif %}>
+  <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold
+    {% if state == 'done' %}border-success-line bg-success-bg text-success{% elif state == 'current' %}border-brand bg-brand text-white{% else %}border-line-strong bg-surface text-ink-muted{% endif %}">
+    {% if state == 'done' %}{% include "_includes/icon.html" with name="check" cls="h-3.5 w-3.5" stroke="2.5" only %}<span class="sr-only">Done:</span>{% else %}{{ num }}{% endif %}
+  </span>
+  <span class="text-sm {% if state == 'current' %}font-semibold text-ink{% elif state == 'done' %}text-ink-2{% else %}text-ink-muted{% endif %}">{{ label }}</span>
+  {% if not last %}<span class="mx-1 hidden h-px w-8 bg-line-strong sm:block" aria-hidden="true"></span>{% endif %}
+</li>

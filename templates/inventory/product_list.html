@@ -1,99 +1,57 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-<div class="space-y-5">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5">
-        {{ total_products }} products
-        {% if low_stock_count > 0 %}· <span class="text-orange-600 font-medium">{{ low_stock_count }} low stock</span>{% endif %}
-      </p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <a href="{% url 'inventory:movement_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Movements</a>
-      <a href="{% url 'inventory:product_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Product
-      </a>
-    </div>
-  </div>
+{% can_do "inventory:product_create" "POST" as may_create %}{% if may_create %}{% url 'inventory:product_create' as new_url %}{% endif %}
+{% can_do "inventory:product_edit" "POST" as may_edit %}
+{% can_do "inventory:movement_list" as may_moves %}{% if may_moves %}{% url 'inventory:movement_list' as moves_url %}{% endif %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Products, services and what is on the shelf" action_label="New Product" action_url=new_url secondary_label="Movements" secondary_url=moves_url %}
 
-  <form method="get" class="flex gap-3 flex-wrap">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search SKU or name..."
-      class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-64">
-    <select name="type" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-      <option value="">All Types</option>
-      {% for val, label in product_types %}
-        <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
-    {% if q or selected_type %}<a href="{% url 'inventory:product_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>{% endif %}
-  </form>
-
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">SKU</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Product Name</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Category</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Cost</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Price</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Stock</th>
-          <th class="px-4 py-3"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
-        {% for product in products %}
-        {% with stock=product.total_stock %}
-        <tr class="hover:bg-gray-50/50 group">
-          <td class="px-4 py-3">
-            <span class="font-mono text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{{ product.sku }}</span>
-          </td>
-          <td class="px-4 py-3">
-            <a href="{% url 'inventory:product_detail' product.pk %}" class="font-medium text-gray-900 hover:text-primary">{{ product.name }}</a>
-          </td>
-          <td class="px-4 py-3 text-gray-500 text-xs">{{ product.category.name|default:"—" }}</td>
-          <td class="px-4 py-3">
-            <span class="badge {% if product.product_type == 'GOODS' %}bg-blue-50 text-blue-700{% elif product.product_type == 'SERVICE' %}bg-purple-50 text-purple-700{% else %}bg-orange-50 text-orange-700{% endif %}">
-              {{ product.get_product_type_display }}
-            </span>
-          </td>
-          <td class="px-4 py-3 text-right font-mono text-gray-600">{{ product.cost_price|floatformat:2 }}</td>
-          <td class="px-4 py-3 text-right font-mono font-semibold text-gray-900">{{ product.selling_price|floatformat:2 }}</td>
-          <td class="px-4 py-3 text-right">
-            {% if not product.track_inventory %}
-              <span class="text-gray-400 text-xs">N/A</span>
-            {% else %}
-              <span class="font-mono font-semibold {% if stock <= product.reorder_level %}text-orange-600{% else %}text-gray-900{% endif %}">
-                {{ stock|floatformat:0 }}
-              </span>
-              <span class="text-xs text-gray-400 ml-1">{{ product.unit_of_measure }}</span>
-              {% if stock <= product.reorder_level %}
-                <span class="text-orange-500 ml-1" title="Low stock">&#9888;</span>
-              {% endif %}
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100 space-x-1">
-            <a href="{% url 'inventory:product_detail' product.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">View</a>
-            <a href="{% url 'inventory:product_edit' product.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">Edit</a>
-          </td>
-        </tr>
-        {% endwith %}
-        {% empty %}
-        <tr>
-          <td colspan="8" class="px-4 py-12 text-center">
-            <p class="text-gray-500">No products found.</p>
-            <a href="{% url 'inventory:product_create' %}" class="text-sm text-primary hover:underline mt-1 block">Add your first product</a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% include "_includes/pagination.html" %}
+<div class="mb-5 flex flex-wrap items-center gap-2 text-sm text-ink-2">
+  <span class="badge badge-neutral">{{ total_products }} products</span>
+  {% if low_stock_count > 0 %}<span class="badge badge-warning">{% include "_includes/icon.html" with name="warning" cls="h-3.5 w-3.5" only %}{{ low_stock_count }} low stock</span>{% endif %}
 </div>
+
+{% with type_choices=product_types %}
+{% include "_includes/filter_bar.html" with search_placeholder="SKU or name" search_value=q extra_template="inventory/_type_filter.html" %}
+{% endwith %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>SKU</th><th>Product name</th><th>Category</th><th>Type</th><th class="num">Cost</th><th class="num">Price</th><th class="num">Stock</th><th><span class="sr-only">Actions</span></th></tr>
+    </thead>
+    <tbody>
+      {% for product in products %}
+      {% with stock=product.total_stock %}
+      <tr>
+        <td class="mono whitespace-nowrap text-xs text-ink-2">{{ product.sku }}</td>
+        <td><a href="{% url 'inventory:product_detail' product.pk %}" class="row-link">{{ product.name }}</a></td>
+        <td class="text-xs text-ink-2">{{ product.category.name|default:"—" }}</td>
+        <td><span class="badge {% if product.product_type == 'GOODS' %}badge-info{% elif product.product_type == 'SERVICE' %}badge-brand{% else %}badge-neutral{% endif %}">{{ product.get_product_type_display }}</span></td>
+        <td class="num text-ink-2">{{ product.cost_price|money }}</td>
+        <td class="num font-semibold">{{ product.selling_price|money }}</td>
+        <td class="num">
+          {% if not product.track_inventory %}
+            <span class="text-xs text-ink-muted">N/A</span>
+          {% elif stock <= product.reorder_level %}
+            <span class="font-semibold text-warning" title="Low stock">{{ stock|with_unit:product.unit_of_measure }}</span>
+            <span class="sr-only">(low stock)</span>{% include "_includes/icon.html" with name="warning" cls="ml-1 inline h-3.5 w-3.5 text-warning" only %}
+          {% else %}
+            <span class="font-semibold">{{ stock|with_unit:product.unit_of_measure }}</span>
+          {% endif %}
+        </td>
+        <td class="actions">
+          <a href="{% url 'inventory:product_detail' product.pk %}" class="btn btn-ghost btn-sm">View</a>
+          {% if may_edit %}<a href="{% url 'inventory:product_edit' product.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}
+        </td>
+      </tr>
+      {% endwith %}
+      {% empty %}
+      <tr><td colspan="8" class="p-0">{% include "_includes/empty_state.html" with icon="box" title="No products found" text="Products and services you sell or keep in stock appear here." action_label="Add your first product" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% include "_includes/pagination.html" %}
 {% endblock %}

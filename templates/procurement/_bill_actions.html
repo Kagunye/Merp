@@ -1,0 +1,16 @@
+{% load ui_extras %}{% can_do "procurement:bill_edit" "POST" as may_edit %}{% can_do "procurement:bill_cancel" "POST" as may_cancel %}{% can_do "procurement:bill_post" "POST" as may_post %}
+{% if bill.status == 'DRAFT' and not bill.journal_entry_id %}
+{% if may_edit %}<a href="{% url 'procurement:bill_edit' bill.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" only %}Edit</a>{% endif %}
+{% if may_cancel %}
+<form method="post" action="{% url 'procurement:bill_cancel' bill.pk %}" onsubmit="return confirm('Cancel this bill?');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel</button>
+</form>
+{% endif %}
+{% if may_post %}
+<form method="post" action="{% url 'procurement:bill_post' bill.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" stroke="2" only %}Post to GL</button>
+</form>
+{% endif %}
+{% endif %}

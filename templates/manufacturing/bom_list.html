@@ -1,55 +1,28 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Bills of Materials — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Bills of Materials</h1>
-    <p class="text-sm text-gray-500 mt-1">Define product recipes and component requirements</p>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <a href="{% url 'manufacturing:work_order_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Work Orders</a>
-    <a href="{% url 'manufacturing:bom_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New BOM</a>
-  </div>
-</div>
+{% can_do "manufacturing:bom_create" "POST" as may_create %}{% if may_create %}{% url 'manufacturing:bom_create' as new_url %}{% endif %}
+{% url 'manufacturing:work_order_list' as wo_url %}
+{% include "_includes/page_header.html" with title="Bills of Materials" subtitle="Define product recipes and component requirements" action_label="New BOM" action_url=new_url secondary_label="Work Orders" secondary_url=wo_url %}
 
-<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="no-print flex flex-wrap gap-3">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search BOMs..."
-           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
-    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Search</button>
-  </form>
-</div>
+{% include "_includes/filter_bar.html" with search_placeholder="Search BOMs" search_value=q submit_label="Search" %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-200">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Product</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Version</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Qty Produced</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Components</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Name</th><th>Product</th><th>Version</th><th>Status</th><th class="num">Qty produced</th><th class="num">Components</th></tr></thead>
+    <tbody>
       {% for bom in boms %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3">
-          <a href="{% url 'manufacturing:bom_detail' bom.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ bom.name }}</a>
-        </td>
-        <td class="px-4 py-3 text-gray-900">{{ bom.product.name }}</td>
-        <td class="px-4 py-3 text-gray-600">v{{ bom.version }}</td>
-        <td class="px-4 py-3 text-right text-gray-900">{{ bom.production_quantity }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if bom.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif bom.status == 'DRAFT' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ bom.get_status_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3 text-right text-gray-600">{{ bom.lines.count }}</td>
+      <tr>
+        <td><a href="{% url 'manufacturing:bom_detail' bom.pk %}" class="row-link">{{ bom.name }}</a></td>
+        <td>{{ bom.product.name }}</td>
+        <td class="mono text-ink-2">v{{ bom.version }}</td>
+        <td>{% status_badge bom.status bom.get_status_display %}</td>
+        <td class="num">{{ bom.production_quantity|with_unit:bom.product.unit_of_measure }}</td>
+        <td class="num text-ink-2">{{ bom.lines.count }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No BOMs found. <a href="{% url 'manufacturing:bom_create' %}" style="color:var(--primary)" class="font-medium">Create first BOM</a></td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No BOMs found" text="A bill of materials lists what goes into one finished product." action_label="Create first BOM" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

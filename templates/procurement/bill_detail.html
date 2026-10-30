@@ -2,123 +2,126 @@
 {% load ui_extras %}
 {% block title %}{{ bill.reference }} — Procurement — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'procurement:bill_list' %}" class="hover:underline">Bills</a> / <span class="text-gray-900 font-medium">{{ bill.reference }}</span></nav>
-    <h1 class="text-2xl font-bold text-gray-900">Bill: {{ bill.reference }}</h1>
-  </div>
-  <div class="flex items-center gap-2">
-    {% include "_includes/print_button.html" %}
-    <span class="badge {% if bill.status == 'PAID' %}bg-green-50 text-green-700{% elif bill.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif bill.status == 'OVERDUE' %}bg-red-50 text-red-700{% elif bill.status == 'PARTIAL' %}bg-amber-50 text-amber-700{% elif bill.status == 'CANCELLED' %}bg-gray-100 text-gray-500 line-through{% else %}bg-blue-50 text-blue-700{% endif %} text-sm px-3 py-1.5">
-      {{ bill.get_status_display }}
-    </span>
-    {% if bill.status == 'DRAFT' and not bill.journal_entry_id %}
-    <a href="{% url 'procurement:bill_edit' bill.pk %}" class="no-print px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Edit</a>
-    <form method="post" action="{% url 'procurement:bill_cancel' bill.pk %}" onsubmit="return confirm('Cancel this bill?');">
-      {% csrf_token %}
-      <button type="submit" class="px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">Cancel</button>
-    </form>
-    {% if not bill.journal_entry_id %}
-    <form method="post" action="{% url 'procurement:bill_post' bill.pk %}">
-      {% csrf_token %}
-      <button type="submit" class="px-3 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post to GL</button>
-    </form>
-    {% endif %}
-    {% endif %}
-  </div>
-</div>
+{% can_do "procurement:bill_pay" "POST" as may_pay %}{% can_do "procurement:bill_debit_note" "POST" as may_debit %}
+{% url 'procurement:bill_list' as back %}
+{% include "_includes/page_header.html" with title="Bill: "|add:bill.reference eyebrow="Supplier bill" subtitle=bill.supplier.name back_url=back back_label="Bills" actions_template="procurement/_bill_actions.html" %}
 
-{% if bill.status != 'PAID' and bill.status != 'CANCELLED' and bill.outstanding_amount > 0 %}
-<div class="no-print bg-white rounded-xl border border-gray-200 p-4 mb-6">
-  <form method="post" action="{% url 'procurement:bill_pay' bill.pk %}" class="flex items-end gap-3 flex-wrap">
+{% if may_pay and bill.status != 'PAID' and bill.status != 'CANCELLED' and bill.outstanding_amount > 0 %}
+<section class="card mb-5 no-print">
+  <div class="card-header">
+    <h2 class="card-title">Record supplier payment</h2>
+  </div>
+  <form method="post" action="{% url 'procurement:bill_pay' bill.pk %}" class="card-body">
     {% csrf_token %}
-    <div class="flex-1 min-w-[180px]">
-      <label for="id_amount" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Record Supplier Payment ({{ bill.currency }})</label>
-      <input id="id_amount" type="number" step="0.01" name="amount" value="{{ bill.outstanding_amount }}" max="{{ bill.outstanding_amount }}" min="0.01" required class="form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+      <div class="form-field">
+        <label for="id_amount" class="form-label">Amount ({{ bill.currency }})</label>
+        <input id="id_amount" type="number" step="0.01" name="amount" value="{{ bill.outstanding_amount }}" max="{{ bill.outstanding_amount }}" min="0.01" required class="input text-right tabular-nums">
+      </div>
+      <div class="form-field">
+        <label for="id_gl_account" class="form-label">Paid from</label>
+        <select id="id_gl_account" name="gl_account" required class="select">
+          <option value="" {% if not main_bank %}selected{% endif %}>— Choose the account paid from</option>
+          {% for acc in cash_accounts %}<option value="{{ acc.pk }}" {% if main_bank and acc.pk == main_bank.pk %}selected{% endif %}>{{ acc.code }} — {{ acc.name }}{% if acc.account_type == 'CASH' %} (cash){% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="id_payment_date" class="form-label">Value date</label>
+        <input id="id_payment_date" type="date" name="payment_date" value="{{ today|date:'Y-m-d' }}" min="{{ bill.bill_date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}" class="input">
+      </div>
+      <div class="form-field">
+        <button type="submit" class="btn btn-primary btn-block">{% include "_includes/icon.html" with name="cash" only %}Post Payment</button>
+      </div>
     </div>
-    <div>
-      <label for="id_gl_account" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Paid from</label>
-      <select id="id_gl_account" name="gl_account" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm">
-        <option value="" {% if not main_bank %}selected{% endif %}>— Choose the account paid from</option>
-        {% for acc in cash_accounts %}<option value="{{ acc.pk }}" {% if main_bank and acc.pk == main_bank.pk %}selected{% endif %}>{{ acc.code }} — {{ acc.name }}{% if acc.account_type == 'CASH' %} (cash){% endif %}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label for="id_payment_date" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Value date</label>
-      <input id="id_payment_date" type="date" name="payment_date" value="{{ today|date:'Y-m-d' }}" min="{{ bill.bill_date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}" class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-    </div>
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Payment</button>
+    <p class="form-help mt-3">Posts a journal entry Dr Payables, Cr the account you choose, on the value date, and updates this bill's paid balance.</p>
   </form>
-  <p class="text-xs text-gray-500 mt-2">Posts a journal entry Dr Payables, Cr the account you choose, on the value date, and updates this bill's paid balance.</p>
-</div>
+</section>
 {% endif %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Bill Details</h2>
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-      <div><dt class="text-gray-500">Supplier</dt><dd class="font-medium text-gray-900">{{ bill.supplier.name }}</dd></div>
-      <div><dt class="text-gray-500">Supplier Ref</dt><dd class="text-gray-900">{{ bill.supplier_reference|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Bill Date</dt><dd class="text-gray-900">{{ bill.bill_date }}</dd></div>
-      <div><dt class="text-gray-500">Due Date</dt><dd class="text-gray-900">{{ bill.due_date }}</dd></div>
-      <div><dt class="text-gray-500">Currency</dt><dd class="font-mono text-gray-900">{{ bill.currency }}</dd></div>
-      {% if bill.currency != active_company.currency %}
-      <div><dt class="text-gray-500">Exchange rate</dt><dd class="font-mono text-gray-900">{% with r=bill.known_rate %}{% if r %}1 {{ bill.currency }} = {{ r|trim_qty }} {{ active_company.currency }}{% else %}No {{ bill.currency }} rate filed for this date{% endif %}{% endwith %}</dd></div>
-      {% endif %}
-      {% if bill.original_bill %}<div class="col-span-2"><dt class="text-gray-500">Answers bill</dt><dd><a href="{% url 'procurement:bill_detail' bill.original_bill.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.original_bill.reference }}</a></dd></div>{% endif %}
-      {% if bill.charge_account %}<div class="col-span-2"><dt class="text-gray-500">Charged to</dt><dd class="text-gray-900">{{ bill.charge_account }}</dd></div>{% endif %}
-      {% if bill.purchase_order %}<div class="col-span-2"><dt class="text-gray-500">Purchase Order</dt><dd><a href="{% url 'procurement:po_detail' bill.purchase_order.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.purchase_order.reference }}</a></dd></div>{% endif %}
-      {% if bill.journal_entry %}<div class="col-span-2"><dt class="text-gray-500">Journal Entry</dt><dd><a href="{% url 'accounting:journal_entry_detail' bill.journal_entry.pk %}" class="hover:underline" style="color:var(--primary)">{{ bill.journal_entry.reference }}</a></dd></div>{% endif %}
-    </dl>
-    {% if bill.notes %}<p class="text-sm text-gray-600 mt-4">{{ bill.notes }}</p>{% endif %}
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Financials</h2>
-    <div class="space-y-3 text-sm">
-      <div class="flex justify-between"><span class="text-gray-500">Subtotal</span><span class="font-mono">{{ bill.subtotal|floatformat:2 }}</span></div>
-      <div class="flex justify-between"><span class="text-gray-500">Tax</span><span class="font-mono">{{ bill.tax_amount|floatformat:2 }}</span></div>
-      <div class="flex justify-between font-bold border-t border-gray-100 pt-2"><span>Total</span><span class="font-mono text-gray-900">{{ bill.total_amount|floatformat:2 }}</span></div>
-      {% if bill.currency != active_company.currency and bill.journal_entry %}
-      <div class="flex justify-between"><span class="text-gray-500">Total in the ledger</span><span class="font-mono text-gray-700">{{ active_company.currency }} {{ bill.total_amount_base|floatformat:2 }}</span></div>
-      {% endif %}
-      <div class="flex justify-between"><span class="text-gray-500">Paid</span><span class="font-mono text-green-700">{{ bill.paid_amount|floatformat:2 }}</span></div>
-      {% if bill.credited_amount > 0 %}
-      <div class="flex justify-between"><span class="text-gray-500">Debited back</span><span class="font-mono text-amber-700">{{ bill.credited_amount|floatformat:2 }}</span></div>
-      {% endif %}
-      <div class="flex justify-between font-bold"><span>Outstanding</span><span class="font-mono text-red-600">{{ bill.outstanding_amount|floatformat:2 }}</span></div>
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <section class="card lg:col-span-2">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">Bill <span class="mono">{{ bill.reference }}</span></h2>
+        <p class="card-subtitle">In {{ bill.currency }}</p>
+      </div>
+      {% status_badge bill.status bill.get_status_display %}
     </div>
+    <div class="card-body">
+      <dl class="dl">
+        <div><dt>Supplier</dt><dd class="font-medium">{{ bill.supplier.name }}</dd></div>
+        <div><dt>Supplier ref</dt><dd class="mono">{{ bill.supplier_reference|default:"—" }}</dd></div>
+        <div><dt>Bill date</dt><dd>{{ bill.bill_date|date:"d M Y" }}</dd></div>
+        <div><dt>Due date</dt><dd>{{ bill.due_date|date:"d M Y" }}</dd></div>
+        <div><dt>Currency</dt><dd class="mono">{{ bill.currency }}</dd></div>
+        {% if bill.currency != active_company.currency %}
+        <div><dt>Exchange rate</dt><dd class="mono">{% with r=bill.known_rate %}{% if r %}1 {{ bill.currency }} = {{ r|trim_qty }} {{ active_company.currency }}{% else %}No {{ bill.currency }} rate filed for this date{% endif %}{% endwith %}</dd></div>
+        {% endif %}
+        {% if bill.original_bill %}<div><dt>Answers bill</dt><dd><a href="{% url 'procurement:bill_detail' bill.original_bill.pk %}" class="link mono">{{ bill.original_bill.reference }}</a></dd></div>{% endif %}
+        {% if bill.purchase_order %}{% can_do "procurement:po_detail" as may_po %}<div><dt>Purchase order</dt><dd class="mono">{% if may_po %}<a href="{% url 'procurement:po_detail' bill.purchase_order.pk %}" class="link">{{ bill.purchase_order.reference }}</a>{% else %}{{ bill.purchase_order.reference }}{% endif %}</dd></div>{% endif %}
+        {% if bill.journal_entry %}{% can_do "accounting:journal_entry_detail" as may_je %}<div><dt>Journal entry</dt><dd class="mono">{% if may_je %}<a href="{% url 'accounting:journal_entry_detail' bill.journal_entry.pk %}" class="link">{{ bill.journal_entry.reference }}</a>{% else %}{{ bill.journal_entry.reference }}{% endif %}</dd></div>{% endif %}
+        {% if bill.charge_account %}<div class="dl-full"><dt>Charged to</dt><dd>{{ bill.charge_account }}</dd></div>{% endif %}
+        {% if bill.notes %}<div class="dl-full"><dt>Notes</dt><dd class="whitespace-pre-line">{{ bill.notes }}</dd></div>{% endif %}
+      </dl>
+    </div>
+  </section>
 
-    {% if bill.journal_entry_id and bill.outstanding_amount > 0 and bill.status != 'CANCELLED' and bill.status != 'DEBIT_NOTE' %}
-    <form method="post" action="{% url 'procurement:bill_debit_note' bill.pk %}" class="no-print mt-6 border-t border-gray-100 pt-4">
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Financials</h2></div>
+    <dl class="dl-rows px-5">
+      <div><dt>Subtotal</dt><dd>{{ bill.subtotal|money }}</dd></div>
+      <div><dt>Tax</dt><dd>{{ bill.tax_amount|money }}</dd></div>
+      <div><dt class="font-semibold text-ink">Total</dt><dd class="font-semibold">{{ bill.total_amount|money:bill.currency }}</dd></div>
+      {% if bill.currency != active_company.currency and bill.journal_entry %}
+      <div><dt>Total in the ledger</dt><dd>{{ bill.total_amount_base|money:active_company.currency }}</dd></div>
+      {% endif %}
+      <div><dt>Paid</dt><dd class="text-success">{{ bill.paid_amount|money }}</dd></div>
+      {% if bill.credited_amount > 0 %}
+      <div><dt>Debited back</dt><dd class="text-warning">{{ bill.credited_amount|money }}</dd></div>
+      {% endif %}
+      <div><dt class="font-semibold text-ink">Outstanding</dt><dd class="font-semibold{% if bill.outstanding_amount > 0 %} text-danger{% endif %}">{{ bill.outstanding_amount|money }}</dd></div>
+    </dl>
+
+    {% if may_debit and bill.journal_entry_id and bill.outstanding_amount > 0 and bill.status != 'CANCELLED' and bill.status != 'DEBIT_NOTE' %}
+    <form method="post" action="{% url 'procurement:bill_debit_note' bill.pk %}" class="no-print border-t border-line p-5">
       {% csrf_token %}
-      <h3 class="text-sm font-semibold text-gray-800 mb-1">Raise a debit note</h3>
-      <p class="text-xs text-gray-500 mb-3">Goods returned, or a price the supplier has agreed to reduce. A separate document with its own offsetting entry; the bill above keeps the one it was posted with.</p>
-      <label class="block text-xs text-gray-500 mb-1">Amount to debit ({{ bill.currency }})</label>
-      <input type="number" step="0.01" min="0.01" max="{{ bill.outstanding_amount }}" name="amount" value="{{ bill.outstanding_amount }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
-      <label class="block text-xs text-gray-500 mt-3 mb-1">Reason</label>
-      <input type="text" name="reason" maxlength="500" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Goods returned / supplier credit" />
-      <button type="submit" class="mt-3 w-full px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Debit Note</button>
-      <p class="text-xs text-gray-500 mt-2">At most {{ bill.outstanding_amount }} {{ bill.currency }} — what is still owed here.</p>
+      <h3 class="card-title">Raise a debit note</h3>
+      <p class="form-help mb-3">Goods returned, or a price the supplier has agreed to reduce. A separate document with its own offsetting entry; the bill above keeps the one it was posted with.</p>
+      <div class="space-y-3">
+        <div class="form-field">
+          <label class="form-label" for="dn-amount">Amount to debit ({{ bill.currency }})</label>
+          <input id="dn-amount" type="number" step="0.01" min="0.01" max="{{ bill.outstanding_amount }}" name="amount" value="{{ bill.outstanding_amount }}" required class="input text-right tabular-nums">
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="dn-reason">Reason</label>
+          <input id="dn-reason" type="text" name="reason" maxlength="500" class="input" placeholder="Goods returned / supplier credit">
+        </div>
+        <button type="submit" class="btn btn-secondary btn-block">Post Debit Note</button>
+      </div>
+      <p class="form-help">At most {{ bill.outstanding_amount|money }} {{ bill.currency }} — what is still owed here.</p>
     </form>
     {% endif %}
-  </div>
+  </section>
 </div>
 
 {% if bill.debit_notes.exists %}
-<div class="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-4 py-3 border-b border-gray-100"><h3 class="font-semibold text-gray-800 text-sm">Debit notes raised against this bill</h3></div>
-  <table class="w-full text-sm">
-    <tbody class="divide-y divide-gray-50">
-      {% for dn in bill.debit_notes.all %}
-      <tr>
-        <td class="px-4 py-2 font-mono"><a href="{% url 'procurement:bill_detail' dn.pk %}" style="color: var(--primary);">{{ dn.reference }}</a></td>
-        <td class="px-4 py-2 text-gray-500">{{ dn.bill_date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 text-gray-500">{{ dn.notes }}</td>
-        <td class="px-4 py-2 text-right font-mono font-semibold">{{ dn.currency }} {{ dn.total_amount|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card mt-5 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Debit notes raised against this bill</h2></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Reference</th><th>Date</th><th>Reason</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        {% for dn in bill.debit_notes.all %}
+        <tr>
+          <td class="mono"><a href="{% url 'procurement:bill_detail' dn.pk %}" class="row-link">{{ dn.reference }}</a></td>
+          <td class="whitespace-nowrap text-ink-2">{{ dn.bill_date|date:"d M Y" }}</td>
+          <td class="text-ink-2">{{ dn.notes }}</td>
+          <td class="num font-semibold">{{ dn.total_amount|money:dn.currency }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 {% endblock %}

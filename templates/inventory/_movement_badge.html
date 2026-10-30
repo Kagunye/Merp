@@ -1,0 +1,2 @@
+{# Movement type pill: stock coming in reads green, stock going out reads amber. Param: mv. #}
+<span class="badge {% if mv.movement_type == 'RECEIPT' or mv.movement_type == 'TRANSFER_IN' or mv.movement_type == 'ADJUSTMENT_PLUS' or mv.movement_type == 'RETURN_IN' or mv.movement_type == 'OPENING' or mv.movement_type == 'PRODUCTION_IN' %}badge-success{% else %}badge-warning{% endif %}"><span class="badge-dot" aria-hidden="true"></span>{{ mv.get_movement_type_display }}</span>

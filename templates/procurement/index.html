@@ -1,25 +1,38 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Accounts Payable" launcher_subtitle="Manage your payables and vendor transactions" %}
+
+<section aria-label="At a glance" class="mb-2">
+<div class="stat-grid mb-6">
+  {% can_do "procurement:bill_list" as may_bills %}{% if may_bills %}{% url 'procurement:bill_list' as bills_url %}{% endif %}
+  {% can_do "procurement:po_list" as may_pos %}{% if may_pos %}{% url 'procurement:po_list' as pos_url %}{% endif %}
+  {% can_do "procurement:requisition_list" as may_reqs %}{% if may_reqs %}{% url 'procurement:requisition_list' as reqs_url %}{% endif %}
+  {% if may_pos %}{% include "_includes/stat.html" with label="Open POs" value=open_po_count|default:0 meta="Draft, sent or part received" icon="clipboard" tone="info" url=pos_url only %}{% endif %}
+  {% if may_bills %}{% include "_includes/stat.html" with label="Bills due" value=total_outstanding|default:0 money=True currency=book meta="Open supplier bills" icon="receipt" tone="warning" url=bills_url only %}
+  {% include "_includes/stat.html" with label="Overdue" value=total_overdue|default:0 money=True currency=book meta="Past their due date" icon="clock" tone="danger" only %}{% endif %}
+  {% if may_reqs %}{% include "_includes/stat.html" with label="Pending approvals" value=pending_req_count|default:0 meta="Requisitions waiting" icon="check-circle" tone="neutral" url=reqs_url only %}{% endif %}
+</div>
+</section>
 
 <div class="launcher-section-label">
   Processing
   <span class="launcher-section-count">13 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-rose">👤</div><span class="label">Account Enquiries</span></a>
-  <a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Purchase Invoices</span></a>
-  <a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-rose">📥</div><span class="label">Receiving (GRV)</span></a>
-  <a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Purchase Orders</span></a>
-  <a href="{% url 'procurement:po_create' %}" class="launcher-tile"><div class="ico ico-sky">🔁</div><span class="label">Bulk Replenishment</span></a>
-  <a href="{% url 'procurement:requisition_list' %}" class="launcher-tile"><div class="ico ico-violet">📝</div><span class="label">Requisitions &amp; Quotations</span></a>
-  <a href="{% url 'procurement:requisition_create' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Bulk Request For Quotations</span></a>
-  <a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-rose">↩️</div><span class="label">Returns</span></a>
-  <a href="{% url 'procurement:bill_list' %}?status=RECEIVED" class="launcher-tile"><div class="ico ico-amber">💳</div><span class="label">Payments</span></a>
-  <a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Payment Approvals</span></a>
-  <a href="{% url 'accounting:journal_entry_create' %}" class="launcher-tile"><div class="ico ico-peach">📈</div><span class="label">Tax Payments</span></a>
-  <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-slate">⚖️</div><span class="label">Vendor Reconciliation</span></a>
-  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-mint">📊</div><span class="label">Vendor Recon Worksheet</span></a>
+  {% can_do "procurement:ap_aging" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" only %}</div><span class="label">Account Enquiries</span></a>{% endif %}
+  {% can_do "procurement:bill_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" only %}</div><span class="label">Purchase Invoices</span></a>{% endif %}
+  {% can_do "procurement:po_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="download" cls="h-7 w-7" only %}</div><span class="label">Receiving (GRV)</span></a>{% endif %}
+  {% can_do "procurement:po_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Purchase Orders</span></a>{% endif %}
+  {% can_do "procurement:po_create" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:po_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" only %}</div><span class="label">Bulk Replenishment</span></a>{% endif %}
+  {% can_do "procurement:requisition_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:requisition_list' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" only %}</div><span class="label">Requisitions &amp; Quotations</span></a>{% endif %}
+  {% can_do "procurement:requisition_create" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:requisition_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" only %}</div><span class="label">Bulk Request For Quotations</span></a>{% endif %}
+  {% can_do "procurement:bill_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="arrow-left" cls="h-7 w-7" only %}</div><span class="label">Returns</span></a>{% endif %}
+  {% can_do "procurement:bill_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:bill_list' %}?status=RECEIVED" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" only %}</div><span class="label">Payments</span></a>{% endif %}
+  {% can_do "procurement:requisition_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="check" cls="h-7 w-7" only %}</div><span class="label">Payment Approvals</span></a>{% endif %}
+  {% can_do "accounting:journal_entry_create" as tile_ok %}{% if tile_ok %}<a href="{% url 'accounting:journal_entry_create' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" only %}</div><span class="label">Tax Payments</span></a>{% endif %}
+  {% can_do "procurement:ap_aging" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" only %}</div><span class="label">Vendor Reconciliation</span></a>{% endif %}
+  {% can_do "crm:supplier_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" only %}</div><span class="label">Vendor Recon Worksheet</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -27,12 +40,12 @@
   <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-slate">🖨️</div><span class="label">Print Batches</span></a>
-  <a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-peach">✉️</div><span class="label">Email Batches</span></a>
-  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Send Vendor Pricelists</span></a>
-  <a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Courier Waybill Audit</span></a>
-  <a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-mint">🔁</div><span class="label">Purchase Order EDI</span></a>
-  <a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Send Vendor Order Forms</span></a>
+  {% can_do "procurement:bill_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" only %}</div><span class="label">Print Batches</span></a>{% endif %}
+  {% can_do "procurement:bill_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:bill_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" only %}</div><span class="label">Email Batches</span></a>{% endif %}
+  {% can_do "crm:supplier_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" only %}</div><span class="label">Send Vendor Pricelists</span></a>{% endif %}
+  {% can_do "procurement:po_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" only %}</div><span class="label">Courier Waybill Audit</span></a>{% endif %}
+  {% can_do "procurement:po_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" only %}</div><span class="label">Purchase Order EDI</span></a>{% endif %}
+  {% can_do "procurement:po_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:po_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Send Vendor Order Forms</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -40,35 +53,38 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-rose">👤</div><span class="label">Vendors</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">🗂️</div><span class="label">Categories</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">👔</div><span class="label">Buyers</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-violet">🗂️</div><span class="label">Reconciling Item Types</span></a>
+  {% can_do "crm:supplier_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'crm:supplier_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" only %}</div><span class="label">Vendors</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" only %}</div><span class="label">Categories</span></a>{% endif %}
+  {% can_do "accounts:user_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" only %}</div><span class="label">Buyers</span></a>{% endif %}
+  {% can_do "accounting:account_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" only %}</div><span class="label">Reconciling Item Types</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Outstanding ({{ book }})</div><div class="text-2xl font-bold text-amber-600">{{ total_outstanding|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Overdue ({{ book }})</div><div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open POs</div><div class="text-2xl font-bold">{{ open_po_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Pending approvals</div><div class="text-2xl font-bold">{{ pending_req_count|default:0 }}</div></div>
-</div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent bills</h2>
-<div class="bg-white rounded-xl border overflow-hidden mb-10">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Supplier</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Outstanding</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for b in recent_bills %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2">{{ b.bill_date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'procurement:bill_detail' b.pk %}" style="color:var(--primary)">{{ b.reference }}</a></td>
-        <td class="px-4 py-2">{{ b.supplier.name }}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ b.total_amount|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono text-amber-600">{{ b.outstanding_amount|floatformat:2 }}</td>
-      </tr>
-      {% empty %}<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">No bills yet.</td></tr>{% endfor %}
-    </tbody>
-  </table>
-</div>
+{% if may_bills %}
+<section class="card mb-10 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Recent bills</h2>
+    {% if bills_url %}<a href="{{ bills_url }}" class="card-link">View all →</a>{% endif %}
+  </div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Date</th><th>Reference</th><th>Supplier</th><th>Status</th><th class="num">Total</th><th class="num">Outstanding</th></tr></thead>
+      <tbody>
+        {% for b in recent_bills %}
+        <tr>
+          <td class="whitespace-nowrap text-ink-2">{{ b.bill_date|date:"d M Y" }}</td>
+          <td class="mono">{% if may_bills %}<a href="{% url 'procurement:bill_detail' b.pk %}" class="row-link">{{ b.reference }}</a>{% else %}{{ b.reference }}{% endif %}</td>
+          <td>{{ b.supplier.name }}</td>
+          <td>{% status_badge b.status b.get_status_display %}</td>
+          <td class="num">{{ b.total_amount|money }}</td>
+          <td class="num">{{ b.outstanding_amount|money }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="No bills yet" text="Supplier bills you record appear here." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

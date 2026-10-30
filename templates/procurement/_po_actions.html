@@ -1,0 +1,28 @@
+{% load ui_extras %}{% can_do "procurement:po_send" "POST" as may_send %}{% can_do "procurement:po_to_bill" "POST" as may_bill %}{% can_do "procurement:po_close_short" "POST" as may_close %}{% can_do "procurement:po_cancel" "POST" as may_cancel %}{% can_do "procurement:grn" as may_grn %}
+{% if po.status == 'DRAFT' and may_send %}
+<form method="post" action="{% url 'procurement:po_send' po.pk %}" onsubmit="return confirm('Mark this PO as sent to supplier?');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="upload" stroke="2" only %}Send to Supplier</button>
+</form>
+{% endif %}
+{% if po.status != 'DRAFT' and po.status != 'CANCELLED' and po.status != 'CLOSED' %}
+{% if may_grn %}<a href="{% url 'procurement:grn' po.pk %}" class="btn btn-primary">{% include "_includes/icon.html" with name="download" stroke="2" only %}Receive Goods</a>{% endif %}
+{% if may_bill %}
+<form method="post" action="{% url 'procurement:po_to_bill' po.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="receipt" only %}Bill this order</button>
+</form>
+{% endif %}
+{% endif %}
+{% if po.status == 'PARTIALLY_RECEIVED' and may_close %}
+<form method="post" action="{% url 'procurement:po_close_short' po.pk %}" onsubmit="return confirm('Close this order short? The goods not yet received will no longer be expected. Bill and post what arrived first.');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-secondary" title="The rest of this order will never arrive">Close short</button>
+</form>
+{% endif %}
+{% if may_cancel and po.status == 'DRAFT' or may_cancel and po.status == 'SENT' %}
+<form method="post" action="{% url 'procurement:po_cancel' po.pk %}" onsubmit="return confirm('Cancel this PO?');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel</button>
+</form>
+{% endif %}

@@ -1,0 +1,8 @@
+{# Type select for the filter bar. Choices come from `type_choices`; the GET name stays "type". #}
+<div class="form-field">
+  <label class="form-label" for="fb-type">Type</label>
+  <select id="fb-type" name="type" class="select">
+    <option value="">All types</option>
+    {% for val, label in type_choices %}<option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+</div>
