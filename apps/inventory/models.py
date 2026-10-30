@@ -1,5 +1,5 @@
 """Inventory and warehouse models."""
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from django.db import models, transaction
 from django.core.exceptions import ValidationError
 from apps.core.models import BaseModel, NotesMixin
@@ -167,12 +167,35 @@ class Product(BaseModel, NotesMixin):
         return qs.aggregate(t=models.Sum("quantity"))["t"] or Decimal("0")
 
 
+CENT = Decimal("0.01")
+
+
+def cents(amount):
+    """Money to the cent, half-up — the way every journal line is rounded."""
+    return Decimal(str(amount or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
 class StockLevel(models.Model):
-    """Current stock quantity per product per warehouse."""
+    """Current stock quantity per product per warehouse — and what it is worth.
+
+    ``value`` is the shelf's worth in the book, kept to the cent: every movement
+    in adds exactly the figure its journal entry debited to inventory, and
+    every movement out takes off exactly the figure its entry credited. The
+    inventory account and the stock valuation are then the same sum of the
+    same cents, and cannot drift apart.
+
+    Valuing the shelf as quantity × average instead does drift. The average is
+    held to four places and each entry is rounded to the cent on its own, so
+    ten single units received at 1,006.6424 post 10,066.40 while quantity ×
+    average says 10,066.42; and the last unit out, priced at the average,
+    leaves a cent behind on an empty shelf. ``avg_cost`` is kept for showing a
+    unit price and for pricing a partial issue; the money is ``value``.
+    """
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="stock_levels")
     warehouse = models.ForeignKey("organizations.Warehouse", on_delete=models.CASCADE, related_name="stock_levels")
     quantity = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0"))
     avg_cost = models.DecimalField(max_digits=15, decimal_places=4, default=Decimal("0"))
+    value = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -180,6 +203,25 @@ class StockLevel(models.Model):
 
     def __str__(self):
         return f"{self.product.sku} @ {self.warehouse.name}: {self.quantity}"
+
+
+def stock_valuation(company, account=None):
+    """What the company's tracked stock is worth, to the cent.
+
+    The sum of the value every shelf carries — the same cents the stock
+    movements posted to the inventory account — so the inventory dashboard,
+    the warehouse page and the ledger all report one figure. Pass an account
+    to value only the products held on it (no account set means 1400).
+    """
+    levels = StockLevel.objects.filter(
+        warehouse__company=company, product__track_inventory=True)
+    if account is not None:
+        if account.code == "1400":
+            levels = levels.filter(models.Q(product__inventory_account=account)
+                                   | models.Q(product__inventory_account__isnull=True))
+        else:
+            levels = levels.filter(product__inventory_account=account)
+    return levels.aggregate(total=models.Sum("value"))["total"] or Decimal("0.00")
 
 
 class StockMovement(BaseModel, NotesMixin):
@@ -236,8 +278,17 @@ class StockMovement(BaseModel, NotesMixin):
     def __str__(self):
         return f"{self.movement_type} {self.quantity} {self.product.sku}"
 
+    # Set on an unsaved movement in to say exactly what it brings onto the shelf,
+    # in book money, instead of quantity × unit cost: the transfer's arriving
+    # half carries what its leaving half took off, and a work order's output
+    # carries what went into work in progress. Recomputing either from a unit
+    # cost held to four places could miss the figure that left by a cent.
+    carried_value = None
+
     def save(self, *args, **kwargs):
-        self.total_cost = self.quantity * self.unit_cost
+        if self.quantity is not None and self.unit_cost is not None:
+            # Rounded half-up, once, as the journal line for it is.
+            self.total_cost = cents(self.quantity * self.unit_cost)
         # Determine whether this is a new record (no pk yet means first save)
         is_new = self._state.adding
         # The row, the stock level and the GL entry are one event: if the stock
@@ -256,9 +307,14 @@ class StockMovement(BaseModel, NotesMixin):
         money columns are updated directly instead.
         """
         self.unit_cost = Decimal(str(unit_cost)).quantize(Decimal("0.0001"))
-        self.total_cost = (self.quantity * self.unit_cost).quantize(Decimal("0.01"))
+        self.total_cost = cents(self.quantity * self.unit_cost)
         StockMovement.objects.filter(pk=self.pk).update(
             unit_cost=self.unit_cost, total_cost=self.total_cost)
+
+    def _value_it_at(self, value):
+        """Write the exact book value this movement moved onto its own row."""
+        self.total_cost = cents(value)
+        StockMovement.objects.filter(pk=self.pk).update(total_cost=self.total_cost)
 
     def _update_stock_level(self):
         if self.quantity is None or self.quantity <= 0:
@@ -296,10 +352,19 @@ class StockMovement(BaseModel, NotesMixin):
                 # this shelf's average: a free delivery is free, and inventing a
                 # value for it would put stock in the book that nobody paid for.
                 self._cost_it_at(level.avg_cost)
+            before = level.value or Decimal("0")
             if incoming:
-                # The new average is the value on the shelf divided by what is
-                # now on it — including goods that came in at no cost, which
-                # dilute the average rather than being carried at the old price.
+                # What comes onto the shelf is exactly what its journal entry
+                # debits to inventory: quantity × unit cost rounded once to the
+                # cent, or the value it carries from where it came from.
+                if self.carried_value is not None:
+                    self._value_it_at(self.carried_value)
+                level.value = before + self.total_cost
+                # The new average is the shelf's price per unit — what it held
+                # them at and what arrived, weighted by quantity — including
+                # goods that came in at no cost, which dilute the average rather
+                # than being carried at the old price. It is a price, to four
+                # places; the money on the shelf is `value`, above.
                 if level.quantity + self.quantity > 0:
                     total_value = (level.quantity * level.avg_cost) + (self.quantity * self.unit_cost)
                     level.avg_cost = total_value / (level.quantity + self.quantity)
@@ -311,8 +376,27 @@ class StockMovement(BaseModel, NotesMixin):
                             f"Insufficient stock for {self.product}: "
                             f"available {qty(level.quantity)}, requested {qty(self.quantity)}"
                         )
-                level.quantity -= self.quantity
-            level.save(update_fields=["quantity", "avg_cost", "updated_at"])
+                remaining = level.quantity - self.quantity
+                # An issue is worth what the shelf was worth before it less what
+                # it is worth after, and the shelf after is valued at the same
+                # average the goods left at. Pricing each issue on its own as
+                # quantity × average and rounding it would leave the cents of
+                # every rounding on the shelf; done this way the last unit out
+                # takes exactly whatever value is left, and an empty shelf is
+                # worth nothing.
+                if remaining == 0:
+                    after = Decimal("0")
+                elif level.quantity > 0 and remaining > 0:
+                    after = cents(before * remaining / level.quantity)
+                else:
+                    # Going below nothing (a product that may run negative):
+                    # the shortfall is carried at the average until goods come
+                    # in to answer it.
+                    after = cents(remaining * level.avg_cost)
+                self._value_it_at(before - after)
+                level.value = after
+                level.quantity = remaining
+            level.save(update_fields=["quantity", "avg_cost", "value", "updated_at"])
 
     def _post_gl(self):
         """Book the movements that change what the company owns.

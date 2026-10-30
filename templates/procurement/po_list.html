@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Purchase Orders — Mofisi{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-6">
@@ -7,7 +8,8 @@
   </div>
   <div class="flex flex-wrap gap-2">
     <a href="{% url 'procurement:bill_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Bills</a>
-    <a href="{% url 'procurement:po_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New PO</a>
+    {% can_do "procurement:po_create" "POST" as may_order %}
+    {% if may_order %}<a href="{% url 'procurement:po_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New PO</a>{% endif %}
   </div>
 </div>
 
@@ -50,7 +52,7 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No purchase orders. <a href="{% url 'procurement:po_create' %}" style="color:var(--primary)" class="font-medium">Create first PO</a></td></tr>
+      <tr><td colspan="6" class="px-4 py-12 text-center text-gray-400">No purchase orders.{% if may_order %} <a href="{% url 'procurement:po_create' %}" style="color:var(--primary)" class="font-medium">Create first PO</a>{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

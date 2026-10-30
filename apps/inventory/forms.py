@@ -46,6 +46,79 @@ class ProductForm(forms.ModelForm):
             field = self.fields[fname]
             field.queryset = accounts.filter(account_type=acct_type)
             field.empty_label = "— System default"
+        self.company = company
+
+    def clean(self):
+        """Refuse the two edits that would break the inventory account.
+
+        Stock already on a shelf was debited to the product's inventory account
+        when it arrived, and goods received and not yet billed are standing on
+        the received-not-invoiced accrual against it. While either is so:
+
+        * turning stock tracking off would make those goods a service. Nothing
+          takes them off the shelf any more, a sale no longer costs them out,
+          and their bill charges them to expense — the inventory account keeps
+          their value for ever, with no stock behind it;
+        * moving the product to another inventory account would leave the old
+          account holding the value of the goods already there, while every
+          issue from now on credits the new one and drives it below nothing.
+
+        So both wait until the shelves are empty and every receipt is billed.
+        Sell, use or write off what is on hand (or bill what arrived) first.
+        """
+        cleaned = super().clean()
+        product = self.instance
+        if product._state.adding or not product.pk:
+            return cleaned
+        from apps.accounting.models import Account
+        from .models import Product, StockLevel
+
+        saved = Product.objects.filter(pk=product.pk).select_related("inventory_account").first()
+        if saved is None:
+            return cleaned
+        untracking = saved.track_inventory and not cleaned.get("track_inventory")
+        default = Account.objects.filter(company=saved.company, code="1400").first()
+        was = saved.inventory_account or default
+        now = cleaned.get("inventory_account") or default
+        moving = saved.track_inventory and (getattr(was, "pk", None) != getattr(now, "pk", None))
+        if not (untracking or moving):
+            return cleaned
+
+        levels = StockLevel.objects.filter(product=saved).exclude(quantity=0, value=0)
+        on_hand = sum((l.quantity for l in levels), Decimal("0"))
+        worth = sum((l.value for l in levels), Decimal("0"))
+        from apps.procurement.models import PurchaseOrderLine
+        unbilled = [l for l in PurchaseOrderLine.objects.filter(
+            product=saved, order__company=saved.company).exclude(
+            order__status="CANCELLED").select_related("order") if l.to_bill > 0]
+        if not (levels.exists() or unbilled):
+            return cleaned
+
+        from .numbers import money, qty as show_qty
+        reasons = []
+        if levels.exists():
+            reasons.append(f"{show_qty(on_hand)} {saved.unit_of_measure} worth "
+                           f"{money(worth)} is on hand")
+        if unbilled:
+            refs = ", ".join(sorted({l.order.reference for l in unbilled}))
+            reasons.append(f"goods received on {refs} have not been billed yet")
+        why = " and ".join(reasons)
+        if untracking:
+            self.add_error(
+                "track_inventory",
+                f"{saved.name} cannot stop being stock-tracked while {why}: those goods "
+                "would be left on the inventory account as if they were a service. "
+                "Sell, use or write off the stock and bill what arrived first, then "
+                "turn tracking off.")
+        else:
+            self.add_error(
+                "inventory_account",
+                f"{saved.name} cannot move to {now.code if now else 'another account'} while "
+                f"{why}: the value already on {was.code if was else 'its account'} would stay "
+                "there while every issue from now on came off the new account. Use, sell "
+                "or write off the stock and bill what arrived first, then change the "
+                "account.")
+        return cleaned
 
 
 class StockMovementForm(forms.ModelForm):

@@ -158,12 +158,18 @@ class WorkOrderCreateView(LoginRequiredMixin, CreateView):
         form.instance.company = self.request.active_company
         wo = form.save(commit=False)
         bom = wo.bom
-        if not bom.production_quantity:
-            form.add_error("bom", f"{bom.name} does not say how much one run produces, "
-                                  "so its requirements cannot be scaled.")
+        if not bom.production_quantity or bom.production_quantity <= 0:
+            form.add_error("bom", f"{bom.name} does not say how much one run produces "
+                                  "(it must be more than zero), so its requirements cannot "
+                                  "be scaled. Correct the bill of materials first.")
             return self.form_invalid(form)
         ratio = wo.planned_quantity / bom.production_quantity
         lines = list(bom.lines.select_related("component__unit_of_measure", "unit_of_measure"))
+        if not lines:
+            form.add_error("bom", f"{bom.name} lists no materials, so an order made from it "
+                                  "would put stock on the shelf from nothing. Add its "
+                                  "components first.")
+            return self.form_invalid(form)
         # Check the whole recipe converts before anything is written: a line
         # counted in tonnes against a component kept in pieces has no plan.
         planned_quantities = []
@@ -230,15 +236,38 @@ def work_order_complete(request, pk):
 
     A shelf that cannot cover the recipe stops the whole order: nothing is
     drawn, nothing is made, and the screen says which component is short.
+
+    Untracked inputs — labour, a subcontracted service — have no shelf and so
+    are never short. They are charged to work in progress at the cost price on
+    their product card (Dr 1450, Cr 5250 Production Costs Absorbed), so the
+    finished goods carry their labour as well as their materials. A finished
+    product that is not stock-tracked has no shelf to go on either: what went
+    into work in progress is expensed to its cost account on completion, so
+    1450 is empty again either way.
     """
-    from apps.accounting.gl_service import post_production_rounding
+    from apps.accounting.gl_service import (
+        post_production_absorption, post_production_rounding, post_untracked_output,
+    )
     from apps.accounting.models import to_base
     from apps.inventory.models import StockMovement
     from apps.inventory.numbers import UNIT_COST, fits
 
     wo = get_object_or_404(WorkOrder, pk=pk, company=request.active_company)
     if wo.status not in ("RELEASED", "IN_PROGRESS", "DRAFT"):
-        messages.error(request, "Work order cannot be completed in its current state.")
+        messages.error(
+            request,
+            f"Work order {wo.reference} is {wo.get_status_display().lower()}, so it cannot "
+            "be completed. Only a draft, released or in-progress order can.")
+        return redirect("manufacturing:work_order_detail", pk=pk)
+    if not wo.consumptions.filter(planned_quantity__gt=0).exists():
+        # Output with nothing drawn for it would be stock made from nothing:
+        # goods on the shelf, at no cost, that nobody bought or made.
+        messages.error(
+            request,
+            f"Work order {wo.reference} has no materials to draw — its recipe asks for "
+            "nothing — so completing it would put stock on the shelf from nothing. "
+            "Cancel it, and raise the order from a bill of materials that lists what "
+            "the product is made of.")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
     form = CompleteWorkOrderForm(request.POST)
@@ -263,20 +292,32 @@ def work_order_complete(request, pk):
                 if consumption.planned_quantity <= 0:
                     continue
                 current = consumption.product
-                # No cost is given: the shelf prices what it gives up.
-                issue = StockMovement.objects.create(
-                    product=consumption.product,
-                    warehouse=wo.warehouse,
-                    movement_type="PRODUCTION_OUT",
-                    quantity=consumption.planned_quantity,
-                    reference=wo.reference,
-                    movement_date=actual_end,
-                    performed_by=request.user,
-                    notes=f"Issued to {wo.reference}",
-                )
-                if consumption.product.track_inventory:
-                    # The figure work in progress was actually debited with.
-                    consumed += to_base(issue.quantity * issue.unit_cost, Decimal("1"))
+                if not consumption.product.track_inventory:
+                    # Labour or a service: nothing to take off a shelf, so no
+                    # stock check and no stock movement. Its cost goes into work
+                    # in progress at the price on its card.
+                    charged = to_base(consumption.planned_quantity
+                                      * (consumption.product.cost_price or Decimal("0")),
+                                      Decimal("1"))
+                    if post_production_absorption(
+                            wo.company, consumption.product, consumption.planned_quantity,
+                            charged, actual_end, wo.reference, user=request.user):
+                        consumed += charged
+                else:
+                    # No cost is given: the shelf prices what it gives up.
+                    issue = StockMovement.objects.create(
+                        product=consumption.product,
+                        warehouse=wo.warehouse,
+                        movement_type="PRODUCTION_OUT",
+                        quantity=consumption.planned_quantity,
+                        reference=wo.reference,
+                        movement_date=actual_end,
+                        performed_by=request.user,
+                        notes=f"Issued to {wo.reference}",
+                    )
+                    # The figure work in progress was actually debited with:
+                    # what the shelf's value fell by.
+                    consumed += to_base(issue.total_cost, Decimal("1"))
                 consumption.actual_quantity = consumption.planned_quantity
                 consumption.save(update_fields=["actual_quantity"])
 
@@ -287,25 +328,33 @@ def work_order_complete(request, pk):
                     f"{money(consumed)} of materials over {qty(actual_qty)} made is more per unit than "
                     "a stock record can hold — check the quantity made")
             unit_cost = unit_cost.quantize(Decimal("0.0001"))
-            output = StockMovement(
-                product=product,
-                warehouse=wo.warehouse,
-                movement_type="PRODUCTION_IN",
-                quantity=actual_qty,
-                unit_cost=unit_cost,
-                reference=wo.reference,
-                movement_date=actual_end,
-                performed_by=request.user,
-                notes=f"Made on {wo.reference}",
-            )
-            output.save()
-            if product.track_inventory and consumed > 0:
-                # The output's unit cost is held to four places, so its value can
-                # miss what went in by a cent or so. That residue is cleared to
-                # stock adjustments rather than left sitting in 1450.
-                made = to_base(actual_qty * unit_cost, Decimal("1"))
-                post_production_rounding(
-                    wo.company, consumed - made, actual_end, wo.reference, user=request.user)
+            if product.track_inventory:
+                output = StockMovement(
+                    product=product,
+                    warehouse=wo.warehouse,
+                    movement_type="PRODUCTION_IN",
+                    quantity=actual_qty,
+                    unit_cost=unit_cost,
+                    reference=wo.reference,
+                    movement_date=actual_end,
+                    performed_by=request.user,
+                    notes=f"Made on {wo.reference}",
+                )
+                # The output comes onto the shelf at exactly what went into
+                # work in progress, not at quantity × a four-place unit cost
+                # that could miss it by a cent — so 1450 closes to nothing.
+                output.carried_value = consumed
+                output.save()
+                made = to_base(output.total_cost, Decimal("1"))
+                if consumed > 0 and made != consumed:
+                    post_production_rounding(
+                        wo.company, consumed - made, actual_end, wo.reference, user=request.user)
+            else:
+                # Nothing to put on a shelf: what was made is expensed now, and
+                # work in progress is emptied of what went into it.
+                post_untracked_output(
+                    wo.company, product, actual_qty, consumed, actual_end, wo.reference,
+                    user=request.user)
 
             wo.actual_quantity = actual_qty
             wo.actual_end = actual_end

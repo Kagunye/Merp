@@ -8,25 +8,26 @@
     <h1 class="text-2xl font-bold text-gray-900">{{ wo.reference }}</h1>
   </div>
   <div class="flex items-center gap-2">
-    {% if wo.status == 'DRAFT' %}
+    {% can_do "manufacturing:work_order_release" "POST" as may_release %}{% can_do "manufacturing:work_order_start" "POST" as may_start %}{% can_do "manufacturing:work_order_complete" "POST" as may_complete %}{% can_do "manufacturing:work_order_cancel" "POST" as may_cancel %}
+    {% if wo.status == 'DRAFT' and may_release %}
     <form method="post" action="{% url 'manufacturing:work_order_release' wo.pk %}">
       {% csrf_token %}
       <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Release</button>
     </form>
     {% endif %}
-    {% if wo.status == 'RELEASED' %}
+    {% if wo.status == 'RELEASED' and may_start %}
     <form method="post" action="{% url 'manufacturing:work_order_start' wo.pk %}">
       {% csrf_token %}
       <button type="submit" class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700">Start Production</button>
     </form>
     {% endif %}
-    {% if wo.status == 'RELEASED' or wo.status == 'IN_PROGRESS' or wo.status == 'DRAFT' %}
+    {% if may_complete and wo.status == 'RELEASED' or may_complete and wo.status == 'IN_PROGRESS' or may_complete and wo.status == 'DRAFT' %}
     <button type="button" onclick="document.getElementById('complete-modal').classList.remove('hidden')"
             class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-green-600 hover:bg-green-700">
       Complete
     </button>
     {% endif %}
-    {% if wo.status != 'COMPLETED' and wo.status != 'CANCELLED' %}
+    {% if wo.status != 'COMPLETED' and wo.status != 'CANCELLED' and may_cancel %}
     <form method="post" action="{% url 'manufacturing:work_order_cancel' wo.pk %}" onsubmit="return confirm('Cancel this work order?');">
       {% csrf_token %}
       <button type="submit" class="px-4 py-2 rounded-lg text-sm text-red-700 bg-red-50 border border-red-200 hover:bg-red-100">Cancel</button>
@@ -83,6 +84,7 @@
 </div>
 
 <!-- Complete Modal -->
+{% if may_complete %}
 <div id="complete-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
   <div class="bg-white rounded-xl p-6 w-96 shadow-xl">
     <h3 class="text-lg font-semibold text-gray-900 mb-4">Complete Work Order</h3>
@@ -106,4 +108,5 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endblock %}

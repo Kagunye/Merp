@@ -13,6 +13,7 @@ urlpatterns = [
          name="requisition_line_delete"),
     path("requisitions/<uuid:pk>/submit/", views.requisition_submit, name="requisition_submit"),
     path("requisitions/<uuid:pk>/order/", views.requisition_to_po, name="requisition_to_po"),
+    path("requisitions/<uuid:pk>/cancel/", views.requisition_cancel, name="requisition_cancel"),
     path("orders/<uuid:pk>/grn/", views.GRNView.as_view(), name="grn"),
     path("orders/<uuid:pk>/grn/record/", views.grn_record, name="grn_record"),
     path("orders/<uuid:pk>/lines/add/", views.po_line_add, name="po_line_add"),

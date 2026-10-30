@@ -38,13 +38,14 @@
     </div>
     <div>
       <label for="id_gl_account" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Paid from</label>
-      <select id="id_gl_account" name="gl_account" class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm">
-        {% for acc in cash_accounts %}<option value="{{ acc.pk }}">{{ acc.code }} — {{ acc.name }}</option>{% endfor %}
+      <select id="id_gl_account" name="gl_account" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        <option value="" {% if not main_bank %}selected{% endif %}>— Choose the account paid from</option>
+        {% for acc in cash_accounts %}<option value="{{ acc.pk }}" {% if main_bank and acc.pk == main_bank.pk %}selected{% endif %}>{{ acc.code }} — {{ acc.name }}{% if acc.account_type == 'CASH' %} (cash){% endif %}</option>{% endfor %}
       </select>
     </div>
     <div>
       <label for="id_payment_date" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Value date</label>
-      <input id="id_payment_date" type="date" name="payment_date" value="{{ today|date:'Y-m-d' }}" class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+      <input id="id_payment_date" type="date" name="payment_date" value="{{ today|date:'Y-m-d' }}" min="{{ bill.bill_date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}" class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
     </div>
     <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Payment</button>
   </form>

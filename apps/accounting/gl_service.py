@@ -1539,6 +1539,20 @@ def post_bill(bill, user=None) -> JournalEntry:
             "GL posting failed: Inventory/Asset account (code 1400) not found."
         )
 
+    if (bill.purchase_order_id and not bill.total_amount and not bill.accrual_to_clear
+            and not any(Decimal(str(row.get("amount") or "0"))
+                        for row in (bill.direct_charges or []))):
+        # Free goods: the order priced them at nothing, the receipt accrued
+        # nothing, and the supplier asks for nothing. There is no money to
+        # book — a journal with no lines is not an entry — but the bill still
+        # answers the order, so it is marked as posted and settled with no
+        # journal, clears the (zero) accrual and lets the order finish.
+        from apps.procurement.models import Bill as _Bill
+        _Bill.objects.filter(pk=bill.pk).update(status="PAID", accrued_cleared=Decimal("0"))
+        bill.status = "PAID"
+        bill.accrued_cleared = Decimal("0")
+        return None
+
     rate = bill.rate
     total_base = bill.total_amount_base or to_base(bill.total_amount, rate)
 
@@ -1709,9 +1723,24 @@ def _movement_value(movement) -> Decimal:
     six — more precision than money carries. Rounding once here, and using that
     one figure for both sides of the entry, is what keeps a stock posting
     balanced instead of differing by a fraction of a cent.
+
+    Goods priced on the way in — a receipt, opening stock, a count surplus, a
+    customer's return — are worth quantity × unit cost, rounded once. Goods
+    leaving the shelf, and goods arriving with a value carried from where they
+    left (production output), are worth the figure the stock level moved by,
+    which the movement records as its total: the shelf's value before less its
+    value after. That is what keeps the inventory account equal to the stock
+    valuation to the cent, and what lets the last unit out take whatever value
+    the shelf has left rather than a cent more or less.
     """
-    return to_base((movement.quantity or Decimal("0"))
-                   * (movement.unit_cost or Decimal("0")), Decimal("1"))
+    if movement.movement_type in PRICED_IN:
+        return to_base((movement.quantity or Decimal("0"))
+                       * (movement.unit_cost or Decimal("0")), Decimal("1"))
+    return to_base(movement.total_cost or Decimal("0"), Decimal("1"))
+
+
+# Movements in whose value is quantity × the price they arrived at.
+PRICED_IN = ("RECEIPT", "OPENING", "ADJUSTMENT_PLUS", "RETURN_IN")
 
 
 def _qty_text(quantity) -> str:
@@ -1851,6 +1880,75 @@ def post_production_rounding(company, difference, date, reference, user=None) ->
     else:
         _dr(je, wip, -difference, f"Work in progress cleared: {reference}")
         _cr(je, adjust, -difference, f"Rounding on {reference}")
+    je.post(user=user)
+    return je
+
+
+# Where the cost of labour and other untracked inputs is credited when a work
+# order takes it into work in progress. The bill for the labour was charged to
+# the service's own expense account; absorbing it moves that cost onto the
+# product being made, and this account shows how much was moved.
+ABSORBED = ("5250", "Production Costs Absorbed", "COST_OF_GOODS", "5000")
+
+
+@transaction.atomic
+def post_production_absorption(company, product, quantity, amount, date, reference,
+                               user=None) -> Optional[JournalEntry]:
+    """Charge an untracked input of a work order — labour, a service — to WIP.
+
+    DR Work In Progress (1450)            quantity × the input's cost price
+    CR Production Costs Absorbed (5250)   the same
+
+    Nothing untracked is kept on a shelf, so there is no stock to draw and no
+    shelf average to price it at: its cost is the cost price on its product
+    card, and it is never short. Charging it to work in progress puts the
+    labour into what the finished goods cost, exactly as the materials are;
+    the credit sits against the expense the labour was billed to, so the
+    profit and loss account carries the labour once, through the goods sold.
+    An input with no cost price costs the order nothing and books nothing.
+    """
+    amount = to_base(amount or Decimal("0"), Decimal("1"))
+    if amount <= 0:
+        return None
+    je = _new_je(
+        company, "JE-WIP-", "STOCK_ADJUSTMENT", date,
+        f"{product.name} charged to {reference}",
+    )
+    count = _qty_text(quantity)
+    _dr(je, ensure_account(company, *WIP), amount,
+        f"{product.name} × {count} charged to {reference}")
+    _cr(je, ensure_account(company, *ABSORBED), amount,
+        f"Absorbed into production: {product.name} × {count}")
+    je.post(user=user)
+    return je
+
+
+@transaction.atomic
+def post_untracked_output(company, product, quantity, amount, date, reference,
+                          user=None) -> Optional[JournalEntry]:
+    """Empty work in progress for a finished product that is not kept on a shelf.
+
+    DR the product's cost account (or 5000)   what went into the work order
+    CR Work In Progress (1450)                the same
+
+    A product that is not stock-tracked has no shelf for the output to go on,
+    so the stock movement that would normally move work in progress into
+    inventory books nothing — and 1450 was left holding the materials for
+    ever. The goods are used or delivered as they are made, so what they cost
+    is an expense the day the order is completed, charged where the product
+    says it is expensed.
+    """
+    amount = to_base(amount or Decimal("0"), Decimal("1"))
+    if amount <= 0:
+        return None
+    _inventory, cogs = _stock_accounts(company, product)
+    je = _new_je(
+        company, "JE-WIP-", "STOCK_ADJUSTMENT", date,
+        f"Untracked output of {reference}: {product.name}",
+    )
+    count = _qty_text(quantity)
+    _dr(je, cogs, amount, f"Made and expensed: {product.name} × {count}")
+    _cr(je, ensure_account(company, *WIP), amount, f"Work in progress cleared: {reference}")
     je.post(user=user)
     return je
 

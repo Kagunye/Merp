@@ -325,14 +325,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 warehouse__company=company,
                 quantity__lte=F("product__reorder_level"),
             ).count()
-            inventory_value = StockLevel.objects.filter(
-                warehouse__company=company,
-            ).aggregate(
-                total=Sum(ExpressionWrapper(
-                    F("quantity") * F("product__cost_price"),
-                    output_field=DecimalField(),
-                ))
-            )["total"] or Decimal("0")
+            # The value each shelf carries, which is what the inventory account
+            # holds — not quantity × the price on the product card, which is
+            # only a guess at the next purchase.
+            from apps.inventory.models import stock_valuation
+            inventory_value = stock_valuation(company)
         except Exception:
             total_products = 0
             low_stock = 0

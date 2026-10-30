@@ -23,6 +23,12 @@ class PurchaseRequisition(BaseModel, NotesMixin):
         "accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_requisitions"
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    # Who sent it to the approver. Approving is a second person's check on
+    # the spending, so neither the person it was raised for nor the person
+    # who put it forward may be the one who agrees to it.
+    submitted_by = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="submitted_requisitions")
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
 
     class Meta:
@@ -30,6 +36,21 @@ class PurchaseRequisition(BaseModel, NotesMixin):
 
     def __str__(self):
         return self.reference
+
+    # How each state reads in a sentence ("Requisition PR-00001 is ..."): the
+    # status labels are headings, and "is po created" is not English.
+    STATE_PHRASES = {
+        "DRAFT": "still a draft",
+        "PENDING_APPROVAL": "waiting for approval",
+        "APPROVED": "approved",
+        "REJECTED": "rejected",
+        "PO_CREATED": "already on a purchase order",
+        "CANCELLED": "cancelled",
+    }
+
+    @property
+    def state_phrase(self):
+        return self.STATE_PHRASES.get(self.status, self.get_status_display().lower())
 
 
 class PurchaseRequisitionLine(models.Model):
@@ -80,6 +101,23 @@ class PurchaseOrder(BaseModel, NotesMixin):
 
     def __str__(self):
         return self.reference
+
+    # How each state reads in a sentence ("PO PO-00001 ..."): the status labels
+    # are column headings, and "is Closed short: send it to the supplier" is
+    # neither English nor true.
+    STATE_PHRASES = {
+        "DRAFT": "is still a draft",
+        "SENT": "has been sent to the supplier",
+        "PARTIALLY_RECEIVED": "is part received",
+        "FULLY_RECEIVED": "has been received in full",
+        "BILLED": "has been received and billed in full",
+        "CLOSED": "was closed short",
+        "CANCELLED": "was cancelled",
+    }
+
+    @property
+    def state_phrase(self):
+        return self.STATE_PHRASES.get(self.status, f"is {self.get_status_display().lower()}")
 
     def clean(self):
         from apps.accounting.currency import stamp_document
@@ -234,6 +272,14 @@ class Bill(BaseModel, NotesMixin):
     # their cost fall into purchase price variance. Filled in by "Bill this
     # order" from the order's own lines.
     direct_charges = models.JSONField(default=list, blank=True)
+    # The order quantities this bill was raised for, one row per order line:
+    # [{"line": <PurchaseOrderLine pk>, "quantity": "<qty>"}]. An order can be
+    # billed in parts, so the order line's billed figure is the sum of several
+    # bills; cancelling one of them has to hand back exactly its own part and
+    # no more. Without this record the cancelled bill's share could not be
+    # told from the others', and the order was left showing goods as billed
+    # that no live bill answers, with their accrual stranded on 2110.
+    billed_lines = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["-bill_date", "-created_at"]

@@ -108,7 +108,11 @@ class BillCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         bill.company = company
         if not bill.reference:
             from apps.core.models import SequenceCounter
+            # The next number in the series, skipping any a bookkeeper already
+            # typed by hand: references are unique within the company.
             bill.reference = SequenceCounter.next_number(company, "BILL-")
+            while Bill.objects.filter(company=company, reference__iexact=bill.reference).exists():
+                bill.reference = SequenceCounter.next_number(company, "BILL-")
         bill.save()
         self.object = bill
         if not may_post_bills(self.request):
@@ -152,10 +156,15 @@ class BillDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"Bill: {self.object.reference}"
         from apps.accounting.models import Account
-        ctx["cash_accounts"] = Account.objects.filter(
-            company=self.request.active_company, account_type__in=["BANK", "CASH"],
-            is_active=True,
-        ).order_by("code")
+        company = self.request.active_company
+        # Bank accounts first, and the main one chosen: suppliers are paid by
+        # transfer or cheque. The till's cash is still on the list, below them,
+        # for the rare payment made over the counter — but only on purpose.
+        accounts = Account.objects.filter(
+            company=company, account_type__in=["BANK", "CASH"], is_active=True)
+        ctx["cash_accounts"] = (list(accounts.filter(account_type="BANK").order_by("code"))
+                                + list(accounts.filter(account_type="CASH").order_by("code")))
+        ctx["main_bank"] = main_bank_account(company)
         ctx["today"] = datetime.date.today()
         return ctx
 
@@ -504,12 +513,21 @@ class PurchaseRequisitionCreateView(LoginRequiredMixin, CompanyRequiredMixin, Cr
             Department.objects.filter(company=company) if company else Department.objects.none())
         if company and not form.is_bound:
             from apps.core.models import SequenceCounter
-            form.fields["reference"].initial = SequenceCounter.next_number(company, "PR-")
+            # A preview only, as on the order form: the number is taken when
+            # the requisition is saved (claim_number), so opening this form and
+            # walking away leaves no gap in the PR- series.
+            form.fields["reference"].initial = SequenceCounter.peek_number(company, "PR-")
         return form
 
     def form_valid(self, form):
-        form.instance.company = self.request.active_company
+        from apps.core.models import SequenceCounter
+        company = self.request.active_company
+        form.instance.company = company
         form.instance.requested_by = self.request.user
+        form.instance.reference = SequenceCounter.claim_number(
+            company, "PR-", form.instance.reference,
+            taken=lambda ref: PurchaseRequisition.objects.filter(
+                company=company, reference=ref).exists())
         messages.success(
             self.request,
             f"Purchase requisition {form.instance.reference} created as a draft. Add what "
@@ -548,7 +566,10 @@ class PurchaseRequisitionDetailView(LoginRequiredMixin, DetailView):
         # Only the buttons this person may press are shown: approving is not
         # the requester's job, and a button that answers "not allowed" teaches
         # nobody anything.
-        ctx["can_decide"] = access.can(user, role, "procurement", "requisition_approve", "POST")
+        # Nor is approving one's own request (requisition_approve refuses it).
+        ctx["can_decide"] = (
+            access.can(user, role, "procurement", "requisition_approve", "POST")
+            and user.pk not in {self.object.requested_by_id, self.object.submitted_by_id})
         ctx["can_raise_po"] = access.can(user, role, "procurement", "requisition_to_po", "POST")
         ctx["can_edit"] = access.can(user, role, "procurement", "requisition_submit", "POST")
         return ctx
@@ -569,10 +590,17 @@ def _requisition_total(req):
 @login_required
 @require_POST
 def requisition_line_add(request, pk):
-    """Add one thing to a draft requisition: a product, or a described item.
+    """Add one product to a draft requisition.
 
     A requisition is changed only while it is a draft. Once it is with the
     approver, what they approve has to be what they were shown.
+
+    Every line names a product. A requisition exists to become a purchase
+    order, and an order line is a product the goods receipt can put on a shelf
+    (or a service the bill can charge to its account); a line that only
+    describes something could be approved and then never ordered, leaving the
+    whole requisition stuck. Something the company has never bought is added
+    as a product first — a service, if it is not kept in stock.
     """
     from apps.inventory.models import Product
     from apps.organizations.models import Warehouse
@@ -583,22 +611,23 @@ def requisition_line_add(request, pk):
     if req.status != "DRAFT":
         messages.error(
             request,
-            f"Requisition {req.reference} is {req.get_status_display().lower()}, so its "
+            f"Requisition {req.reference} is {req.state_phrase}, so its "
             "lines can no longer change. Only a draft can be edited.")
         return back
 
-    product = None
     raw_product = request.POST.get("product") or ""
-    if raw_product:
-        product = pick(Product.objects.filter(company=req.company, is_active=True), raw_product)
-        if not product:
-            messages.error(request, "Choose a product from this company, or leave it blank "
-                                    "and describe the item.")
-            return back
-    description = (request.POST.get("description") or "").strip() or (product.name if product else "")
-    if not description:
-        messages.error(request, "Choose a product or describe what is needed.")
+    product = pick(Product.objects.filter(company=req.company, is_active=True), raw_product)
+    if not product:
+        typed = (request.POST.get("description") or "").strip()
+        messages.error(
+            request,
+            ("Choose a product from this company for each line"
+             + (f" — “{typed[:60]}” names none" if typed else "")
+             + ". A line with no product could be approved but never ordered. If it is "
+             "something new, add it as a product first (a service if it is not kept in "
+             "stock), then add it here."))
         return back
+    description = (request.POST.get("description") or "").strip() or product.name
     try:
         quantity = typed_number(request.POST.get("quantity"), "Quantity", QUANTITY)
         cost = typed_number(request.POST.get("estimated_unit_cost"), "Estimated unit cost",
@@ -640,7 +669,7 @@ def requisition_line_delete(request, pk, line_pk):
     line = get_object_or_404(PurchaseRequisitionLine, pk=line_pk, requisition=req)
     if req.status != "DRAFT":
         messages.error(request, f"Requisition {req.reference} is "
-                                f"{req.get_status_display().lower()}; only a draft can change.")
+                                f"{req.state_phrase}; only a draft can change.")
     else:
         line.delete()
         _requisition_total(req)
@@ -658,16 +687,26 @@ def requisition_submit(request, pk):
     here, once, so the approver sees the figure they are agreeing to.
     """
     req = _requisition_for(request, pk)
+    loose = list(req.lines.filter(product__isnull=True).values_list("description", flat=True))
     if req.status != "DRAFT":
         messages.error(request, f"Requisition {req.reference} is "
-                                f"{req.get_status_display().lower()}; only a draft can be submitted.")
+                                f"{req.state_phrase}; only a draft can be submitted.")
     elif not req.lines.exists():
         messages.error(request, f"Requisition {req.reference} has nothing on it. Add at least "
                                 "one line before submitting it for approval.")
+    elif loose:
+        # Lines entered before every line had to name a product: approved,
+        # they could never be ordered.
+        messages.error(
+            request,
+            f"Requisition {req.reference} has lines that name no product ("
+            + ", ".join(loose) + "), so it could be approved but never ordered. Remove "
+            "them and add the products instead, then submit it.")
     else:
         total = _requisition_total(req)
         req.status = "PENDING_APPROVAL"
-        req.save(update_fields=["status", "updated_at"])
+        req.submitted_by = request.user
+        req.save(update_fields=["status", "submitted_by", "updated_at"])
         messages.success(request, f"Requisition {req.reference} submitted for approval "
                                   f"(estimated {money(total)}).")
     return redirect("procurement:requisition_detail", pk=pk)
@@ -703,13 +742,22 @@ def po_line_add(request, pk):
 
     The header totals are whatever the lines say they are, so they are not
     typed in beside them — a bill must be able to trust the order it came from.
+
+    Lines change only while the order is a draft. Once it has gone to the
+    supplier, the order is what the supplier was asked for: the goods receipt
+    measures what arrived against it and the bill what is owed. A line added
+    to an order already received in full re-opened it with nothing coming to
+    close it, and a line added after sending was a promise the supplier never
+    saw. Anything more is ordered on a new purchase order.
     """
-    from apps.core.models import SequenceCounter
     from apps.inventory.models import Product
 
     po = get_object_or_404(PurchaseOrder, pk=pk, company=request.active_company)
-    if po.status in ("BILLED", "CLOSED", "CANCELLED"):
-        messages.error(request, f"PO {po.reference} is {po.get_status_display()}, cannot add lines.")
+    if po.status != "DRAFT":
+        messages.error(
+            request,
+            f"PO {po.reference} {po.state_phrase}, so its lines can no longer change — "
+            "only a draft order can be edited. Raise a new purchase order for anything more.")
         return redirect("procurement:po_detail", pk=pk)
 
     product = pick(Product.objects.filter(company=po.company, is_active=True),
@@ -763,9 +811,21 @@ def po_line_add(request, pk):
 @login_required
 @require_POST
 def po_line_delete(request, pk, line_pk):
+    """Take a line off a purchase order — while it is still a draft.
+
+    Like adding one (po_line_add), removing a line once the order has gone to
+    the supplier would make the order say something other than what was asked
+    for and what the receipt and the bill are measured against.
+    """
     po = get_object_or_404(PurchaseOrder, pk=pk, company=request.active_company)
     line = get_object_or_404(PurchaseOrderLine, pk=line_pk, order=po)
-    if line.received_quantity > 0 or line.billed_quantity > 0:
+    if po.status != "DRAFT":
+        messages.error(
+            request,
+            f"PO {po.reference} {po.state_phrase}, so its lines can no longer change — "
+            "only a draft order can be edited. Cancel the order (if nothing has arrived "
+            "on it) or close it short instead.")
+    elif line.received_quantity > 0 or line.billed_quantity > 0:
         messages.error(
             request,
             f"Cannot remove {line.product.name}: goods have been received or billed "
@@ -795,10 +855,15 @@ def grn_record(request, pk):
     po = get_object_or_404(
         PurchaseOrder.objects.filter(company=request.active_company).select_related("warehouse"), pk=pk)
     if po.status not in ("SENT", "PARTIALLY_RECEIVED", "FULLY_RECEIVED"):
-        messages.error(
-            request,
-            f"PO {po.reference} is {po.get_status_display()}: send it to the supplier "
-            "before receiving anything against it.")
+        hint = {
+            "DRAFT": "Send it to the supplier before receiving anything against it.",
+            "CLOSED": "Nothing more is expected on it. Raise a new order for anything "
+                      "that still arrives.",
+            "CANCELLED": "Nothing can be received against it. Raise a new order for "
+                         "anything that arrives.",
+            "BILLED": "Everything on it has arrived and been billed already.",
+        }.get(po.status, "")
+        messages.error(request, f"PO {po.reference} {po.state_phrase}. {hint}".strip())
         return redirect("procurement:po_detail", pk=pk)
 
     warehouse = po.warehouse
@@ -946,13 +1011,19 @@ def po_to_bill(request, pk):
                   for pk, (amount, names) in charges.items()
                   if amount.quantize(Decimal("0.01"))]
 
+        reference = SequenceCounter.next_number(po.company, "BILL-")
+        while Bill.objects.filter(company=po.company, reference__iexact=reference).exists():
+            reference = SequenceCounter.next_number(po.company, "BILL-")
         bill = Bill(
             company=po.company, supplier=po.supplier, purchase_order=po,
-            reference=SequenceCounter.next_number(po.company, "BILL-"),
+            reference=reference,
             bill_date=today, due_date=today + datetime.timedelta(days=30),
             currency=po.currency, exchange_rate=po.exchange_rate,
             subtotal=subtotal, tax_amount=tax, total_amount=subtotal + tax,
             accrual_to_clear=accrual, direct_charges=direct,
+            # Exactly which quantities this bill takes off the order, so that
+            # cancelling it can hand back its own part and nobody else's.
+            billed_lines=[{"line": l.pk, "quantity": str(q)} for l, q in outstanding],
             status="DRAFT", notes=f"Raised from PO {po.reference}",
         )
         if bill.currency != book_currency(po.company) and not bill.exchange_rate:
@@ -1198,26 +1269,44 @@ def bill_cancel(request, pk):
 def _release_billed_quantity(request, bill):
     """Give the order back the quantities a cancelled bill had taken.
 
-    A bill is a header-level document — it records one total, not one figure per
-    ordered line — so its quantities can only be attributed back to the order
-    when it is the sole bill standing against that order. With two of them live,
-    which line each paid for is a guess, and a guessed quantity on an order is
-    how a third bill gets raised for goods already paid for. The ledger is
-    corrected either way; only the re-billing shortcut is withheld.
+    "Bill this order" records on each bill exactly which order lines it took
+    and how much of each (Bill.billed_lines), so cancelling one bill of several
+    hands back its own quantities and nobody else's. The order can then be
+    billed again for them, and the accrual its receipt put up — which the
+    cancellation's reversing entry has stood back up on 2110, or which a draft
+    never cleared — is answered by that new bill instead of being stranded.
+
+    A bill raised before the quantities were recorded is a header-level
+    document with no per-line figures, so it can only be attributed back when
+    it is the sole bill standing against the order; with another live, which
+    line it paid for would be a guess, and a guessed quantity on an order is
+    how goods get billed twice. A debit note takes no quantities at all.
     """
     po = bill.purchase_order
-    if not po:
+    if not po or bill.original_bill_id:
         return
-    if po.bills.exclude(pk=bill.pk).exclude(status="CANCELLED").exists():
+    if bill.billed_lines:
+        lines = {l.pk: l for l in po.lines.select_for_update()}
+        for row in bill.billed_lines:
+            line = lines.get(row.get("line"))
+            if line is None:
+                continue
+            taken = Decimal(str(row.get("quantity") or "0"))
+            line.billed_quantity = max(
+                (line.billed_quantity or Decimal("0")) - taken, Decimal("0"))
+            line.save(update_fields=["billed_quantity"])
+    elif po.bills.exclude(pk=bill.pk).exclude(status="CANCELLED").filter(
+            original_bill__isnull=True).exists():
         messages.info(
             request,
             f"{po.reference} still has another bill against it, so its billed "
             "quantities were left as they are rather than guessed at.",
         )
         return
-    for line in po.lines.all():
-        line.billed_quantity = Decimal("0")
-        line.save(update_fields=["billed_quantity"])
+    else:
+        for line in po.lines.all():
+            line.billed_quantity = Decimal("0")
+            line.save(update_fields=["billed_quantity"])
     if po.status in ("BILLED", "CLOSED"):
         # The order is no longer finished (billed, or closed short with
         # everything that arrived billed): say what the quantities actually are,
@@ -1236,9 +1325,19 @@ def bill_post(request, pk):
         messages.info(request, "Bill is already posted to GL.")
     elif bill.status == "CANCELLED":
         messages.error(request, f"Cannot post {bill.reference}: the bill is cancelled.")
+    elif bill.status != "DRAFT":
+        # A free-goods bill settles its order with no journal at all (there is
+        # no money to book), so it is posted without an entry to point at.
+        messages.info(request, f"Bill {bill.reference} is already posted.")
     else:
         if _post_bill_to_gl(request, bill, request.user):
-            messages.success(request, f"Bill '{bill.reference}' posted to GL.")
+            if bill.journal_entry_id:
+                messages.success(request, f"Bill '{bill.reference}' posted to GL.")
+            else:
+                messages.success(
+                    request,
+                    f"Bill '{bill.reference}' is for nothing — the goods on it were free — "
+                    "so it settles the order with no journal entry and nothing to pay.")
     return redirect("procurement:bill_detail", pk=pk)
 
 
@@ -1267,18 +1366,19 @@ def bill_pay(request, pk):
             f"Cannot pay {bill.reference}: it is {bill.get_status_display().lower()}. "
             "Only a bill the supplier is still owed can take a payment.")
         return redirect("procurement:bill_detail", pk=pk)
+    # Read the way every other money box is read (apps/inventory/numbers.py):
+    # cents and nothing finer, no exponents, no thousands separators. Rounding
+    # 100.005 to the nearest even cent, or reading "1,250" as 1250, pays the
+    # supplier a figure nobody typed.
     try:
-        amount = Decimal(str(request.POST.get("amount") or "0").replace(",", "").strip())
-    except Exception:
-        amount = None
-    # The ledger holds 13 digits before the point; anything past that, or not a
-    # number at all, is a typing slip rather than a payment.
-    if amount is None or not amount.is_finite() or abs(amount) >= Decimal("1e13"):
-        messages.error(request, "Invalid amount.")
+        amount = typed_number(request.POST.get("amount"), "Payment amount", MONEY)
+    except ValidationError as exc:
+        messages.error(request, f"{exc.messages[0]} Enter the amount paid, in "
+                                f"{bill.currency}, to the cent.")
         return redirect("procurement:bill_detail", pk=pk)
-    amount = amount.quantize(Decimal("0.01"))
-    if amount <= 0:
-        messages.error(request, "Payment amount must be positive.")
+    if amount is None:
+        messages.error(request, f"Enter the amount paid, in {bill.currency}, a number "
+                                "greater than zero.")
         return redirect("procurement:bill_detail", pk=pk)
     if amount > bill.outstanding_amount:
         messages.error(request, f"Payment ({money(amount)} {bill.currency}) exceeds outstanding "
@@ -1289,6 +1389,10 @@ def bill_pay(request, pk):
     ap = Account.objects.filter(company=company, account_type="PAYABLE", is_active=True).order_by("code").first()
 
     # The cash side is chosen, not guessed: money leaves a specific account.
+    # A request that names none is paid from the company's main bank account
+    # — never from whichever cash account happens to have the lowest code,
+    # which is the till (1100): a supplier is not paid out of the shop drawer
+    # unless somebody chose that on purpose.
     bank = None
     raw_bank = request.POST.get("gl_account") or ""
     if raw_bank:
@@ -1298,28 +1402,48 @@ def bill_pay(request, pk):
             messages.error(request, "That payment account does not belong to this company.")
             return redirect("procurement:bill_detail", pk=pk)
     else:
-        bank = Account.objects.filter(
-            company=company, account_type__in=["BANK", "CASH"], is_active=True
-        ).order_by("code").first()
-    if not (ap and bank):
-        messages.error(request, "Chart of accounts missing a Payable or Bank/Cash account.")
+        bank = main_bank_account(company)
+        if bank is None:
+            messages.error(
+                request,
+                "Choose the account the payment was made from under “Paid from”. This "
+                "company has no bank account in its chart, so none is assumed — paying "
+                "from a cash account has to be chosen on purpose.")
+            return redirect("procurement:bill_detail", pk=pk)
+    if not ap:
+        messages.error(request, "The chart of accounts has no Accounts Payable account "
+                                "(2100). Add one before paying suppliers.")
         return redirect("procurement:bill_detail", pk=pk)
 
-    payment_date = datetime.date.today()
+    today = datetime.date.today()
+    payment_date = today
     raw_date = request.POST.get("payment_date") or ""
     if raw_date:
         try:
             payment_date = datetime.datetime.strptime(raw_date, "%Y-%m-%d").date()
         except ValueError:
-            messages.error(request, "Payment date must be a real date.")
+            messages.error(request, "Payment date must be a real date (YYYY-MM-DD).")
             return redirect("procurement:bill_detail", pk=pk)
+    # Money cannot leave before the bill it pays was issued, nor on a day that
+    # has not happened yet: a payment is a record of what the bank did.
+    if payment_date < bill.bill_date:
+        messages.error(
+            request,
+            f"The payment date ({payment_date:%d %b %Y}) is before {bill.reference} was "
+            f"issued ({bill.bill_date:%d %b %Y}). Enter the day the money actually left.")
+        return redirect("procurement:bill_detail", pk=pk)
+    if payment_date > today:
+        messages.error(
+            request,
+            f"The payment date ({payment_date:%d %b %Y}) is in the future. Record the "
+            "payment on the day the money leaves the account.")
+        return redirect("procurement:bill_detail", pk=pk)
 
     # Payables leave the book at the value the bill was raised at; the cash
     # goes out at the payment day's rate, and the gap between them is real money.
     from apps.accounting.currency import document_rate
     from apps.accounting.gl_service import _book_exchange_difference
     from apps.accounting.models import ExchangeRate, to_base
-    from django.core.exceptions import ValidationError
 
     try:
         bill_rate = document_rate(bill, bill.bill_date)
@@ -1387,7 +1511,24 @@ def bill_pay(request, pk):
         bill.save(update_fields=["paid_amount", "outstanding_amount", "status"])
     messages.success(request, f"Payment {money(amount)} {bill.currency} recorded for "
                               f"{bill.reference}. GL entry {je.reference} posted.")
+    if je.calendar_warning:
+        # Allowed, but said out loud: a payment dated into a closed period or
+        # outside any period needs a second look.
+        messages.warning(request, je.calendar_warning)
     return redirect("procurement:bill_detail", pk=pk)
+
+
+def main_bank_account(company):
+    """The account a supplier is paid from when the form names none.
+
+    The company's main bank account: the lowest-coded active BANK account
+    (1200 in the standard chart). Never a CASH account — the lowest-coded of
+    those is the till float (1100) — so with no bank account at all there is
+    no default, and the person paying has to choose.
+    """
+    from apps.accounting.models import Account
+    return Account.objects.filter(
+        company=company, account_type="BANK", is_active=True).order_by("code").first()
 
 
 @login_required
@@ -1429,9 +1570,24 @@ def po_cancel(request, pk):
             "it. Bill what arrived with \"Bill this order\", then use \"Close short\" "
             "if the rest of the order is never coming.")
     else:
-        po.status = "CANCELLED"
-        po.save(update_fields=["status", "updated_at"])
-        messages.success(request, f"PO {po.reference} cancelled.")
+        with transaction.atomic():
+            po.status = "CANCELLED"
+            po.save(update_fields=["status", "updated_at"])
+            # The need the order answered has not gone away because the order
+            # did: the requisition goes back to approved, so it can be ordered
+            # again (from another supplier, say) or cancelled, instead of
+            # sitting on "PO created" with no live order behind it.
+            req = po.requisition
+            reopened = False
+            if (req is not None and req.status == "PO_CREATED"
+                    and not req.purchaseorder_set.exclude(status="CANCELLED").exists()):
+                req.status = "APPROVED"
+                req.save(update_fields=["status", "updated_at"])
+                reopened = True
+        messages.success(
+            request, f"PO {po.reference} cancelled."
+            + (f" Requisition {req.reference} is approved again and can be ordered anew."
+               if reopened else ""))
     return redirect("procurement:po_detail", pk=pk)
 
 
@@ -1498,13 +1654,29 @@ def po_close_short(request, pk):
 @login_required
 @require_POST
 def requisition_approve(request, pk):
+    """Agree to a submitted requisition: PENDING_APPROVAL -> APPROVED.
+
+    Approval is a second person's check on spending the company's money, so
+    it is refused to the person the requisition was raised for and to the
+    person who submitted it — whatever their role. A finance manager who
+    needs something buys it through somebody else's approval like anyone.
+    """
     req = _requisition_for(request, pk)
+    user = request.user
+    own = user.pk in {req.requested_by_id, req.submitted_by_id}
     if req.status != "PENDING_APPROVAL":
         messages.error(
             request,
-            f"Requisition {req.reference} is {req.get_status_display().lower()}: only a "
+            f"Requisition {req.reference} is {req.state_phrase}: only a "
             "requisition submitted for approval can be approved."
             + (" Submit it first." if req.status == "DRAFT" else ""))
+    elif own:
+        messages.error(
+            request,
+            f"You cannot approve requisition {req.reference}: you "
+            + ("raised" if user.pk == req.requested_by_id else "submitted")
+            + " it, and nobody approves their own request to spend. Another approver "
+            "has to decide it.")
     else:
         from django.utils import timezone
         req.status = "APPROVED"
@@ -1528,12 +1700,37 @@ def requisition_reject(request, pk):
     if req.status != "PENDING_APPROVAL":
         messages.error(
             request,
-            f"Requisition {req.reference} is {req.get_status_display().lower()}: only a "
+            f"Requisition {req.reference} is {req.state_phrase}: only a "
             "requisition waiting for approval can be rejected.")
     else:
         req.status = "REJECTED"
         req.save(update_fields=["status", "updated_at"])
         messages.success(request, f"Requisition {req.reference} rejected.")
+    return redirect("procurement:requisition_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def requisition_cancel(request, pk):
+    """Withdraw a requisition that is no longer needed: -> CANCELLED.
+
+    A draft, one waiting for approval, or one approved and not yet ordered can
+    be called off. One already on a purchase order is cancelled by cancelling
+    the order (which hands it back as approved); a rejected one has had its
+    answer already.
+    """
+    req = _requisition_for(request, pk)
+    if req.status not in ("DRAFT", "PENDING_APPROVAL", "APPROVED"):
+        hint = (" Cancel its purchase order first; that hands it back as approved."
+                if req.status == "PO_CREATED" else "")
+        messages.error(
+            request,
+            f"Requisition {req.reference} is {req.state_phrase}, so it cannot be "
+            f"cancelled.{hint}")
+    else:
+        req.status = "CANCELLED"
+        req.save(update_fields=["status", "updated_at"])
+        messages.success(request, f"Requisition {req.reference} cancelled.")
     return redirect("procurement:requisition_detail", pk=pk)
 
 
@@ -1548,7 +1745,7 @@ def requisition_to_po(request, pk):
     no product cannot go on an order — an order line is a product the goods
     receipt can put on a shelf — so every line has to name one first.
     """
-    from apps.accounting.currency import book_currency
+    from apps.accounting.currency import book_currency, stamp_document
     from apps.core.models import SequenceCounter
     from apps.crm.models import Supplier
 
@@ -1557,7 +1754,7 @@ def requisition_to_po(request, pk):
     if req.status != "APPROVED":
         messages.error(
             request,
-            f"Requisition {req.reference} is {req.get_status_display().lower()}: an order "
+            f"Requisition {req.reference} is {req.state_phrase}: an order "
             "is raised only from an approved requisition.")
         return back
     supplier = pick(Supplier.objects.filter(company=req.company, is_active=True),
@@ -1583,13 +1780,28 @@ def requisition_to_po(request, pk):
             messages.error(request, f"Requisition {req.reference} has already been ordered.")
             return back
         warehouse = next((l.warehouse for l in lines if l.warehouse_id), None)
-        po = PurchaseOrder.objects.create(
+        # Placed in the money the supplier is paid in, at the day's rate, as an
+        # order typed on the order form is. A dollar supplier's order raised in
+        # shillings would receive the goods at the dollar price read as
+        # shillings, and the bill raised from it would ask to pay that.
+        today = datetime.date.today()
+        po = PurchaseOrder(
             company=req.company, supplier=supplier, requisition=req,
-            reference=SequenceCounter.next_number(req.company, "PO-"),
-            order_date=datetime.date.today(), expected_delivery_date=req.required_date,
-            warehouse=warehouse, currency=book_currency(req.company),
+            order_date=today, expected_delivery_date=req.required_date,
+            warehouse=warehouse,
+            currency=(supplier.currency or book_currency(req.company)).upper(),
             notes=f"Raised from requisition {req.reference}",
         )
+        try:
+            stamp_document(po, today)
+        except ValidationError as exc:
+            messages.error(
+                request,
+                f"{supplier.name} is paid in {po.currency}: {exc.messages[0]} File the "
+                f"day's {po.currency} rate first, then raise the order.")
+            return back
+        po.reference = SequenceCounter.next_number(req.company, "PO-")
+        po.save()
         for line in lines:
             PurchaseOrderLine.objects.create(
                 order=po, product=line.product, description=line.description,
