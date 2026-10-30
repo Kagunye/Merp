@@ -60,6 +60,12 @@
       <span class="text-gray-600">Current year profit{% if current_year_profit < 0 %} (loss){% endif %}</span>
       <span class="font-mono text-gray-900">{{ current_year_profit|floatformat:2 }}</span>
     </div>
+    {% if earlier_unclosed_profit %}
+    <div class="flex justify-between text-sm py-1.5 italic">
+      <span class="text-gray-600" title="Posted before {{ current_year_start|date:'d M Y' }} and not yet closed by any year end: dated before the first fiscal year, or in a year still open.">Earlier profit not yet closed{% if earlier_unclosed_profit < 0 %} (loss){% endif %}</span>
+      <span class="font-mono text-gray-900">{{ earlier_unclosed_profit|floatformat:2 }}</span>
+    </div>
+    {% endif %}
     {% endif %}
     <div class="flex justify-between text-sm font-semibold border-t border-gray-200 pt-2 mt-2">
       <span>Total Equity</span><span class="font-mono">{{ total_equity|floatformat:2 }}</span>

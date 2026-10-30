@@ -182,3 +182,38 @@ def spread(foreign_amounts, rate, total_base):
                        key=lambda i: abs(foreign_amounts[i]))
         bases[heaviest] += residue
     return bases
+
+
+def rate_in_use(rate):
+    """The first posted entry translated at this filed rate, as text, or "".
+
+    A rate is in use from its own day until the next rate for the currency
+    takes over: every document dated in that stretch was converted at it, and
+    its journal carries the figure. Revaluations count too -- each share they
+    booked was priced at the rate of the revaluation's day.
+    """
+    from apps.accounting.models import JournalEntry, RevaluationShare
+
+    code = rate.currency.code
+    following = (ExchangeRate.objects
+                 .filter(company=rate.company, currency=rate.currency,
+                         effective_date__gt=rate.effective_date)
+                 .order_by("effective_date").values_list("effective_date", flat=True)
+                 .first())
+    window = {"posting_date__gte": rate.effective_date}
+    if following:
+        window["posting_date__lt"] = following
+    entry = (JournalEntry.objects
+             .filter(company=rate.company, status="POSTED", source_currency=code, **window)
+             .order_by("posting_date").first())
+    if entry:
+        return f"{entry.reference} ({entry.posting_date:%d %b %Y})"
+    share = (RevaluationShare.objects
+             .filter(revaluation__company=rate.company, revaluation__status="POSTED",
+                     currency=code,
+                     **{f"revaluation__{key}": value for key, value in window.items()})
+             .select_related("revaluation").order_by("revaluation__posting_date").first())
+    if share:
+        return (f"revaluation {share.revaluation.reference} "
+                f"({share.revaluation.posting_date:%d %b %Y})")
+    return ""

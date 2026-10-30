@@ -28,6 +28,8 @@
           {% csrf_token %}
           <button type="submit" class="px-3 py-1.5 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Reopen</button>
         </form>
+        {% elif fy.end_date > today %}
+        <span class="px-3 py-1.5 text-xs text-gray-400" title="A year is closed once it has ended.">Closes after {{ fy.end_date|date:"d M Y" }}</span>
         {% else %}
         <form method="post" action="{% url 'accounting:fiscal_year_close' fy.pk %}" onsubmit="return confirm('Close {{ fy.name }}? Every open period is closed and the year\'s result carried to retained earnings.');">
           {% csrf_token %}
@@ -48,7 +50,9 @@
           <td class="px-5 py-2 text-gray-600">{{ p.end_date|date:"d M Y" }}</td>
           <td class="px-5 py-2"><span class="badge {% if p.status == 'OPEN' %}bg-blue-50 text-blue-700{% elif p.status == 'CLOSED' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ p.get_status_display }}</span></td>
           <td class="px-5 py-2 text-right">
-            {% if p.status == 'OPEN' %}
+            {% if p.status == 'OPEN' and p.end_date > today %}
+            <span class="text-xs text-gray-400" title="A period is closed once it has ended.">Open until {{ p.end_date|date:"d M" }}</span>
+            {% elif p.status == 'OPEN' %}
             <form method="post" action="{% url 'accounting:period_close' p.pk %}" class="inline" onsubmit="return confirm('Close {{ p.name }}? Its revenue and expenses move to current year profit in a closing entry.');">
               {% csrf_token %}<button type="submit" class="text-xs text-amber-700 hover:underline">Close</button>
             </form>

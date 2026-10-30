@@ -1,7 +1,22 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'accounting:index' as back_url %}
 {% include "_includes/page_header.html" with title="Opening Balances" subtitle="Enter balances by account. Total debits must equal total credits." back_url=back_url %}
+{% can_do "accounting:opening_balances" "POST" as may_post %}
+
+{% if live_opening %}
+<div class="rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 mb-4" style="background:#F9FAFB;border-color:#E5E7EB;color:#4B5563">
+  <span>This book's opening balances are in <a class="font-mono hover:underline" style="color:var(--primary)" href="{% url 'accounting:journal_entry_detail' live_opening.pk %}">{{ live_opening.reference }}</a>, dated {{ live_opening.posting_date|date:"d M Y" }}. A book is opened once: to correct them, reverse them here and enter the corrected set.</span>
+  {% if may_post %}
+  <form method="post" onsubmit="return confirm('Reverse the opening balances in {{ live_opening.reference }}? Every account they opened goes back to nothing on {{ live_opening.posting_date|date:"d M Y" }}.')">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="reverse">
+    <button type="submit" class="px-4 py-2 text-sm font-medium text-red-700 border border-red-200 bg-white rounded-lg hover:bg-red-50">Reverse opening balances</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
 
 <form method="post" class="space-y-4">
   {% csrf_token %}
@@ -33,7 +48,7 @@
   </div>
 
   <div class="flex items-center gap-3">
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Opening Balances</button>
+    {% if may_post %}<button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Opening Balances</button>{% endif %}
     <a href="{% url 'accounting:index' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
   </div>
 </form>

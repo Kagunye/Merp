@@ -20,6 +20,9 @@
   </form>
 </div>
 
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-lg text-sm font-medium bg-red-50 text-red-800 border border-red-200">{{ error }}</div>
+{% else %}
 <div class="max-w-lg bg-white rounded-xl border border-gray-200 p-6">
   <div class="space-y-4">
     <div class="flex justify-between items-center py-3 border-b border-gray-100">
@@ -42,4 +45,5 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}

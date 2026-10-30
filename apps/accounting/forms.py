@@ -1,4 +1,5 @@
 """Accounting forms."""
+import re
 from decimal import Decimal
 
 from django import forms
@@ -8,6 +9,10 @@ from apps.organizations.models import FiscalYear
 from .models import (
     Account, Currency, ExchangeRate, JournalEntry, JournalEntryLine,
 )
+
+# An ISO 4217 code: exactly three plain capital letters. Python's [A-Z] is the
+# ASCII range, so accented look-alikes are refused too.
+CURRENCY_CODE = re.compile(r"[A-Z]{3}")
 
 # Every form field in this app shares one look, and the class list is long
 # enough that repeating it invites a typo.
@@ -152,8 +157,22 @@ class JournalEntryForm(forms.ModelForm):
         company = self.company or getattr(self.instance, "company", None)
         if not company:
             raise forms.ValidationError("A journal entry needs a company before it can be numbered.")
+        # Only a preview at this stage: the number is taken in save(), once the
+        # whole form and its lines have passed. Taking it here used one up for
+        # every journal sent back for a mistake, leaving gaps in the JE- series
+        # that an auditor would have to have explained.
         from apps.core.models import SequenceCounter
-        return SequenceCounter.next_number(company, "JE-")
+        return SequenceCounter.peek_number(company, "JE-")
+
+    def save(self, commit=True):
+        if self.instance._state.adding:
+            company = self.company or getattr(self.instance, "company", None)
+            from apps.core.models import SequenceCounter
+            self.instance.reference = SequenceCounter.claim_number(
+                company, "JE-", self.instance.reference,
+                taken=lambda ref: JournalEntry.objects.filter(
+                    company=company, reference=ref).exists())
+        return super().save(commit)
 
 
 class JournalEntryLineForm(forms.ModelForm):
@@ -252,6 +271,23 @@ class FiscalYearForm(forms.ModelForm):
                     f"({other.start_date:%d %b %Y} – {other.end_date:%d %b %Y}). A date "
                     "can only belong to one year; start this one the day after the "
                     "other ends.")
+                return cleaned
+            # A year slipped in before one that is already closed could never be
+            # closed in order, and its postings would already have been read by
+            # the later year's close. Refusing it keeps every year end drawn on
+            # the years before it, once.
+            closed_later = FiscalYear.objects.filter(
+                company=self.company, is_closed=True, start_date__gt=end)
+            if self.instance.pk:
+                closed_later = closed_later.exclude(pk=self.instance.pk)
+            closed_later = closed_later.order_by("start_date").first()
+            if closed_later:
+                self.add_error(
+                    "start_date",
+                    f"{closed_later.name} is already closed, and this year comes "
+                    f"before it. Years are closed in order, so an earlier year cannot "
+                    f"be added under a closed one. Reopen {closed_later.name} first if "
+                    "the earlier year really has to be kept in this book.")
         return cleaned
 
 
@@ -277,6 +313,14 @@ class CurrencyForm(forms.ModelForm):
         code = (self.cleaned_data.get("code") or "").strip().upper()
         if not code:
             raise forms.ValidationError("A currency needs a code.")
+        if not CURRENCY_CODE.fullmatch(code):
+            # The register is shared by every book, and the code is what each
+            # document, rate and journal records: "US1" or "Q Q" would be a
+            # currency nobody can be paid in, and a look-alike letter would
+            # quietly split one currency's history in two.
+            raise forms.ValidationError(
+                f"'{code}' is not a currency code. Use the three-letter ISO 4217 "
+                "code in plain capitals A to Z, such as USD, KES or EUR.")
         clash = Currency.objects.filter(code=code)
         if self.instance.pk:
             clash = clash.exclude(pk=self.instance.pk)

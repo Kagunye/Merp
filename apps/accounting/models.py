@@ -50,6 +50,41 @@ def period_for(company, posting_date):
     ).order_by("start_date").first()
 
 
+def closed_period_refusal(period, posting_date, entry_type=""):
+    """Why nothing may be posted on `posting_date` into `period`, or "".
+
+    Closed means closed. Closing a month is the finance manager saying its
+    figures are final: the profit has been carried to current year profit,
+    the VAT return drawn from it, the management accounts sent. A journal, an
+    invoice, a payroll run or a reversal dated inside it afterwards would
+    change a month that every report has already printed, without anyone who
+    signed it off being told. So the posting is refused, and the bookkeeper
+    is told the two ways forward: have the period reopened, or date the entry
+    in a period that is still open.
+
+    Only the closing machinery itself passes a closed (not locked) month: the
+    year end is drawn on the last day of a month that its own close has just
+    shut, and reopening a month reverses its closing entry while the month is
+    still closed. A closed fiscal year, whose periods are locked, takes
+    nothing at all until the year is reopened.
+    """
+    if period is None:
+        return ""
+    if period.status == "LOCKED" or period.fiscal_year.is_closed:
+        # A closed year has been swept into retained earnings. Anything
+        # posted into it now would sit in the profit and loss accounts of
+        # a year whose result has already been carried forward.
+        return (f"{period.fiscal_year.name} is closed, and {posting_date:%d %b %Y} "
+                "falls inside it. A finance manager has to reopen the fiscal year "
+                "first, or date the entry in an open year.")
+    if period.status == "CLOSED" and entry_type != "CLOSING":
+        return (f"{period.name} is closed, and {posting_date:%d %b %Y} falls inside it. "
+                "A closed period takes no new postings: ask a finance manager to reopen "
+                f"{period.name} from Accounting → Fiscal Years, or date the entry in an "
+                "open period.")
+    return ""
+
+
 class Account(BaseModel):
     """Chart of Accounts entry."""
     company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="accounts")
@@ -162,9 +197,12 @@ class JournalEntry(BaseModel, NotesMixin):
     # loss and out of the next close, a REVALUATION is exchange machinery that
     # the next revaluation takes off again. Letting a person type those would
     # let a hand-made journal hide from the reports that are meant to show it.
-    # OPENING stays on the list because a new book is often opened by hand as
-    # one ordinary journal; the opening-balances screen is the guarded way in.
-    USER_ENTRY_TYPES = ("MANUAL", "OPENING")
+    # OPENING is not on the list. A book is opened once, by the finance
+    # manager, on the opening-balances screen, which refuses a second live
+    # opening entry. Typed on the journal screen it slipped past that check:
+    # an accountant could post the share capital and the bank balance a second
+    # time, and the balance sheet doubled without a single document behind it.
+    USER_ENTRY_TYPES = ("MANUAL",)
 
     # Where an entry made by a module is answered, so the generic Reverse
     # button can say which screen to use instead of offsetting the ledger
@@ -186,6 +224,8 @@ class JournalEntry(BaseModel, NotesMixin):
                             "and the ledger move together.",
         "CLOSING": "Reopen the period, or the fiscal year, from Accounting → Fiscal Years.",
         "REVALUATION": "Take the revaluation off from Accounting → Exchange Revaluation.",
+        "OPENING": "Opening balances are reversed by the finance manager from "
+                   "Accounting → Opening Balances, which then takes a fresh set.",
         "REVERSAL": "A reversal is not reversed again — that would quietly reinstate the "
                     "original. Post a fresh entry for what should stand.",
     }
@@ -270,15 +310,9 @@ class JournalEntry(BaseModel, NotesMixin):
         # the caller shows: refusing it would stop every invoice, till and payroll
         # in a book whose bookkeeper has not yet opened this year. The year close
         # sweeps it once the year is created around it.
-        if period is not None and (
-                period.status == "LOCKED" or period.fiscal_year.is_closed):
-            # A closed year has been swept into retained earnings. Anything
-            # posted into it now would sit in the profit and loss accounts of
-            # a year whose result has already been carried forward.
-            raise ValidationError(
-                f"{period.fiscal_year.name} is closed, and {self.posting_date:%d %b %Y} "
-                "falls inside it. Reopen the fiscal year first, or date the entry in an "
-                "open year.")
+        refusal = closed_period_refusal(period, self.posting_date, self.entry_type)
+        if refusal:
+            raise ValidationError(refusal)
         with transaction.atomic():
             self.period = period
             self.status = "POSTED"
@@ -292,18 +326,42 @@ class JournalEntry(BaseModel, NotesMixin):
     def calendar_warning(self):
         """Why this entry deserves a second look, in the bookkeeper's terms.
 
-        Reported and never blocked: a company must be able to file a late
-        adjustment into a period it has already closed, but the entry has to
-        say out loud that it does.
+        A draft has no period yet -- the period is stamped on it when it is
+        posted -- so its warning is worked out from the period its date falls
+        in, the one it *would* be posted into. Reading the empty field instead
+        told every draft that no period covered it, which taught bookkeepers to
+        ignore the banner on the day it mattered. A draft dated in a closed
+        period is told so before it is refused at Post.
         """
-        if self.period_id is None:
+        period = self.period if self.period_id else (
+            period_for(self.company, self.posting_date)
+            if self.company_id and self.posting_date else None)
+        if period is None:
             return f"No accounting period covers {self.posting_date:%d %b %Y}."
-        if self.period.status != "OPEN":
-            return (f"{self.period.name} is {self.period.get_status_display().lower()} "
+        if period.fiscal_year.is_closed:
+            return f"{period.fiscal_year.name} is closed and this entry is dated inside it."
+        if period.status != "OPEN":
+            return (f"{period.name} is {period.get_status_display().lower()} "
                     f"and this entry is dated inside it.")
-        if self.period.fiscal_year.is_closed:
-            return f"{self.period.fiscal_year.name} is closed and this entry is dated inside it."
         return ""
+
+    @property
+    def calendar_advice(self):
+        """The calendar warning with what to do about it, for the entry's page."""
+        warning = self.calendar_warning
+        if not warning:
+            return ""
+        if warning.startswith("No accounting period"):
+            return (f"{warning} It is posted without a period, and no year end "
+                    "closes it until a fiscal year is created around its date under "
+                    "Accounting → Fiscal Years.")
+        if self.status == "DRAFT":
+            return (f"{warning} A closed period takes no new postings, so this draft "
+                    "will be refused at Post: ask a finance manager to reopen the "
+                    "period, or change the date to one in an open period.")
+        return (f"{warning} It was posted before the period was closed. A closed "
+                "period takes no new postings, so to change anything in it a finance "
+                "manager has to reopen the period first.")
 
     @property
     def is_reversal(self):
@@ -377,10 +435,20 @@ class JournalEntry(BaseModel, NotesMixin):
             raise ValidationError(
                 f"{self.reference} is itself a reversal, and a reversal is not reversed "
                 "again. Post a fresh entry for what should stand.")
+        on_date = posting_date or self.posting_date
+        # Asked before anything is written. Cancelling an invoice, a bill or a
+        # payroll run reverses its entry in the original period; when that
+        # period has since been closed the cancellation is refused with the
+        # same words a journal gets, rather than half-made and rolled back.
+        target = (self.period if on_date == self.posting_date and self.period_id
+                  else period_for(self.company, on_date))
+        refusal = closed_period_refusal(
+            target, on_date, "CLOSING" if self.entry_type == "CLOSING" else "REVERSAL")
+        if refusal:
+            raise ValidationError(f"{self.reference} cannot be reversed yet. {refusal}")
         with transaction.atomic():
             from apps.core.models import SequenceCounter
             ref = SequenceCounter.next_number(self.company, "JE-REV-")
-            on_date = posting_date or self.posting_date
             reversal = JournalEntry.objects.create(
                 company=self.company,
                 reference=ref,
@@ -520,6 +588,11 @@ class Currency(BaseModel):
 
     def clean(self):
         super().clean()
+        import re
+        if self.code is not None and not re.fullmatch(r"[A-Z]{3}", self.code):
+            raise ValidationError({"code": (
+                f"'{self.code}' is not a currency code. Use the three-letter ISO 4217 "
+                "code in plain capitals A to Z, such as USD, KES or EUR.")})
         if self.minor_units is not None and not 0 <= self.minor_units <= MAX_MINOR_UNITS:
             raise ValidationError({"minor_units": (
                 f"{self.minor_units} digits after the point is not a currency. Use 0 to "

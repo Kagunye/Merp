@@ -114,6 +114,13 @@ def post_acquisition(asset, user=None):
             "settled in the book. Stand the disposal down before touching the "
             "entry that brought it in.")
 
+    if asset.purchase_date and asset.purchase_date > timezone.localdate():
+        # The ledger books what has happened. A purchase dated next month would
+        # put the asset on today's register while the balance sheet, read as at
+        # today, has neither the asset nor the money gone.
+        raise ValidationError(
+            f"{asset.code} is dated {asset.purchase_date:%d %b %Y}, which is still to "
+            "come. Add the asset on or after the day it is bought.")
     cost = money(asset.purchase_cost)
     if cost <= Z:
         raise ValidationError(
@@ -410,6 +417,18 @@ def reverse_depreciation(depreciation, user=None, reason=""):
             "accumulated depreciation this charge fed. Stand the disposal down "
             "first.")
 
+    live = _live_periods(asset)
+    if live and depreciation.period_date != max(live):
+        # Depreciation runs forward through the calendar, and the next charge
+        # always follows the last one standing. Standing a month down from the
+        # middle of the run would leave a hole the run can never go back to:
+        # the asset would be a month's wear light for the rest of its life.
+        # Charges come off from the latest backwards.
+        raise ValidationError(
+            f"{asset.code} has been charged through {max(live):%b %Y}. Charges are "
+            f"stood down from the latest backwards: stand {max(live):%b %Y} down first, "
+            f"then each month back to {depreciation.period_date:%b %Y}.")
+
     reversal = depreciation.journal_entry.reverse(
         user=user, posting_date=depreciation.period_date)
     if reason:
@@ -448,6 +467,13 @@ def post_disposal(disposal, user=None):
             f"{asset.code} is {asset.get_status_display().lower()} and the ledger does "
             "not carry it as an asset in use, so there is nothing to dispose of.")
 
+    if disposal.disposal_date and disposal.disposal_date > timezone.localdate():
+        # Disposing marks the asset gone from the register at once, while the
+        # entry dated ahead leaves the balance sheet carrying it until that
+        # day: the register and the ledger would disagree for the whole wait.
+        raise ValidationError(
+            f"The disposal is dated {disposal.disposal_date:%d %b %Y}, which is still "
+            f"to come. Record it on or after the day {asset.code} actually goes.")
     company = asset.company
     cost = money(asset.purchase_cost)
     accumulated = money(asset.accumulated_depreciation)

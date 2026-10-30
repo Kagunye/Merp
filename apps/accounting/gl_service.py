@@ -2298,6 +2298,15 @@ PERIOD_CLOSE = "ACCOUNTING_PERIOD"
 YEAR_CLOSE = "FISCAL_YEAR"
 
 
+def _today():
+    """The day a close is being run on, which decides what has ended yet.
+
+    One function rather than a clock read in each place, so the regression
+    suites can run a close "on" the day after a year end they have built.
+    """
+    return timezone.localdate()
+
+
 def closing_entry_for(company, kind, source_id):
     """The closing entry a period or year is currently sitting on, if any.
 
@@ -2356,6 +2365,15 @@ def close_period(company, period, user=None):
     loss activity at all (in which case there is genuinely nothing to carry).
     """
     live = closing_entry_for(company, PERIOD_CLOSE, period.pk)
+    today = _today()
+    if not live and period.end_date > today:
+        # A month that has not ended still has trading to come: closing it now
+        # carries a part-month profit and then refuses the rest of the month's
+        # invoices, tills and payroll because their period is closed.
+        raise ValidationError(
+            f"{period.name} runs to {period.end_date:%d %b %Y}, which is still to "
+            f"come. A period is closed once it has ended; close it on or after "
+            f"{period.end_date:%d %b %Y}.")
     if live:
         if period.status != "CLOSED":
             period.status = "CLOSED"
@@ -2431,7 +2449,7 @@ def reopen_period(company, period, user=None):
     return entry
 
 
-def income_statement_balances(company, as_at):
+def income_statement_balances(company, as_at, start=None):
     """Every profit and loss account's balance at the close of `as_at`.
 
     Unlike period_activity this counts the closing entries too: it answers
@@ -2439,14 +2457,20 @@ def income_statement_balances(company, as_at):
     leave at nothing. A late adjustment filed into a month that was already
     closed shows up here and nowhere else, because the month's own closing
     entry was drawn before the adjustment existed.
+
+    With `start` it reads only what was posted from that day on -- a year
+    end's own window. Without it, it reads the whole history up to `as_at`.
     """
+    filters = dict(
+        account__company=company,
+        account__account_type__in=INCOME_STATEMENT_TYPES,
+        journal_entry__status="POSTED",
+        journal_entry__posting_date__lte=as_at,
+    )
+    if start is not None:
+        filters["journal_entry__posting_date__gte"] = start
     rows = (
-        JournalEntryLine.objects.filter(
-            account__company=company,
-            account__account_type__in=INCOME_STATEMENT_TYPES,
-            journal_entry__status="POSTED",
-            journal_entry__posting_date__lte=as_at,
-        )
+        JournalEntryLine.objects.filter(**filters)
         .values("account_id", "account__code", "account__name")
         .annotate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
         .order_by("account__code")
@@ -2478,9 +2502,20 @@ def close_fiscal_year(company, fiscal_year, user=None):
     Afterwards every income and expense account reads nothing as at the year
     end, and retained earnings has moved by exactly the year's profit.
 
+    Both are read inside the year's own window, from its first day to its
+    last. Read from the beginning of the book instead, a sale dated before any
+    fiscal year existed was swept into the first year closed -- and swept a
+    second time when its own year was later created and closed, so retained
+    earnings ended up holding more than the company ever earned. What was
+    posted outside every year stays in its accounts, where the balance sheet
+    reports it as earlier profit not yet closed, until a year is made for it.
+
     Years close in order. An earlier year still open would have its own
     profit sitting in 3300 at this year's end, and sweeping it here and again
-    when that year closes would count it twice.
+    when that year closes would count it twice. A year earlier than one that
+    is already closed is refused as well: the later year's close was drawn on
+    what came before it, and closing an earlier year underneath it would move
+    retained earnings behind a year end that has already been reported.
     """
     from django.core.exceptions import ValidationError
     from apps.organizations.models import FiscalYear
@@ -2493,6 +2528,19 @@ def close_fiscal_year(company, fiscal_year, user=None):
         raise ValidationError(
             f"{earlier.name} is still open. Years are closed in order, so close "
             f"{earlier.name} before {fiscal_year.name}.")
+    later = (FiscalYear.objects
+             .filter(company=company, is_closed=True,
+                     start_date__gt=fiscal_year.start_date)
+             .exclude(pk=fiscal_year.pk).order_by("start_date").first())
+    if later:
+        raise ValidationError(
+            f"{later.name} is already closed, and it comes after {fiscal_year.name}. "
+            f"Years are closed in order: reopen {later.name} first, close "
+            f"{fiscal_year.name}, then close {later.name} again.")
+    if fiscal_year.end_date > _today():
+        raise ValidationError(
+            f"{fiscal_year.name} runs to {fiscal_year.end_date:%d %b %Y}, which is "
+            "still to come. A year is closed once it has ended.")
 
     entries = []
     for period in fiscal_year.periods.filter(status="OPEN").order_by("start_date"):
@@ -2509,8 +2557,18 @@ def close_fiscal_year(company, fiscal_year, user=None):
         # A chart with a single equity account keeps the year's result in it
         # already; there is nothing to move from one to the other.
         profit_account = None
-    carried = profit_account.balance_as_at(year_end) if profit_account else Decimal("0")
-    residual = income_statement_balances(company, year_end)
+    year_start = fiscal_year.start_date
+    if profit_account:
+        moved = profit_account.journal_lines.filter(
+            journal_entry__status="POSTED",
+            journal_entry__posting_date__gte=year_start,
+            journal_entry__posting_date__lte=year_end,
+        ).aggregate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
+        # Credit-normal: a profit carried in by the month closes is a credit.
+        carried = (moved["cr"] or Decimal("0")) - (moved["dr"] or Decimal("0"))
+    else:
+        carried = Decimal("0")
+    residual = income_statement_balances(company, year_end, start=year_start)
 
     if carried or residual:
         if not retained:
