@@ -667,3 +667,66 @@ def global_search(request):
         "company_name": company.name if company else "",
     }
     return render(request, "dashboard/search.html", ctx)
+
+
+@login_required
+def style_guide(request):
+    """The living UI style guide (/dashboard/ui/): every component, rendered.
+
+    Platform administrators only. access.py closes the route to company roles,
+    but a company ADMIN bypasses that table, so the view checks again.
+    """
+    from django import forms
+    from django.core.exceptions import PermissionDenied
+    from . import access
+    from .templatetags.ui_extras import STATUS_VARIANTS
+
+    if not access.is_platform_admin(request.user):
+        raise PermissionDenied
+
+    class SampleForm(forms.Form):
+        customer = forms.ChoiceField(choices=[("", "Choose a customer"), ("1", "Acme Hardware Ltd"), ("2", "Kamau Traders")])
+        reference = forms.CharField(help_text="Leave blank to number it automatically.", required=False)
+        invoice_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+        amount = forms.DecimalField(decimal_places=2)
+        notes = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), required=False)
+        send_copy = forms.BooleanField(label="Email a copy to the customer", required=False)
+
+    bound = SampleForm(data={"customer": "", "reference": "INV-0042", "amount": "abc"})
+    bound.is_valid()
+
+    today = date.today()
+    rows = [
+        {"ref": "INV-0042", "party": "Acme Hardware Ltd", "date": today, "status": "PAID",
+         "amount": Decimal("126500.00"), "due": Decimal("0")},
+        {"ref": "INV-0043", "party": "Kamau Traders", "date": today, "status": "PARTIAL",
+         "amount": Decimal("48250.5"), "due": Decimal("18250.50")},
+        {"ref": "INV-0044", "party": "Nyeri Fresh Produce", "date": today, "status": "OVERDUE",
+         "amount": Decimal("9900"), "due": Decimal("9900")},
+        {"ref": "CN-0007", "party": "Acme Hardware Ltd", "date": today, "status": "POSTED",
+         "amount": Decimal("-3500"), "due": Decimal("0")},
+        {"ref": "INV-0045", "party": "Mombasa Movers", "date": today, "status": "DRAFT",
+         "amount": Decimal("156360.75000000000000000"), "due": None},
+    ]
+    hidden = {"TRUE", "FALSE", "NONE", "YES", "NO"}
+    return render(request, "dashboard/style_guide.html", {
+        "page_title": "UI style guide",
+        "sample_form": SampleForm(),
+        "bound_form": bound,
+        "rows": rows,
+        "rows_total": sum((r["amount"] for r in rows), Decimal("0")),
+        "status_groups": [
+            (variant, sorted(codes - hidden)) for variant, codes in STATUS_VARIANTS.items()],
+        "money_samples": [Decimal("126500"), Decimal("156360.75000000000000000"),
+                          Decimal("-1234.5"), 0, None, "n/a"],
+        "breadcrumbs_demo": [{"label": "Sales", "url": "#"}, {"label": "Invoices", "url": "#"},
+                             {"label": "INV-0042"}],
+        "icon_names": [
+            "plus", "edit", "trash", "search", "filter", "download", "upload", "printer", "eye",
+            "check", "x", "info", "check-circle", "warning", "x-circle", "inbox", "document",
+            "receipt", "users", "user", "box", "chart", "bell", "lock", "cash", "trending-up",
+            "trending-down", "building", "map-pin", "cog", "clock", "calendar", "logout", "key",
+            "menu", "swatch", "home", "cart", "ellipsis", "refresh", "bank", "briefcase",
+            "clipboard", "sun", "moon", "chevron-left", "chevron-right", "chevron-down",
+            "arrow-left", "arrow-right"],
+    })

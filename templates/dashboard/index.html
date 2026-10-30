@@ -1,257 +1,309 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Dashboard — Mofisi{% endblock %}
 {% block content %}
 
 {% if not request.active_company %}
-<!-- No company — onboarding card -->
-<div class="max-w-xl mx-auto bg-white rounded-2xl border border-gray-200 p-8 text-center my-16 shadow-sm">
-  <div class="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-4" style="background: var(--primary); color: #fff;">
-    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16"/></svg>
+{# ── No company yet: onboarding ─────────────────────────────────────────── #}
+<div class="mx-auto my-10 max-w-xl">
+  <div class="card">
+    {% url 'organizations:company_create' as create_url %}
+    {% include "_includes/empty_state.html" with icon="building" title="Welcome to Mofisi" text="Create your first company to start recording transactions." action_label="Set up company" action_url=create_url %}
   </div>
-  <h2 class="text-xl font-bold text-gray-900 mb-1">Welcome to Mofisi</h2>
-  <p class="text-sm text-gray-500 mb-6">Create your first company to start recording transactions.</p>
-  <a href="{% url 'organizations:company_create' %}" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white" style="background:var(--primary)">
-    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-    Set up company
-  </a>
 </div>
 {% else %}
 
-<!-- Header -->
-<div class="flex items-end justify-between pb-5 mb-6 border-b border-gray-100">
-  <div>
-    <p class="text-xs uppercase tracking-widest font-semibold text-gray-400 mb-1">{{ request.active_company.name }}</p>
-    <h1 class="text-2xl font-bold text-gray-900">Welcome back, {{ request.user.first_name|default:request.user.email }}</h1>
-    <p class="text-sm text-gray-500 mt-1">Here's what's happening across your business today.</p>
+{# ── Header ────────────────────────────────────────────────────────────── #}
+<header class="page-header">
+  <div class="page-header-main">
+    <p class="page-eyebrow">{{ request.active_company.name }}</p>
+    <h1 class="page-title">Welcome back, {{ request.user.first_name|default:request.user.email }}</h1>
+    <p class="page-subtitle">{% now "l, j F Y" %} · here's what's happening across your business today.</p>
   </div>
-  <div class="text-right text-xs text-gray-400">
-    <div>{% now "l, F j, Y" %}</div>
-    <div>{% now "H:i" %}</div>
-  </div>
-</div>
-
-<!-- KPI tiles -->
-{% if show.cash or show.receivables or show.payables or show.trading %}
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-  {% if show.cash %}
-  <div class="bg-white rounded-xl border border-gray-100 p-4">
-    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Cash on hand</p>
-    <p class="text-xl font-bold text-gray-900 mt-1 tabular-nums">{{ total_cash|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">All bank + cash · {{ book }}</p>
-  </div>
-  {% endif %}
-  {% if show.receivables %}
-  <div class="bg-white rounded-xl border border-gray-100 p-4">
-    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Receivables</p>
-    <p class="text-xl font-bold mt-1 tabular-nums" style="color: var(--primary);">{{ accounts_receivable|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">Outstanding AR · {{ book }}</p>
-  </div>
-  {% endif %}
-  {% if show.payables %}
-  <div class="bg-white rounded-xl border border-gray-100 p-4">
-    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Payables</p>
-    <p class="text-xl font-bold text-amber-600 mt-1 tabular-nums">{{ accounts_payable|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">Outstanding AP · {{ book }}</p>
-  </div>
-  {% endif %}
-  {% if show.trading %}
-  <div class="bg-white rounded-xl border border-gray-100 p-4">
-    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Revenue (MTD)</p>
-    <p class="text-xl font-bold text-emerald-600 mt-1 tabular-nums">{{ monthly_revenue|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">Month to date</p>
-  </div>
-  {% endif %}
-  {% if show.trading %}
-  <div class="bg-white rounded-xl border border-gray-100 p-4">
-    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Expenses (MTD)</p>
-    <p class="text-xl font-bold text-rose-600 mt-1 tabular-nums">{{ monthly_expenses|floatformat:2|default:"0.00" }}</p>
-    <p class="text-[11px] text-gray-400 mt-1">Month to date</p>
-  </div>
-  {% endif %}
-  {% if show.trading %}
-  <div class="bg-white rounded-xl border border-gray-100 p-4">
-    <p class="text-[11px] uppercase tracking-wider font-semibold text-gray-400">Net profit (MTD)</p>
-    <p class="text-xl font-bold mt-1 tabular-nums {% if net_profit_mtd >= 0 %}text-emerald-600{% else %}text-rose-600{% endif %}">
-      {{ net_profit_mtd|floatformat:2|default:"0.00" }}
-    </p>
-    <p class="text-[11px] text-gray-400 mt-1">Revenue − Expenses</p>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
-
-<!-- Quick actions: only the forms this role may open and save -->
-{% if quick_actions %}
-<div class="flex flex-wrap gap-2 mb-6">
-  {% for url, label in quick_actions %}
-  <a href="{{ url }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700">
-    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-    {{ label }}
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
-
-<!-- Main 2-column grid -->
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-
-  <!-- Open items (2 col wide) -->
-  <div class="lg:col-span-2 space-y-5">
-    {% if show.open_invoices %}
-    <div class="bg-white rounded-xl border border-gray-100">
-      <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-gray-800">Unpaid invoices</h3>
-        <a href="{% url 'sales:invoice_list' %}?status=SENT" class="text-xs text-gray-500 hover:text-gray-700">View all →</a>
+  {% if quick_actions %}
+  {# Quick actions: the view lists only forms this role may open AND save (page_rights). #}
+  <div class="page-actions no-print">
+    {% for url, label in quick_actions %}
+    {% if forloop.counter < 4 %}
+    <a href="{{ url }}" class="btn {% if forloop.first %}btn-primary{% else %}btn-secondary hidden md:inline-flex{% endif %}">
+      {% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}{{ label }}
+    </a>
+    {% endif %}
+    {% endfor %}
+    {% if quick_actions|length > 1 %}
+    {# Everything after the primary action, so phones (and the 4th+ action) are covered too. #}
+    <div class="relative">
+      <button type="button" class="btn btn-secondary" data-menu="menu-quick" aria-haspopup="true" aria-expanded="false">
+        More {% include "_includes/icon.html" with name="chevron-down" cls="h-4 w-4" stroke="2" %}
+      </button>
+      <div id="menu-quick" class="menu left-0 right-auto hidden w-56 sm:left-auto sm:right-0" role="menu">
+        {% for url, label in quick_actions %}{% if not forloop.first %}
+        <a href="{{ url }}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" %}{{ label }}</a>
+        {% endif %}{% endfor %}
       </div>
-      <table class="w-full text-sm">
-        <thead class="text-[11px] uppercase tracking-wider text-gray-400">
-          <tr>
-            <th class="px-5 py-2 text-left font-semibold">Customer</th>
-            <th class="px-5 py-2 text-left font-semibold">Reference</th>
-            <th class="px-5 py-2 text-left font-semibold">Due</th>
-            <th class="px-5 py-2 text-right font-semibold">Outstanding</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-50">
-          {% for inv in open_invoices %}
-          <tr class="hover:bg-gray-50">
-            <td class="px-5 py-2 text-gray-700">{{ inv.customer.name|truncatechars:30 }}</td>
-            <td class="px-5 py-2 font-mono text-xs"><a href="{% url 'sales:invoice_detail' inv.pk %}" style="color:var(--primary)">{{ inv.reference }}</a></td>
-            <td class="px-5 py-2 text-xs text-gray-500">{{ inv.due_date|date:"d M Y" }}</td>
-            <td class="px-5 py-2 text-right font-semibold tabular-nums text-rose-600">{{ inv.outstanding_amount|floatformat:2 }} <span class="text-[11px] font-normal text-gray-400">{{ inv.currency }}</span></td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="4" class="px-5 py-6 text-center text-xs text-gray-400">No unpaid invoices.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
     </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</header>
+
+{# ── KPI tiles: each one only for a role that may open the page it summarises (`show`) ── #}
+{% if show.cash or show.receivables or show.payables or show.trading %}
+<section aria-label="Key figures" class="stat-grid mb-6">
+  {% if show.cash %}{% url 'banking:account_list' as u %}
+    {% include "_includes/stat.html" with label="Cash on hand" value=total_cash money=True currency=book meta="All bank and cash accounts" icon="cash" tone="info" url=u only %}{% endif %}
+  {% if show.receivables %}{% url 'sales:ar_aging' as u %}
+    {% include "_includes/stat.html" with label="Receivables" value=accounts_receivable money=True currency=book meta="Owed to you · see aging" icon="receipt" tone="brand" url=u only %}{% endif %}
+  {% if show.payables %}{% url 'procurement:ap_aging' as u %}
+    {% include "_includes/stat.html" with label="Payables" value=accounts_payable money=True currency=book meta="You owe suppliers" icon="document" tone="warning" url=u only %}{% endif %}
+  {% if show.trading %}{% url 'reporting:profit_loss' as u %}
+    {% include "_includes/stat.html" with label="Revenue (MTD)" value=monthly_revenue money=True currency=book meta="Month to date" icon="trending-up" tone="success" url=u only %}
+    {% include "_includes/stat.html" with label="Expenses (MTD)" value=monthly_expenses money=True currency=book meta="Incl. cost of sales" icon="trending-down" tone="danger" url=u only %}
+    {% if net_profit_mtd < 0 %}
+    {% include "_includes/stat.html" with label="Net profit (MTD)" value=net_profit_mtd money=True currency=book meta="Revenue − expenses" icon="chart" tone="danger" trend="down" url=u only %}
+    {% else %}
+    {% include "_includes/stat.html" with label="Net profit (MTD)" value=net_profit_mtd money=True currency=book meta="Revenue − expenses" icon="chart" tone="success" trend="up" url=u only %}
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── Charts (each follows its data endpoint's own rule in access.py) ────── #}
+{% can_do "dashboard:sales_chart" as may_sales_chart %}{% can_do "dashboard:cashflow_chart" as may_cash_chart %}
+{% if may_sales_chart or may_cash_chart %}
+<div class="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-3">
+  {% if may_sales_chart %}
+  <section class="card {% if may_cash_chart %}xl:col-span-2{% else %}xl:col-span-3{% endif %}">
+    <div class="card-header">
+      <div><h2 class="card-title">Revenue and expenses</h2><p class="card-subtitle">Last 12 months · {{ book }}</p></div>
+    </div>
+    <div class="card-body"><div class="relative h-64"><canvas id="chart-sales" aria-label="Monthly revenue and expenses chart" role="img"></canvas></div></div>
+  </section>
+  {% endif %}
+  {% if may_cash_chart %}
+  <section class="card {% if not may_sales_chart %}xl:col-span-3{% endif %}">
+    <div class="card-header">
+      <div><h2 class="card-title">Cash position</h2><p class="card-subtitle">Bank and cash, last 7 days</p></div>
+    </div>
+    <div class="card-body"><div class="relative h-64"><canvas id="chart-cash" aria-label="Daily cash balance chart" role="img"></canvas></div></div>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+
+  {# ── Main column: open documents ── #}
+  <div class="min-w-0 space-y-5 xl:col-span-2">
+    {% if show.open_invoices %}
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <h2 class="card-title">Unpaid invoices</h2>
+        <a href="{% url 'sales:invoice_list' %}?status=SENT" class="card-link">View all →</a>
+      </div>
+      {% if open_invoices %}
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Customer</th><th>Reference</th><th>Due</th><th>Status</th><th class="num">Outstanding</th></tr></thead>
+          <tbody>
+            {% for inv in open_invoices %}
+            <tr>
+              <td class="max-w-[14rem] truncate">{{ inv.customer.name }}</td>
+              <td class="mono"><a href="{% url 'sales:invoice_detail' inv.pk %}" class="row-link">{{ inv.reference }}</a></td>
+              <td class="whitespace-nowrap text-ink-2">{{ inv.due_date|date:"d M Y" }}</td>
+              <td>{% status_badge inv.status inv.get_status_display %}</td>
+              <td class="num font-semibold">{{ inv.outstanding_amount|money }} <span class="text-xs font-normal text-ink-muted">{{ inv.currency }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      {% include "_includes/empty_state.html" with icon="check-circle" title="No unpaid invoices" text="Every invoice has been settled." compact=True only %}
+      {% endif %}
+    </section>
     {% endif %}
 
     {% if show.open_bills %}
-    <div class="bg-white rounded-xl border border-gray-100">
-      <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-gray-800">Open bills</h3>
-        <a href="{% url 'procurement:bill_list' %}?status=RECEIVED" class="text-xs text-gray-500 hover:text-gray-700">View all →</a>
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <h2 class="card-title">Open bills</h2>
+        <a href="{% url 'procurement:bill_list' %}?status=RECEIVED" class="card-link">View all →</a>
       </div>
-      <table class="w-full text-sm">
-        <thead class="text-[11px] uppercase tracking-wider text-gray-400">
-          <tr>
-            <th class="px-5 py-2 text-left font-semibold">Supplier</th>
-            <th class="px-5 py-2 text-left font-semibold">Reference</th>
-            <th class="px-5 py-2 text-left font-semibold">Due</th>
-            <th class="px-5 py-2 text-right font-semibold">Outstanding</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-50">
-          {% for bill in open_bills %}
-          <tr class="hover:bg-gray-50">
-            <td class="px-5 py-2 text-gray-700">{{ bill.supplier.name|truncatechars:30 }}</td>
-            <td class="px-5 py-2 font-mono text-xs"><a href="{% url 'procurement:bill_detail' bill.pk %}" style="color:var(--primary)">{{ bill.reference }}</a></td>
-            <td class="px-5 py-2 text-xs text-gray-500">{{ bill.due_date|date:"d M Y" }}</td>
-            <td class="px-5 py-2 text-right font-semibold tabular-nums text-amber-600">{{ bill.outstanding_amount|floatformat:2 }} <span class="text-[11px] font-normal text-gray-400">{{ bill.currency }}</span></td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="4" class="px-5 py-6 text-center text-xs text-gray-400">No open bills.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+      {% if open_bills %}
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Supplier</th><th>Reference</th><th>Due</th><th>Status</th><th class="num">Outstanding</th></tr></thead>
+          <tbody>
+            {% for bill in open_bills %}
+            <tr>
+              <td class="max-w-[14rem] truncate">{{ bill.supplier.name }}</td>
+              <td class="mono"><a href="{% url 'procurement:bill_detail' bill.pk %}" class="row-link">{{ bill.reference }}</a></td>
+              <td class="whitespace-nowrap text-ink-2">{{ bill.due_date|date:"d M Y" }}</td>
+              <td>{% status_badge bill.status bill.get_status_display %}</td>
+              <td class="num font-semibold">{{ bill.outstanding_amount|money }} <span class="text-xs font-normal text-ink-muted">{{ bill.currency }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      {% include "_includes/empty_state.html" with icon="check-circle" title="No open bills" text="Nothing is waiting to be paid." compact=True only %}
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if shortcuts %}
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Go to</h2></div>
+      <div class="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 xl:grid-cols-5">
+        {% for href, label, path in shortcuts %}
+        <a href="{{ href }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-2 hover:bg-surface-3 hover:text-ink">
+          <span class="list-row-icon tone-neutral"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ path }}"/></svg></span>
+          <span class="truncate">{{ label }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
     {% endif %}
   </div>
 
-  <!-- Side column -->
-  <div class="space-y-5">
-    <!-- Inventory snapshot -->
-    {% if show.inventory or show.sales_orders or show.purchase_orders %}
-    <div class="bg-white rounded-xl border border-gray-100 p-5">
-      <h3 class="text-sm font-semibold text-gray-800 mb-3">Inventory snapshot</h3>
-      <div class="space-y-3 text-sm">
-        {% if show.inventory %}
-        <div class="flex justify-between">
-          <span class="text-gray-500">SKUs tracked</span>
-          <span class="font-semibold tabular-nums">{{ total_products|default:0 }}</span>
-        </div>
-        <div class="flex justify-between">
-          <span class="text-gray-500">Low-stock items</span>
-          <span class="font-semibold text-amber-600 tabular-nums">{{ low_stock_count|default:0 }}</span>
-        </div>
-        {% endif %}
-        {% if show.sales_orders %}
-        <div class="flex justify-between">
-          <span class="text-gray-500">Open sales orders</span>
-          <span class="font-semibold tabular-nums">{{ open_sales_orders|default:0 }}</span>
-        </div>
-        {% endif %}
-        {% if show.purchase_orders %}
-        <div class="flex justify-between">
-          <span class="text-gray-500">Open POs</span>
-          <span class="font-semibold tabular-nums">{{ open_purchase_orders|default:0 }}</span>
-        </div>
-        {% endif %}
-      </div>
-    </div>
-    {% endif %}
-
-    <!-- Pending approvals: each queue only for the people who decide it -->
+  {# ── Side column ── #}
+  <div class="min-w-0 space-y-5">
     {% if show.approvals %}
-    <div class="bg-white rounded-xl border border-gray-100 p-5">
-      <h3 class="text-sm font-semibold text-gray-800 mb-3">Pending approvals</h3>
-      <div class="space-y-2 text-sm">
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Waiting for your approval</h2></div>
+      <div class="list">
         {% if show.requisitions %}
-        <a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
-          <span class="text-gray-700">Purchase requisitions</span>
-          <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_requisitions|default:0 }}</span>
+        <a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="list-row list-row-link items-center">
+          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="cart" cls="h-4 w-4" %}</span>
+          <span class="flex-1 text-sm text-ink">Purchase requisitions</span>
+          <span class="badge {% if pending_requisitions %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_requisitions|default:0 }}</span>
         </a>
         {% endif %}
         {% if show.expense_claims %}
-        <a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
-          <span class="text-gray-700">Expense claims</span>
-          <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_expense_claims|default:0 }}</span>
+        <a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="list-row list-row-link items-center">
+          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="receipt" cls="h-4 w-4" %}</span>
+          <span class="flex-1 text-sm text-ink">Expense claims</span>
+          <span class="badge {% if pending_expense_claims %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_expense_claims|default:0 }}</span>
         </a>
         {% endif %}
         {% if show.leave %}
-        <a href="{% url 'hr:leave_list' %}?status=PENDING" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
-          <span class="text-gray-700">Leave requests</span>
-          <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_leave_requests|default:0 }}</span>
+        <a href="{% url 'hr:leave_list' %}?status=PENDING" class="list-row list-row-link items-center">
+          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="calendar" cls="h-4 w-4" %}</span>
+          <span class="flex-1 text-sm text-ink">Leave requests</span>
+          <span class="badge {% if pending_leave_requests %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_leave_requests|default:0 }}</span>
         </a>
         {% endif %}
         {% if show.timesheets %}
-        <a href="{% url 'timesheets:entry_list' %}?status=SUBMITTED" class="flex justify-between items-center px-3 py-2 rounded-lg hover:bg-gray-50">
-          <span class="text-gray-700">Timesheets</span>
-          <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{{ pending_timesheets|default:0 }}</span>
+        <a href="{% url 'timesheets:entry_list' %}?status=SUBMITTED" class="list-row list-row-link items-center">
+          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="clock" cls="h-4 w-4" %}</span>
+          <span class="flex-1 text-sm text-ink">Timesheets</span>
+          <span class="badge {% if pending_timesheets %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_timesheets|default:0 }}</span>
         </a>
         {% endif %}
       </div>
-    </div>
+    </section>
     {% endif %}
 
-    <!-- Recent activity -->
+    {% can_do "hr:employee_list" as may_staff %}
+    {% if show.inventory or show.sales_orders or show.purchase_orders or may_staff %}
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Operations</h2></div>
+      <dl class="dl-rows px-5 py-1">
+        {% if show.inventory %}
+        <div><dt><a href="{% url 'inventory:product_list' %}" class="hover:underline">Stock value</a></dt><dd>{{ inventory_value|money }} <span class="text-xs font-normal text-ink-muted">{{ book }}</span></dd></div>
+        <div><dt>Products tracked</dt><dd>{{ total_products|default:0 }}</dd></div>
+        <div><dt>Low on stock</dt><dd>{% if low_stock_count %}<span class="badge badge-warning">{{ low_stock_count }}</span>{% else %}0{% endif %}</dd></div>
+        {% endif %}
+        {% if show.sales_orders %}
+        <div><dt><a href="{% url 'sales:order_list' %}" class="hover:underline">Open sales orders</a></dt><dd>{{ open_sales_orders|default:0 }}</dd></div>
+        {% endif %}
+        {% if show.purchase_orders %}
+        <div><dt><a href="{% url 'procurement:po_list' %}" class="hover:underline">Open purchase orders</a></dt><dd>{{ open_purchase_orders|default:0 }}</dd></div>
+        {% endif %}
+        {% if may_staff %}
+        <div><dt><a href="{% url 'hr:employee_list' %}" class="hover:underline">Active staff</a></dt><dd>{{ headcount|default:0 }}</dd></div>
+        {% endif %}
+      </dl>
+    </section>
+    {% endif %}
+
     {% if show.journals %}
-    <div class="bg-white rounded-xl border border-gray-100 p-5">
-      <h3 class="text-sm font-semibold text-gray-800 mb-3">Recent activity</h3>
-      <div class="space-y-3 text-sm">
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Recent journal entries</h2></div>
+      {% if recent_journal_entries %}
+      <div class="list">
         {% for e in recent_journal_entries %}
-        <div class="flex gap-3">
-          <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background: #FEF2F2;">
-            <span class="text-xs" style="color: var(--primary);">📓</span>
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="text-sm text-gray-800 truncate">
-              <a href="{% url 'accounting:journal_entry_detail' e.pk %}" class="font-medium hover:underline">{{ e.reference }}</a>
-            </p>
-            <p class="text-xs text-gray-500 truncate">{{ e.notes|truncatechars:40|default:"—" }}</p>
-          </div>
-          <span class="text-xs text-gray-400 flex-shrink-0">{{ e.posting_date|date:"d M" }}</span>
-        </div>
-        {% empty %}
-        <p class="text-xs text-gray-400 text-center py-3">No recent activity.</p>
+        <a href="{% url 'accounting:journal_entry_detail' e.pk %}" class="list-row list-row-link">
+          <span class="list-row-icon tone-neutral">{% include "_includes/icon.html" with name="document" cls="h-4 w-4" %}</span>
+          <span class="min-w-0 flex-1">
+            <span class="mono block truncate font-medium text-ink">{{ e.reference }}</span>
+            <span class="block truncate text-xs text-ink-muted">{{ e.notes|truncatechars:48|default:"—" }}</span>
+          </span>
+          <span class="shrink-0 text-xs text-ink-muted">{{ e.posting_date|date:"d M" }}</span>
+        </a>
         {% endfor %}
       </div>
-    </div>
+      {% else %}
+      {% include "_includes/empty_state.html" with icon="document" title="No entries yet" text="Posted journal entries show up here." compact=True only %}
+      {% endif %}
+    </section>
     {% endif %}
   </div>
 </div>
 
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if request.active_company %}
+<script>
+(function () {
+  if (!window.Chart) return;
+  const css = getComputedStyle(document.documentElement);
+  const c = (name, a) => `rgb(${css.getPropertyValue('--c-' + name).trim()}${a !== undefined ? ' / ' + a : ''})`;
+  const fmt = new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 });
+  const fmt2 = new Intl.NumberFormat('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = c('ink-muted');
+  Chart.defaults.borderColor = c('line');
+  const tooltip = { callbacks: { label: (ctx) => `${ctx.dataset.label || 'Balance'}: ${fmt2.format(ctx.parsed.y)}` } };
+  const yAxis = { beginAtZero: true, ticks: { callback: (v) => fmt.format(v) }, grid: { color: c('line') }, border: { display: false } };
+  const xAxis = { grid: { display: false }, border: { display: false } };
+
+  const sales = document.getElementById('chart-sales');
+  if (sales) {
+    fetch("{% url 'dashboard:sales_chart' %}", { headers: { Accept: 'application/json' } })
+      .then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        const tones = [c('brand'), c('ink-muted', 0.55)];
+        new Chart(sales, {
+          type: 'bar',
+          data: { labels: d.labels, datasets: d.datasets.map((s, i) => ({
+            label: s.label, data: s.data, backgroundColor: tones[i % 2], borderRadius: 4, maxBarThickness: 18 })) },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } }, tooltip },
+            scales: { x: xAxis, y: yAxis } },
+        });
+      }).catch(() => {});
+  }
+  const cash = document.getElementById('chart-cash');
+  if (cash) {
+    fetch("{% url 'dashboard:cashflow_chart' %}", { headers: { Accept: 'application/json' } })
+      .then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        new Chart(cash, {
+          type: 'line',
+          data: { labels: d.labels, datasets: [{ label: 'Cash', data: d.data, borderColor: c('info'), backgroundColor: c('info', 0.08),
+            fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: c('info') }] },
+          options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip },
+            scales: { x: xAxis, y: Object.assign({}, yAxis, { beginAtZero: false }) } },
+        });
+      }).catch(() => {});
+  }
+})();
+</script>
 {% endif %}
 {% endblock %}

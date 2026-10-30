@@ -2,31 +2,32 @@
 {% comment %}
 Pager for ListView pages. Keeps every other query parameter, so filtering a
 list and then paging it does not silently drop the filter.
+Needs `is_paginated`, `page_obj` and `request` in context (ListView gives them).
 {% endcomment %}
 {% if is_paginated %}
-<nav class="flex flex-wrap items-center justify-between gap-3 mt-5 text-sm no-print" aria-label="Pagination">
-  <p class="text-gray-500">
+<nav class="mt-4 flex flex-wrap items-center justify-between gap-3 px-1 text-sm no-print" aria-label="Pagination">
+  <p class="text-ink-muted">
     {{ page_obj.paginator.count }} result{{ page_obj.paginator.count|pluralize }} —
     page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
   </p>
-  <div class="flex items-center gap-1 flex-wrap">
+  <div class="flex flex-wrap items-center gap-1">
     {% if page_obj.has_previous %}
-    <a href="{% page_url request 1 %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">First</a>
-    <a href="{% page_url request page_obj.previous_page_number %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Prev</a>
+    <a href="{% page_url request 1 %}" class="btn btn-secondary btn-sm">First</a>
+    <a href="{% page_url request page_obj.previous_page_number %}" class="btn btn-secondary btn-sm" aria-label="Previous page">Prev</a>
     {% endif %}
 
     {% page_window page_obj.paginator page_obj.number as pages %}
     {% for n in pages %}
       {% if n == page_obj.number %}
-      <span class="px-3 py-1.5 rounded-lg font-semibold text-white" style="background: var(--primary);">{{ n }}</span>
+      <span class="btn btn-primary btn-sm" aria-current="page">{{ n }}</span>
       {% else %}
-      <a href="{% page_url request n %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">{{ n }}</a>
+      <a href="{% page_url request n %}" class="btn btn-ghost btn-sm">{{ n }}</a>
       {% endif %}
     {% endfor %}
 
     {% if page_obj.has_next %}
-    <a href="{% page_url request page_obj.next_page_number %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Next</a>
-    <a href="{% page_url request page_obj.paginator.num_pages %}" class="px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">Last</a>
+    <a href="{% page_url request page_obj.next_page_number %}" class="btn btn-secondary btn-sm" aria-label="Next page">Next</a>
+    <a href="{% page_url request page_obj.paginator.num_pages %}" class="btn btn-secondary btn-sm">Last</a>
     {% endif %}
   </div>
 </nav>

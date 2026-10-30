@@ -1,32 +1,53 @@
 {% comment %}
-Reusable page header: title, subtitle, optional primary action.
-action_url must already be a resolved URL — use the url tag at the
-call site and pass the result, OR pass a plain href string.
-back_url is similarly a resolved URL / href.
+Page header: breadcrumbs, back link, eyebrow, title, subtitle, actions.
+
+  {% include "_includes/page_header.html" with title="Invoices" subtitle="…" action_label="New invoice" action_url=new_url %}
+
+Params (all optional except title):
+  title            h1 text
+  subtitle         muted line under the title
+  eyebrow          small uppercase line above the title (e.g. the company)
+  back_url         resolved URL for a "Back" link above the title
+  back_label       text of that link (default "Back")
+  crumbs           list of {"label":…, "url":…} (last item = current page).
+                   (A view's own `breadcrumbs` context is already drawn by
+                   base.html above the page — don't pass it again.)
+  action_label     primary button text  } shown only when both are set — so
+  action_url       primary button href  } gate with {% can_do %} by leaving
+                                          action_url empty for roles that can't
+  action_icon      "plus" (default), "edit" (default when the label starts with
+                   "Edit"), any _includes/icon.html name, or "none"
+  secondary_label  a second, neutral button   (with secondary_url)
+  secondary_url
+  actions_template path of a partial rendered inside the actions area (for
+                   POST buttons, dropdowns, more than two actions)
+  hide_print       True hides the Print button (shown by default)
+  print_label      caption of the Print button
+URLs must already be resolved: {% url 'x:y' as u %} then pass u.
 {% endcomment %}
-<div class="flex items-start justify-between mb-6 flex-wrap gap-3">
-  <div>
+<header class="page-header">
+  <div class="page-header-main">
+    {% if crumbs %}{% include "_includes/breadcrumbs.html" with crumbs=crumbs %}{% endif %}
     {% if back_url %}
-    <a href="{{ back_url }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-1">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-      </svg> Back
+    <a href="{{ back_url }}" class="back-link no-print">
+      {% include "_includes/icon.html" with name="chevron-left" cls="h-3.5 w-3.5" stroke="2" %}{{ back_label|default:"Back" }}
     </a>
     {% endif %}
-    <h1 class="text-xl font-bold text-gray-900">{{ title }}</h1>
-    {% if subtitle %}<p class="text-sm text-gray-500 mt-0.5">{{ subtitle }}</p>{% endif %}
+    {% if eyebrow %}<p class="page-eyebrow">{{ eyebrow }}</p>{% endif %}
+    <h1 class="page-title">{{ title }}</h1>
+    {% if subtitle %}<p class="page-subtitle">{{ subtitle }}</p>{% endif %}
   </div>
-  {% if action_label and action_url %}
-  <div class="flex items-center gap-2 no-print">
-    {% include "_includes/print_button.html" %}
-    <a href="{{ action_url }}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-xl" style="background: var(--primary); box-shadow: 0 6px 14px rgba(200,16,46,0.18);">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4v16m8-8H4"/>
-      </svg>
+  <div class="page-actions no-print">
+    {% if not hide_print %}{% include "_includes/print_button.html" %}{% endif %}
+    {% if actions_template %}{% include actions_template %}{% endif %}
+    {% if secondary_label and secondary_url %}
+    <a href="{{ secondary_url }}" class="btn btn-secondary">{{ secondary_label }}</a>
+    {% endif %}
+    {% if action_label and action_url %}
+    <a href="{{ action_url }}" class="btn btn-primary">
+      {% if action_icon == "none" %}{% elif action_icon %}{% include "_includes/icon.html" with name=action_icon cls="h-4 w-4" stroke="2" %}{% elif action_label|lower|slice:":4" == "edit" %}{% include "_includes/icon.html" with name="edit" cls="h-4 w-4" stroke="2" %}{% else %}{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}{% endif %}
       {{ action_label }}
     </a>
+    {% endif %}
   </div>
-  {% else %}
-  <div class="no-print">{% include "_includes/print_button.html" %}</div>
-  {% endif %}
-</div>
+</header>

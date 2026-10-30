@@ -1,0 +1,20 @@
+{% comment %}
+Empty state for a list, table or panel with nothing in it.
+  {% include "_includes/empty_state.html" with icon="inbox" title="No invoices yet" text="Invoices you raise appear here." action_label="New invoice" action_url=new_url %}
+Params: title (required), text, icon (an _includes/icon.html name, default
+"inbox"), action_label + action_url (primary button; leave action_url empty for
+roles that may not act), secondary_label + secondary_url, compact (less padding).
+Inside a table use it in a full-width cell:
+  <tr><td colspan="6">{% include "_includes/empty_state.html" with … %}</td></tr>
+{% endcomment %}
+<div class="empty-state{% if compact %} py-8{% endif %}">
+  <div class="empty-state-icon">{% include "_includes/icon.html" with name=icon|default:"inbox" cls="h-6 w-6" %}</div>
+  <p class="empty-state-title">{{ title }}</p>
+  {% if text %}<p class="empty-state-text">{{ text }}</p>{% endif %}
+  {% if action_url and action_label or secondary_url and secondary_label %}
+  <div class="empty-state-actions no-print">
+    {% if secondary_label and secondary_url %}<a href="{{ secondary_url }}" class="btn btn-secondary">{{ secondary_label }}</a>{% endif %}
+    {% if action_label and action_url %}<a href="{{ action_url }}" class="btn btn-primary">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}{{ action_label }}</a>{% endif %}
+  </div>
+  {% endif %}
+</div>

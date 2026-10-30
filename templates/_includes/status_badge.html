@@ -1,0 +1,5 @@
+{% load ui_extras %}{% comment %}
+Status pill coloured by the shared status table (ui_extras.STATUS_VARIANTS).
+  {% include "_includes/status_badge.html" with status=inv.status label=inv.get_status_display %}
+Same as the tag form: {% status_badge inv.status inv.get_status_display %}
+{% endcomment %}{% status_badge status label %}

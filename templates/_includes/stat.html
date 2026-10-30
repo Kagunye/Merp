@@ -1,0 +1,24 @@
+{% load ui_extras %}{% comment %}
+KPI tile.
+  {% include "_includes/stat.html" with label="Cash on hand" value=total_cash money=True currency=book meta="All bank and cash accounts" icon="cash" tone="success" %}
+Params:
+  label        caption (required)
+  value        the figure: with money=True it goes through |money, with qty=True
+               through |qty, otherwise it is printed as given
+  money        True → format as money     currency  e.g. "KES" (small unit after the value)
+  qty          True → format as quantity  unit      small text after the value ("items")
+  meta         small muted line under the value
+  icon         an _includes/icon.html name
+  tone         brand | success | warning | danger | info | neutral (icon chip colour)
+  url          makes the whole tile a link (only pass a URL the role may open)
+  trend        "up" | "down" colours the meta line green / red
+  value_class  extra classes on the value (e.g. "neg")
+{% endcomment %}
+<{% if url %}a href="{{ url }}"{% else %}div{% endif %} class="stat">
+  <p class="stat-label">
+    {% if icon %}<span class="stat-icon tone-{{ tone|default:'neutral' }}">{% include "_includes/icon.html" with name=icon cls="h-4 w-4" %}</span>{% endif %}
+    <span class="truncate">{{ label }}</span>
+  </p>
+  <p class="stat-value {{ value_class|default:'' }}">{% if money %}{{ value|money }}{% elif qty %}{{ value|qty }}{% else %}{{ value|default_if_none:"—" }}{% endif %}{% if currency %}<span class="stat-unit">{{ currency }}</span>{% elif unit %}<span class="stat-unit">{{ unit }}</span>{% endif %}</p>
+  {% if meta %}<p class="stat-meta{% if trend == 'up' %} stat-up{% elif trend == 'down' %} stat-down{% endif %}">{{ meta }}</p>{% endif %}
+</{% if url %}a{% else %}div{% endif %}>

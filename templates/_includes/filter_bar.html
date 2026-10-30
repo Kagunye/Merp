@@ -1,0 +1,43 @@
+{% comment %}
+GET filter bar for list pages. Every parameter is optional.
+  {% include "_includes/filter_bar.html" with search_placeholder="Reference or customer" filter_form=filter_form %}
+Params:
+  search_name        name of the search box (default "q"; search_name="none" drops it)
+  search_value       its value (default: request.GET[search_name])
+  search_placeholder placeholder text
+  search_label       visible label (default "Search")
+  filter_form        a Django form whose fields are drawn as compact controls
+  extra_template     a partial with more controls; wrap each in
+                     <div class="form-field"><label class="form-label" for=…>…</label>…</div>
+  submit_label       default "Filter"
+  reset_url          "Clear" link target (default request.path); the link shows
+                     only when the request has a query string
+Field names must stay exactly what the view reads from request.GET.
+{% endcomment %}
+<form method="get" class="filter-bar no-print" role="search">
+  {% with sname=search_name|default:"q" %}
+  {% if sname != "none" %}
+  <div class="form-field filter-bar-search">
+    <label class="form-label" for="fb-{{ sname }}">{{ search_label|default:"Search" }}</label>
+    <div class="input-group">
+      {% include "_includes/icon.html" with name="search" cls="h-4 w-4" %}
+      <input type="search" id="fb-{{ sname }}" name="{{ sname }}" class="input" placeholder="{{ search_placeholder|default:'Search…' }}"
+             value="{% if search_value is not None %}{{ search_value }}{% else %}{% for k, v in request.GET.items %}{% if k == sname %}{{ v }}{% endif %}{% endfor %}{% endif %}">
+    </div>
+  </div>
+  {% endif %}
+  {% endwith %}
+  {% if filter_form %}
+    {% for field in filter_form %}
+    <div class="form-field">
+      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+    </div>
+    {% endfor %}
+  {% endif %}
+  {% if extra_template %}{% include extra_template %}{% endif %}
+  <div class="filter-bar-actions">
+    <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="filter" cls="h-4 w-4" %}{{ submit_label|default:"Filter" }}</button>
+    {% if request.GET %}<a href="{{ reset_url|default:request.path }}" class="btn btn-ghost">Clear</a>{% endif %}
+  </div>
+</form>

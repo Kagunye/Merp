@@ -5,999 +5,232 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}Mofisi{% endblock %}</title>
+  <script>
+    // "System" theme follows the device; resolved before first paint.
+    (function () {
+      var el = document.documentElement;
+      if (el.getAttribute('data-theme') === 'system') {
+        var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        el.setAttribute('data-theme', dark ? 'dark' : 'light');
+      }
+    })();
+  </script>
 
-  <!-- Tailwind CSS — pre-built via `npm run build:css` from tailwind.config.js -->
-  {% load static %}
+  {% load static ui_extras %}
+  <!-- Design system — built by `npm run build:css` from static/css/tailwind.input.css (see docs/UI.md) -->
   <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
   <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
 
-  <!-- Inter Font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
-
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-
-  <!-- Heroicons (inline SVG approach via a small library) -->
-  <style>
-    :root {
-      --primary: #C8102E;
-      --primary-light: #E8304E;
-      --primary-dark: #9B000E;
-      --sidebar-width: 72px;
-      --sidebar-expanded: 280px;
-      --topbar-height: 64px;
-    }
-    * { box-sizing: border-box; }
-    body { font-family: 'Inter', system-ui, sans-serif; background: #F5F6F8; color: #111827; }
-
-    /* ================================================================
-       SIDEBAR — simplified. Red brand surface. Three states:
-         Phone      (<640px):  off-canvas drawer, slides in via toggle
-         Tablet (640-1023px):  collapsed 72px rail (icons only)
-         Desktop   (>=1024px): expanded 280px (icon + label)
-       ================================================================ */
-    #sidebar {
-      width: var(--sidebar-expanded);
-      background: var(--primary);
-      transition: width 0.18s ease, transform 0.18s ease;
-      z-index: 50;
-    }
-    #sidebar:not(.expanded) { width: var(--sidebar-width); }
-
-    @media (max-width: 639px) {
-      #sidebar { transform: translateX(-100%); width: var(--sidebar-expanded); }
-      #sidebar.drawer-open { transform: translateX(0); }
-    }
-    #sidebar-backdrop {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.4); z-index: 45;
-    }
-    #sidebar-backdrop.show { display: block; }
-
-    /* Label text hidden on collapsed rail */
-    .sidebar-label {
-      opacity: 0; width: 0; overflow: hidden; white-space: nowrap;
-      transition: opacity 0.15s;
-    }
-    #sidebar.expanded .sidebar-label { opacity: 1; width: auto; }
-
-    /* Brand: square mark on the collapsed rail, full lockup once there is room */
-    .sidebar-brand-mark { display: block; width: 36px; height: 36px; flex-shrink: 0; }
-    .sidebar-brand-lockup { display: none; height: 30px; width: auto; flex-shrink: 0; }
-    #sidebar.expanded .sidebar-brand-mark { display: none; }
-    #sidebar.expanded .sidebar-brand-lockup { display: block; }
-
-    #sidebar-nav { flex: 1 1 auto; overflow-y: auto; }
-    #sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); }
-
-    /* Nav items — simpler, flatter */
-    .nav-item {
-      position: relative;
-      display: flex; align-items: center;
-      height: 40px;
-      padding: 0 12px;
-      border-radius: 8px;
-      cursor: pointer; text-decoration: none;
-      color: rgba(255,255,255,0.88);
-      transition: background 0.12s ease, color 0.12s ease;
-    }
-    .nav-item .nav-icon-wrap {
-      width: 24px; height: 24px; flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .nav-item .nav-icon {
-      width: 18px; height: 18px; color: inherit;
-    }
-    .nav-item .sidebar-label {
-      margin-left: 12px;
-      font-size: 13.5px; font-weight: 500; color: inherit;
-    }
-    .nav-item:not(.active):hover {
-      background: rgba(255,255,255,0.1);
-      color: #fff;
-    }
-
-    /* Active state — left accent bar + white text, no pill */
-    .nav-item.active {
-      background: rgba(255,255,255,0.14);
-      color: #fff;
-      font-weight: 600;
-    }
-    .nav-item.active::before {
-      content: "";
-      position: absolute;
-      left: 0; top: 20%; bottom: 20%;
-      width: 3px;
-      background: #fff;
-      border-radius: 0 2px 2px 0;
-    }
-    #sidebar:not(.expanded) .nav-item.active { background: rgba(255,255,255,0.14); }
-    #sidebar:not(.expanded) .nav-item.active::before { left: 0; }
-
-    /* Section dividers — compact uppercase, hidden when collapsed */
-    .nav-divider {
-      padding: 14px 14px 6px;
-      font-size: 10px; font-weight: 700;
-      text-transform: uppercase; letter-spacing: 0.14em;
-      color: rgba(255,255,255,0.55);
-    }
-    #sidebar:not(.expanded) .nav-divider {
-      padding: 10px 0 4px;
-      text-align: center;
-      font-size: 0;
-    }
-    #sidebar:not(.expanded) .nav-divider::after {
-      content: "";
-      display: inline-block;
-      width: 24px; height: 1px;
-      background: rgba(255,255,255,0.2);
-    }
-
-    /* Collapse chevron */
-    .sidebar-collapse-btn { color: rgba(255,255,255,0.8); transition: transform 0.2s; }
-    .sidebar-collapse-btn:hover { color: #fff; }
-    #sidebar:not(.expanded) .sidebar-collapse-btn svg { transform: rotate(180deg); }
-
-    /* Collapsed-rail tooltip — pure CSS, uses the nav-item's title attribute. */
-    #sidebar:not(.expanded) .nav-item {
-      padding: 0; justify-content: center;
-    }
-    #sidebar:not(.expanded) .nav-item::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      left: calc(100% + 10px);
-      top: 50%;
-      transform: translateY(-50%);
-      background: #111827;
-      color: #fff;
-      padding: 5px 10px;
-      border-radius: 6px;
-      font-size: 12.5px; font-weight: 500;
-      white-space: nowrap;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.12s ease;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 100;
-    }
-    #sidebar:not(.expanded) .nav-item:hover::after { opacity: 1; }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
-
-    /* =============================================================
-       GLOBAL FORM STYLES — every form in the app inherits the same
-       Caritas-style look as the sign-in page without each template
-       having to be rewritten. Scoped to <form> inside <main> so the
-       sidebar/topbar widgets are untouched.
-       ============================================================= */
-
-    /* Card container that wraps a form — matches the sign-in white
-       panel exactly, so form cards don't look like a different app. */
-    main form,
-    main .form-card {
-      background: #FFFFFF;
-      border: 1px solid var(--border, #E5E7EB);
-      border-radius: 16px;
-      padding: 20px 22px;
-    }
-    main form.inline-form,
-    main form.no-card { background: transparent; border: none; padding: 0; }
-
-    /* Compact filter bars (list pages, statements): controls sit side by side,
-       so they must not inherit the full-width card treatment above. */
-    main form.inline-form label { font-size: 11px; margin-bottom: 3px; }
-    main form.inline-form input[type="text"],
-    main form.inline-form input[type="search"],
-    main form.inline-form input[type="date"],
-    main form.inline-form input[type="month"],
-    main form.inline-form select {
-      width: auto; min-width: 150px; padding: 8px 11px; font-size: 13px;
-    }
-    main form.inline-form button[type="submit"],
-    main form.inline-form input[type="submit"] {
-      padding: 9px 16px; font-size: 13px; font-weight: 600; font-family: inherit;
-      color: #fff; background: var(--primary); border: 0; border-radius: 10px;
-      cursor: pointer; white-space: nowrap;
-    }
-    main form.inline-form button[type="submit"]:hover,
-    main form.inline-form input[type="submit"]:hover { filter: brightness(1.08); }
-
-    /* Labels — same muted uppercase accent used on the sign-in form,
-       but visually subordinate to the sign-in's bigger titles. */
-    main form label,
-    main .form-field label,
-    main label.form-label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #374151;
-      margin-bottom: 6px;
-      letter-spacing: 0;
-      text-transform: none;
-    }
-
-    /* Inputs — soft gray fill, 1.5px border, red focus ring. Same recipe
-       as the sign-in .field-input. Covers every input type a Django
-       widget may render. */
-    main form input[type="text"],
-    main form input[type="email"],
-    main form input[type="password"],
-    main form input[type="search"],
-    main form input[type="tel"],
-    main form input[type="url"],
-    main form input[type="number"],
-    main form input[type="date"],
-    main form input[type="datetime-local"],
-    main form input[type="time"],
-    main form input[type="month"],
-    main form input[type="week"],
-    main form input[type="file"],
-    main form select,
-    main form textarea {
-      width: 100%;
-      padding: 11px 14px;
-      font-size: 14px;
-      font-family: inherit;
-      color: #111827;
-      background: #F6F7F9;
-      border: 1.5px solid #E5E7EB;
-      border-radius: 10px;
-      outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-      box-sizing: border-box;
-    }
-    main form textarea { min-height: 92px; line-height: 1.5; resize: vertical; }
-    main form select {
-      appearance: none;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'><path stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/></svg>");
-      background-repeat: no-repeat;
-      background-position: right 14px center;
-      padding-right: 36px;
-    }
-    main form input::placeholder,
-    main form textarea::placeholder { color: #9CA3AF; }
-    main form input:focus,
-    main form select:focus,
-    main form textarea:focus {
-      background: #FFFFFF;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 4px rgba(200,16,46,0.08);
-    }
-    /* Error state — Django bound forms often add `.is-invalid` or `.error`,
-       and many templates toggle a red-border class. Normalise to one look. */
-    main form .is-invalid,
-    main form input.error,
-    main form select.error,
-    main form textarea.error,
-    main form input[aria-invalid="true"],
-    main form select[aria-invalid="true"],
-    main form textarea[aria-invalid="true"] {
-      border-color: #F87171;
-      background: #FFF5F5;
-    }
-    main form .errorlist,
-    main form .invalid-feedback,
-    main form .field-error {
-      list-style: none;
-      padding: 0;
-      margin: 6px 0 0;
-      font-size: 12.5px;
-      color: #DC2626;
-    }
-    main form .helptext,
-    main form .form-text,
-    main form small.text-muted {
-      display: block;
-      font-size: 12.5px;
-      color: #6B7280;
-      margin-top: 4px;
-    }
-
-    /* Checkbox / radio — primary accent + readable label layout */
-    main form input[type="checkbox"],
-    main form input[type="radio"] {
-      width: 16px; height: 16px;
-      accent-color: var(--primary);
-      cursor: pointer;
-      vertical-align: middle;
-      margin-right: 8px;
-    }
-    main form .form-check,
-    main form .checkbox,
-    main form .radio {
-      display: flex; align-items: center; gap: 8px;
-      font-size: 14px; color: #374151;
-    }
-
-    /* Buttons — covers submit, buttons styled via Tailwind in templates
-       (`button[type=submit]`) and anchor-based cancel/back links next
-       to them (`a.btn`). Primary = red, outline = white with border. */
-    main form button[type="submit"],
-    main form .btn-primary,
-    main form input[type="submit"] {
-      display: inline-flex;
-      align-items: center; justify-content: center;
-      gap: 8px;
-      padding: 11px 20px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #FFFFFF;
-      background: var(--primary);
-      border: 1.5px solid var(--primary);
-      border-radius: 10px;
-      cursor: pointer;
-      transition: background 0.12s, transform 0.08s;
-      box-shadow: 0 6px 14px rgba(200,16,46,0.18);
-    }
-    main form button[type="submit"]:hover,
-    main form .btn-primary:hover,
-    main form input[type="submit"]:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
-    main form button[type="submit"]:active,
-    main form .btn-primary:active,
-    main form input[type="submit"]:active { transform: translateY(1px); }
-
-    main form .btn-outline,
-    main form a.btn-cancel,
-    main form button[type="button"].btn-cancel {
-      display: inline-flex;
-      align-items: center; justify-content: center;
-      gap: 8px;
-      padding: 11px 20px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #111827;
-      background: #FFFFFF;
-      border: 1.5px solid var(--border, #E5E7EB);
-      border-radius: 10px;
-      cursor: pointer;
-      text-decoration: none;
-      transition: border-color 0.12s, background 0.12s;
-    }
-    main form .btn-outline:hover,
-    main form a.btn-cancel:hover,
-    main form button[type="button"].btn-cancel:hover { border-color: #9CA3AF; background: #F9FAFB; }
-
-    /* Button-row utility: lay out submit + cancel side-by-side with a
-       top divider. Any .form-actions / .form-footer / .button-row works. */
-    main form .form-actions,
-    main form .form-footer,
-    main form .button-row {
-      display: flex;
-      gap: 10px;
-      padding-top: 16px;
-      margin-top: 16px;
-      border-top: 1px solid var(--border, #E5E7EB);
-      flex-wrap: wrap;
-    }
-
-    /* Non-field error banner (Django's form.non_field_errors) */
-    main form .non-field-errors,
-    main form .alert-danger {
-      background: #FFF0F2;
-      border: 1px solid #FECACA;
-      color: #B91C1C;
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 13px;
-      margin-bottom: 14px;
-    }
-
-    /* Dark-mode mirror for forms (data-theme on <html>) */
-    [data-theme="dark"] main form,
-    [data-theme="dark"] main .form-card {
-      background: #141826;
-      border-color: #2E3440;
-    }
-    [data-theme="dark"] main form label { color: #D1D5DB; }
-    [data-theme="dark"] main form input,
-    [data-theme="dark"] main form select,
-    [data-theme="dark"] main form textarea {
-      background: #0B0E17; color: #F3F4F6; border-color: #2E3440;
-    }
-    [data-theme="dark"] main form input::placeholder,
-    [data-theme="dark"] main form textarea::placeholder { color: #6B7280; }
-    [data-theme="dark"] main form input:focus,
-    [data-theme="dark"] main form select:focus,
-    [data-theme="dark"] main form textarea:focus { background: #141826; }
-    [data-theme="dark"] main form .btn-outline,
-    [data-theme="dark"] main form a.btn-cancel { background: transparent; color: #F3F4F6; border-color: #2E3440; }
-
-    /* Dark mode */
-    [data-theme="dark"] body { background: #0F1117; color: #F9FAFB; }
-    [data-theme="dark"] #topbar { background: #1A1D26 !important; border-color: #2D3147 !important; }
-    [data-theme="dark"] .card { background: #1A1D26 !important; border-color: #2D3147 !important; }
-
-    /* Transitions */
-    .card { transition: box-shadow 0.15s ease; }
-    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.10); }
-
-    /* Toast notifications */
-    #toast-container { position: fixed; top: 80px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
-
-    /* Loading spinner */
-    .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
-    .htmx-request .htmx-indicator { opacity: 1; }
-
-    /* Badge */
-    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 18px; }
-
-    /* ── Responsive utilities the pre-built tailwind.css is missing ────────
-       static/css/tailwind.css is a purge build; the breakpoint variants used
-       by these templates were not in it, so `npm run build:css` cannot be
-       relied on here. These definitions match Tailwind's own output
-       (sm 640 / md 768 / lg 1024) and this block is later in the cascade. */
-    @media (min-width: 640px) {
-      .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .sm\:col-span-2 { grid-column: span 2 / span 2; }
-    }
-    @media (min-width: 768px) {
-      .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .md\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-      .md\:col-span-2 { grid-column: span 2 / span 2; }
-      .md\:col-span-3 { grid-column: span 3 / span 3; }
-      .md\:block { display: block; }
-      .md\:inline-flex { display: inline-flex; }
-      .md\:hidden { display: none; }
-    }
-    @media (min-width: 1024px) {
-      .lg\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .lg\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .lg\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-      .lg\:grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-      .lg\:col-span-2 { grid-column: span 2 / span 2; }
-      .lg\:col-span-3 { grid-column: span 3 / span 3; }
-    }
-
-    /* ── Narrow screens ──────────────────────────────────────────────────── */
-    /* A flex item's default min-width:auto means #main-wrapper could never
-       become narrower than the widest thing inside it, so list and form pages
-       pushed the whole document sideways on phones and tablets. */
-    #main-wrapper, #main-wrapper > main { min-width: 0; }
-
-    @media (max-width: 767px) {
-      /* Data tables are far wider than a phone. Turning the table into a
-         scroll container lets its rows scroll sideways while the children
-         keep their table layout — one rule instead of 80 wrappers. */
-      main table {
-        display: block; max-width: 100%; overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-      /* The topbar is a fixed-height row: the search box shrinks so the
-         icon controls never get pushed off screen. */
-      .topbar-search { flex: 1 1 auto; min-width: 0; }
-    }
-    /* The topbar is a fixed-height row whose right-hand cluster (icons, company
-       switcher, profile) has a content-driven width. The search box therefore
-       takes whatever that cluster leaves: a fixed 384px search pushed the
-       profile button off screen as soon as the full sidebar was in place. */
-    @media (min-width: 768px) {
-      .topbar-search { flex: 1 1 auto; min-width: 0; max-width: 24rem; }
-      #topbar > div:last-child { flex-shrink: 0; }
-    }
-
-    /* ── Printing ──────────────────────────────────────────────────────────
-       Screen chrome (sidebar, topbar, action buttons) drops away and the
-       document prints in black on white with repeating table headers.
-       Multi-column card grids stack so wide tables get the full page. */
-    .print-header { display: none; }
-
-    @media print {
-      @page { margin: 14mm 12mm; }
-      html { font-size: 12px; }
-      body { background: #fff !important; color: #000 !important; }
-
-      #sidebar, #sidebar-backdrop, #topbar, #toast-container,
-      .no-print, button, input[type="submit"], input[type="button"],
-      .hidden-dropdown, .htmx-indicator { display: none !important; }
-
-      #main-wrapper { margin-left: 0 !important; }
-      main { padding-top: 0 !important; min-height: 0 !important; }
-      main > div { padding: 0 !important; }
-
-      /* Letterhead — only visible on paper. */
-      .print-header {
-        display: flex !important; align-items: flex-start; justify-content: space-between;
-        gap: 16px; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 14px;
-      }
-      .print-header img { max-height: 48px; max-width: 150px; object-fit: contain; }
-      .print-header .ph-name { font-size: 17px; font-weight: 700; }
-      .print-header .ph-sub { font-size: 10px; color: #333; margin-top: 2px; }
-      .print-header .ph-doc { text-align: right; flex-shrink: 0; }
-      .print-header .ph-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-      .print-header .ph-meta { font-size: 10px; color: #333; margin-top: 2px; }
-
-      /* Stack dashboard-style grids into a readable column flow. */
-      [class*="grid"] { display: block !important; gap: 0 !important; }
-      [class*="grid"] > * { margin-bottom: 8px !important; }
-
-      .card, [class*="bg-white"], [class*="rounded"] {
-        background: #fff !important; border: 1px solid #bbb !important;
-        border-radius: 4px !important; box-shadow: none !important;
-      }
-      [class*="bg-gray-50"], [class*="bg-orange-50"], [class*="bg-red-50"],
-      [class*="bg-green-50"], [class*="bg-blue-50"], [class*="bg-amber-50"] { background: #fff !important; }
-
-      /* Dark mode must never print dark. */
-      [data-theme="dark"] body, [data-theme="dark"] .card,
-      [data-theme="dark"] main form input, [data-theme="dark"] main form select,
-      [data-theme="dark"] main form textarea, [data-theme="dark"] main form label {
-        background: #fff !important; color: #000 !important; border-color: #bbb !important;
-      }
-
-      table { width: 100% !important; border-collapse: collapse !important; }
-      main table { display: table !important; overflow: visible !important; max-width: none !important; }
-      thead { display: table-header-group; }
-      th, td { border-color: #ccc !important; color: #000 !important; }
-      tr { break-inside: avoid; page-break-inside: avoid; }
-      h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
-
-      a { color: #000 !important; text-decoration: none !important; }
-      .badge { border: 1px solid #999 !important; background: #fff !important; color: #000 !important; }
-      canvas { max-width: 100% !important; }
-    }
-  </style>
 
   {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen flex">
+<body class="min-h-screen">
+
+<a href="#main-content" class="skip-link">Skip to content</a>
 
 {% if request.user.is_authenticated %}
 
-<!-- MOBILE DRAWER BACKDROP -->
-<div id="sidebar-backdrop" onclick="closeDrawer()"></div>
+<div id="sidebar-backdrop" onclick="closeDrawer()" aria-hidden="true"></div>
 
-<!-- SIDEBAR (KRA / eCitizen style — red background, white active) -->
-<aside id="sidebar" class="fixed left-0 top-0 bottom-0 flex flex-col">
+<!-- ============================ SIDEBAR ============================ -->
+<aside id="sidebar" class="fixed bottom-0 left-0 top-0 flex flex-col" aria-label="Main navigation">
 
-  <!-- Header row: brand (expanded) + hamburger toggle -->
-  <div class="h-16 flex items-center shrink-0 px-3" style="border-bottom:1px solid rgba(255,255,255,0.14);">
-    <div class="flex items-center min-w-0 flex-1">
-      <img src="{% static 'merp/images/mofisi-mark-white.png' %}" alt="Mofisi" class="sidebar-brand-mark">
-      <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="sidebar-brand-lockup">
-    </div>
-    <button type="button" onclick="toggleSidebar()" title="Toggle sidebar"
-            class="sidebar-collapse-btn w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-      </svg>
+  <div class="sidebar-head flex shrink-0 items-center gap-2 px-3">
+    <a href="{% url 'dashboard:index' %}" class="sidebar-brand flex min-w-0 flex-1 items-center" aria-label="Mofisi — dashboard">
+      <img src="{% static 'merp/images/mofisi-mark.png' %}" alt="" class="sidebar-brand-mark theme-light-only">
+      <img src="{% static 'merp/images/mofisi-mark-white.png' %}" alt="" class="sidebar-brand-mark theme-dark-only">
+      <img src="{% static 'merp/images/mofisi-logo.png' %}" alt="" class="sidebar-brand-lockup theme-light-only">
+      <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="" class="sidebar-brand-lockup theme-dark-only">
+    </a>
+    <button type="button" onclick="toggleSidebar()" aria-label="Collapse or expand the sidebar"
+            class="sidebar-collapse-btn flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+      {% include "_includes/icon.html" with name="chevron-left" cls="h-4 w-4" stroke="2" %}
     </button>
   </div>
 
-  <!-- Nav Items -->
-  <nav id="sidebar-nav" class="flex-1 py-3 px-2 space-y-1">
-
+  <nav id="sidebar-nav" class="flex-1 space-y-0.5 px-3 py-3" aria-label="Modules">
     {% with ns=request.resolver_match.namespace %}
 
-    <!-- Dashboard -->
-    {% if nav.dashboard %}<a href="{% url 'dashboard:index' %}" class="nav-item{% if ns == 'dashboard' %} active{% endif %}" data-tooltip="Dashboard">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Dashboard</span>
-    </a>{% endif %}
+    {% if nav.dashboard %}{% include "base/_nav_item.html" with href="/dashboard/" key="dashboard" label="Dashboard" icon="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" %}{% endif %}
 
-    <!-- Finance section -->
-    {% if nav.accounting or nav.business_mgmt or nav.banking %}<div class="nav-divider">Finance</div>{% endif %}
+    {% if nav.accounting or nav.banking or nav.expenses or nav.fixed_assets or nav.reporting or nav.business_mgmt %}<div class="nav-divider">Finance</div>{% endif %}
+    {% if nav.accounting %}{% include "base/_nav_item.html" with href="/accounting/" key="accounting" label="Accounting" icon="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" %}{% endif %}
+    {% if nav.banking %}{% include "base/_nav_item.html" with href="/banking/" key="banking" label="Banking" icon="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" %}{% endif %}
+    {% if nav.expenses %}{% include "base/_nav_item.html" with href="/expenses/" key="expenses" label="Expenses" icon="M9 14l6-6m4.5-3.5V21l-3.75-1.5L12 21l-3.75-1.5L4.5 21V4.5A2 2 0 016.5 2.5h11a2 2 0 012 2z" %}{% endif %}
+    {% if nav.fixed_assets %}{% include "base/_nav_item.html" with href="/fixed-assets/" key="fixed_assets" label="Fixed Assets" icon="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" %}{% endif %}
+    {% if nav.reporting %}{% include "base/_nav_item.html" with href="/reports/" key="reporting" label="Reports" icon="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" %}{% endif %}
+    {% if nav.business_mgmt %}{% include "base/_nav_item.html" with href="/business-management/" key="business_mgmt" label="Business Mgmt" icon="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0" %}{% endif %}
 
-    {% if nav.accounting %}<a href="/accounting/" class="nav-item{% if ns == 'accounting' %} active{% endif %}" data-tooltip="Accounting">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Accounting</span>
-    </a>{% endif %}
-
-    {% if nav.business_mgmt %}<a href="/business-management/" class="nav-item{% if ns == 'business_mgmt' %} active{% endif %}" data-tooltip="Business Mgmt">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Business Mgmt</span>
-    </a>{% endif %}
-
-    {% if nav.banking %}<a href="/banking/" class="nav-item{% if ns == 'banking' %} active{% endif %}" data-tooltip="Banking">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Banking</span>
-    </a>{% endif %}
-
-    <!-- Sales section -->
     {% if nav.crm or nav.sales or nav.pos %}<div class="nav-divider">Sales</div>{% endif %}
+    {% if nav.crm %}{% include "base/_nav_item.html" with href="/crm/" key="crm" label="Customers" icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" %}{% endif %}
+    {% if nav.sales %}{% include "base/_nav_item.html" with href="/sales/" key="sales" label="Sales" icon="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" %}{% endif %}
+    {% if nav.pos %}{% include "base/_nav_item.html" with href="/pos/" key="pos" label="Point of Sale" icon="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" %}{% endif %}
 
-    {% if nav.crm %}<a href="/crm/" class="nav-item{% if ns == 'crm' %} active{% endif %}" data-tooltip="Customers">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Customers</span>
-    </a>{% endif %}
+    {% if nav.inventory or nav.procurement or nav.warehousing or nav.manufacturing or nav.workshop %}<div class="nav-divider">Supply chain</div>{% endif %}
+    {% if nav.inventory %}{% include "base/_nav_item.html" with href="/inventory/" key="inventory" label="Inventory" icon="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" %}{% endif %}
+    {% if nav.procurement %}{% include "base/_nav_item.html" with href="/procurement/" key="procurement" label="Procurement" icon="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" %}{% endif %}
+    {% if nav.warehousing %}{% include "base/_nav_item.html" with href="/warehousing/" key="warehousing" label="Warehouse Mgmt" icon="M3 7l9-4 9 4M4 10h16v10H4V10z" icon2="M8 14h8M8 17h5" %}{% endif %}
+    {% if nav.manufacturing %}{% include "base/_nav_item.html" with href="/manufacturing/" key="manufacturing" label="Manufacturing" icon="M19 7l-7 7-3-3m0 0L5 15m4-4V5m0 0h8" icon2="M4 20h16" %}{% endif %}
+    {% if nav.workshop %}{% include "base/_nav_item.html" with href="/workshop/" key="workshop" label="Workshop" icon="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" %}{% endif %}
 
-    {% if nav.sales %}<a href="/sales/" class="nav-item{% if ns == 'sales' %} active{% endif %}" data-tooltip="Sales">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Sales</span>
-    </a>{% endif %}
-
-    {% if nav.pos %}<a href="/pos/" class="nav-item{% if ns == 'pos' %} active{% endif %}" data-tooltip="Point of Sale">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Point of Sale</span>
-    </a>{% endif %}
-
-    <!-- Supply Chain section -->
-    {% if nav.inventory or nav.procurement or nav.warehousing or nav.manufacturing or nav.workshop %}<div class="nav-divider">Supply Chain</div>{% endif %}
-
-    {% if nav.inventory %}<a href="/inventory/" class="nav-item{% if ns == 'inventory' %} active{% endif %}" data-tooltip="Inventory">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Inventory</span>
-    </a>{% endif %}
-
-    {% if nav.procurement %}<a href="/procurement/" class="nav-item{% if ns == 'procurement' %} active{% endif %}" data-tooltip="Procurement">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Procurement</span>
-    </a>{% endif %}
-
-    {% if nav.warehousing %}<a href="/warehousing/" class="nav-item{% if ns == 'warehousing' %} active{% endif %}" data-tooltip="Warehouse Mgmt">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7l9-4 9 4M4 10h16v10H4V10z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 14h8M8 17h5"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Warehouse Mgmt</span>
-    </a>{% endif %}
-
-    {% if nav.manufacturing %}<a href="/manufacturing/" class="nav-item{% if ns == 'manufacturing' %} active{% endif %}" data-tooltip="Manufacturing">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 7l-7 7-3-3m0 0L5 15m4-4V5m0 0h8"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 20h16"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Manufacturing</span>
-    </a>{% endif %}
-
-    {% if nav.workshop %}<a href="/workshop/" class="nav-item{% if ns == 'workshop' %} active{% endif %}" data-tooltip="Workshop">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Workshop</span>
-    </a>{% endif %}
-
-    <!-- People section -->
     {% if nav.hr or nav.payroll or nav.timesheets or nav.recruitment %}<div class="nav-divider">People</div>{% endif %}
+    {% if nav.hr %}{% include "base/_nav_item.html" with href="/hr/" key="hr" label="HR" icon="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" %}{% endif %}
+    {% if nav.payroll %}{% include "base/_nav_item.html" with href="/payroll/" key="payroll" label="Payroll" icon="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" %}{% endif %}
+    {% if nav.timesheets %}{% include "base/_nav_item.html" with href="/timesheets/" key="timesheets" label="Timesheets" icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" %}{% endif %}
+    {% if nav.recruitment %}{% include "base/_nav_item.html" with href="/recruitment/" key="recruitment" label="Recruitment" icon="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" icon2="M20 8v6M23 11h-6" %}{% endif %}
 
-    {% if nav.hr %}<a href="/hr/" class="nav-item{% if ns == 'hr' %} active{% endif %}" data-tooltip="HR">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">HR</span>
-    </a>{% endif %}
-
-    {% if nav.payroll %}<a href="/payroll/" class="nav-item{% if ns == 'payroll' %} active{% endif %}" data-tooltip="Payroll">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Payroll</span>
-    </a>{% endif %}
-
-    {% if nav.timesheets %}<a href="/timesheets/" class="nav-item{% if ns == 'timesheets' %} active{% endif %}" data-tooltip="Timesheets">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Timesheets</span>
-    </a>{% endif %}
-
-    {% if nav.recruitment %}<a href="/recruitment/" class="nav-item{% if ns == 'recruitment' %} active{% endif %}" data-tooltip="Recruitment">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20 8v6M23 11h-6"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Recruitment</span>
-    </a>{% endif %}
-
-    <!-- Operations section -->
-    {% if nav.projects or nav.expenses or nav.fixed_assets or nav.reporting or nav.documents %}<div class="nav-divider">Operations</div>{% endif %}
-
-    {% if nav.projects %}<a href="/projects/" class="nav-item{% if ns == 'projects' %} active{% endif %}" data-tooltip="Projects">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Projects</span>
-    </a>{% endif %}
-
-    {% if nav.expenses %}<a href="/expenses/" class="nav-item{% if ns == 'expenses' %} active{% endif %}" data-tooltip="Expenses">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Expenses</span>
-    </a>{% endif %}
-
-    {% if nav.fixed_assets %}<a href="/fixed-assets/" class="nav-item{% if ns == 'fixed_assets' %} active{% endif %}" data-tooltip="Fixed Assets">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Fixed Assets</span>
-    </a>{% endif %}
-
-    {% if nav.reporting %}<a href="/reports/" class="nav-item{% if ns == 'reporting' %} active{% endif %}" data-tooltip="Reports">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Reports</span>
-    </a>{% endif %}
-
-    {% if nav.documents %}<a href="/documents/" class="nav-item{% if ns == 'documents' %} active{% endif %}" data-tooltip="Documents">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Documents</span>
-    </a>{% endif %}
-
-    <!-- Support section -->
-    {% if nav.helpdesk or nav.notifications or nav.sms %}<div class="nav-divider">Support</div>{% endif %}
-
-    {% if nav.helpdesk %}<a href="/helpdesk/" class="nav-item{% if ns == 'helpdesk' %} active{% endif %}" data-tooltip="Help Desk">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M18.364 5.636a9 9 0 010 12.728M12 3v18M5.636 5.636a9 9 0 000 12.728M9 12a3 3 0 116 0 3 3 0 01-6 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Help Desk</span>
-    </a>{% endif %}
-
-    {% if nav.notifications %}<a href="/notifications/" class="nav-item{% if ns == 'notifications' %} active{% endif %}" data-tooltip="Notifications">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Notifications</span>
-    </a>{% endif %}
-
-    {% if nav.sms %}<a href="/sms/" class="nav-item{% if ns == 'sms' %} active{% endif %}" data-tooltip="SMS">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">SMS</span>
-    </a>{% endif %}
+    {% if nav.projects or nav.documents or nav.helpdesk or nav.notifications or nav.sms %}<div class="nav-divider">Workspace</div>{% endif %}
+    {% if nav.projects %}{% include "base/_nav_item.html" with href="/projects/" key="projects" label="Projects" icon="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" %}{% endif %}
+    {% if nav.documents %}{% include "base/_nav_item.html" with href="/documents/" key="documents" label="Documents" icon="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" %}{% endif %}
+    {% if nav.helpdesk %}{% include "base/_nav_item.html" with href="/helpdesk/" key="helpdesk" label="Help Desk" icon="M18.364 5.636a9 9 0 010 12.728M12 3v18M5.636 5.636a9 9 0 000 12.728M9 12a3 3 0 116 0 3 3 0 01-6 0z" %}{% endif %}
+    {% if nav.notifications %}{% include "base/_nav_item.html" with href="/notifications/" key="notifications" label="Notifications" icon="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" %}{% endif %}
+    {% if nav.sms %}{% include "base/_nav_item.html" with href="/sms/" key="sms" label="SMS" icon="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" %}{% endif %}
 
     {% endwith %}
   </nav>
 
-  <!-- Settings / Control Panel at bottom -->
-  <div class="px-2 py-2 shrink-0" style="border-top:1px solid #1E2130;">
-{% if nav.control_panel %}    <a href="/control-panel/" class="nav-item" data-tooltip="Control Panel">
-      <div class="nav-icon-wrap">
-        <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-        </svg>
-      </div>
-      <span class="sidebar-label">Control Panel</span>
-    </a>{% endif %}
+  {% if nav.control_panel %}
+  <div class="sidebar-foot shrink-0 px-3 py-2">
+    {% with ns=request.resolver_match.namespace %}
+    {% include "base/_nav_item.html" with href="/control-panel/" key="control_panel" label="Control Panel" icon="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" icon2="M15 12a3 3 0 11-6 0 3 3 0 016 0z" %}
+    {% endwith %}
   </div>
-
+  {% endif %}
 </aside>
 
-<!-- MAIN WRAPPER -->
-<div id="main-wrapper" class="flex-1 flex flex-col" style="margin-left: var(--sidebar-width); transition: margin-left 0.2s ease;">
+<!-- ============================ MAIN ============================ -->
+<div id="main-wrapper" class="flex min-h-screen flex-col">
 
-  <!-- TOP BAR -->
-  <header id="topbar" class="fixed top-0 right-0 bg-white border-b border-gray-200 flex items-center h-16 px-5 z-30"
-          style="left: var(--sidebar-width); transition: left 0.2s ease;">
+  <header id="topbar" class="fixed right-0 top-0 z-30 flex items-center gap-2 px-3 sm:gap-3 sm:px-5">
 
-    <!-- Hamburger — phone only (desktop uses the sidebar collapse chevron) -->
-    <button type="button" onclick="toggleSidebar()" title="Menu"
-            class="w-10 h-10 md:hidden flex items-center justify-center rounded-lg hover:bg-gray-100 mr-2 shrink-0">
-      <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-      </svg>
+    <button type="button" onclick="toggleSidebar()" aria-label="Open navigation menu" class="topbar-btn md:hidden">
+      {% include "_includes/icon.html" with name="menu" cls="h-5 w-5" stroke="2" %}
     </button>
 
-    <!-- Search — submits to the global search page -->
     <div class="topbar-search">
-      <form method="get" action="{% url 'dashboard:search' %}" class="relative">
-        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-        </svg>
+      <form method="get" action="{% url 'dashboard:search' %}" class="relative" role="search">
+        <label for="global-search" class="sr-only">Search</label>
+        {% include "_includes/icon.html" with name="search" cls="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" stroke="2" %}
         <input type="search" id="global-search" name="q" value="{{ request.GET.q|default:'' }}"
-               placeholder="Search invoices, customers, products…"
-               class="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:bg-white focus:border-transparent transition"
-               style="--tw-ring-color: var(--primary);">
+               placeholder="Search invoices, customers, products…" autocomplete="off">
       </form>
     </div>
 
-    <!-- Spacer -->
     <div class="flex-1"></div>
 
-    <div class="flex items-center gap-3">
+    <div class="flex shrink-0 items-center gap-1 sm:gap-2">
 
-      <!-- Company switcher -->
       {% if active_company %}
+      <!-- Company / branch switcher -->
       <div class="relative">
-        <button onclick="this.nextElementSibling.classList.toggle('hidden')"
-                class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg border border-gray-200">
-          <div class="w-5 h-5 rounded" style="background: var(--primary)"></div>
-          <span class="hidden md:block max-w-32 truncate">{{ active_company.name }}</span>
-          <svg class="w-3.5 h-3.5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/>
-          </svg>
+        <button type="button" class="topbar-chip" data-menu="menu-company" aria-haspopup="true" aria-expanded="false"
+                aria-label="Switch company or branch (current: {{ active_company.name }}{% if active_branch %}, {{ active_branch.name }}{% endif %})">
+          <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand text-[11px] font-bold text-white">{{ active_company.name|first|upper }}</span>
+          <span class="hidden min-w-0 text-left leading-tight md:block">
+            <span class="block max-w-[11rem] truncate text-[13px] font-semibold text-ink">{{ active_company.name }}</span>
+            {% if active_branch %}<span class="block max-w-[11rem] truncate text-[11px] text-ink-muted">{{ active_branch.name }}</span>{% endif %}
+          </span>
+          {% include "_includes/icon.html" with name="chevron-down" cls="hidden h-3.5 w-3.5 text-ink-muted sm:block" stroke="2" %}
         </button>
-        <div class="hidden absolute right-0 mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1">
+        <div id="menu-company" class="menu hidden w-[min(18rem,calc(100vw-1.5rem))]" role="menu">
+          <p class="menu-label">Company</p>
           {% for co in user_companies %}
-          <a href="{% url 'dashboard:switch_company' co.id %}?next={{ request.path }}"
-             class="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 {% if co == active_company %}text-primary font-medium{% else %}text-gray-700{% endif %}">
-            <div class="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold" style="background: var(--primary)">
-              {{ co.name|first|upper }}
-            </div>
-            {{ co.name }}
+          <a href="{% url 'dashboard:switch_company' co.id %}?next={{ request.path }}" role="menuitem"
+             class="menu-item{% if co == active_company %} menu-item-active{% endif %}"{% if co == active_company %} aria-current="true"{% endif %}>
+            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold {% if co == active_company %}bg-brand text-white{% else %}bg-surface-3 text-ink-2{% endif %}">{{ co.name|first|upper }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ co.name }}</span>
+            {% if co == active_company %}{% include "_includes/icon.html" with name="check" cls="h-4 w-4 text-brand-ink" stroke="2" %}{% endif %}
           </a>
           {% endfor %}
+          {% if user_branches %}
+          <div class="menu-sep"></div>
+          <p class="menu-label">Branch</p>
+          {% for br in user_branches %}
+          <a href="{% url 'dashboard:switch_branch' br.id %}?next={{ request.path }}" role="menuitem"
+             class="menu-item{% if br == active_branch %} menu-item-active{% endif %}"{% if br == active_branch %} aria-current="true"{% endif %}>
+            {% include "_includes/icon.html" with name="map-pin" cls="h-4 w-4" %}
+            <span class="min-w-0 flex-1 truncate">{{ br.name }}</span>
+            {% if br == active_branch %}{% include "_includes/icon.html" with name="check" cls="h-4 w-4 text-brand-ink" stroke="2" %}{% endif %}
+          </a>
+          {% endfor %}
+          {% endif %}
         </div>
       </div>
       {% else %}
-      <!-- No company → inline setup CTA -->
-      <a href="{% url 'organizations:company_create' %}"
-         class="hidden md:inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition shadow-sm"
-         style="background: var(--primary);">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-        </svg>
-        Set up company
+      <a href="{% url 'organizations:company_create' %}" class="btn btn-primary btn-sm hidden sm:inline-flex">
+        {% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}Set up company
       </a>
       {% endif %}
 
-      <!-- Vertical divider -->
-      <div class="hidden md:block h-6 w-px bg-gray-200"></div>
-
-      <!-- Print current page -->
-      <button type="button" onclick="window.print()" title="Print this page"
-              class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100">
-        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2m0 0v4H6v-4h12z"/>
-        </svg>
+      <button type="button" onclick="window.print()" aria-label="Print this page" class="topbar-btn hidden sm:inline-flex">
+        {% include "_includes/icon.html" with name="printer" cls="h-5 w-5" %}
       </button>
 
       <!-- Notifications -->
       <div class="relative">
-        <button onclick="this.nextElementSibling.classList.toggle('hidden')"
-                class="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100">
-          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-          </svg>
-          {% if unread_notifications_count %}
-          <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full" style="background: var(--primary)"></span>
-          {% endif %}
+        <button type="button" class="topbar-btn" data-menu="menu-notifications" aria-haspopup="true" aria-expanded="false"
+                aria-label="Notifications{% if unread_notifications_count %} ({{ unread_notifications_count }} unread){% endif %}">
+          {% include "_includes/icon.html" with name="bell" cls="h-5 w-5" %}
+          {% if unread_notifications_count %}<span class="topbar-dot" aria-hidden="true"></span>{% endif %}
         </button>
-        <!-- Notification dropdown -->
-        <div class="hidden absolute right-0 mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <span class="text-sm font-semibold text-gray-900">Notifications</span>
-            {% if unread_notifications_count %}
-            <span class="badge text-white text-xs" style="background: var(--primary)">{{ unread_notifications_count }}</span>
-            {% endif %}
+        <div id="menu-notifications" class="menu hidden w-[min(22rem,calc(100vw-1.5rem))] py-0">
+          <div class="flex items-center justify-between border-b border-line px-4 py-3">
+            <span class="text-sm font-semibold text-ink">Notifications</span>
+            {% if unread_notifications_count %}<span class="badge badge-brand">{{ unread_notifications_count }} new</span>{% endif %}
           </div>
-          <div class="max-h-72 overflow-y-auto">
+          <div class="max-h-80 overflow-y-auto">
             {% for n in recent_notifications %}
-            <a href="{{ n.action_url|default:'#' }}" class="flex gap-3 px-4 py-3 hover:bg-gray-50 {% if not n.is_read %}bg-primary-50{% endif %}">
-              <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0
-                {% if n.notification_type == 'success' %}bg-green-100 text-green-600
-                {% elif n.notification_type == 'warning' %}bg-amber-100 text-amber-600
-                {% elif n.notification_type == 'error' %}bg-red-100 text-red-600
-                {% else %}bg-blue-100 text-blue-600{% endif %}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-              </div>
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-gray-900 truncate">{{ n.title }}</p>
-                <p class="text-xs text-gray-500 mt-0.5">{{ n.created_at|timesince }} ago</p>
-              </div>
+            <a href="{{ n.action_url|default:'#' }}" class="flex gap-3 px-4 py-3 hover:bg-surface-2{% if not n.is_read %} bg-brand-50/60{% endif %}">
+              <span class="list-row-icon {% if n.notification_type == 'success' %}tone-success{% elif n.notification_type == 'warning' %}tone-warning{% elif n.notification_type == 'error' %}tone-danger{% else %}tone-info{% endif %}">
+                {% include "_includes/icon.html" with name="info" cls="h-4 w-4" %}
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium text-ink">{{ n.title }}</span>
+                <span class="mt-0.5 block text-xs text-ink-muted">{{ n.created_at|timesince }} ago</span>
+              </span>
             </a>
             {% empty %}
-            <div class="px-4 py-8 text-center text-sm text-gray-500">No notifications</div>
+            <div class="px-4 py-8 text-center text-sm text-ink-muted">You're all caught up.</div>
             {% endfor %}
           </div>
-          <div class="border-t border-gray-100 px-4 py-2">
-            <a href="{% url 'notifications:list' %}" class="text-sm font-medium" style="color: var(--primary)">View all notifications</a>
+          <div class="border-t border-line px-4 py-2.5">
+            <a href="{% url 'notifications:list' %}" class="link text-sm">View all notifications</a>
           </div>
         </div>
       </div>
 
-      <!-- User profile -->
+      <!-- User menu -->
       <div class="relative">
-        <button onclick="this.nextElementSibling.classList.toggle('hidden')"
-                class="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg hover:bg-gray-50 border border-gray-200">
-          <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold"
-               style="background: var(--primary)">
-            {{ request.user.initials }}
-          </div>
-          <div class="hidden md:block text-left">
-            <p class="text-sm font-medium text-gray-900 leading-tight">{{ request.user.full_name }}</p>
-            <p class="text-xs leading-tight {% if active_company %}text-gray-500{% else %}text-amber-600{% endif %}">
-              {% if active_company %}{{ company_role_label|default:'Member' }}{% else %}Set up company →{% endif %}
-            </p>
-          </div>
-          <svg class="w-3.5 h-3.5 text-gray-400 ml-1" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/>
-          </svg>
+        <button type="button" class="flex items-center gap-2 rounded-lg p-1 hover:bg-surface-3 md:pr-2" data-menu="menu-user"
+                aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ request.user.full_name }}">
+          <span class="avatar">{% if request.user.avatar %}<img src="{{ request.user.avatar.url }}" alt="">{% else %}{{ request.user.initials }}{% endif %}</span>
+          <span class="hidden text-left leading-tight lg:block">
+            <span class="block max-w-[10rem] truncate text-[13px] font-semibold text-ink">{{ request.user.full_name }}</span>
+            <span class="block text-[11px] {% if active_company %}text-ink-muted{% else %}text-warning{% endif %}">{% if active_company %}{{ company_role_label|default:'Member' }}{% else %}Set up company →{% endif %}</span>
+          </span>
+          {% include "_includes/icon.html" with name="chevron-down" cls="hidden h-3.5 w-3.5 text-ink-muted lg:block" stroke="2" %}
         </button>
-        <div class="hidden absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1">
-          <a href="{% url 'accounts:profile' %}" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-            </svg>
-            My Profile
-          </a>
-          <a href="{% url 'accounts:change_password' %}" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
-            </svg>
-            Change Password
-          </a>
-          <div class="border-t border-gray-100 my-1"></div>
+        <div id="menu-user" class="menu hidden w-60" role="menu">
+          <div class="border-b border-line px-4 pb-3 pt-2">
+            <p class="truncate text-sm font-semibold text-ink">{{ request.user.full_name }}</p>
+            <p class="truncate text-xs text-ink-muted">{{ request.user.email }}</p>
+          </div>
+          <a href="{% url 'accounts:profile' %}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="user" cls="h-4 w-4" %}My Profile</a>
+          <a href="{% url 'accounts:change_password' %}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="key" cls="h-4 w-4" %}Change Password</a>
+          {% if is_platform_admin %}
+          <a href="{% url 'dashboard:style_guide' %}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="swatch" cls="h-4 w-4" %}UI style guide</a>
+          {% endif %}
+          <div class="menu-sep"></div>
           <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
-            <button type="submit" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-              </svg>
-              Sign Out
+            <button type="submit" class="menu-item text-danger hover:text-danger" role="menuitem">
+              {% include "_includes/icon.html" with name="logout" cls="h-4 w-4 text-danger" %}Sign Out
             </button>
           </form>
         </div>
@@ -1005,9 +238,8 @@
     </div>
   </header>
 
-  <!-- PAGE CONTENT -->
-  <main class="flex-1 pt-16 min-h-screen">
-    <div class="p-6">
+  <main id="main-content" class="flex-1" tabindex="-1">
+    <div class="page-container">
 
       <!-- Letterhead: only rendered on paper (see the print stylesheet) -->
       <div class="print-header">
@@ -1029,38 +261,19 @@
         </div>
       </div>
 
-      <!-- Breadcrumbs -->
-      {% if breadcrumbs %}
-      <nav class="flex items-center gap-2 text-sm text-gray-500 mb-4">
-        <a href="{% url 'dashboard:index' %}" class="hover:text-gray-700">Home</a>
-        {% for crumb in breadcrumbs %}
-        <svg class="w-3.5 h-3.5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"/>
-        </svg>
-        {% if crumb.url %}
-        <a href="{{ crumb.url }}" class="hover:text-gray-700">{{ crumb.label }}</a>
-        {% else %}
-        <span class="text-gray-900 font-medium">{{ crumb.label }}</span>
-        {% endif %}
-        {% endfor %}
-      </nav>
-      {% endif %}
+      {% if breadcrumbs %}{% include "_includes/breadcrumbs.html" with crumbs=breadcrumbs %}{% endif %}
 
       {% block page_actions %}{% endblock %}
 
-      <!-- Django messages -->
       {% if messages %}
-      <div class="mb-4 space-y-2">
+      <div class="mb-5 space-y-2" aria-live="polite">
         {% for message in messages %}
-        <div class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium
-          {% if message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200
-          {% elif message.tags == 'success' %}bg-green-50 text-green-800 border border-green-200
-          {% elif message.tags == 'warning' %}bg-amber-50 text-amber-800 border border-amber-200
-          {% else %}bg-blue-50 text-blue-800 border border-blue-200{% endif %}">
-          <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"/>
-          </svg>
-          {{ message }}
+        <div class="alert {% if 'error' in message.tags %}alert-danger{% elif 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% else %}alert-info{% endif %}" role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}">
+          {% if 'error' in message.tags %}{% include "_includes/icon.html" with name="x-circle" cls="h-4 w-4" %}{% elif 'success' in message.tags %}{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4" %}{% elif 'warning' in message.tags %}{% include "_includes/icon.html" with name="warning" cls="h-4 w-4" %}{% else %}{% include "_includes/icon.html" with name="info" cls="h-4 w-4" %}{% endif %}
+          <div class="alert-body">{{ message }}</div>
+          <button type="button" class="alert-close no-print" onclick="this.parentElement.remove()" aria-label="Dismiss message">
+            {% include "_includes/icon.html" with name="x" cls="h-4 w-4" stroke="2" %}
+          </button>
         </div>
         {% endfor %}
       </div>
@@ -1070,25 +283,19 @@
     </div>
   </main>
 
-</div><!-- /main-wrapper -->
+</div>
 
 {% else %}
-<!-- Unauthenticated: just render unauthenticated content -->
 {% block unauth_content %}{% endblock %}
 {% endif %}
 
-<!-- Toast container -->
-<div id="toast-container"></div>
+<div id="toast-container" aria-live="polite"></div>
 
 <script>
-  // ---- Responsive sidebar ----
-  // Breakpoints:
-  //   phone  (< 640): sidebar is a drawer (hidden off-canvas, overlay on open)
-  //   tablet (640-1023): sidebar is the collapsed rail (icons only)
-  //   desktop (>= 1024): sidebar is expanded by default, user can toggle
-  //
-  // The user's expand/collapse preference is persisted in localStorage and
-  // only applied on desktop; narrower screens derive the state from width.
+  // ---- Responsive sidebar -------------------------------------------------
+  //   phone  (< 640):   drawer (off-canvas, overlay when open)
+  //   tablet (640-1023): collapsed icon rail
+  //   desktop (>= 1024): expanded by default; the toggle is remembered
   const sidebar = document.getElementById('sidebar');
   const backdrop = document.getElementById('sidebar-backdrop');
   const mainWrapper = document.getElementById('main-wrapper');
@@ -1096,80 +303,98 @@
 
   function isPhone()   { return window.matchMedia('(max-width: 639px)').matches; }
   function isDesktop() { return window.matchMedia('(min-width: 1024px)').matches; }
-
   function readPref() {
-    const v = localStorage.getItem('sidebarExpanded');
+    let v = null;
+    try { v = localStorage.getItem('sidebarExpanded'); } catch (_) {}
     return v === null ? true : v === 'true';
   }
 
   function applyLayout() {
-    const phone = isPhone();
-    const desktop = isDesktop();
-    const expanded = desktop ? readPref() : false;
-
-    sidebar.classList.toggle('expanded', expanded);
-
-    // Main-area offset: full-width on phone (drawer floats), rail on tablet,
-    // preference-driven on desktop.
-    let w;
-    if (phone) w = '0px';
-    else w = expanded ? 'var(--sidebar-expanded)' : 'var(--sidebar-width)';
+    if (!sidebar) return;
+    const expanded = isDesktop() ? readPref() : false;
+    sidebar.classList.toggle('expanded', expanded || isPhone());
+    const w = isPhone() ? '0px' : (expanded ? 'var(--sidebar-expanded)' : 'var(--sidebar-width)');
     mainWrapper.style.marginLeft = w;
     topbar.style.left = w;
   }
 
   function toggleSidebar() {
+    if (!sidebar) return;
     if (isPhone()) {
       const open = sidebar.classList.toggle('drawer-open');
       backdrop.classList.toggle('show', open);
       return;
     }
     const next = !sidebar.classList.contains('expanded');
-    localStorage.setItem('sidebarExpanded', String(next));
+    try { localStorage.setItem('sidebarExpanded', String(next)); } catch (_) {}
+    if (!isDesktop()) {           // tablet: expand temporarily as an overlay
+      sidebar.classList.toggle('expanded', next);
+      backdrop.classList.toggle('show', next);
+      return;
+    }
     applyLayout();
   }
 
   function closeDrawer() {
+    if (!sidebar) return;
     sidebar.classList.remove('drawer-open');
     backdrop.classList.remove('show');
+    if (!isDesktop() && !isPhone()) sidebar.classList.remove('expanded');
   }
 
   applyLayout();
   window.addEventListener('resize', () => { closeDrawer(); applyLayout(); });
 
-  // ---- Expandable sub-menus (chevron groups) ----
-  document.querySelectorAll('.nav-item.has-children').forEach(item => {
-    item.addEventListener('click', (e) => {
-      if (!sidebar.classList.contains('expanded')) return;
-      e.preventDefault();
-      item.classList.toggle('open');
-    });
-  });
-
-  // Close dropdowns when clicking outside them. Panels are the element right
-  // after a toggle button and open/closed by toggling the `hidden` class.
-  document.addEventListener('click', function(e) {
-    document.querySelectorAll('button[onclick*="nextElementSibling"]').forEach(btn => {
-      const panel = btn.nextElementSibling;
-      if (panel && btn.parentElement && !btn.parentElement.contains(e.target)) {
+  // ---- Dropdown menus: <button data-menu="id"> toggles #id ---------------
+  function closeMenus(except) {
+    document.querySelectorAll('[data-menu]').forEach(btn => {
+      const panel = document.getElementById(btn.dataset.menu);
+      if (panel && panel !== except) {
         panel.classList.add('hidden');
+        btn.setAttribute('aria-expanded', 'false');
       }
     });
+  }
+  document.querySelectorAll('[data-menu]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const panel = document.getElementById(btn.dataset.menu);
+      if (!panel) return;
+      const open = panel.classList.contains('hidden');
+      closeMenus(panel);
+      panel.classList.toggle('hidden', !open);
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) { const first = panel.querySelector('a, button'); if (first) first.focus({ preventScroll: true }); }
+    });
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menu')) closeMenus(null);
+    // Legacy toggles in page templates: onclick="this.nextElementSibling.classList.toggle('hidden')"
+    document.querySelectorAll('button[onclick*="nextElementSibling"]').forEach(btn => {
+      const panel = btn.nextElementSibling;
+      if (panel && btn.parentElement && !btn.parentElement.contains(e.target)) panel.classList.add('hidden');
+    });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const openBtn = document.querySelector('[data-menu][aria-expanded="true"]');
+    closeMenus(null);
+    closeDrawer();
+    if (openBtn) openBtn.focus();
   });
 
-  // Toast function
+  // ---- Toasts: showToast("Saved", "success") ------------------------------
   function showToast(message, type = 'info') {
-    const colors = { info: 'bg-blue-600', success: 'bg-green-600', error: 'bg-red-600', warning: 'bg-amber-500' };
+    const kind = { info: 'alert-info', success: 'alert-success', error: 'alert-danger', warning: 'alert-warning' }[type] || 'alert-info';
     const toast = document.createElement('div');
-    toast.className = `${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2 max-w-sm`;
+    toast.className = `alert ${kind} shadow-pop max-w-sm`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
     const text = document.createElement('span');
     text.textContent = message;
     toast.appendChild(text);
     document.getElementById('toast-container').appendChild(toast);
     setTimeout(() => toast.remove(), 3500);
   }
-
-  // HTMX events
   document.addEventListener('htmx:responseError', () => showToast('Request failed. Please try again.', 'error'));
 </script>
 

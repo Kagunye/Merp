@@ -1,0 +1,13 @@
+{% extends "base/base.html" %}
+{% comment %}Django's 404 page (used when DEBUG is off). Signed-out visitors get the same card without the app shell.{% endcomment %}
+{% block title %}Page not found — Mofisi{% endblock %}
+{% block content %}
+{% url 'dashboard:index' as home_url %}
+{% include "errors/_error_card.html" with code="404" icon="search" tone="neutral" heading="We couldn't find that page" message="The link may be out of date, or the record was removed or belongs to another company." action_label="Back to dashboard" action_url=home_url only %}
+{% endblock %}
+{% block unauth_content %}
+<main id="main-content" class="page-container">
+  {% url 'accounts:login' as login_url %}
+  {% include "errors/_error_card.html" with code="404" icon="search" tone="neutral" heading="We couldn't find that page" message="The link may be out of date. Sign in to get back to your work." action_label="Sign in" action_url=login_url only %}
+</main>
+{% endblock %}

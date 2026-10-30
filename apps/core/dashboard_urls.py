@@ -12,4 +12,5 @@ urlpatterns = [
     path("widgets/recent-transactions/", views.recent_transactions_widget, name="recent_transactions"),
     path("widgets/sales-chart/", views.sales_chart_widget, name="sales_chart"),
     path("widgets/cashflow-chart/", views.cashflow_chart_widget, name="cashflow_chart"),
+    path("ui/", views.style_guide, name="style_guide"),
 ]

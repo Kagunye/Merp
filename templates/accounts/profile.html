@@ -1,86 +1,70 @@
 {% extends "base/base.html" %}
-{% load static %}
 {% block content %}
 {% url 'accounts:profile_edit' as edit_url %}
-{% include "_includes/page_header.html" with title="My Profile" subtitle=request.user.email back_url=None action_label="Edit profile" action_url=edit_url %}
+{% include "_includes/page_header.html" with title="My Profile" subtitle=request.user.email action_label="Edit profile" action_url=edit_url hide_print=True %}
 
-<div class="grid lg:grid-cols-3 gap-4 items-start">
-  <div class="lg:col-span-2 space-y-4">
-    <div class="bg-white rounded-xl border border-gray-200 p-6">
-      <div class="flex items-center gap-4 mb-6">
-        {% if request.user.avatar %}
-          <img src="{{ request.user.avatar.url }}" alt="{{ request.user.full_name }}" class="w-16 h-16 rounded-full object-cover">
-        {% else %}
-          <div class="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-semibold" style="background: var(--primary)">
-            {{ request.user.initials }}
+<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+  <div class="min-w-0 space-y-5 lg:col-span-2">
+    <section class="card">
+      <div class="card-body">
+        <div class="mb-6 flex items-center gap-4">
+          <span class="avatar avatar-lg">{% if request.user.avatar %}<img src="{{ request.user.avatar.url }}" alt="{{ request.user.full_name }}">{% else %}{{ request.user.initials }}{% endif %}</span>
+          <div class="min-w-0">
+            <p class="truncate text-lg font-semibold text-ink">{{ request.user.full_name }}</p>
+            <p class="text-sm text-ink-muted">{{ request.user.job_title|default:"No job title set" }}</p>
           </div>
-        {% endif %}
-        <div>
-          <p class="font-semibold text-gray-900">{{ request.user.full_name }}</p>
-          <p class="text-sm text-gray-500">{{ request.user.job_title|default:"No job title set" }}</p>
         </div>
+        <dl class="dl">
+          <div><dt>Email</dt><dd>{{ request.user.email }}</dd></div>
+          <div><dt>User ID</dt><dd class="mono">{{ request.user.username }}</dd></div>
+          <div><dt>Phone</dt><dd>{{ request.user.phone|default:"—" }}</dd></div>
+          <div><dt>Timezone</dt><dd>{{ request.user.timezone }}</dd></div>
+          <div><dt>Theme</dt><dd>{{ request.user.get_theme_preference_display }}</dd></div>
+          <div><dt>Last sign in</dt><dd>{{ request.user.last_login|date:"d M Y H:i"|default:"This session" }}</dd></div>
+          {% if request.user.bio %}<div class="dl-full"><dt>About</dt><dd>{{ request.user.bio }}</dd></div>{% endif %}
+        </dl>
       </div>
+    </section>
 
-      <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.email }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">User ID</dt>
-          <dd class="text-gray-900 mt-1 font-mono text-xs">{{ request.user.username }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Phone</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.phone|default:"—" }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Timezone</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.timezone }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Theme</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.get_theme_preference_display }}</dd></div>
-        <div><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Last sign in</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.last_login|date:"d M Y H:i"|default:"This session" }}</dd></div>
-        {% if request.user.bio %}
-        <div class="sm:col-span-2"><dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">About</dt>
-          <dd class="text-gray-900 mt-1">{{ request.user.bio }}</dd></div>
-        {% endif %}
-      </dl>
-    </div>
-
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div class="px-6 py-4 border-b border-gray-100">
-        <h2 class="font-semibold text-gray-800">Companies</h2>
+    <section class="card overflow-hidden">
+      <div class="card-header"><h2 class="card-title">Companies</h2></div>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Company</th><th>Role</th><th>Branch</th></tr></thead>
+          <tbody>
+            {% for mem in request.user.memberships.select_related.all %}
+            <tr>
+              <td class="font-medium">{{ mem.company.name }}{% if mem.is_default %} <span class="badge ml-1">Default</span>{% endif %}</td>
+              <td>{{ mem.get_role_display }}</td>
+              <td class="text-ink-2">{{ mem.branch.name|default:"—" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="p-0">
+              {% url 'organizations:company_create' as create_url %}
+              {% include "_includes/empty_state.html" with icon="building" title="You are not attached to a company yet" text="Set one up, or ask an administrator to add you." action_label="Set one up" action_url=create_url compact=True %}
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-          <tr><th class="px-4 py-3 text-left">Company</th><th class="px-4 py-3 text-left">Role</th><th class="px-4 py-3 text-left">Branch</th></tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
-          {% for mem in request.user.memberships.select_related.all %}
-          <tr>
-            <td class="px-4 py-3">{{ mem.company.name }}{% if mem.is_default %} <span class="ml-1 text-xs text-gray-400">(default)</span>{% endif %}</td>
-            <td class="px-4 py-3">{{ mem.get_role_display }}</td>
-            <td class="px-4 py-3 text-gray-500">{{ mem.branch.name|default:"—" }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
-            You are not attached to a company yet.
-            <a href="{% url 'organizations:company_create' %}" class="font-medium" style="color: var(--primary)">Set one up</a>.
-          </td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    </section>
   </div>
 
-  <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
-    <h2 class="text-sm font-semibold text-gray-700 mb-3">Account</h2>
-    <a href="{{ edit_url }}" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Edit profile details</a>
-    <a href="{% url 'accounts:change_password' %}" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Change password</a>
-    {% if request.user.is_system_admin %}
-    <a href="{% url 'accounts:user_list' %}" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Manage users</a>
-    <a href="/control-panel/" class="block px-3 py-2 text-sm rounded-lg hover:bg-gray-50 text-gray-700">Control panel</a>
-    {% endif %}
-    <div class="pt-2 mt-2 border-t border-gray-100">
+  <aside class="card">
+    <div class="card-header"><h2 class="card-title">Account</h2></div>
+    <nav class="py-1" aria-label="Account">
+      <a href="{{ edit_url }}" class="menu-item">{% include "_includes/icon.html" with name="edit" cls="h-4 w-4" %}Edit profile details</a>
+      <a href="{% url 'accounts:change_password' %}" class="menu-item">{% include "_includes/icon.html" with name="key" cls="h-4 w-4" %}Change password</a>
+      {% if request.user.is_system_admin %}
+      <a href="{% url 'accounts:user_list' %}" class="menu-item">{% include "_includes/icon.html" with name="users" cls="h-4 w-4" %}Manage users</a>
+      <a href="/control-panel/" class="menu-item">{% include "_includes/icon.html" with name="cog" cls="h-4 w-4" %}Control panel</a>
+      {% endif %}
+      <div class="menu-sep"></div>
       <form method="post" action="{% url 'accounts:logout' %}">
         {% csrf_token %}
-        <button type="submit" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-red-50 text-red-600">Sign out</button>
+        <button type="submit" class="menu-item text-danger hover:text-danger">{% include "_includes/icon.html" with name="logout" cls="h-4 w-4 text-danger" %}Sign out</button>
       </form>
-    </div>
-  </div>
+    </nav>
+  </aside>
 </div>
 {% endblock %}

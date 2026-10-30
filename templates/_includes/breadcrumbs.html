@@ -1,0 +1,14 @@
+{% comment %}
+Breadcrumb trail. `crumbs`: list of {"label": …, "url": …}; an item without a
+url (normally the last) is the current page. "Home" (the dashboard) is prepended
+unless home=False.
+  {% include "_includes/breadcrumbs.html" with crumbs=breadcrumbs %}
+{% endcomment %}
+<nav class="breadcrumbs no-print" aria-label="Breadcrumb">
+  {% if home is not False %}<a href="{% url 'dashboard:index' %}">Home</a>{% endif %}
+  {% for crumb in crumbs %}
+    {% if home is not False or not forloop.first %}{% include "_includes/icon.html" with name="chevron-right" cls="breadcrumbs-sep" stroke="2" %}{% endif %}
+    {% if crumb.url and not forloop.last %}<a href="{{ crumb.url }}">{{ crumb.label }}</a>
+    {% else %}<span aria-current="page">{{ crumb.label }}</span>{% endif %}
+  {% endfor %}
+</nav>

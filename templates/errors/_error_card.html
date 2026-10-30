@@ -1,0 +1,20 @@
+{% comment %}
+Centered error card shared by the error pages.
+Params: code (e.g. "403"), icon (_includes/icon.html name), tone (danger|warning|info|neutral|brand),
+        heading, message (may contain trusted markup from the page), action_label, action_url,
+        secondary_label, secondary_url.
+{% endcomment %}
+<div class="flex min-h-[60vh] items-center justify-center px-4 py-8">
+  <div class="card w-full max-w-md p-8 text-center">
+    <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl tone-{{ tone|default:'brand' }}">
+      {% include "_includes/icon.html" with name=icon|default:"warning" cls="h-7 w-7" only %}
+    </div>
+    {% if code %}<p class="page-eyebrow">Error {{ code }}</p>{% endif %}
+    <h1 class="text-xl font-bold text-ink">{{ heading }}</h1>
+    <p class="mb-6 mt-2 text-sm leading-relaxed text-ink-2">{{ message }}</p>
+    <div class="flex flex-wrap justify-center gap-2">
+      {% if secondary_label and secondary_url %}<a href="{{ secondary_url }}" class="btn btn-secondary">{{ secondary_label }}</a>{% endif %}
+      {% if action_label and action_url %}<a href="{{ action_url }}" class="btn btn-primary">{{ action_label }}</a>{% endif %}
+    </div>
+  </div>
+</div>

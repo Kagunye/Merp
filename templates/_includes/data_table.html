@@ -1,0 +1,36 @@
+{% comment %}
+Card + table wrapper for list pages: a header (title, count, actions), your
+table partial (which renders <table class="table">…</table>), an empty state
+when there are no rows, and the pager.
+  {% include "_includes/data_table.html" with title="Invoices" count=page_obj.paginator.count table_template="sales/_invoice_table.html" empty=no_rows empty_title="No invoices yet" paginate=True %}
+Params:
+  table_template    partial that renders the <table class="table"> (required unless empty)
+  title, subtitle   header text (the header is omitted when there is no title)
+  count             number shown next to the title
+  actions_template  partial rendered at the right of the header
+  empty             True → show the empty state instead of the table
+  empty_title, empty_text, empty_icon, empty_action_label, empty_action_url
+  scroll            True → fixed-height scroll area with a sticky header
+  paginate          True → include _includes/pagination.html under the card
+Without a card, write the markup directly:
+  <div class="table-wrap"><table class="table">…</table></div>
+{% endcomment %}
+<section class="card overflow-hidden">
+  {% if title %}
+  <div class="card-header">
+    <div class="min-w-0">
+      <h2 class="card-title">{{ title }}{% if count or count == 0 %} <span class="tab-count ml-1">{{ count }}</span>{% endif %}</h2>
+      {% if subtitle %}<p class="card-subtitle">{{ subtitle }}</p>{% endif %}
+    </div>
+    {% if actions_template %}<div class="flex flex-wrap items-center gap-2 no-print">{% include actions_template %}</div>{% endif %}
+  </div>
+  {% endif %}
+  {% if empty %}
+    {% include "_includes/empty_state.html" with title=empty_title|default:"Nothing here yet" text=empty_text icon=empty_icon|default:"inbox" action_label=empty_action_label action_url=empty_action_url %}
+  {% else %}
+  <div class="table-wrap rounded-none border-0 shadow-none{% if scroll %} table-wrap-scroll{% endif %}">
+    {% include table_template %}
+  </div>
+  {% endif %}
+</section>
+{% if paginate %}{% include "_includes/pagination.html" %}{% endif %}

@@ -1,0 +1,78 @@
+{% load static %}<!DOCTYPE html>
+{% comment %}
+Shared layout for the signed-out pages (sign in, register, password reset).
+Blocks: title, hero (left panel copy), top_right, content, scripts.
+The theme follows the toggle on the sign-in page (localStorage "merp.theme"),
+else the device setting.
+{% endcomment %}
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Mofisi{% endblock %}</title>
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('merp.theme'); } catch (_) {}
+      if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="bg-surface">
+<a href="#auth-main" class="skip-link">Skip to form</a>
+
+<div class="grid min-h-screen lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+
+  <aside class="auth-hero hidden lg:block" aria-hidden="true">
+    <img src="{% static 'merp/images/signin-hero.webp' %}" alt="" class="auth-hero-img" loading="eager" onerror="this.style.display='none'">
+    <div class="auth-hero-tint"></div>
+    <div class="auth-hero-card">
+      {% block hero %}
+      <p class="auth-hero-eyebrow">Mofisi Business Suite</p>
+      <h2 class="auth-hero-title">Run the whole business from one place.</h2>
+      <p class="auth-hero-text">Accounting, inventory, HR, payroll, sales and customers — from your phone or computer, any time.</p>
+      {% endblock %}
+    </div>
+  </aside>
+
+  <div class="flex min-h-screen min-w-0 flex-col px-5 py-6 sm:px-10 lg:px-14">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <a href="/" aria-label="Mofisi home" class="shrink-0">
+        <img src="{% static 'merp/images/mofisi-logo.png' %}" alt="Mofisi" class="theme-light-only h-9 w-auto">
+        <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="theme-dark-only h-9 w-auto">
+      </a>
+      <div class="flex flex-wrap items-center gap-3 text-sm">{% block top_right %}{% endblock %}</div>
+    </header>
+
+    <main id="auth-main" class="flex flex-1 items-center justify-center py-10" tabindex="-1">
+      <div class="w-full max-w-[26rem]">
+        {% if messages %}
+        <div class="mb-5 space-y-2" aria-live="polite">
+          {% for message in messages %}
+          <div class="alert {% if 'error' in message.tags %}alert-danger{% elif 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% else %}alert-info{% endif %}" role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}">
+            {% if 'error' in message.tags %}{% include "_includes/icon.html" with name="x-circle" cls="h-4 w-4" %}{% elif 'success' in message.tags %}{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4" %}{% else %}{% include "_includes/icon.html" with name="info" cls="h-4 w-4" %}{% endif %}
+            <div class="alert-body">{{ message }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+
+    <footer class="flex items-start gap-2 border-t border-line pt-4 text-xs text-ink-muted">
+      {% include "_includes/icon.html" with name="lock" cls="mt-0.5 h-4 w-4 shrink-0" %}
+      <p class="max-w-md" data-i18n="security">Keep your password and codes to yourself. Mofisi will never call, text or email you to ask for them.</p>
+    </footer>
+  </div>
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

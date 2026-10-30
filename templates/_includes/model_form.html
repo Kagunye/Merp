@@ -1,45 +1,52 @@
 {% comment %}
-Clean modern form card.
+Standard create / edit form page: page header + one card with every field of
+`form` in a two-column grid (textareas, files and checkboxes span both).
 
 Context expected:
   form           — the Django form
-  title          — card title (page_header)
+  title          — page title (page_header)
   subtitle       — small line under title (optional)
   back_url       — "← Back" link in the page header (optional)
-  cancel_url     — target for the Cancel ghost button (optional)
+  cancel_url     — target for the Cancel button (optional)
   submit_label   — submit button label (default: "Save")
   section_label  — small uppercase section marker above fields (optional)
   extra_template — path of a partial rendered inside the form, below the fields
                    (optional; for screens where the form is not the whole story)
+Styles: .mf-* classes in static/css/tailwind.input.css (aliases of form-*).
 {% endcomment %}
 
-{% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url %}
+{% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url hide_print=True %}
 
 <div class="mf-shell">
   <form method="post" enctype="multipart/form-data" novalidate class="mf-card">
     {% csrf_token %}
 
     {% if form.non_field_errors %}
-      <div class="mf-alert">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
+      <div class="mf-alert" role="alert">
+        {% include "_includes/icon.html" with name="warning" cls="h-4 w-4" %}
         <div>{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
       </div>
     {% endif %}
 
+    {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+
     {% if section_label %}<div class="mf-section">{{ section_label }}</div>{% endif %}
 
     <div class="mf-grid">
-      {% for field in form %}
+      {% for field in form.visible_fields %}
         {% with wt=field.field.widget.input_type %}
-        <div class="mf-field {% if wt == 'textarea' or wt == 'file' or wt == 'checkbox' %}mf-field-full{% endif %}">
+        <div class="mf-field {% if wt == 'textarea' or wt == 'file' or wt == 'checkbox' or field.field.widget.attrs.rows %}mf-field-full{% endif %}">
+          {% if wt == 'checkbox' %}
+          <div class="form-check-row">
+            {{ field }}
+            <label for="{{ field.id_for_label }}" class="text-sm font-medium text-ink-2">{{ field.label }}{% if field.field.required %}<span class="mf-req">*</span>{% endif %}</label>
+          </div>
+          {% else %}
           <label for="{{ field.id_for_label }}" class="mf-label">
-            {{ field.label }}{% if field.field.required %}<span class="mf-req">*</span>{% endif %}
+            {{ field.label }}{% if field.field.required %}<span class="mf-req" aria-hidden="true">*</span>{% endif %}
           </label>
           {{ field }}
+          {% endif %}
           {% if field.help_text %}<p class="mf-help">{{ field.help_text }}</p>{% endif %}
           {% if field.errors %}
             <ul class="mf-errors">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>
@@ -57,135 +64,3 @@ Context expected:
     </div>
   </form>
 </div>
-
-<style>
-  .mf-shell {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    padding: 4px 0 48px;
-  }
-  .mf-card {
-    width: 100%;
-    max-width: 720px;
-    background: #fff;
-    border: 1px solid #EEF0F3;
-    border-radius: 16px;
-    padding: 32px;
-    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05);
-  }
-  @media (max-width: 640px) {
-    .mf-card { padding: 20px; border-radius: 14px; }
-  }
-
-  .mf-alert {
-    display: flex; gap: 10px; align-items: flex-start;
-    padding: 12px 14px; margin-bottom: 20px;
-    background: #FEF2F2; color: #991B1B;
-    border: 1px solid #FECACA; border-radius: 10px;
-    font-size: 13.5px;
-  }
-  .mf-alert svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
-  .mf-alert p { margin: 0; line-height: 1.45; }
-
-  .mf-section {
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: #9CA3AF; margin-bottom: 16px;
-  }
-
-  .mf-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px 20px;
-  }
-  @media (max-width: 640px) {
-    .mf-grid { grid-template-columns: 1fr; gap: 14px; }
-  }
-  .mf-field-full { grid-column: 1 / -1; }
-
-  .mf-label {
-    display: block;
-    font-size: 13px; font-weight: 500;
-    color: #374151; margin-bottom: 6px;
-  }
-  .mf-req { color: var(--primary); margin-left: 3px; font-weight: 600; }
-  .mf-help { font-size: 12px; color: #6B7280; margin: 6px 0 0; line-height: 1.4; }
-  .mf-errors {
-    list-style: none; padding: 0; margin: 6px 0 0;
-    font-size: 12.5px; color: #B91C1C;
-  }
-
-  .mf-card input[type="text"],
-  .mf-card input[type="email"],
-  .mf-card input[type="password"],
-  .mf-card input[type="number"],
-  .mf-card input[type="date"],
-  .mf-card input[type="datetime-local"],
-  .mf-card input[type="tel"],
-  .mf-card input[type="url"],
-  .mf-card input[type="file"],
-  .mf-card select,
-  .mf-card textarea {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #E5E7EB;
-    border-radius: 10px;
-    font-size: 14px; line-height: 1.4;
-    color: #111827;
-    background: #fff;
-    box-sizing: border-box;
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-  .mf-card select {
-    appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239CA3AF'%3e%3cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 16px;
-    padding-right: 36px;
-  }
-  .mf-card textarea { min-height: 96px; resize: vertical; }
-  .mf-card input:focus,
-  .mf-card select:focus,
-  .mf-card textarea:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(200,16,46,0.1);
-  }
-  .mf-card input::placeholder, .mf-card textarea::placeholder { color: #9CA3AF; }
-  .mf-card input[type="checkbox"],
-  .mf-card input[type="radio"] {
-    accent-color: var(--primary);
-    width: 16px; height: 16px;
-    margin-right: 6px;
-    vertical-align: middle;
-  }
-
-  .mf-actions {
-    display: flex; justify-content: flex-end; gap: 10px;
-    margin-top: 28px;
-    padding-top: 20px;
-    border-top: 1px solid #F3F4F6;
-  }
-  .mf-btn-primary, .mf-btn-ghost {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 10px 20px;
-    font-size: 14px; font-weight: 600;
-    border-radius: 10px;
-    cursor: pointer;
-    text-decoration: none;
-    border: 1px solid transparent;
-    transition: background 0.15s, box-shadow 0.15s;
-  }
-  .mf-btn-primary {
-    background: var(--primary);
-    color: #fff;
-    box-shadow: 0 1px 2px rgba(200,16,46,0.2);
-  }
-  .mf-btn-primary:hover { background: var(--primary-dark, #9B000E); }
-  .mf-btn-ghost {
-    background: transparent; color: #6B7280;
-  }
-  .mf-btn-ghost:hover { background: #F9FAFB; color: #374151; }
-</style>

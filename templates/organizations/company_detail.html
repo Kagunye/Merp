@@ -3,26 +3,57 @@
 {% load ui_extras %}
 {% url 'organizations:company_list' as back %}
 {% if can_edit %}{% url 'organizations:company_edit' company.pk as pa_url %}{% endif %}
-{% include "_includes/page_header.html" with title=company.name subtitle=company.legal_name back_url=back action_label="Edit" action_url=pa_url %}
+{% include "_includes/page_header.html" with title=company.name subtitle=company.legal_name back_url=back back_label="Companies" action_label="Edit" action_url=pa_url %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Tax ID / KRA PIN</div><div class="font-semibold font-mono">{{ company.tax_id|default:"—" }}</div></div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Currency / Timezone</div><div class="font-semibold">{{ company.currency }} · {{ company.timezone }}</div></div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5"><div class="text-xs text-gray-500 mb-1">Industry</div><div class="font-semibold">{{ company.industry|default:"—" }}</div></div>
-</div>
+<section class="card mb-5">
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>Tax ID / KRA PIN</dt><dd class="mono">{{ company.tax_id|default:"—" }}</dd></div>
+      <div><dt>Currency / Timezone</dt><dd>{{ company.currency }} · {{ company.timezone }}</dd></div>
+      <div><dt>Industry</dt><dd>{{ company.industry|default:"—" }}</dd></div>
+    </dl>
+  </div>
+</section>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h3 class="text-sm font-semibold mb-3 flex justify-between">Branches {% can_do "organizations:branch_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:branch_create' %}" class="text-xs" style="color: var(--primary);">+ New</a>{% endif %}</h3>
-    {% for b in branches %}<div class="py-2 border-t text-sm"><a href="{% url 'organizations:branch_detail' b.pk %}" style="color: var(--primary);">{{ b.name }}</a>{% if b.is_headquarters %} <span class="badge bg-amber-50 text-amber-700 ml-1">HQ</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h3 class="text-sm font-semibold mb-3 flex justify-between">Departments {% can_do "organizations:department_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:department_create' %}" class="text-xs" style="color: var(--primary);">+ New</a>{% endif %}</h3>
-    {% for d in departments %}<div class="py-2 border-t text-sm">{{ d.name }}{% if d.code %} <span class="text-xs text-gray-500">({{ d.code }})</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <h3 class="text-sm font-semibold mb-3 flex justify-between">Warehouses {% can_do "organizations:warehouse_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:warehouse_create' %}" class="text-xs" style="color: var(--primary);">+ New</a>{% endif %}</h3>
-    {% for w in warehouses %}<div class="py-2 border-t text-sm"><a href="{% url 'organizations:warehouse_detail' w.pk %}" style="color: var(--primary);">{{ w.name }}</a>{% if w.is_default %} <span class="badge bg-green-50 text-green-700 ml-1">Default</span>{% endif %}</div>{% empty %}<p class="text-sm text-gray-500 py-2">None.</p>{% endfor %}
-  </div>
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Branches <span class="tab-count ml-1">{{ branches|length }}</span></h2>
+      {% can_do "organizations:branch_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:branch_create' %}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}New</a>{% endif %}
+    </div>
+    <ul class="list">
+      {% for b in branches %}
+      <li class="list-row items-center py-2.5"><a href="{% url 'organizations:branch_detail' b.pk %}" class="row-link flex-1 truncate">{{ b.name }}</a>{% if b.is_headquarters %}<span class="badge badge-warning">HQ</span>{% endif %}</li>
+      {% empty %}
+      <li class="px-5 py-6 text-center text-sm text-ink-muted">None.</li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Departments <span class="tab-count ml-1">{{ departments|length }}</span></h2>
+      {% can_do "organizations:department_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:department_create' %}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}New</a>{% endif %}
+    </div>
+    <ul class="list">
+      {% for d in departments %}
+      <li class="list-row items-center py-2.5"><span class="flex-1 truncate text-sm text-ink">{{ d.name }}</span>{% if d.code %}<span class="mono text-xs text-ink-muted">{{ d.code }}</span>{% endif %}</li>
+      {% empty %}
+      <li class="px-5 py-6 text-center text-sm text-ink-muted">None.</li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Warehouses <span class="tab-count ml-1">{{ warehouses|length }}</span></h2>
+      {% can_do "organizations:warehouse_create" "POST" as may_new %}{% if may_new and company.pk == active_company.pk %}<a href="{% url 'organizations:warehouse_create' %}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}New</a>{% endif %}
+    </div>
+    <ul class="list">
+      {% for w in warehouses %}
+      <li class="list-row items-center py-2.5"><a href="{% url 'organizations:warehouse_detail' w.pk %}" class="row-link flex-1 truncate">{{ w.name }}</a>{% if w.is_default %}<span class="badge badge-success">Default</span>{% endif %}</li>
+      {% empty %}
+      <li class="px-5 py-6 text-center text-sm text-ink-muted">None.</li>
+      {% endfor %}
+    </ul>
+  </section>
 </div>
 {% endblock %}

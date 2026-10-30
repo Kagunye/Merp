@@ -3,14 +3,20 @@
 {% load ui_extras %}
 {% url 'organizations:warehouse_list' as back %}
 {% can_do "organizations:warehouse_edit" "POST" as may_edit %}{% if may_edit %}{% url 'organizations:warehouse_edit' warehouse.pk as pa_url %}{% endif %}
-{% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.company.name back_url=back action_label="Edit" action_url=pa_url %}
-<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
-  <div class="grid grid-cols-2 gap-5">
-    <div><div class="text-xs text-gray-500">Company</div><div class="font-semibold">{{ warehouse.company.name }}</div></div>
-    <div><div class="text-xs text-gray-500">Branch</div><div class="font-semibold">{{ warehouse.branch|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Code</div><div class="font-semibold font-mono">{{ warehouse.code|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Default</div><div class="font-semibold">{% if warehouse.is_default %}Yes{% else %}No{% endif %}</div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Address</div><div>{{ warehouse.address_line1|default:"—" }}{% if warehouse.city %}, {{ warehouse.city }}{% endif %}{% if warehouse.country %}, {{ warehouse.country }}{% endif %}</div></div>
+{% include "_includes/page_header.html" with title=warehouse.name subtitle=warehouse.company.name back_url=back back_label="Warehouses" action_label="Edit" action_url=pa_url %}
+<section class="card max-w-3xl">
+  <div class="card-header">
+    <h2 class="card-title">Warehouse details</h2>
+    {% if warehouse.is_default %}<span class="badge badge-success">Default</span>{% endif %}
   </div>
-</div>
+  <div class="card-body">
+    <dl class="dl">
+      <div><dt>Company</dt><dd>{{ warehouse.company.name }}</dd></div>
+      <div><dt>Branch</dt><dd>{{ warehouse.branch|default:"—" }}</dd></div>
+      <div><dt>Code</dt><dd class="mono">{{ warehouse.code|default:"—" }}</dd></div>
+      <div><dt>Default</dt><dd>{% if warehouse.is_default %}Yes{% else %}No{% endif %}</dd></div>
+      <div class="dl-full"><dt>Address</dt><dd>{{ warehouse.address_line1|default:"—" }}{% if warehouse.city %}, {{ warehouse.city }}{% endif %}{% if warehouse.country %}, {{ warehouse.country }}{% endif %}</dd></div>
+    </dl>
+  </div>
+</section>
 {% endblock %}

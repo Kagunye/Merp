@@ -3,16 +3,22 @@
 {% load ui_extras %}
 {% url 'organizations:branch_list' as back %}
 {% can_do "organizations:branch_edit" "POST" as may_edit %}{% if may_edit %}{% url 'organizations:branch_edit' branch.pk as pa_url %}{% endif %}
-{% include "_includes/page_header.html" with title=branch.name subtitle=branch.company.name back_url=back action_label="Edit" action_url=pa_url %}
-<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
-  <div class="grid grid-cols-2 gap-5">
-    <div><div class="text-xs text-gray-500">Company</div><div class="font-semibold">{{ branch.company.name }}</div></div>
-    <div><div class="text-xs text-gray-500">Code</div><div class="font-semibold font-mono">{{ branch.code|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Headquarters</div><div class="font-semibold">{% if branch.is_headquarters %}Yes{% else %}No{% endif %}</div></div>
-    <div><div class="text-xs text-gray-500">Manager</div><div class="font-semibold">{{ branch.manager_name|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Phone</div><div class="font-semibold">{{ branch.phone|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Email</div><div class="font-semibold">{{ branch.email|default:"—" }}</div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Address</div><div>{{ branch.address_line1|default:"—" }}{% if branch.city %}, {{ branch.city }}{% endif %}{% if branch.country %}, {{ branch.country }}{% endif %}</div></div>
+{% include "_includes/page_header.html" with title=branch.name subtitle=branch.company.name back_url=back back_label="Branches" action_label="Edit" action_url=pa_url %}
+<section class="card max-w-3xl">
+  <div class="card-header">
+    <h2 class="card-title">Branch details</h2>
+    {% if branch.is_headquarters %}<span class="badge badge-warning">Headquarters</span>{% endif %}
   </div>
-</div>
+  <div class="card-body">
+    <dl class="dl">
+      <div><dt>Company</dt><dd>{{ branch.company.name }}</dd></div>
+      <div><dt>Code</dt><dd class="mono">{{ branch.code|default:"—" }}</dd></div>
+      <div><dt>Headquarters</dt><dd>{% if branch.is_headquarters %}Yes{% else %}No{% endif %}</dd></div>
+      <div><dt>Manager</dt><dd>{{ branch.manager_name|default:"—" }}</dd></div>
+      <div><dt>Phone</dt><dd>{{ branch.phone|default:"—" }}</dd></div>
+      <div><dt>Email</dt><dd>{{ branch.email|default:"—" }}</dd></div>
+      <div class="dl-full"><dt>Address</dt><dd>{{ branch.address_line1|default:"—" }}{% if branch.city %}, {{ branch.city }}{% endif %}{% if branch.country %}, {{ branch.country }}{% endif %}</dd></div>
+    </dl>
+  </div>
+</section>
 {% endblock %}

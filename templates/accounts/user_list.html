@@ -1,51 +1,34 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'accounts:user_create' as new_url %}
-{% include "_includes/page_header.html" with title="Users" subtitle="Everyone who can sign in to Mofisi" action_label="New user" action_url=new_url %}
+{% url 'accounts:user_add_existing' as add_url %}
+{% include "_includes/page_header.html" with title="Users" subtitle="Everyone who can sign in to Mofisi" action_label="New user" action_url=new_url secondary_label="Add an existing user" secondary_url=add_url %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="p-4 border-b border-gray-100">
-    <form method="get" class="flex flex-wrap gap-2">
-      <input type="text" name="q" value="{{ search_query }}" placeholder="Search by name or email"
-        class="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30">
-      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background: var(--primary)">Search</button>
-      {% if search_query %}<a href="{% url 'accounts:user_list' %}" class="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Clear</a>{% endif %}
-      <a href="{% url 'accounts:user_add_existing' %}" class="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Add an existing user</a>
-    </form>
-  </div>
+{% include "_includes/filter_bar.html" with search_value=search_query search_placeholder="Search by name or email" submit_label="Search" %}
 
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr>
-        <th class="px-4 py-3 text-left">Name</th>
-        <th class="px-4 py-3 text-left">Email</th>
-        <th class="px-4 py-3 text-left">Job title</th>
-        <th class="px-4 py-3 text-left">Companies</th>
-        <th class="px-4 py-3 text-center">Active</th>
-        <th class="px-4 py-3 text-right">Actions</th>
-      </tr>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Name</th><th>Email</th><th>Job title</th><th class="num">Companies</th><th>Status</th><th class="text-right">Actions</th></tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% for u in users %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3">
-          <a href="{% url 'accounts:user_detail' u.pk %}" class="font-medium text-gray-900 hover:underline" style="color: var(--primary)">{{ u.full_name }}</a>
-          {% if u.is_system_admin %}<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 uppercase tracking-wider">admin</span>{% endif %}
+      <tr>
+        <td class="whitespace-nowrap">
+          <a href="{% url 'accounts:user_detail' u.pk %}" class="row-link">{{ u.full_name }}</a>
+          {% if u.is_system_admin %}<span class="badge badge-brand ml-1">Admin</span>{% endif %}
         </td>
-        <td class="px-4 py-3 text-gray-600">{{ u.email }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ u.job_title|default:"—" }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ u.memberships.count }}</td>
-        <td class="px-4 py-3 text-center">
-          {% if u.member_active %}<span class="text-xs font-medium text-green-700">Active</span>
-          {% else %}<span class="text-xs font-medium text-red-600">Disabled</span>{% endif %}
-        </td>
-        <td class="px-4 py-3 text-right whitespace-nowrap">
-          <a href="{% url 'accounts:user_edit' u.pk %}" class="text-xs font-medium text-gray-600 hover:text-gray-900 mr-3">Edit</a>
+        <td class="text-ink-2">{{ u.email }}</td>
+        <td class="text-ink-2">{{ u.job_title|default:"—" }}</td>
+        <td class="num">{{ u.memberships.count }}</td>
+        <td>{% if u.member_active %}<span class="badge badge-success"><span class="badge-dot"></span>Active</span>{% else %}<span class="badge badge-danger"><span class="badge-dot"></span>Disabled</span>{% endif %}</td>
+        <td class="actions">
+          <a href="{% url 'accounts:user_edit' u.pk %}" class="btn btn-ghost btn-sm">Edit</a>
           {% if u != request.user %}
           <form method="post" action="{% url 'accounts:user_toggle' u.pk %}" class="inline"
                 {% if u.member_active %}onsubmit="return confirm('Disable {{ u.full_name|escapejs }}\'s access to this company?');"{% endif %}>
             {% csrf_token %}
-            <button type="submit" class="text-xs font-medium {% if u.member_active %}text-red-600 hover:underline{% else %}text-green-700 hover:underline{% endif %}">
+            <button type="submit" class="btn btn-sm {% if u.member_active %}btn-danger-ghost{% else %}btn-ghost text-success{% endif %}">
               {% if u.member_active %}Disable{% else %}Enable{% endif %}
             </button>
           </form>
@@ -53,11 +36,10 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No users found.</td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="users" title="No users found" text="Try another name or email." compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
-
-  {% include "_includes/pagination.html" %}
 </div>
+{% include "_includes/pagination.html" %}
 {% endblock %}

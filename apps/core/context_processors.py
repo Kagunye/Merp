@@ -25,6 +25,13 @@ def global_context(request):
         ctx["company_role"] = role
         ctx["company_role_label"] = dict(ROLE_CHOICES).get(role, "") if role else ""
         ctx["can_manage_users"] = access.can(request.user, role, "accounts", "user_list")
+        # Display only: the branch switcher in the top bar, and the style-guide
+        # link in the user menu. Lazy — no query unless a template reads it.
+        company = ctx["active_company"]
+        if company is not None:
+            from apps.organizations.models import Branch
+            ctx["user_branches"] = Branch.objects.filter(company=company, is_active=True).order_by("name")
+        ctx["is_platform_admin"] = access.is_platform_admin(request.user)
 
     return ctx
 

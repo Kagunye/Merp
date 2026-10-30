@@ -199,6 +199,9 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("dashboard", "recent_transactions", FINANCE | AUDIT, NOBODY),
     ("dashboard", "cashflow_chart", FINANCE | AUDIT, NOBODY),
     ("dashboard", "sales_chart", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
+    # The living UI style guide is for platform administrators (who bypass the
+    # table); the view also refuses company ADMINs, who bypass it too.
+    ("dashboard", "style_guide", NOBODY, NOBODY),
     ("dashboard", "*", EVERYONE, EVERYONE),
 
     # --- Company set-up and user management: admin territory.

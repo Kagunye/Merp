@@ -1,47 +1,51 @@
 {% extends "base/base.html" %}
 {% block content %}
-<div class="max-w-2xl">
-  {% if has_unread %}
-  <form method="post" action="{% url 'notifications:mark_all_read' %}" class="flex justify-end mb-3">
-    {% csrf_token %}
-    <button type="submit" class="btn-outline text-sm">Mark all as read</button>
-  </form>
-  {% endif %}
-  <div class="card bg-white rounded-xl border border-gray-200 shadow-card">
+<div class="mx-auto max-w-3xl">
+  <header class="page-header">
+    <div class="page-header-main">
+      <h1 class="page-title">Notifications</h1>
+      <p class="page-subtitle">Your latest 50 notices{% if has_unread %} · unread ones are highlighted{% endif %}.</p>
+    </div>
+    {% if has_unread %}
+    <div class="page-actions no-print">
+      <form method="post" action="{% url 'notifications:mark_all_read' %}" class="no-card">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" %}Mark all as read</button>
+      </form>
+    </div>
+    {% endif %}
+  </header>
+
+  <section class="card overflow-hidden">
     {% if notifications %}
-    <div class="divide-y divide-gray-100">
+    <ul class="list">
       {% for n in notifications %}
-      <div class="flex gap-3 p-4 hover:bg-gray-50 {% if not n.is_read %}bg-primary-50{% endif %}">
-        <div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0
-          {% if n.notification_type == 'success' %}bg-green-100 text-green-600
-          {% elif n.notification_type == 'warning' %}bg-amber-100 text-amber-600
-          {% elif n.notification_type == 'error' %}bg-red-100 text-red-600
-          {% else %}bg-blue-100 text-blue-600{% endif %}">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-        </div>
-        <div class="flex-1">
-          <p class="text-sm font-medium text-gray-900">{% if n.action_url %}<a href="{{ n.action_url }}" class="hover:underline">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}</p>
-          {% if n.message %}<p class="text-xs text-gray-500 mt-0.5">{{ n.message }}</p>{% endif %}
-          <p class="text-xs text-gray-400 mt-1">{{ n.created_at|timesince }} ago</p>
+      <li class="list-row{% if not n.is_read %} bg-brand-50/50{% endif %}">
+        <span class="list-row-icon {% if n.notification_type == 'success' %}tone-success{% elif n.notification_type == 'warning' %}tone-warning{% elif n.notification_type == 'error' %}tone-danger{% else %}tone-info{% endif %}">
+          {% if n.notification_type == 'success' %}{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4" %}{% elif n.notification_type == 'warning' %}{% include "_includes/icon.html" with name="warning" cls="h-4 w-4" %}{% elif n.notification_type == 'error' %}{% include "_includes/icon.html" with name="x-circle" cls="h-4 w-4" %}{% else %}{% include "_includes/icon.html" with name="info" cls="h-4 w-4" %}{% endif %}
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-ink">
+            {% if not n.is_read %}<span class="sr-only">Unread: </span>{% endif %}
+            {% if n.action_url %}<a href="{{ n.action_url }}" class="row-link">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}
+          </p>
+          {% if n.message %}<p class="mt-0.5 text-sm text-ink-2">{{ n.message }}</p>{% endif %}
+          <p class="mt-1 text-xs text-ink-muted">{{ n.created_at|timesince }} ago</p>
         </div>
         {% if not n.is_read %}
         <form method="post" action="{% url 'notifications:mark_read' n.pk %}" class="shrink-0">
           {% csrf_token %}
-          <button type="submit" class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1.5" title="Mark as read">
-            <span class="w-2 h-2 rounded-full" style="background: var(--primary)"></span> Mark read
+          <button type="submit" class="btn btn-ghost btn-sm" title="Mark as read">
+            <span class="h-2 w-2 rounded-full bg-brand" aria-hidden="true"></span> Mark read
           </button>
         </form>
         {% endif %}
-      </div>
+      </li>
       {% endfor %}
-    </div>
+    </ul>
     {% else %}
-    <div class="py-16 text-center">
-      <p class="text-gray-500">No notifications</p>
-    </div>
+    {% include "_includes/empty_state.html" with icon="bell" title="No notifications" text="You're all caught up. Approvals, reminders and alerts will show up here." only %}
     {% endif %}
-  </div>
+  </section>
 </div>
 {% endblock %}

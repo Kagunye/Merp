@@ -1,77 +1,15 @@
 {% comment %}
-Clean module launcher — tiled icons grouped by section.
+Module launcher header — tiled icons grouped by section.
 Required: launcher_title, launcher_subtitle.
-Tile markup lives inline per page using the .launcher-* classes below.
-Tone classes: mint rose amber sky violet teal peach slate
+Tile markup lives inline per page (tests count class="launcher-tile"; keep the
+attribute exactly that):
+  <div class="launcher-section-label">Section <span class="launcher-section-count">3 modules</span></div>
+  <div class="launcher-grid">
+    <a href="…" class="launcher-tile"><div class="ico ico-mint">…</div><span class="label">Name</span></a>
+  </div>
+Tone classes: mint rose amber sky violet teal peach slate.
+Styles live in static/css/tailwind.input.css (section "Launcher").
 {% endcomment %}
-<style>
-  .launcher-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    padding: 4px 0 20px;
-    margin-bottom: 28px;
-    border-bottom: 1px solid #F3F4F6;
-  }
-  .launcher-header h1 {
-    font-size: 24px; font-weight: 700; color: #111827;
-    margin: 0 0 4px; letter-spacing: -0.015em;
-  }
-  .launcher-header p {
-    font-size: 13.5px; margin: 0; color: #6B7280;
-  }
-  .launcher-header .datebox {
-    text-align: right; font-size: 12px; color: #9CA3AF; line-height: 1.4;
-  }
-  .launcher-section-label {
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.1em; text-transform: uppercase;
-    color: #9CA3AF;
-    margin: 36px 0 20px;
-    display: flex; justify-content: space-between; align-items: baseline;
-  }
-  .launcher-section-count {
-    font-size: 11px; font-weight: 500; color: #D1D5DB;
-    text-transform: none; letter-spacing: 0;
-  }
-  .launcher-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    gap: 24px 20px;
-  }
-  .launcher-tile {
-    text-align: center;
-    text-decoration: none;
-    color: #111827;
-    display: flex; flex-direction: column; align-items: center;
-    gap: 14px;
-    padding: 18px 10px 14px;
-    border-radius: 14px;
-    transition: background 0.15s ease, transform 0.1s ease;
-  }
-  .launcher-tile:hover {
-    background: #F9FAFB;
-    transform: translateY(-2px);
-  }
-  .launcher-tile .ico {
-    width: 72px; height: 72px; border-radius: 18px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 32px;
-  }
-  .launcher-tile .label {
-    font-size: 13px; line-height: 1.35; font-weight: 500;
-    color: #374151; max-width: 160px;
-  }
-  .ico-mint   { background: #ECFDF5; color: #065F46; }
-  .ico-rose   { background: #FEF2F2; color: #9F1239; }
-  .ico-amber  { background: #FFFBEB; color: #92400E; }
-  .ico-sky    { background: #EFF6FF; color: #1E40AF; }
-  .ico-violet { background: #F5F3FF; color: #5B21B6; }
-  .ico-teal   { background: #F0FDFA; color: #115E59; }
-  .ico-peach  { background: #FFF7ED; color: #9A3412; }
-  .ico-slate  { background: #F8FAFC; color: #475569; }
-</style>
-
 <div class="launcher-header">
   <div>
     <h1>{{ launcher_title }}</h1>

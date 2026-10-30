@@ -1,8 +1,9 @@
 """Small presentation helpers shared across templates."""
 import zlib
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django import template
+from django.utils.html import conditional_escape, format_html
 
 register = template.Library()
 
@@ -162,3 +163,182 @@ def account_legend():
         (label.replace("_", " ").title(), f"background:hsl({hue}, 50%, 55%)")
         for label, hue in sorted(TYPE_HUES.items())
     ]
+
+
+# ── Numbers: money, quantities, percentages ──────────────────────────────
+# Every amount on every page goes through `money`, so 126500 always reads
+# "126,500.00" and a negative is always marked the same way. They are safe on
+# None, "" and junk: a blank renders as an em dash, junk is shown as it came.
+EMPTY = "—"  # em dash: "no value", as opposed to a real zero
+
+
+def _as_decimal(value):
+    """Decimal for anything number-like; None for None/""/junk/NaN/inf."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        d = value
+    else:
+        text = str(value).strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            d = Decimal(text)
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+    return d if d.is_finite() else None
+
+
+def _grouped(d, places):
+    d = d.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    if d == 0:
+        d = abs(d)  # never print "-0.00"
+    return f"{d:,.{places}f}"
+
+
+def _blank_or_junk(value):
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return EMPTY
+    if isinstance(value, (float, Decimal)):  # NaN / infinity
+        return EMPTY
+    return conditional_escape(value)
+
+
+def _signed(d, text):
+    if d < 0 and text.startswith("-"):
+        return format_html('<span class="neg">{}</span>', text)
+    return text
+
+
+@register.filter(is_safe=True)
+def money(value, currency=None):
+    """126500 -> "126,500.00";  -50 -> <span class="neg">-50.00</span>.
+
+    ``{{ x|money:"KES" }}`` prefixes the currency code: "KES 126,500.00".
+    None or "" render an em dash; junk renders as given (escaped).
+    Use it inside a ``<td class="num">`` so the column right-aligns.
+    """
+    d = _as_decimal(value)
+    if d is None:
+        return _blank_or_junk(value)
+    text = _grouped(d, 2)
+    out = _signed(d, text)
+    if currency:
+        return format_html("{} {}", currency, out)
+    return out
+
+
+@register.filter(is_safe=True)
+def qty(value, places=None):
+    """Quantities with thousands separators: 1250.5000 -> "1,250.5".
+
+    Trailing zeros are trimmed (up to 4 dp kept). ``{{ x|qty:2 }}`` fixes the
+    decimals instead: "1,250.50". Negatives get the ``neg`` class like money.
+    """
+    d = _as_decimal(value)
+    if d is None:
+        return _blank_or_junk(value)
+    try:
+        fixed = None if places in (None, "") else max(0, int(places))
+    except (TypeError, ValueError):
+        fixed = None
+    if fixed is not None:
+        text = _grouped(d, fixed)
+    else:
+        text = _grouped(d, 4)
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        if text == "-0":
+            text = "0"
+    return _signed(d, text)
+
+
+@register.filter(is_safe=True)
+def pct(value, places=1):
+    """A value that is already a percentage: 16 -> "16%", 12.345 -> "12.3%".
+
+    ``{{ x|pct:2 }}`` keeps up to 2 decimals; trailing zeros are trimmed.
+    For a ratio (0.16) multiply by 100 first.
+    """
+    d = _as_decimal(value)
+    if d is None:
+        return _blank_or_junk(value)
+    try:
+        places = max(0, int(places))
+    except (TypeError, ValueError):
+        places = 1
+    text = _grouped(d, places)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text == "-0":
+        text = "0"
+    return _signed(d, f"{text}%")
+
+
+# ── Status badges ─────────────────────────────────────────────────────────
+# One table maps every status code in the app to a badge colour, so "PAID" is
+# the same green on invoices, bills, payslips and loans. The class names are
+# written out in full so the Tailwind build (which scans apps/**/*.py) keeps them.
+STATUS_VARIANTS = {
+    "badge-success": {
+        "PAID", "POSTED", "APPROVED", "COMPLETED", "ACTIVE", "DELIVERED", "DONE",
+        "RESOLVED", "HIRED", "WON", "FULLY_RECEIVED", "RECONCILED", "APPLIED",
+        "RELEASED", "FILLED", "ACCEPTED", "SETTLED", "CONVERTED", "QUALIFIED",
+        "INVOICED", "BILLED", "CREDITED", "PROCESSED", "SUCCESS", "YES", "TRUE",
+    },
+    "badge-warning": {
+        "PARTIAL", "PENDING", "PENDING_APPROVAL", "SUBMITTED", "PARTIALLY_DELIVERED",
+        "PARTIALLY_RECEIVED", "PARTIALLY_PAID", "ON_HOLD", "REVIEW", "WAITING",
+        "UNDER_MAINTENANCE", "PROBATION", "ON_LEAVE", "NEGOTIATION", "DUE",
+        "PARTIAL_REFUND", "HIGH", "LOCKED", "WARNING",
+    },
+    "badge-danger": {
+        "OVERDUE", "REJECTED", "FAILED", "VOID", "LOST", "TERMINATED", "EXPIRED",
+        "WRITTEN_OFF", "URGENT", "NO_SHOW", "ERROR", "BLOCKED", "SUSPENDED",
+        "DECLINED", "DISPUTED", "BOUNCED",
+    },
+    "badge-info": {
+        "SENT", "OPEN", "CONFIRMED", "IN_PROGRESS", "SCHEDULED", "NEW", "RECEIVED",
+        "ISSUED", "CONTACTED", "INTERVIEW", "OFFER", "SCREENING", "PROPOSAL",
+        "PLANNING", "PO_CREATED", "TODO", "PROCESSING", "READY", "ASSIGNED", "INFO",
+        "MEDIUM", "REFUNDED",
+    },
+    "badge-neutral": {
+        "DRAFT", "CANCELLED", "CLOSED", "INACTIVE", "ARCHIVED", "REVERSED",
+        "WITHDRAWN", "RETIRED", "DISPOSED", "RESIGNED", "OBSOLETE", "LOW", "NO",
+        "FALSE", "NONE",
+    },
+}
+_STATUS_LOOKUP = {code: variant for variant, codes in STATUS_VARIANTS.items() for code in codes}
+
+
+def _status_key(status):
+    return str(status if status is not None else "").strip().upper().replace(" ", "_").replace("-", "_")
+
+
+@register.filter
+def status_variant(status):
+    """The badge class for a status code: "PAID" -> "badge-success".
+
+    Booleans work too: True -> success, False -> neutral. Unknown -> neutral.
+    """
+    return _STATUS_LOOKUP.get(_status_key(status), "badge-neutral")
+
+
+@register.filter
+def status_label(status):
+    """"PARTIALLY_DELIVERED" -> "Partially delivered"."""
+    text = str(status if status is not None else "").strip().replace("_", " ")
+    return text[:1].upper() + text[1:].lower() if text else EMPTY
+
+
+@register.simple_tag
+def status_badge(status, label=None):
+    """``{% status_badge inv.status inv.get_status_display %}`` -> a coloured pill.
+
+    The label defaults to the code in sentence case.
+    """
+    return format_html(
+        '<span class="badge {}" data-status="{}"><span class="badge-dot" aria-hidden="true"></span>{}</span>',
+        status_variant(status), _status_key(status), label or status_label(status),
+    )
