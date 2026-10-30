@@ -1,5 +1,4 @@
 """Banking views: accounts, transactions and statement reconciliation."""
-from datetime import date
 from decimal import Decimal
 
 from django.contrib import messages
@@ -11,6 +10,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.views.decorators.http import require_POST
+from django.utils import timezone
 from django.views.generic import (
     CreateView, DeleteView, DetailView, FormView, ListView, TemplateView, UpdateView,
 )
@@ -19,9 +19,10 @@ from apps.accounting import gl_service
 from apps.accounting.currency import book_currency
 from apps.core.mixins import CompanyRequiredMixin
 
-from . import services
+from . import bankbook, services
 from .forms import (
     BankAccountForm, BankReconciliationForm, BankTransactionForm, BankTransferForm,
+    ReconciliationEditForm,
 )
 from .models import BankAccount, BankTransaction, Reconciliation
 
@@ -83,9 +84,37 @@ class BankAccountCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView
         return kwargs
 
     def form_valid(self, form):
+        """Create the account, book its opening balance, and bring its history in.
+
+        All three or none. The opening balance goes into the ledger against
+        opening equity (gl_service.post_bank_opening), so the bank book —
+        which starts from it — and the ledger start from the same figure. And
+        if the ledger account already has movements on it (1200 carrying
+        months of card takings, say) those are put on the new bank book
+        (bankbook.backfill), or the first statement would have nothing to
+        tick them against and the book would disagree with the ledger by the
+        whole of its history.
+        """
         form.instance.company = self.request.active_company
-        messages.success(self.request, "Bank account created.")
-        return super().form_valid(form)
+        try:
+            with db_transaction.atomic():
+                self.object = form.save()
+                entry = gl_service.post_bank_opening(self.object, user=self.request.user)
+                brought = bankbook.backfill(self.object)
+        except ValidationError as e:
+            form.add_error(None, e.messages[0])
+            return self.form_invalid(form)
+        note = "Bank account created."
+        if entry is not None:
+            note += f" Its opening balance is posted in {entry.reference}."
+        elif self.object.opening_balance:
+            note += (f" It opens at {self.object.opening_balance}, the opening "
+                     f"{self.object.gl_account.code} already carries in the ledger.")
+        if brought:
+            note += (f" {len(brought)} movement(s) already on {self.object.gl_account.code} are "
+                     "on its bank book, ready to tick.")
+        messages.success(self.request, note)
+        return redirect(self.get_success_url())
 
 
 class BankAccountUpdateView(LoginRequiredMixin, UpdateView):
@@ -105,6 +134,17 @@ class BankAccountUpdateView(LoginRequiredMixin, UpdateView):
         kwargs["company"] = self.request.active_company
         return kwargs
 
+    def form_valid(self, form):
+        """Save the account; a new ledger account (allowed only while the bank
+        account has no history) brings that ledger account's history in."""
+        moved = "gl_account" in form.changed_data
+        with db_transaction.atomic():
+            self.object = form.save()
+            if moved:
+                bankbook.backfill(self.object)
+        messages.success(self.request, "Bank account saved.")
+        return redirect(self.get_success_url())
+
 
 class BankAccountDetailView(LoginRequiredMixin, DetailView):
     model = BankAccount
@@ -119,7 +159,13 @@ class BankAccountDetailView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["transactions"] = self.object.transactions.select_related("reconciliation")[:50]
+        today = timezone.localdate()
+        # The balance at the top is as at today; lines dated later are money
+        # that has not moved yet, so they are listed on their own beneath it.
+        ctx["transactions"] = self.object.transactions.filter(
+            transaction_date__lte=today).select_related("reconciliation")[:50]
+        ctx["future"] = self.object.future_transactions()
+        ctx["today"] = today
         ctx["book"] = book_currency(self.request.active_company)
         ctx["reconciliations"] = self.object.reconciliations.all()[:10]
         ctx["unreconciled"] = self.object.transactions.filter(is_reconciled=False).count()
@@ -360,8 +406,12 @@ class BankTransactionDeleteView(LoginRequiredMixin, DeleteView):
                         txn.journal_entry, user=self.request.user)
                     what = "Transfer deleted from both accounts"
                 else:
+                    bank, day = txn.bank_account, txn.transaction_date
                     reversal = gl_service.unbook_bank_transaction(txn, user=self.request.user)
                     txn.delete()
+                    # Taking a deposit off a cash box can leave the spends
+                    # after it paid from notes the box never had.
+                    gl_service.refuse_cash_below_zero(bank, day, "Deleting this deposit")
                     what = "Transaction deleted"
         except ValidationError as e:
             messages.error(self.request, e.messages[0])
@@ -462,13 +512,15 @@ class ReconciliationListView(LoginRequiredMixin, TemplateView):
         ).select_related("bank_account", "reconciled_by")
 
         rows = []
+        today = timezone.localdate()
         for account in BankAccount.objects.filter(company=company, is_active=True).select_related("gl_account"):
-            pending = services.outstanding(account, date.today())
+            pending = services.outstanding(account, today)
             last = account.reconciliations.exclude(status="REVERSED").order_by("-statement_date").first()
             rows.append({
                 "account": account,
                 "pending_count": pending.count(),
                 "pending_value": sum((t.signed_amount for t in pending), Decimal("0")),
+                "future_count": services.future_lines(account).count(),
                 "last": last,
             })
         ctx["account_rows"] = rows
@@ -497,11 +549,13 @@ class ReconciliationCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateV
         ctx = super().get_context_data(**kwargs)
         account = _scoped_account(self.request.active_company, self.request.GET.get("account"))
         if account:
-            pending = services.outstanding(account, date.today())
+            today = timezone.localdate()
+            pending = services.outstanding(account, today)
             ctx["preview_account"] = account
             ctx["preview_items"] = pending
             ctx["preview_value"] = sum((t.signed_amount for t in pending), Decimal("0"))
-            ctx["preview_opening"] = services.carried_forward_balance(account, date.today())
+            ctx["preview_opening"] = services.carried_forward_balance(account, today)
+            ctx["preview_future"] = services.future_lines(account)
         return ctx
 
     def form_valid(self, form):
@@ -549,12 +603,19 @@ class ReconciliationDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         recon = self.object
         bank = recon.bank_account
+        # A draft opens on the latest posted statement as it stands now, not
+        # as it stood when the draft was started. Set on the object only: a
+        # page being looked at writes nothing; the next change or the post
+        # saves it.
+        services.refresh_opening(recon, save=False)
+        today = timezone.localdate()
         ctx["cleared"] = recon.transactions.order_by("transaction_date", "created_at")
         ctx["pending"] = services.outstanding(bank, recon.statement_date)
         ctx["after_statement"] = BankTransaction.objects.filter(
             bank_account=bank, is_reconciled=False,
-            transaction_date__gt=recon.statement_date,
+            transaction_date__gt=recon.statement_date, transaction_date__lte=today,
         ).count()
+        ctx["future_lines"] = services.future_lines(bank)
         ctx["opening"] = recon.opening_balance
         ctx["cleared_movement"] = recon.cleared_movement
         ctx["computed"] = recon.computed_balance
@@ -584,6 +645,7 @@ def reconciliation_clear(request, pk):
         messages.error(request, e.messages[0])
         return redirect("banking:reconciliation_detail", pk=recon.pk)
 
+    services.refresh_opening(recon)
     cleared = released = 0
     errors = []
     for txn in services.outstanding(recon.bank_account, recon.statement_date):
@@ -616,7 +678,9 @@ def reconciliation_clear(request, pk):
 def reconciliation_post(request, pk):
     recon = get_object_or_404(Reconciliation, pk=pk, company=request.active_company)
     try:
-        services.post(recon, user=request.user)
+        # Notes typed on the statement screen's post form come with the post:
+        # they are what lets an out-of-balance statement be filed anyway.
+        services.post(recon, user=request.user, notes=request.POST.get("notes"))
     except ValidationError as e:
         messages.error(request, e.messages[0])
         return redirect("banking:reconciliation_detail", pk=recon.pk)
@@ -644,3 +708,67 @@ def reconciliation_reverse(request, pk):
     return redirect("banking:reconciliation_list")
 
 
+
+
+class ReconciliationUpdateView(LoginRequiredMixin, UpdateView):
+    """Correct a draft statement's date, closing balance or notes.
+
+    A posted statement is not edited — it is reversed, which keeps the filed
+    one on record — so this screen turns anything else away to its page.
+    """
+    model = Reconciliation
+    form_class = ReconciliationEditForm
+    template_name = "banking/reconciliation_form.html"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return Reconciliation.objects.none()
+        return Reconciliation.objects.filter(company=company).select_related("bank_account")
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            recon = self.get_object()
+            if recon.status != "DRAFT":
+                messages.error(
+                    request,
+                    f"Statement {recon.reference} is {recon.get_status_display().lower()} and "
+                    "can no longer be edited. Reverse it to reopen the clearing.")
+                return redirect("banking:reconciliation_detail", pk=recon.pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["editing"] = True
+        return ctx
+
+    def form_valid(self, form):
+        data = form.cleaned_data
+        recon = Reconciliation.objects.get(pk=self.object.pk)
+        try:
+            with db_transaction.atomic():
+                services.update_draft(
+                    recon, statement_date=data["statement_date"],
+                    closing_balance=data["closing_balance"], notes=data.get("notes") or "")
+        except ValidationError as e:
+            form.add_error(None, e.messages[0])
+            return self.form_invalid(form)
+        messages.success(self.request, f"Statement {recon.reference} updated.")
+        return redirect("banking:reconciliation_detail", pk=recon.pk)
+
+
+@login_required
+@require_POST
+def reconciliation_delete(request, pk):
+    """Throw a draft statement away; its ticked items go back to outstanding."""
+    recon = get_object_or_404(Reconciliation, pk=pk, company=request.active_company)
+    reference = recon.reference
+    try:
+        released = services.delete_draft(recon)
+    except ValidationError as e:
+        messages.error(request, e.messages[0])
+        return redirect("banking:reconciliation_detail", pk=recon.pk)
+    messages.success(
+        request,
+        f"Draft statement {reference} deleted — {released} item(s) are outstanding again.")
+    return redirect("banking:reconciliation_list")

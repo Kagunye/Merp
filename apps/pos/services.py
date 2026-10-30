@@ -379,13 +379,17 @@ def issue_warehouse(company, session, wanted=None):
     return till_warehouses(company, session).first()
 
 
-def issue_stock(sale, rows, warehouse, movement_type, note, user=None):
+def issue_stock(sale, rows, warehouse, movement_type, note, user=None, unit_costs=None):
     """Move the goods, and let the shelf price what they cost.
 
     The movement is created with no cost on purpose: the stock model values it at
     the moving average the shelf holds and books cost of sales against inventory,
     which is the same money either way — a cashier's guess at cost would only make
     the margin report disagree with the ledger.
+
+    `unit_costs` ({product id: cost of one}) is the one exception: a refund
+    brings goods back at the cost they went out at (see issued_unit_costs),
+    which is a figure the book itself wrote, not one anybody typed.
     """
     from apps.inventory.models import StockMovement
 
@@ -399,7 +403,7 @@ def issue_stock(sale, rows, warehouse, movement_type, note, user=None):
         try:
             StockMovement.objects.create(
                 product=product, warehouse=warehouse, movement_type=movement_type,
-                quantity=row["quantity"], unit_cost=Z,
+                quantity=row["quantity"], unit_cost=(unit_costs or {}).get(product.pk, Z),
                 movement_date=timezone.localdate(),
                 reference=sale.reference, performed_by=user or sale.session.cashier,
                 notes=f"{note} {sale.reference}",
@@ -407,6 +411,34 @@ def issue_stock(sale, rows, warehouse, movement_type, note, user=None):
         except ValidationError as exc:
             # The shelf's own refusal, in one sentence the cashier can read.
             raise ValidationError(exc.messages[0])
+
+
+def issued_unit_costs(sale):
+    """What one of each product cost the book when this ticket sold it.
+
+    The ticket's own delivery movements carry it: the shelf's average at the
+    moment the goods left, which is what cost of sales was charged with. A
+    refund puts the goods back at that figure. At the shelf they came off it
+    makes no difference while its average has not moved, but taken back at
+    another branch's counter the goods would otherwise come in at *that*
+    shelf's average — a sugar sold at Nairobi's 120 and returned in Mombasa
+    at 130 would put 10 more into inventory than ever left it, and take 10
+    more off cost of sales than the sale charged, so a fully refunded ticket
+    would leave a profit behind.
+    """
+    from apps.inventory.models import StockMovement
+
+    # Read off each movement's unit cost (held to four places), never its
+    # total (rounded to the cent): two at 104.1237 total 208.25, and 208.25 / 2
+    # would put the return back at 104.125 — a shelf value the book never had.
+    quantity, value = {}, {}
+    for move in StockMovement.objects.filter(
+            reference=sale.reference, movement_type="DELIVERY",
+            product__company=sale.session.company):
+        quantity[move.product_id] = quantity.get(move.product_id, Z) + move.quantity
+        value[move.product_id] = value.get(move.product_id, Z) + move.quantity * move.unit_cost
+    return {pk: (value[pk] / qty).quantize(D("0.0001"))
+            for pk, qty in quantity.items() if qty}
 
 
 def new_token():
@@ -420,8 +452,8 @@ def clean_token(token):
     return ("" if token is None else str(token)).strip()[:64]
 
 
-def submitted_ticket(session, token, refund_of=None):
-    """The ticket this form token already made on this till, if any.
+def submitted_ticket(session, token):
+    """The ticket — sale or refund — this form token already made on this till.
 
     A double click or a reload of a slow POST sends the same form — and the
     same token — twice. The first submission rang the ticket; the second must
@@ -429,14 +461,45 @@ def submitted_ticket(session, token, refund_of=None):
     the entry again. A form posted without a token (an older page, a script)
     could not be guarded, so the terminal and refund views refuse it outright
     and both forms always render one.
+
+    The database holds a token once per till across sales and refunds alike,
+    so the lookup does too: it is the caller's job to tell "the same form
+    again" from "a token already spent on something else" (see token_refusal).
     """
     token = clean_token(token)
     if not token or session is None:
         return None
-    found = POSSale.objects.filter(session=session, submission_token=token)
-    found = found.filter(refund_of=refund_of) if refund_of is not None else found.filter(
-        refund_of__isnull=True)
-    return found.first()
+    return POSSale.objects.filter(session=session, submission_token=token).first()
+
+
+def token_refusal(found, *, refund_of=None):
+    """Why a form whose token is already spent on `found` must not go ahead, or "".
+
+    "" means `found` is exactly what this form makes — the same ticket rung
+    again, or the same refund of the same sale — and the caller hands it back.
+    Anything else is a token used for another action (a terminal token sent
+    with a refund, a refund token sent to the terminal) or for another sale's
+    refund: taking the money would break the one-token-one-ticket rule, and
+    handing back the other ticket would show the cashier the wrong thing. So
+    it is refused, with a fresh form to start from.
+    """
+    if found is None:
+        return ""
+    if refund_of is None:
+        if not found.refund_of_id:
+            return ""
+        return (f"That form's one-time token was already used for refund {found.reference}, "
+                "so this ticket was not rung. Nothing was taken — ring it again from a fresh "
+                "terminal screen.")
+    if found.refund_of_id == refund_of.pk:
+        return ""
+    if found.refund_of_id:
+        return (f"That form's one-time token was already used for refund {found.reference} "
+                f"of another ticket, so nothing was refunded on {refund_of.reference}. Open "
+                f"{refund_of.reference} again and refund it from its page.")
+    return (f"That form's one-time token was already used to ring {found.reference}, so "
+            f"nothing was refunded on {refund_of.reference}. Open {refund_of.reference} again "
+            "and refund it from its page.")
 
 
 @transaction.atomic
@@ -646,9 +709,12 @@ def refund(sale, user, quantities, *, reason="", payment_method=None, token=""):
             quantity=row["quantity"], unit_price=row["unit_price"],
             discount_amount=Z, tax_amount=row["tax"], line_total=money(row["net"] + row["tax"]),
         )
-    # Back on the shelf at what the shelf counts one as worth now — the same
-    # rule the sale was issued under.
-    issue_stock(ticket, rows, shelf, "RETURN_IN", "Returned to stock on", user=user)
+    # Back on the shelf at what each one cost when the sale took it off —
+    # whichever branch's shelf it now goes on — so cost of sales is credited
+    # with exactly what the sale charged it and a full refund leaves stock
+    # and margin where they stood before the sale.
+    issue_stock(ticket, rows, shelf, "RETURN_IN", "Returned to stock on", user=user,
+                unit_costs=issued_unit_costs(sale))
 
     from apps.accounting import gl_service
     gl_service.post_pos_sale(ticket, user=user, refund=True)

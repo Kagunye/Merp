@@ -197,7 +197,8 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
                           self.get_context_data(cashier_session, company, quantities), status=200)
         already = services.submitted_ticket(cashier_session, token)
         if already:
-            return self.already_rung(request, already)
+            return self.answer_spent_token(request, already, cashier_session, company,
+                                           quantities)
         try:
             customer = None
             if (request.POST.get("customer") or "").strip():
@@ -223,7 +224,8 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             # one through and refused the other. Hand back the one that won.
             already = services.submitted_ticket(cashier_session, token)
             if already:
-                return self.already_rung(request, already)
+                return self.answer_spent_token(request, already, cashier_session, company,
+                                               quantities)
             raise
         except ValidationError as exc:
             messages.error(request, f"Could not ring that ticket: {exc.messages[0]}")
@@ -233,6 +235,16 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             request,
             f"{sale.reference}: {sale.total_amount} taken, {sale.change_given} change given.")
         return redirect("pos:sale_detail", pk=sale.pk)
+
+    def answer_spent_token(self, request, found, cashier_session, company, quantities):
+        """The token came back already spent: the same ticket again, or not ours."""
+        refusal = services.token_refusal(found)
+        if refusal:
+            messages.error(request, refusal)
+            return render(request, self.template_name,
+                          self.get_context_data(cashier_session, company, quantities),
+                          status=200)
+        return self.already_rung(request, found)
 
     @staticmethod
     def already_rung(request, sale):
@@ -385,12 +397,21 @@ def sale_refund(request, pk):
             "from its page.")
         return redirect("pos:sale_detail", pk=pk)
     till = services.active_session(company, request.user)
-    already = services.submitted_ticket(till, token, refund_of=sale)
-    if already:
+
+    def spent(found):
+        """Answer a token already used on this till: hand back, or refuse."""
+        refusal = services.token_refusal(found, refund_of=sale)
+        if refusal:
+            messages.error(request, refusal)
+            return redirect("pos:sale_detail", pk=sale.pk)
         messages.info(
             request,
-            f"{already.reference} was already refunded from this form — it was not paid twice.")
-        return redirect("pos:sale_detail", pk=already.pk)
+            f"{found.reference} was already refunded from this form — it was not paid twice.")
+        return redirect("pos:sale_detail", pk=found.pk)
+
+    already = services.submitted_ticket(till, token)
+    if already:
+        return spent(already)
     try:
         with transaction.atomic():
             ticket = services.refund(
@@ -399,13 +420,12 @@ def sale_refund(request, pk):
                 payment_method=request.POST.get("payment_method") or None,
                 token=token)
     except IntegrityError:
-        already = services.submitted_ticket(till, token, refund_of=sale)
+        # Raced by the same form; or the till was opened between the lookup
+        # above and the refund, so the lookup had no till to search.
+        already = services.submitted_ticket(services.active_session(company, request.user),
+                                            token)
         if already:
-            messages.info(
-                request,
-                f"{already.reference} was already refunded from this form — it was not "
-                "paid twice.")
-            return redirect("pos:sale_detail", pk=already.pk)
+            return spent(already)
         raise
     except ValidationError as exc:
         messages.error(request, f"Could not refund {sale.reference}: {exc.messages[0]}")

@@ -1,10 +1,16 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
+{% if editing %}
+{% url 'banking:reconciliation_detail' object.pk as back %}
+{% include "_includes/model_form.html" with title="Edit Draft Statement" subtitle=object.reference back_url=back cancel_url=back submit_label="Save Draft" %}
+{% else %}
 {% url 'banking:reconciliation_list' as back %}
 {% include "_includes/model_form.html" with title="New Bank Statement" subtitle="Enter the statement header; you tick off the transactions on the next screen" back_url=back cancel_url=back submit_label="Start Reconciliation" %}
+{% endif %}
 
-{% if preview_account %}
+{% if editing %}
+{% elif preview_account %}
 <div class="mf-shell">
   <div class="w-full max-w-[720px] bg-white rounded-2xl border border-gray-200 overflow-hidden mt-2">
     <div class="px-5 py-4 border-b border-gray-100">
@@ -45,6 +51,9 @@
         </tfoot>
       </table>
     </div>
+    {% if preview_future %}
+    <p class="px-5 py-3 text-xs text-gray-500 border-t border-gray-100">{{ preview_future|length }} transaction(s) dated after today are not listed — no statement can show them yet.</p>
+    {% endif %}
   </div>
 </div>
 {% else %}

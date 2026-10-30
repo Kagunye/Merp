@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal
 
 from django import forms
@@ -10,7 +9,8 @@ class BankAccountForm(forms.ModelForm):
     class Meta:
         model = BankAccount
         fields = ["name", "bank_name", "account_number", "account_type",
-                  "currency", "branch", "gl_account", "opening_balance"]
+                  "currency", "branch", "gl_account", "opening_balance",
+                  "receives_pos_card", "receives_pos_mpesa"]
 
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,6 +31,88 @@ class BankAccountForm(forms.ModelForm):
                 "reconcile is read from here."
             )
             pick_currency(self, company, rated_only=False)
+        self.fields["opening_balance"].help_text = (
+            "What the account held on the day you start keeping it here. It is posted to the "
+            "ledger against opening equity (3100) when the account is created, and locked "
+            "after that. If the ledger account already carries an opening journal, leave it "
+            "at 0 and the account opens from that figure.")
+        if not self.instance._state.adding:
+            # The opening balance was booked when the account was created;
+            # after that it is the ledger's figure, not the form's.
+            self.fields["opening_balance"].help_text = (
+                "Locked: it was posted to the ledger when the account was created. Correct it "
+                "with a deposit or withdrawal against opening equity (3100).")
+            self.fields["opening_balance"].widget.attrs["readonly"] = True
+            if self.instance.has_history:
+                for name in ("gl_account", "currency"):
+                    self.fields[name].help_text = (
+                        "Locked: this account already has transactions or statements written "
+                        "in it.")
+
+    # The fields the account's history was written in. Once there is any, the
+    # bank book's lines are in this currency and the ledger's are on this
+    # ledger account: moving either would leave every past line saying one
+    # thing and the ledger another.
+    LOCKED_BY_HISTORY = ("gl_account", "currency")
+
+    def clean(self):
+        cleaned = super().clean()
+        instance = self.instance
+        if instance._state.adding:
+            return cleaned
+        before = type(instance).objects.get(pk=instance.pk)
+        opening = cleaned.get("opening_balance")
+        if opening is not None and opening != before.opening_balance:
+            self.add_error(
+                "opening_balance",
+                f"The opening balance was posted to the ledger as {before.opening_balance} "
+                "when the account was created and cannot be changed here. Record the "
+                "correction as a deposit or withdrawal against opening equity (3100), so the "
+                "bank book and the ledger move together.")
+        if before.has_history:
+            gl = cleaned.get("gl_account")
+            if gl is not None and gl.pk != before.gl_account_id:
+                self.add_error(
+                    "gl_account",
+                    f"{before.name} already has transactions or statements on "
+                    f"{before.gl_account.code} {before.gl_account.name}. Moving it would leave "
+                    "that history on the old ledger account while the bank book follows the "
+                    "new one. Open a new bank account on the other ledger account instead.")
+            currency = (cleaned.get("currency") or "").upper()
+            if currency and currency != (before.currency or "").upper():
+                self.add_error(
+                    "currency",
+                    f"{before.name} already has transactions or statements in "
+                    f"{before.currency}. Changing the currency would relabel every amount on "
+                    "them without converting any. Open a new bank account in "
+                    f"{currency} instead.")
+        return cleaned
+
+    def _clean_flag(self, field, label):
+        """At most one account per company receives each kind of till takings."""
+        wanted = self.cleaned_data.get(field)
+        company = self.company or getattr(self.instance, "company", None)
+        if not wanted or company is None:
+            return wanted
+        other = BankAccount.objects.filter(company=company, **{field: True}) \
+            .exclude(pk=self.instance.pk).first()
+        if other:
+            raise forms.ValidationError(
+                f"{other.name} already receives the till's {label} takings. Untick it there "
+                "first — each kind of takings is banked into one account.")
+        currency = (self.cleaned_data.get("currency") or "").upper()
+        book = (getattr(company, "currency", "") or "KES").upper()
+        if currency and currency != book:
+            raise forms.ValidationError(
+                f"The till takes {label} payments in {book}, so they cannot be banked into a "
+                f"{currency} account.")
+        return wanted
+
+    def clean_receives_pos_card(self):
+        return self._clean_flag("receives_pos_card", "card")
+
+    def clean_receives_pos_mpesa(self):
+        return self._clean_flag("receives_pos_mpesa", "M-Pesa")
 
     # Only a bank or cash ledger account can stand behind a bank account. The
     # balance on the banking screens, the reconciliation's "books balance" and
@@ -254,16 +336,25 @@ class BankReconciliationForm(forms.ModelForm):
         )
 
     def clean_statement_date(self):
+        from django.utils import timezone
+
         statement_date = self.cleaned_data["statement_date"]
-        if statement_date > date.today():
+        if statement_date > timezone.localdate():
             raise forms.ValidationError("A statement cannot be dated in the future.")
         return statement_date
 
     def clean(self):
+        from django.core.exceptions import ValidationError
+        from . import services
+
         cleaned = super().clean()
         account = cleaned.get("bank_account")
         statement_date = cleaned.get("statement_date")
-        if account and statement_date and self.instance.pk is None:
+        if account and statement_date and self.instance._state.adding:
+            try:
+                services.refuse_backdating(account, statement_date)
+            except ValidationError as e:
+                self.add_error("statement_date", e.messages[0])
             clash = Reconciliation.objects.filter(
                 bank_account=account, statement_date=statement_date,
             ).exclude(status="REVERSED").first()
@@ -274,3 +365,28 @@ class BankReconciliationForm(forms.ModelForm):
                     f"on statement {clash.reference}. Reverse it first if that one is wrong.",
                 )
         return cleaned
+
+
+class ReconciliationEditForm(forms.ModelForm):
+    """Correct a draft statement: the date it runs to, the closing balance the
+    bank printed, and the notes. The bank account and the statement number
+    stay — a statement for another account is a different statement."""
+
+    class Meta:
+        model = Reconciliation
+        fields = ["statement_date", "closing_balance", "notes"]
+        widgets = {
+            "statement_date": date_input(),
+            "closing_balance": forms.NumberInput(attrs={"step": "0.01"}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["statement_date"].help_text = "Last day covered by the statement."
+        self.fields["closing_balance"].help_text = (
+            "The balance printed at the foot of the statement.")
+        self.fields["notes"].required = False
+        self.fields["notes"].help_text = (
+            "Needed only to post while the statement is out of balance -- write down why "
+            "the difference is accepted.")

@@ -54,6 +54,24 @@ two cashiers at two branches of one company:
                                      USD books the gap as realised exchange
    16. the statement chain        -> an earlier statement is not reversed
                                      while a later one stands
+   17. one token, one action      -> a token spent on a sale, a refund or
+                                     another sale's refund is refused with a
+                                     message, never a 500
+   18. a bank account's history   -> the opening balance is posted against
+                                     3100 and locked; ledger account and
+                                     currency are locked once there is history;
+                                     a ledger account's earlier movements are
+                                     brought onto a new bank book
+   19. draft statements           -> a draft re-opens on the latest posted
+                                     statement; it can be edited, deleted and
+                                     posted with notes; statements run forward
+   20. dated after today          -> not in the balance, not offered on a
+                                     statement, listed apart
+   21. cash cannot go below zero  -> petty cash spends and transfers past its
+                                     balance are refused; a bank may overdraw
+   22. where till takings land    -> card and M-Pesa go to the flagged bank
+                                     account, at most one of each
+   23. a refund at another branch -> comes back at the cost it was sold at
 """
 import datetime
 import re
@@ -325,6 +343,13 @@ class Command(BaseCommand):
         self.check_ledger_feeds_bank_book()
         self.check_transfers()
         self.check_statement_chain()
+        self.check_token_kinds()
+        self.check_account_history()
+        self.check_draft_statements()
+        self.check_future_lines()
+        self.check_cash_floor()
+        self.check_takings_accounts()
+        self.check_cross_branch_refund_cost()
 
         self.section("11. The book after it all")
         dr, cr = self.book_balances()
@@ -1233,3 +1258,454 @@ class Command(BaseCommand):
         self.expect("newest first, both reverse",
                     first.status == "REVERSED" and second.status == "REVERSED",
                     f"{first.status} / {second.status}")
+
+    # ───────────────────── fix3 helpers ──────────────────────────────────────
+
+    def book_agrees(self, bank):
+        """The independent book-vs-ledger check (as the testers' bank_check).
+
+        A shilling bank account's book — its opening balance plus every line
+        to today — must equal its ledger account as at today, and every
+        posted entry that moves the ledger account (other than an OPENING
+        one, which the opening balance stands for, and a reversed pair) must
+        have exactly one line on the bank book.
+        """
+        from collections import defaultdict
+        from apps.accounting.models import JournalEntry, JournalEntryLine
+        from apps.banking.models import BankTransaction
+
+        bank.refresh_from_db()
+        today = timezone.localdate()
+        ledger = bank.gl_account.balance_as_at(today)
+        book = bank.statement_balance
+        net = defaultdict(lambda: Z)
+        for line in JournalEntryLine.objects.filter(
+                account=bank.gl_account, journal_entry__status="POSTED").select_related(
+                "journal_entry"):
+            if line.journal_entry.entry_type == "OPENING":
+                continue
+            net[line.journal_entry_id] += line.debit_amount - line.credit_amount
+        lines = defaultdict(int)
+        for txn in BankTransaction.objects.filter(bank_account=bank):
+            lines[txn.journal_entry_id] += 1
+        missing = []
+        for pk, value in net.items():
+            if not value or pk in lines:
+                continue
+            entry = JournalEntry.objects.get(pk=pk)
+            original = JournalEntry.objects.filter(reversed_by_id=pk).first()
+            if (entry.reversed_by_id and entry.reversed_by_id not in lines) or \
+                    (original and original.pk not in lines):
+                continue
+            missing.append(entry.reference)
+        dups = [pk for pk, n in lines.items() if n > 1 or pk is None]
+        ok = book == ledger and not missing and not dups
+        return ok, f"book {book} / ledger {ledger}, missing {missing}, dups {len(dups)}"
+
+    def bank_form(self, name, gl, opening="0", currency="KES", kind="CURRENT", **extra):
+        data = {"name": name, "bank_name": "Fix Bank", "account_number": name[:8],
+                "account_type": kind, "currency": currency, "branch": "",
+                "gl_account": gl.pk, "opening_balance": opening}
+        data.update(extra)
+        return data
+
+    def new_gl(self, code, name, kind="BANK"):
+        from apps.accounting.models import Account
+        return Account.objects.create(company=self.company, code=code, name=name,
+                                      account_type=kind, parent=self.account("1000"))
+
+    # ───────────────────── 17. one token, one action ──────────────────────────
+
+    def check_token_kinds(self):
+        from apps.pos.models import POSSale
+
+        self.section("17. A form token used for something else is refused, not a 500")
+        client = self.c_nbo
+        response, sale = self.ring(client, {self.milk: "2"}, payment_method="CASH")
+        if not self.expect("a cash ticket rings for the token checks", sale is not None,
+                           str(self.flash(response))):
+            return
+        used = sale.submission_token
+        line = sale.lines.first()
+        response = client.post(reverse("pos:sale_refund", args=[sale.pk]),
+                               {f"refund_qty_{line.pk}": "1", "refund_token": used})
+        self.expect("a refund sent with the sale's own terminal token is not a server error",
+                    response.status_code == 302, f"HTTP {response.status_code}")
+        self.expect_flash(client, response, "already used to ring",
+                          "and is refused with a message naming the ticket")
+        self.expect("nothing was refunded",
+                    not POSSale.objects.filter(refund_of=sale).exists())
+
+        response, back = self.refund(client, sale, {self.milk: "1"})
+        if not self.expect("a proper refund goes through", back is not None,
+                           str(self.flashes(client, response))):
+            return
+        count = POSSale.objects.filter(session__company=self.company).count()
+        response = client.post(reverse("pos:terminal"), {
+            f"qty_{self.milk.pk}": "1", "payment_method": "CASH",
+            "ticket_token": back.submission_token})
+        self.expect("a terminal post with a spent refund token is not a server error",
+                    response.status_code == 200, f"HTTP {response.status_code}")
+        self.expect("and rings nothing, saying the token went on a refund",
+                    POSSale.objects.filter(session__company=self.company).count() == count
+                    and any("already used for refund" in m for m in self.flash(response)),
+                    str(self.flash(response)))
+
+        response, other = self.ring(client, {self.milk: "1"}, payment_method="CASH")
+        response = client.post(reverse("pos:sale_refund", args=[other.pk]), {
+            f"refund_qty_{other.lines.first().pk}": "1",
+            "refund_token": back.submission_token})
+        self.expect("another sale's refund token is refused on this sale",
+                    response.status_code == 302
+                    and not POSSale.objects.filter(refund_of=other).exists(),
+                    f"HTTP {response.status_code}")
+        self.expect_flash(client, response, "of another ticket",
+                          "with a message saying it belonged to another ticket's refund")
+        response = client.post(reverse("pos:sale_refund", args=[sale.pk]), {
+            f"refund_qty_{line.pk}": "1", "refund_token": back.submission_token})
+        self.expect_flash(client, response, "was already refunded from this form",
+                          "the same refund form sent again still hands its refund back")
+
+    # ───────────────────── 18. a bank account's history ───────────────────────
+
+    def check_account_history(self):
+        from apps.accounting.models import JournalEntry
+        from apps.banking.models import BankAccount, BankTransaction
+
+        self.section("18. A bank account's opening, its history and what is locked")
+        client = self.admin_client
+        gl = self.new_gl("1250", "Fix3 Bank")
+        capital0 = self.balance("3100")
+        response = client.post(reverse("banking:account_create"),
+                               self.bank_form("Fix3 Bank", gl, opening="1000"))
+        bank = BankAccount.objects.filter(company=self.company, name="Fix3 Bank").first()
+        if not self.expect("a bank account with an opening balance is created", bank is not None,
+                           str(self.form_errors(response))):
+            return
+        self.fix3 = bank
+        entry = bank.opening_entry
+        self.expect("its opening balance is posted Dr 1250 / Cr 3100",
+                    entry is not None and entry.entry_type == "OPENING"
+                    and entry.status == "POSTED"
+                    and self.balance("1250") == D("1000")
+                    and self.balance("3100") == capital0 - D("1000"),
+                    f"1250 {self.balance('1250')}, 3100 moved "
+                    f"{self.balance('3100') - capital0}")
+        ok, detail = self.book_agrees(bank)
+        self.expect("and the bank book agrees with the ledger from the start", ok, detail)
+        edit = reverse("banking:account_edit", args=[bank.pk])
+        response = client.post(edit, self.bank_form("Fix3 Bank", gl, opening="5000"))
+        bank.refresh_from_db()
+        self.expect("the opening balance is locked after creation",
+                    response.status_code == 200 and "opening_balance" in self.form_errors(response)
+                    and bank.opening_balance == D("1000"), str(self.form_errors(response)))
+        other_gl = self.new_gl("1260", "Fix3 Spare")
+        response = client.post(edit, self.bank_form("Fix3 Bank", other_gl, opening="1000"))
+        bank.refresh_from_db()
+        self.expect("its ledger account cannot move once it has history",
+                    response.status_code == 200 and "gl_account" in self.form_errors(response)
+                    and bank.gl_account_id == gl.pk, str(self.form_errors(response)))
+        response = client.post(edit, self.bank_form("Fix3 Bank", gl, opening="1000",
+                                                    currency="USD"))
+        bank.refresh_from_db()
+        self.expect("nor its currency",
+                    response.status_code == 200 and "currency" in self.form_errors(response)
+                    and bank.currency == "KES", str(self.form_errors(response)))
+        response = client.post(edit, self.bank_form("Fix3 Bank renamed", gl, opening="1000"))
+        bank.refresh_from_db()
+        self.expect("a rename is still fine", response.status_code == 302
+                    and bank.name == "Fix3 Bank renamed", str(self.form_errors(response)))
+        # A spare account with no history may still be moved.
+        response = client.post(reverse("banking:account_create"),
+                               self.bank_form("Fix3 Spare", other_gl))
+        spare = BankAccount.objects.filter(company=self.company, name="Fix3 Spare").first()
+        gl3 = self.new_gl("1270", "Fix3 Third")
+        response = client.post(reverse("banking:account_edit", args=[spare.pk]),
+                               self.bank_form("Fix3 Spare", gl3))
+        spare.refresh_from_db()
+        self.expect("an account with no history may still change its ledger account",
+                    spare.gl_account_id == gl3.pk, str(self.form_errors(response)))
+
+        # The till drawer's ledger account has carried cash tickets all run.
+        drawer_history = self.balance("1100")
+        response = client.post(reverse("banking:account_create"), self.bank_form(
+            "Till drawer", self.account("1100"), kind="PETTY_CASH"))
+        drawer = BankAccount.objects.filter(company=self.company, name="Till drawer").first()
+        if not self.expect("a bank account on a ledger account with history is created",
+                           drawer is not None, str(self.form_errors(response))):
+            return
+        brought = BankTransaction.objects.filter(bank_account=drawer, origin="LEDGER").count()
+        ok, detail = self.book_agrees(drawer)
+        self.expect("its earlier movements are brought onto its bank book, one per entry",
+                    brought > 0 and ok, f"{brought} line(s); {detail}")
+        from apps.banking import bankbook
+        self.expect("bringing them in again adds nothing", bankbook.backfill(drawer) == [])
+        self.drawer = drawer
+
+        # An opening reversed from the journal screen leaves the book agreeing.
+        gl4 = self.new_gl("1280", "Fix3 Reversed")
+        client.post(reverse("banking:account_create"),
+                    self.bank_form("Fix3 Reversed", gl4, opening="300"))
+        rev = BankAccount.objects.filter(company=self.company, name="Fix3 Reversed").first()
+        if rev and rev.opening_entry:
+            rev.opening_entry.reverse(user=self.admin)
+            ok, detail = self.book_agrees(rev)
+            self.expect("an opening reversed from the journal is answered on the bank book",
+                        ok and self.balance("1280") == Z, detail)
+        # An opening already typed as a journal is not booked twice.
+        gl5 = self.new_gl("1290", "Fix3 Journal-opened")
+        je = JournalEntry.objects.create(company=self.company, reference=f"OPEN-{self.stamp}",
+                                         entry_type="OPENING",
+                                         posting_date=timezone.localdate(), notes="opening")
+        from apps.accounting.models import JournalEntryLine
+        JournalEntryLine.objects.create(journal_entry=je, account=gl5, debit_amount=D("700"),
+                                        credit_amount=Z)
+        JournalEntryLine.objects.create(journal_entry=je, account=self.account("3100"),
+                                        debit_amount=Z, credit_amount=D("700"))
+        je.post(user=self.admin)
+        response = client.post(reverse("banking:account_create"),
+                               self.bank_form("Fix3 Typed", gl5, opening="900"))
+        self.expect("an opening that disagrees with the ledger's own opening is refused",
+                    response.status_code == 200 and not BankAccount.objects.filter(
+                        company=self.company, name="Fix3 Typed").exists(),
+                    str(self.form_errors(response)))
+        client.post(reverse("banking:account_create"), self.bank_form("Fix3 Typed", gl5))
+        typed = BankAccount.objects.filter(company=self.company, name="Fix3 Typed").first()
+        ok, detail = self.book_agrees(typed) if typed else (False, "not created")
+        self.expect("left at 0 it opens from the ledger's 700, booked once",
+                    typed is not None and typed.opening_balance == D("700")
+                    and typed.opening_entry_id is None and self.balance("1290") == D("700")
+                    and ok, detail)
+
+    # ───────────────────── 19. draft statements ───────────────────────────────
+
+    def check_draft_statements(self):
+        from apps.banking.models import Reconciliation
+
+        self.section("19. Draft statements: re-opened, edited, deleted, posted with notes")
+        bank = getattr(self, "fix3", None)
+        if bank is None:
+            return
+        client = self.admin_client
+        today = timezone.localdate()
+
+        def start(reference, day, closing, notes=""):
+            response = client.post(reverse("banking:reconciliation_create"), {
+                "bank_account": bank.pk, "reference": reference,
+                "statement_date": day.isoformat(), "closing_balance": str(closing),
+                "notes": notes})
+            return response, Reconciliation.objects.filter(
+                bank_account=bank, reference=reference).exclude(status="REVERSED").first()
+
+        response, later = start("FX-LATER", today, "1000")
+        response, middle = start("FX-MID", today - datetime.timedelta(days=1), "1000")
+        response, early = start("FX-EARLY", today - datetime.timedelta(days=2), "1250")
+        if not self.expect("three drafts are started", later and middle and early):
+            return
+        self.expect("each opens on the account's opening balance",
+                    later.opening_balance == early.opening_balance == D("1000"))
+        response = client.post(reverse("banking:reconciliation_post", args=[early.pk]))
+        early.refresh_from_db()
+        self.expect("out of balance and with no notes, posting is refused",
+                    early.status == "DRAFT")
+        response = client.post(reverse("banking:reconciliation_post", args=[early.pk]),
+                               {"notes": "Bank interest not yet entered"})
+        early.refresh_from_db()
+        self.expect("notes sent with the post let it post",
+                    early.status == "POSTED" and early.notes == "Bank interest not yet entered",
+                    str(self.flashes(client, response)))
+        page = client.get(reverse("banking:reconciliation_detail", args=[later.pk]))
+        self.expect("a later draft shown now opens on the posted statement's 1,250",
+                    page.context and page.context["opening"] == D("1250"),
+                    str(page.context and page.context["opening"]))
+
+        response = client.post(reverse("banking:reconciliation_edit", args=[later.pk]), {
+            "statement_date": today.isoformat(), "closing_balance": "1250",
+            "notes": "Typo fixed"})
+        later.refresh_from_db()
+        self.expect("a draft's closing balance and notes can be edited",
+                    response.status_code == 302 and later.closing_balance == D("1250")
+                    and later.notes == "Typo fixed" and later.opening_balance == D("1250"),
+                    str(self.form_errors(response)))
+        response = client.post(reverse("banking:reconciliation_edit", args=[later.pk]), {
+            "statement_date": (today - datetime.timedelta(days=5)).isoformat(),
+            "closing_balance": "1250", "notes": ""})
+        later.refresh_from_db()
+        self.expect("but not moved beneath the posted statement",
+                    response.status_code == 200 and later.statement_date == today,
+                    str(self.form_errors(response)))
+        response = client.post(reverse("banking:reconciliation_post", args=[later.pk]))
+        later.refresh_from_db()
+        self.expect("the edited draft posts, balanced", later.status == "POSTED",
+                    str(self.flashes(client, response)))
+        response = client.post(reverse("banking:reconciliation_post", args=[middle.pk]),
+                               {"notes": "Late"})
+        middle.refresh_from_db()
+        self.expect("a draft dated beneath a posted statement cannot be posted",
+                    middle.status == "DRAFT")
+        self.expect_flash(client, response, "run forward only", "and is told why")
+        response, back_dated = start("FX-OLD", today - datetime.timedelta(days=10), "1000")
+        self.expect("nor can a new statement be started beneath it",
+                    back_dated is None and "statement_date" in self.form_errors(response),
+                    str(self.form_errors(response)))
+        response = client.post(reverse("banking:reconciliation_delete", args=[middle.pk]))
+        self.expect("a draft can be deleted",
+                    not Reconciliation.objects.filter(pk=middle.pk).exists(),
+                    str(self.flashes(client, response)))
+        response = client.post(reverse("banking:reconciliation_delete", args=[later.pk]))
+        self.expect("a posted statement cannot be",
+                    Reconciliation.objects.filter(pk=later.pk, status="POSTED").exists())
+        response = client.get(reverse("banking:reconciliation_edit", args=[later.pk]))
+        self.expect("nor edited", response.status_code == 302, f"HTTP {response.status_code}")
+        client.post(reverse("banking:reconciliation_reverse", args=[later.pk]))
+        client.post(reverse("banking:reconciliation_reverse", args=[early.pk]))
+
+    # ───────────────────── 20. dated after today ──────────────────────────────
+
+    def check_future_lines(self):
+        from apps.accounting.models import JournalEntry, JournalEntryLine
+        from apps.banking import services
+
+        self.section("20. Lines dated after today stay out of today's balance")
+        bank = getattr(self, "fix3", None)
+        if bank is None:
+            return
+        tomorrow = timezone.localdate() + datetime.timedelta(days=4)
+        je = JournalEntry.objects.create(company=self.company, reference=f"FUT-{self.stamp}",
+                                         entry_type="MANUAL", posting_date=tomorrow,
+                                         notes="Receipt dated ahead")
+        JournalEntryLine.objects.create(journal_entry=je, account=bank.gl_account,
+                                        debit_amount=D("400"), credit_amount=Z)
+        JournalEntryLine.objects.create(journal_entry=je, account=self.account("4400"),
+                                        debit_amount=Z, credit_amount=D("400"))
+        je.post(user=self.admin)
+        line = bank.transactions.filter(journal_entry=je).first()
+        self.expect("a future-dated entry still reaches the bank book", line is not None)
+        ok, detail = self.book_agrees(bank)
+        self.expect("but the balance shown is as at today, book and ledger alike", ok, detail)
+        self.expect("it is not offered on a statement",
+                    line not in list(services.outstanding(bank, tomorrow)))
+        page = self.admin_client.get(reverse("banking:account_detail", args=[bank.pk]))
+        self.expect("it is listed apart on the account's page",
+                    page.context and line in list(page.context["future"])
+                    and line not in list(page.context["transactions"]))
+
+    # ───────────────────── 21. cash cannot go below zero ──────────────────────
+
+    def check_cash_floor(self):
+        from apps.banking.models import BankAccount
+
+        self.section("21. A cash box cannot pay out notes it does not have")
+        bank = getattr(self, "fix3", None)
+        # A box of its own with a 500 float, so the figures are this check's.
+        self.admin_client.post(reverse("banking:account_create"), self.bank_form(
+            "Fix3 cash box", self.new_gl("1120", "Fix3 Cash Box", kind="CASH"),
+            kind="PETTY_CASH"))
+        petty = BankAccount.objects.filter(company=self.company, name="Fix3 cash box").first()
+        if not self.expect("a fresh cash box is opened", petty is not None):
+            return
+        self.manual_line(petty, "CREDIT", "500", "Float", self.account("3100"))
+        response, ok_spend = self.manual_line(petty, "DEBIT", "500", "All of it",
+                                              self.account("6600"))
+        self.expect("spending exactly what the box holds is fine", ok_spend is not None,
+                    str(self.form_errors(response)))
+        self.manual_line(petty, "CREDIT", "500", "Float again", self.account("3100"))
+        held = petty.statement_balance
+        response, spend = self.manual_line(petty, "DEBIT", str(held + D("1")), "Too much tea",
+                                           self.account("6600"))
+        self.expect(f"a spend of {held + 1} from petty cash holding {held} is refused",
+                    spend is None and response.status_code == 200, f"HTTP {response.status_code}")
+        response = self.admin_client.post(reverse("banking:transfer_create"), {
+            "from_account": petty.pk, "to_account": self.kes.pk,
+            "transfer_date": timezone.localdate().isoformat(),
+            "amount_sent": str(held + D("1000")), "amount_received": "", "reference": "",
+            "description": "Overdraw petty"})
+        self.expect("so is a transfer out of it larger than it holds",
+                    response.status_code == 200
+                    and petty.statement_balance == held, f"HTTP {response.status_code}")
+        day = timezone.localdate() - datetime.timedelta(days=30)
+        response, early = self.manual_line(petty, "DEBIT", "1", "Back-dated tea",
+                                           self.account("6600"), day=day)
+        self.expect("and a back-dated spend before the box held anything",
+                    early is None, f"HTTP {response.status_code}")
+        if bank is not None:
+            owed = bank.statement_balance + D("500")
+            response, over = self.manual_line(bank, "DEBIT", str(owed), "Overdraft",
+                                              self.account("7100"))
+            self.expect("a bank account may go overdrawn", over is not None
+                        and bank.statement_balance < 0, str(self.form_errors(response)))
+
+    # ───────────────────── 22. where till takings land ────────────────────────
+
+    def check_takings_accounts(self):
+        from apps.banking.models import BankAccount, BankTransaction
+
+        self.section("22. Card and M-Pesa takings land in the flagged bank account")
+        bank = getattr(self, "fix3", None)
+        if bank is None:
+            return
+        client = self.admin_client
+        bank.refresh_from_db()
+        response = client.post(reverse("banking:account_edit", args=[bank.pk]), self.bank_form(
+            bank.name, bank.gl_account, opening=str(bank.opening_balance),
+            receives_pos_card="on"))
+        bank.refresh_from_db()
+        self.expect("a bank account is flagged to receive card takings",
+                    bank.receives_pos_card, str(self.form_errors(response)))
+        response = client.post(reverse("banking:account_edit", args=[self.kes.pk]),
+                               self.bank_form("Equity KES", self.account("1200"),
+                                              opening=str(self.kes.opening_balance),
+                                              receives_pos_card="on"))
+        self.expect("a second card account is refused",
+                    "receives_pos_card" in self.form_errors(response),
+                    str(self.form_errors(response)))
+        page = client.get(reverse("banking:account_edit", args=[bank.pk])).content.decode()
+        self.expect("the flags are on the bank account form",
+                    "receives_pos_card" in page and "receives_pos_mpesa" in page)
+
+        gl0, bank1200 = self.balance("1250"), self.balance("1200")
+        response, card = self.ring(self.c_nbo, {self.milk: "1"}, payment_method="CARD")
+        line = BankTransaction.objects.filter(journal_entry=card.journal_entry).first() \
+            if card else None
+        self.expect("a card ticket debits the flagged account's ledger account",
+                    card is not None and self.balance("1250") == gl0 + card.total_amount
+                    and self.balance("1200") == bank1200,
+                    f"1250 {self.balance('1250') - gl0}, 1200 {self.balance('1200') - bank1200}")
+        self.expect("and lands on its bank book", line is not None and line.bank_account_id == bank.pk)
+        response, back = self.refund(self.c_nbo, card, {self.milk: "1"})
+        self.expect("its refund comes back out of the same account",
+                    back is not None and self.balance("1250") == gl0,
+                    f"1250 {self.balance('1250') - gl0}")
+        response, mpesa = self.ring(self.c_nbo, {self.milk: "1"}, payment_method="MPESA")
+        self.expect("with no M-Pesa account flagged, M-Pesa still falls back to 1200",
+                    mpesa is not None and self.balance("1200") == bank1200 + mpesa.total_amount)
+        ok, detail = self.book_agrees(bank)
+        self.expect("the flagged account's book still agrees with its ledger", ok, detail)
+        BankAccount.objects.filter(pk=bank.pk).update(receives_pos_card=False)
+
+    # ───────────────────── 23. a refund at another branch ─────────────────────
+
+    def check_cross_branch_refund_cost(self):
+        from apps.inventory.models import StockMovement
+
+        self.section("23. A refund at another branch comes back at the cost it was sold at")
+        msa = self.session_of(self.msa_cashier) or self.open_till(self.c_msa, self.msa_cashier)
+        if not self.expect("Mombasa has a till open", msa is not None):
+            return
+        stock0, cogs0 = self.balance("1400"), self.balance("5000")
+        response, sale = self.ring(self.c_nbo, {self.sugar: "2"}, payment_method="CASH")
+        if not self.expect("Nairobi sells two sugar", sale is not None):
+            return
+        issued = StockMovement.objects.get(reference=sale.reference, movement_type="DELIVERY")
+        response, back = self.refund(self.c_msa, sale, {self.sugar: "2"})
+        if not self.expect("Mombasa takes both back", back is not None,
+                           str(self.flashes(self.c_msa, response))):
+            return
+        returned = StockMovement.objects.get(reference=back.reference, movement_type="RETURN_IN")
+        self.expect("they come in at the cost they went out at, not Mombasa's shelf average",
+                    returned.warehouse_id == self.wh_msa.pk
+                    and returned.unit_cost == issued.unit_cost,
+                    f"{returned.unit_cost} in against {issued.unit_cost} out")
+        self.expect("so the full refund leaves inventory and cost of sales where they were",
+                    self.balance("1400") == stock0 and self.balance("5000") == cogs0,
+                    f"1400 {self.balance('1400') - stock0}, 5000 {self.balance('5000') - cogs0}")
