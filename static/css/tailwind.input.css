@@ -287,6 +287,7 @@
   .page-header { @apply mb-7 flex flex-wrap items-end justify-between gap-x-4 gap-y-4; }
   .page-header-main { @apply min-w-0 flex-[1_1_18rem]; }
   .page-title { @apply text-2xl font-extrabold tracking-tight text-ink sm:text-[1.75rem] sm:leading-9; }
+  .page-title-row { @apply flex flex-wrap items-center gap-x-3 gap-y-1.5; }
   .page-subtitle { @apply mt-1.5 text-[0.9375rem] text-ink-muted; }
   .page-eyebrow { @apply mb-1.5 text-xs font-bold uppercase tracking-[0.12em] text-brand-ink; }
   .page-actions { @apply flex flex-wrap items-center gap-2.5; }
@@ -364,12 +365,34 @@
   [data-theme="dark"] .hero-tagline { color: #e0484c; }
   .hero-text { @apply mt-3 max-w-xl text-[0.9375rem] leading-relaxed text-hero-muted; }
   .hero-label { @apply text-[0.8125rem] font-semibold text-hero-muted; }
-  .hero-figure { @apply mt-1 text-[2.25rem] font-extrabold leading-none tracking-tight text-hero-ink sm:text-5xl; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  /* The key figure: big white numerals. */
+  .hero-value { @apply mt-1 text-[2.25rem] font-extrabold leading-none tracking-tight text-hero-ink sm:text-5xl; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .hero-meta { @apply mt-2 text-[0.8125rem] leading-snug text-hero-muted; }
   .hero-unit { @apply ml-2 align-baseline text-base font-semibold text-hero-muted; }
   .hero-credit { @apply font-semibold text-hero-credit; }
   .hero-debit { @apply font-semibold text-[#ffb4ae]; }
-  .hero-stats { @apply mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/10 pt-5 sm:grid-cols-4; }
-  .hero-stat-value { @apply mt-1 text-lg font-bold text-hero-ink; font-variant-numeric: tabular-nums; }
+  /* A row of secondary figures under a divider: .hero-figures > div > .hero-label + .hero-figure */
+  .hero-figures, .hero-stats { @apply mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/10 pt-5 sm:grid-cols-4; }
+  .hero-figure, .hero-stat-value { @apply mt-1 text-lg font-bold text-hero-ink sm:text-xl; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .hero-figure.hero-credit, .hero-stat-value.hero-credit { @apply text-hero-credit; }
+
+  /* ---- Steps (workflow stepper) ---------------------------------------- */
+  /* <ol class="steps"><li class="step is-done">Draft</li><li class="step is-current" aria-current="step">Approved</li><li class="step">Posted</li></ol> */
+  .steps { @apply mb-6 flex items-center gap-2 overflow-x-auto p-0; list-style: none; counter-reset: step; scrollbar-width: none; }
+  .step { @apply flex shrink-0 items-center gap-2.5 whitespace-nowrap text-sm font-semibold text-ink-muted; counter-increment: step; }
+  .step::before {
+    content: counter(step); @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-xs font-bold text-ink-muted;
+  }
+  .step:not(:last-child)::after { content: ""; @apply ml-1 h-px w-6 shrink-0 bg-line-strong sm:w-10; }
+  .step.is-done { @apply text-ink-2; }
+  .step.is-done::before { content: "\2713"; @apply border-credit bg-credit text-white; }
+  .step.is-done:not(:last-child)::after { @apply bg-credit; }
+  .step.is-current, .step[aria-current="step"] { @apply text-ink; }
+  .step.is-current::before, .step[aria-current="step"]::before { @apply border-brand bg-brand text-white; box-shadow: 0 0 0 4px rgb(var(--c-brand) / .12); }
+  .step-meta { @apply text-xs font-medium text-ink-faint; }
+  .hero .step { @apply text-hero-muted; }
+  .hero .step.is-current, .hero .step.is-done { @apply text-white; }
+  .hero .step:not(.is-done, .is-current, [aria-current="step"])::before { @apply border-white/30 bg-transparent text-white/80; }
   .hero-actions { @apply mt-6 flex flex-wrap items-center gap-2.5; }
   .hero :is(.btn-ghost, .btn-secondary, .btn-outline) { @apply border-white/30 bg-transparent text-white hover:border-white/50 hover:bg-white/10 hover:text-white; }
   .hero .btn-primary { @apply border-brand bg-brand shadow-none hover:bg-brand-hover; }
@@ -889,6 +912,11 @@
     border-radius: 4px !important; box-shadow: none !important;
   }
   .table-wrap, .table-wrap-scroll { overflow: visible !important; max-height: none !important; }
+  /* Hero panels print as a plain bordered box, black on white. */
+  .hero { background: #fff !important; background-image: none !important; color: #000 !important; border: 1px solid #bbb !important; border-radius: 4px !important; }
+  .hero *, .hero .neg { color: #000 !important; }
+  .hero-sheets::before, .hero-sheets::after { display: none !important; }
+  .hero-figures, .hero-stats { border-color: #ccc !important; }
   [class*="bg-gray-50"], [class*="bg-orange-50"], [class*="bg-red-50"],
   [class*="bg-green-50"], [class*="bg-blue-50"], [class*="bg-amber-50"],
   .table th, .table td, .table tfoot td { background: #fff !important; }

@@ -74,20 +74,35 @@ in the Tailwind build.
     <p class="hero-tagline">Twaimarisha Biashara</p>
     <div class="mt-6">
       <p class="hero-label">Cash on hand</p>
-      <p class="hero-figure">{{ 126500|money }}<span class="hero-unit">KES</span></p>
-      <p class="mt-2 text-sm text-hero-muted"><span class="hero-credit">+ {{ 18250|money }}</span> received this week</p>
+      <p class="hero-value">{{ 126500|money }}<span class="hero-unit">KES</span></p>
+      <p class="hero-meta"><span class="hero-credit">+ {{ 18250|money }}</span> received this week</p>
     </div>
-    <div class="hero-stats">
-      <div><p class="hero-label">Receivables</p><p class="hero-stat-value">{{ 48250.5|money }}</p></div>
-      <div><p class="hero-label">Payables</p><p class="hero-stat-value">{{ 9900|money }}</p></div>
-      <div><p class="hero-label">Revenue MTD</p><p class="hero-stat-value">{{ 312000|money }}</p></div>
-      <div><p class="hero-label">Net MTD</p><p class="hero-stat-value hero-debit">{{ -15400|money }}</p></div>
-    </div>
+    <dl class="hero-figures">
+      <div><dt class="hero-label">Receivables</dt><dd class="hero-figure">{{ 48250.5|money }}</dd></div>
+      <div><dt class="hero-label">Payables</dt><dd class="hero-figure">{{ 9900|money }}</dd></div>
+      <div><dt class="hero-label">Paid this month</dt><dd class="hero-figure hero-credit">{{ 312000|money }}</dd></div>
+      <div><dt class="hero-label">Net MTD</dt><dd class="hero-figure">{{ -15400|money }}</dd></div>
+    </dl>
     <div class="hero-actions">
       <button type="button" class="btn btn-primary btn-sm">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}New invoice</button>
       <button type="button" class="btn btn-ghost btn-sm">Record receipt</button>
       <button type="button" class="btn btn-ghost btn-sm">New bill</button>
     </div>
+  </div>
+
+  <h2 class="section-title mt-6">Workflow steps — .steps / .step (is-done, is-current)</h2>
+  <div class="card card-body">
+    <ol class="steps mb-0" aria-label="Example workflow">
+      <li class="step is-done">Draft</li>
+      <li class="step is-done">Submitted</li>
+      <li class="step is-current" aria-current="step">Approved</li>
+      <li class="step">Posted</li>
+    </ol>
+  </div>
+
+  <h2 class="section-title mt-6">Page header with a status chip — status= / badge=</h2>
+  <div class="card card-body">
+    {% include "_includes/page_header.html" with title="INV-00042" subtitle="Acme Hardware Ltd" status="PARTIAL" back_url="#hero" hide_print=True %}
   </div>
 
   <h2 class="section-title mt-6">Segmented toggle — .seg · icon tiles — .icon-tile</h2>

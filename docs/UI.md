@@ -140,19 +140,47 @@ sheets (pure CSS, no markup).
   <p class="hero-tagline">Twaimarisha Biashara</p>          {# Playfair italic, red; optional #}
   <p class="hero-text">One muted sentence.</p>
   <p class="hero-label">Cash on hand</p>
-  <p class="hero-figure">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>
-  <p class="text-sm text-hero-muted"><span class="hero-credit">+ {{ inflow|money }}</span> this week</p>   {# hero-debit for money out #}
-  <div class="hero-stats">                                    {# 2 to 4 small figures under a divider #}
-    <div><p class="hero-label">Receivables</p><p class="hero-stat-value">{{ ar|money }}</p></div>
-  </div>
+  <p class="hero-value">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>   {# the key figure, big white numerals #}
+  <p class="hero-meta"><span class="hero-credit">+ {{ inflow|money }}</span> this week</p>   {# muted line; hero-debit for money out #}
+  <dl class="hero-figures">                                   {# 2 to 4 secondary figures under a divider (2 cols, 4 from sm) #}
+    <div><dt class="hero-label">Receivables</dt><dd class="hero-figure">{{ ar|money }}</dd></div>
+    <div><dt class="hero-label">Paid this month</dt><dd class="hero-figure hero-credit">{{ paid|money }}</dd></div>
+  </dl>
   <div class="hero-actions">
     <a href="..." class="btn btn-primary btn-sm">New invoice</a>
     <a href="..." class="btn btn-ghost btn-sm">Record receipt</a>   {# ghost = white outline on the hero #}
   </div>
 </section>
 ```
+| Class | What |
+|---|---|
+| `hero` | The panel. Sets the background **and a light text colour**, so plain text inside inherits white (dim it with `opacity-70` or `hero-muted`). |
+| `hero-sheets` | Optional decorative angled sheets. |
+| `hero-eyebrow`, `hero-title`, `hero-tagline`, `hero-text` | Heading block. |
+| `hero-label` | Muted 13px label above a figure. |
+| `hero-value` | The key figure (36px, 48px from sm). `hero-unit` is the small currency/unit after it. |
+| `hero-meta` | Muted 13px line under a figure. |
+| `hero-figures` / `hero-figure` | Grid of secondary figures under a divider / one secondary value (18-20px bold). Old names `hero-stats` / `hero-stat-value` still work. Grid utilities on `hero-figures` override its columns. |
+| `hero-credit` / `hero-debit` | Green / light-red figure text. A negative `|money` turns light red automatically. |
+| `hero-actions` | Button row; `btn-ghost`/`btn-secondary` render white-outlined here. |
+
 Gate every figure in a hero exactly like the tile it replaces (the dashboard
-shows cash only when `show.cash`).
+shows cash only when `show.cash`). **Print:** a hero prints as a plain bordered
+box, black on white, with the sheets dropped; `print:` utilities such as
+`print:bg-surface print:text-ink print:border` still apply.
+
+### Workflow steps
+```html
+<ol class="steps" aria-label="Invoice progress">
+  <li class="step is-done">Draft</li>
+  <li class="step is-done">Submitted</li>
+  <li class="step is-current" aria-current="step">Approved <span class="step-meta">by A. Otieno</span></li>
+  <li class="step">Posted</li>
+</ol>
+```
+Numbered circles joined by a line: `is-done` is a green tick, `is-current`
+(or `aria-current="step"`) is red with a soft ring, the rest are neutral. The
+row scrolls sideways on phones. It also works inside a `.hero`.
 
 ### Segmented toggle and icon tiles
 ```html
@@ -334,14 +362,14 @@ the loop would otherwise leak into the include.
 
 | Include | Parameters |
 |---|---|
-| `page_header.html` | `title`\*, `subtitle`, `eyebrow`, `back_url`, `back_label`, `crumbs`, `action_label`+`action_url` (primary, shown only when both are set), `action_icon` (`plus` by default, `edit` when the label starts with "Edit", any icon name, or `none`), `secondary_label`+`secondary_url`, `actions_template` (a partial for POST buttons or menus), `hide_print`, `print_label` |
+| `page_header.html` | `title`\*, `status` (a status code: draws a `status_badge` chip beside the title) + `status_label`, or `badge` (a free-text chip) + `badge_class` (`badge-success` etc.), `subtitle`, `eyebrow`, `back_url`, `back_label`, `crumbs`, `action_label`+`action_url` (primary, shown only when both are set), `action_icon` (`plus` by default, `edit` when the label starts with "Edit", any icon name, or `none`), `secondary_label`+`secondary_url`, `actions_template` (a partial for POST buttons or menus), `hide_print`, `print_label` |
 | `filter_bar.html` | `search_name` (default `q`, `"none"` to drop it), `search_value`, `search_placeholder`, `search_label`, `filter_form`, `extra_template`, `submit_label`, `reset_url` |
 | `empty_state.html` | `title`\*, `text`, `icon`, `action_label`+`action_url`, `secondary_label`+`secondary_url`, `compact` |
 | `stat.html` | `label`\*, `value`, `money`, `qty`, `currency`, `unit`, `meta`, `icon`, `tone`, `url`, `trend` (`up`/`down`), `value_class` |
 | `data_table.html` | `table_template`\*, `title`, `subtitle`, `count`, `actions_template`, `empty`, `empty_title`, `empty_text`, `empty_icon`, `empty_action_label`, `empty_action_url`, `scroll`, `paginate` |
 | `status_badge.html` | `status`\*, `label` |
 | `breadcrumbs.html` | `crumbs` (a list of `{"label","url"}`, where the last item is the current page), `home` (False hides "Home") |
-| `icon.html` | `name`\*, `cls` (default `h-4 w-4`), `stroke` (default 1.75), `icon_label` (makes the icon announced). There are 50 names, all listed at `/dashboard/ui/#icons`. |
+| `icon.html` | `name`\*, `cls` (default `h-4 w-4`), `stroke` (default 1.75), `icon_label` (makes the icon announced). There are 51 names (including `minus`), all listed at `/dashboard/ui/#icons`. |
 | `pagination.html` | Takes no parameters. It needs `is_paginated`, `page_obj` and `request`, and keeps the other query params. |
 | `model_form.html` | `form`\*, `title`, `subtitle`, `back_url`, `cancel_url`, `submit_label`, `section_label`, `extra_template`. Unchanged from before. |
 | `launcher.html` | `launcher_title`, `launcher_subtitle`. The tiles stay inline as `<a … class="launcher-tile">`, and tests count that exact attribute. |

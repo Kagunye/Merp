@@ -722,7 +722,7 @@ def style_guide(request):
         "breadcrumbs_demo": [{"label": "Sales", "url": "#"}, {"label": "Invoices", "url": "#"},
                              {"label": "INV-0042"}],
         "icon_names": [
-            "plus", "edit", "trash", "search", "filter", "download", "upload", "printer", "eye",
+            "plus", "minus", "edit", "trash", "search", "filter", "download", "upload", "printer", "eye",
             "check", "x", "info", "check-circle", "warning", "x-circle", "inbox", "document",
             "receipt", "users", "user", "box", "chart", "bell", "lock", "cash", "trending-up",
             "trending-down", "building", "map-pin", "cog", "clock", "calendar", "logout", "key",
