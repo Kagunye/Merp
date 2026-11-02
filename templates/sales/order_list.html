@@ -1,22 +1,23 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'sales:order_create' as pa_url %}
+{% can_do "sales:order_create" "POST" as may_create %}{% if may_create %}{% url 'sales:order_create' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Sales Orders" subtitle="Orders from quotation through delivery" action_label="New Order" action_url=pa_url %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Order date</th><th class="px-4 py-3 text-left">Delivery</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Reference</th><th>Customer</th><th>Order date</th><th>Delivery</th><th class="num">Total</th><th>Status</th></tr></thead>
+    <tbody>
       {% for o in orders %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'sales:order_detail' o.pk %}" style="color: var(--primary);">{{ o.reference }}</a></td>
-        <td class="px-4 py-3">{{ o.customer.name }}</td>
-        <td class="px-4 py-3">{{ o.order_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3">{{ o.delivery_date|date:"d M Y"|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-semibold">{{ o.total_amount|floatformat:2 }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ o.get_status_display }}</span></td>
+      <tr>
+        <td class="mono whitespace-nowrap"><a href="{% url 'sales:order_detail' o.pk %}" class="row-link">{{ o.reference }}</a></td>
+        <td class="font-medium">{{ o.customer.name }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ o.order_date|date:"d M Y" }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ o.delivery_date|date:"d M Y"|default:"—" }}</td>
+        <td class="num font-semibold">{{ o.total_amount|money }}{% if o.currency != active_company.currency %} <span class="text-xs font-normal text-ink-muted">{{ o.currency }}</span>{% endif %}</td>
+        <td>{% status_badge o.status o.get_status_display %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No sales orders yet.</td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No sales orders yet" text="Quotations and orders you take appear here." action_label="New Order" action_url=pa_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

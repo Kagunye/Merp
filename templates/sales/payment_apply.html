@@ -1,52 +1,59 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'sales:payment_list' as back %}
-{% include "_includes/page_header.html" with title=page_title subtitle=payment.customer.name back_url=back %}
+{% include "_includes/page_header.html" with title=page_title subtitle=payment.customer.name back_url=back back_label="Payments" hide_print=True %}
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Received</div><div class="font-semibold">{{ payment.payment_date|date:"d M Y" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Receipt</div><div class="font-semibold font-mono">{{ payment.amount|floatformat:2 }} {{ payment.currency }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Still on account</div><div class="font-bold text-lg" style="color: var(--primary);">{{ unapplied|floatformat:2 }} {{ payment.currency }}</div></div>
+<div class="mb-6 grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
+  {% include "_includes/stat.html" with label="Received" value=payment.payment_date|date:"d M Y" icon="calendar" tone="neutral" only %}
+  {% include "_includes/stat.html" with label="Receipt" value=payment.amount money=True currency=payment.currency icon="cash" tone="info" only %}
+  {% include "_includes/stat.html" with label="Still on account" value=unapplied money=True currency=payment.currency icon="receipt" tone="brand" only %}
 </div>
 
 {% if error %}
-<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ error }}</div>
+<div class="alert alert-danger mb-4" role="alert">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">{{ error }}</div>
+</div>
 {% endif %}
 
-<form method="post" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+{% can_do "sales:payment_apply" "POST" as may_apply %}
+<form method="post" class="card no-card overflow-hidden">
   {% csrf_token %}
   <input type="hidden" name="form_token" value="{{ form_token }}">
-  <div class="px-4 py-3 border-b border-gray-100">
-    <h3 class="font-semibold text-gray-800 text-sm">Apply to open {{ payment.currency }} invoices</h3>
-    <p class="text-xs text-gray-500 mt-1">Only this customer's open invoices in {{ payment.currency }} are listed. An invoice cannot take more than it is owed, the amounts together cannot exceed what is still on account, and an invoice dated after the application date cannot be settled by it. If the rate moved between the receipt and the invoice, the realised exchange is booked on the application date.</p>
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Apply to open {{ payment.currency }} invoices</h2>
+      <p class="card-subtitle">Only this customer's open invoices in {{ payment.currency }} are listed. An invoice cannot take more than it is owed, the amounts together cannot exceed what is still on account, and an invoice dated after the application date cannot be settled by it. If the rate moved between the receipt and the invoice, the realised exchange is booked on the application date.</p>
+    </div>
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50/50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr><th class="px-4 py-2 text-left">Invoice</th><th class="px-4 py-2 text-left">Date</th><th class="px-4 py-2 text-right">Owed</th><th class="px-4 py-2 text-right">Apply</th></tr>
-    </thead>
-    <tbody class="divide-y divide-gray-50">
-      {% for row in rows %}
-      <tr>
-        <td class="px-4 py-2 font-mono">{{ row.invoice.reference }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ row.invoice.invoice_date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ row.invoice.outstanding_amount|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right">
-          <input type="text" inputmode="decimal" name="allocate_{{ row.invoice.pk }}" value="{{ row.value }}"
-            class="w-32 px-2 py-1 text-right text-sm border border-gray-300 rounded-lg font-mono" placeholder="0.00">
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">{{ payment.customer.name }} has no open {{ payment.currency }} invoices to apply this credit to.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between gap-4 flex-wrap">
-    <label class="text-xs text-gray-500">
-      Application date
-      <input type="date" name="allocation_date" value="{{ on_date|date:'Y-m-d' }}" class="mt-1 block px-3 py-2 text-sm border border-gray-300 rounded-lg">
-    </label>
-    {% if rows %}
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Apply Credit</button>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Invoice</th><th>Date</th><th class="num">Owed</th><th class="num">Apply</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="mono">{{ row.invoice.reference }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ row.invoice.invoice_date|date:"d M Y" }}</td>
+          <td class="num">{{ row.invoice.outstanding_amount|money }}</td>
+          <td class="num">
+            <input type="text" inputmode="decimal" name="allocate_{{ row.invoice.pk }}" value="{{ row.value }}" aria-label="Amount to apply to {{ row.invoice.reference }}"
+              class="input input-sm ml-auto w-32 text-right font-mono" placeholder="0.00">
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="p-0">{% with t=payment.customer.name|add:" has no open "|add:payment.currency|add:" invoices to apply this credit to." %}{% include "_includes/empty_state.html" with icon="inbox" title=t compact=True only %}{% endwith %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer justify-between">
+    <div class="form-field">
+      <label class="form-label" for="apply-date">Application date</label>
+      <input type="date" id="apply-date" name="allocation_date" value="{{ on_date|date:'Y-m-d' }}" class="input">
+    </div>
+    {% if rows and may_apply %}
+    <button type="submit" class="btn btn-primary">Apply Credit</button>
     {% endif %}
   </div>
 </form>

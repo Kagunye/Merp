@@ -1252,6 +1252,10 @@ class SalesOrderDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["invoices"] = self.object.invoices.select_related("customer")
         ctx["can_cancel"] = _order_cancel_refusal(self.object) is None
+        # Display only: the order discount as an amount, the gap between the
+        # goods subtotal and the taxable figure the total was built from.
+        order = self.object
+        ctx["order_discount"] = order.subtotal - (order.total_amount - order.tax_amount)
         return ctx
 
 

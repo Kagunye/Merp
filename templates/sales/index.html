@@ -1,23 +1,47 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Accounts Receivable" launcher_subtitle="Manage your receivables and customer transactions" %}
+
+{% can_do "sales:ar_aging" as may_aging %}
+{% if may_aging %}
+<section class="hero mb-2" aria-label="Receivables at a glance">
+  <div class="flex flex-wrap items-end justify-between gap-6">
+    <div class="min-w-0">
+      <p class="hero-label">Net receivable ({{ book }})</p>
+      <p class="hero-value">{{ net_receivable|default:0|money }}</p>
+      <p class="hero-meta">Open invoices {{ total_outstanding|default:0|money }}{% if unapplied_credit %} less {{ unapplied_credit|money }} unapplied credit{% endif %}</p>
+    </div>
+    <dl class="hero-figures grid grid-cols-1 gap-4 min-[420px]:grid-cols-3">
+      <div><dt class="hero-label">Overdue</dt><dd class="hero-figure">{{ total_overdue|default:0|money }}</dd></div>
+      <div><dt class="hero-label">Paid this month</dt><dd class="hero-figure hero-credit">{{ total_paid_30d|default:0|money }}</dd></div>
+      <div><dt class="hero-label">Open sales orders</dt><dd class="hero-figure">{{ open_orders_count|default:0 }}</dd></div>
+    </dl>
+  </div>
+  <div class="hero-actions mt-5 flex flex-wrap gap-2">
+    {% can_do "sales:invoice_create" "POST" as may_new_invoice %}{% if may_new_invoice %}<a href="{% url 'sales:invoice_create' %}" class="btn btn-primary">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" only %}New Invoice</a>{% endif %}
+    {% can_do "sales:payment_create" "POST" as may_new_payment %}{% if may_new_payment %}<a href="{% url 'sales:payment_create' %}" class="btn btn-ghost">Record Payment</a>{% endif %}
+    <a href="{% url 'sales:ar_aging' %}" class="btn btn-ghost">Age analysis</a>
+  </div>
+</section>
+{% endif %}
 
 <div class="launcher-section-label">
   Processing
   <span class="launcher-section-count">11 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Account Enquiries</span></a>
-  <a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Customer Setup</span></a>
-  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Sales Invoices</span></a>
-  <a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Credit Notes</span></a>
-  <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Receipts</span></a>
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Customer Statements</span></a>
-  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-peach">📈</div><span class="label">Age Analysis</span></a>
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Customer Management</span></a>
-  <a href="{% url 'banking:home' %}" class="launcher-tile"><div class="ico ico-mint">🏦</div><span class="label">Bank Reconciliation</span></a>
-  <a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-rose">📄</div><span class="label">Collection Reports</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">AR Settings</span></a>
+  {% can_do "sales:ar_aging" as ok %}{% if ok %}<a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Account Enquiries</span></a>{% endif %}
+  {% can_do "crm:customer_create" "POST" as ok %}{% if ok %}<a href="{% url 'crm:customer_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customer Setup</span></a>{% endif %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Sales Invoices</span></a>{% endif %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}?status=CREDIT_NOTE" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Credit Notes</span></a>{% endif %}
+  {% can_do "sales:payment_list" as ok %}{% if ok %}<a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Receipts</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customer Statements</span></a>{% endif %}
+  {% can_do "sales:ar_aging" as ok %}{% if ok %}<a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Age Analysis</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customer Management</span></a>{% endif %}
+  {% can_do "banking:home" as ok %}{% if ok %}<a href="{% url 'banking:home' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Bank Reconciliation</span></a>{% endif %}
+  {% can_do "reporting:aged_debtors" as ok %}{% if ok %}<a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Collection Reports</span></a>{% endif %}
+  {% can_do "organizations:home" as ok %}{% if ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">AR Settings</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -25,12 +49,12 @@
   <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Send Customer Pricelists</span></a>
-  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">🖨️</div><span class="label">Print Batches</span></a>
-  <a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-peach">✉️</div><span class="label">Email Batches</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Courier Waybill Audit Trail</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-mint">🔁</div><span class="label">Sales Order EDI</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Send Customer Order Forms</span></a>
+  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Send Customer Pricelists</span></a>{% endif %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Print Batches</span></a>{% endif %}
+  {% can_do "sales:invoice_list" as ok %}{% if ok %}<a href="{% url 'sales:invoice_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="inbox" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Email Batches</span></a>{% endif %}
+  {% can_do "sales:order_list" as ok %}{% if ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Courier Waybill Audit Trail</span></a>{% endif %}
+  {% can_do "sales:order_list" as ok %}{% if ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Sales Order EDI</span></a>{% endif %}
+  {% can_do "sales:order_list" as ok %}{% if ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Send Customer Order Forms</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -38,39 +62,39 @@
   <span class="launcher-section-count">7 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">👤</div><span class="label">Customers</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">🧑‍💼</div><span class="label">Sales Persons</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">％</div><span class="label">Trade Discount Matrix Types</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Contract Billing</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">📋</div><span class="label">Contract Billing Types</span></a>
-  <a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">🎯</div><span class="label">Leads &amp; Opportunities</span></a>
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customers</span></a>{% endif %}
+  {% can_do "accounts:user_list" as ok %}{% if ok %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Sales Persons</span></a>{% endif %}
+  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Categories</span></a>{% endif %}
+  {% can_do "accounting:account_list" as ok %}{% if ok %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Trade Discount Matrix Types</span></a>{% endif %}
+  {% can_do "sales:order_list" as ok %}{% if ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Contract Billing</span></a>{% endif %}
+  {% can_do "accounting:account_list" as ok %}{% if ok %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Contract Billing Types</span></a>{% endif %}
+  {% can_do "crm:lead_list" as ok %}{% if ok %}<a href="{% url 'crm:lead_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="search" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Leads &amp; Opportunities</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Net receivable ({{ book }})</div><div class="text-2xl font-bold" style="color:var(--primary)">{{ net_receivable|floatformat:2|default:"0.00" }}</div>
-    <div class="text-xs text-gray-500 mt-1">Open invoices {{ total_outstanding|floatformat:2|default:"0.00" }}{% if unapplied_credit %} less {{ unapplied_credit|floatformat:2 }} unapplied credit{% endif %}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Overdue ({{ book }})</div><div class="text-2xl font-bold text-red-600">{{ total_overdue|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Paid this month ({{ book }})</div><div class="text-2xl font-bold text-green-700">{{ total_paid_30d|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Open sales orders</div><div class="text-2xl font-bold">{{ open_orders_count|default:0 }}</div></div>
-</div>
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent invoices</h2>
-<div class="bg-white rounded-xl border overflow-hidden mb-10">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3 text-right">Outstanding</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for i in recent_invoices %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2">{{ i.invoice_date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'sales:invoice_detail' i.pk %}" style="color:var(--primary)">{{ i.reference }}</a></td>
-        <td class="px-4 py-2">{{ i.customer.name }}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ i.total_amount|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono text-red-600">{{ i.outstanding_amount|floatformat:2 }}</td>
-      </tr>
-      {% empty %}<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">No invoices yet.</td></tr>{% endfor %}
-    </tbody>
-  </table>
-</div>
+{% can_do "sales:invoice_detail" as may_open_invoice %}
+<section class="card mb-10 mt-8 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Recent invoices</h2>
+    {% can_do "sales:invoice_list" as may_list %}{% if may_list %}<a href="{% url 'sales:invoice_list' %}" class="card-link">View all →</a>{% endif %}
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Date</th><th>Reference</th><th>Customer</th><th class="num">Total</th><th class="num">Outstanding</th></tr></thead>
+      <tbody>
+        {% for i in recent_invoices %}
+        <tr>
+          <td class="whitespace-nowrap text-ink-2">{{ i.invoice_date|date:"d M Y" }}</td>
+          <td class="mono">{% if may_open_invoice %}<a href="{% url 'sales:invoice_detail' i.pk %}" class="row-link">{{ i.reference }}</a>{% else %}{{ i.reference }}{% endif %}</td>
+          <td>{{ i.customer.name }}</td>
+          <td class="num">{{ i.total_amount|money }}</td>
+          <td class="num{% if i.outstanding_amount > 0 %} font-semibold text-warning{% else %} text-ink-muted{% endif %}">{{ i.outstanding_amount|money }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="No invoices yet" text="Invoices you raise appear here." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

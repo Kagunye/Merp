@@ -1,31 +1,43 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/page_header.html" with title="AR Aging" subtitle="Receivables bucketed by overdue days" %}
-<p class="text-xs text-gray-500 mb-4">All figures in {{ book }}, the currency this book is kept in. A foreign document is counted at the rate it was raised at, so different currencies are never added together.</p>
+<p class="mb-4 text-xs text-ink-muted">All figures in {{ book }}, the currency this book is kept in. A foreign document is counted at the rate it was raised at, so different currencies are never added together.</p>
 
-<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Current</div><div class="font-bold text-lg">{{ buckets.current|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">1-30</div><div class="font-bold text-lg">{{ buckets.d30|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">31-60</div><div class="font-bold text-lg text-amber-600">{{ buckets.d60|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">61-90</div><div class="font-bold text-lg text-red-600">{{ buckets.d90|floatformat:2 }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">>90</div><div class="font-bold text-lg text-red-700">{{ buckets.d120|floatformat:2 }}</div></div>
+<div class="mb-6 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-5">
+  {% include "_includes/stat.html" with label="Current" value=buckets.current money=True currency=book icon="check-circle" tone="success" only %}
+  {% include "_includes/stat.html" with label="1-30" value=buckets.d30 money=True currency=book icon="clock" tone="info" only %}
+  {% include "_includes/stat.html" with label="31-60" value=buckets.d60 money=True currency=book icon="clock" tone="warning" value_class="text-warning" only %}
+  {% include "_includes/stat.html" with label="61-90" value=buckets.d90 money=True currency=book icon="warning" tone="danger" value_class="neg" only %}
+  {% include "_includes/stat.html" with label=">90" value=buckets.d120 money=True currency=book icon="warning" tone="danger" value_class="neg" only %}
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-right">Current</th><th class="px-4 py-3 text-right">1-30</th><th class="px-4 py-3 text-right">31-60</th><th class="px-4 py-3 text-right">61-90</th><th class="px-4 py-3 text-right">>90</th><th class="px-4 py-3 text-right">Invoices</th><th class="px-4 py-3 text-right">On account</th><th class="px-4 py-3 text-right">Net</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+{% can_do "sales:customer_statement" as may_statement %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Customer</th><th class="num">Current</th><th class="num">1-30</th><th class="num">31-60</th><th class="num">61-90</th><th class="num">&gt;90</th><th class="num">Invoices</th><th class="num">On account</th><th class="num">Net</th></tr></thead>
+    <tbody>
       {% for r in rows %}
-      <tr><td class="px-4 py-2"><a href="{% url 'sales:customer_statement' r.customer.pk %}" style="color: var(--primary);">{{ r.customer.name }}</a></td><td class="px-4 py-2 text-right">{{ r.current|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.d30|floatformat:2 }}</td><td class="px-4 py-2 text-right text-amber-600">{{ r.d60|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-600">{{ r.d90|floatformat:2 }}</td><td class="px-4 py-2 text-right text-red-700">{{ r.d120|floatformat:2 }}</td><td class="px-4 py-2 text-right">{{ r.total|floatformat:2 }}</td><td class="px-4 py-2 text-right text-sky-700">{% if r.unapplied %}-{{ r.unapplied|floatformat:2 }}{% else %}—{% endif %}</td><td class="px-4 py-2 text-right font-bold">{{ r.net|floatformat:2 }}</td></tr>
+      <tr>
+        <td class="whitespace-nowrap">{% if may_statement %}<a href="{% url 'sales:customer_statement' r.customer.pk %}" class="row-link">{{ r.customer.name }}</a>{% else %}{{ r.customer.name }}{% endif %}</td>
+        <td class="num">{{ r.current|money }}</td>
+        <td class="num">{{ r.d30|money }}</td>
+        <td class="num{% if r.d60 %} text-warning{% endif %}">{{ r.d60|money }}</td>
+        <td class="num{% if r.d90 %} text-danger{% endif %}">{{ r.d90|money }}</td>
+        <td class="num{% if r.d120 %} text-danger{% endif %}">{{ r.d120|money }}</td>
+        <td class="num">{{ r.total|money }}</td>
+        <td class="num text-info">{% if r.unapplied %}-{{ r.unapplied|money }}{% else %}—{% endif %}</td>
+        <td class="num font-bold">{{ r.net|money }}</td>
+      </tr>
       {% empty %}
-      <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">No outstanding receivables.</td></tr>
+      <tr><td colspan="9" class="p-0">{% include "_includes/empty_state.html" with icon="check-circle" title="No outstanding receivables" text="Every customer is paid up." compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
     {% if rows %}
-    <tfoot class="bg-gray-50 font-semibold">
-      <tr><td class="px-4 py-2" colspan="6">Open invoices</td><td class="px-4 py-2 text-right">{{ invoice_total|floatformat:2 }}</td><td></td><td></td></tr>
-      <tr><td class="px-4 py-2" colspan="7">Unapplied credit (money received, not yet matched to an invoice)</td><td class="px-4 py-2 text-right text-sky-700">-{{ unapplied_total|floatformat:2 }}</td><td></td></tr>
-      <tr><td class="px-4 py-2" colspan="8">Net receivable — agrees with Accounts Receivable 1300</td><td class="px-4 py-2 text-right">{{ net_total|floatformat:2 }}</td></tr>
+    <tfoot>
+      <tr><td colspan="6">Open invoices</td><td class="num">{{ invoice_total|money }}</td><td></td><td></td></tr>
+      <tr><td colspan="7">Unapplied credit (money received, not yet matched to an invoice)</td><td class="num text-info">-{{ unapplied_total|money }}</td><td></td></tr>
+      <tr><td colspan="8">Net receivable — agrees with Accounts Receivable 1300</td><td class="num">{{ net_total|money }}</td></tr>
     </tfoot>
     {% endif %}
   </table>

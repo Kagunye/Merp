@@ -1,82 +1,88 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'pos:session_detail' session.pk as back %}
-{% include "_includes/page_header.html" with title="Cash Up" subtitle="Count the drawer against the tickets" back_url=back %}
+{% include "_includes/page_header.html" with title="Cash Up" subtitle="Count the drawer against the tickets" back_url=back back_label="Till session" print_label="Print cash-up" %}
 
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Cashier</div><div class="font-semibold text-sm">{{ session.cashier.get_full_name|default:session.cashier.username }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Branch</div><div class="font-semibold text-sm">{{ session.branch.name }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Opened</div><div class="font-semibold text-sm">{{ session.opened_at|date:"d M, H:i" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold text-sm">{{ session.get_status_display }}</div></div>
-</div>
-
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-semibold mb-3">Taken, by how the money came in</h3>
-    <table class="w-full text-sm">
-      <thead class="text-xs text-gray-500 uppercase"><tr><th class="text-left pb-2">Method</th><th class="text-right pb-2">Taken</th><th class="text-right pb-2">Refunded</th><th class="text-right pb-2">Net</th></tr></thead>
-      <tbody class="divide-y divide-gray-100">
-        {% for m in report.methods %}
-        <tr>
-          <td class="py-2 text-gray-600">{{ m.label }}</td>
-          <td class="py-2 text-right font-mono">{{ m.taken|floatformat:2 }}</td>
-          <td class="py-2 text-right font-mono text-red-600">{{ m.given|floatformat:2 }}</td>
-          <td class="py-2 text-right font-mono font-semibold">{{ m.net|floatformat:2 }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4" class="py-6 text-center text-gray-500">Nothing has been sold on this till.</td></tr>
-        {% endfor %}
-      </tbody>
-      <tfoot>
-        <tr class="border-t font-bold"><td class="py-2">Tickets</td><td class="py-2 text-right font-mono">{{ report.ticket_count }}</td><td class="py-2 text-right font-mono">{{ report.refund_count }}</td><td class="py-2 text-right font-mono" style="color: var(--primary);">{{ report.total_sales|floatformat:2 }}</td></tr>
-      </tfoot>
-    </table>
-    <p class="text-xs text-gray-500 mt-3">A card or M-Pesa slip is the bank's business, not the drawer's — it is listed here so the takings can be checked against the statement, but only cash changes what should be counted in hand.</p>
+<section class="card mb-5">
+  <div class="card-header">
+    <h2 class="card-title">{{ session.cashier.get_full_name|default:session.cashier.username }} · {{ session.branch.name }}</h2>
+    {% status_badge session.status session.get_status_display %}
   </div>
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>Cashier</dt><dd>{{ session.cashier.get_full_name|default:session.cashier.username }}</dd></div>
+      <div><dt>Branch</dt><dd>{{ session.branch.name }}</dd></div>
+      <div><dt>Opened</dt><dd>{{ session.opened_at|date:"d M, H:i" }}</dd></div>
+      <div><dt>Status</dt><dd>{{ session.get_status_display }}</dd></div>
+    </dl>
+  </div>
+</section>
 
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-semibold mb-3">The drawer</h3>
-    <table class="w-full text-sm">
-      <tbody class="divide-y divide-gray-100">
-        <tr><td class="py-2 text-gray-500">Opening float</td><td class="py-2 text-right font-mono">{{ report.opening_cash|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">Cash taken over the counter</td><td class="py-2 text-right font-mono text-green-700">{{ report.total_sales|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">Cash paid back out</td><td class="py-2 text-right font-mono text-red-600">{{ report.total_refunds|floatformat:2 }}</td></tr>
-        <tr class="font-semibold border-t"><td class="py-2">Expected in the drawer</td><td class="py-2 text-right font-mono">{{ report.expected_cash|floatformat:2 }}</td></tr>
-        <tr><td class="py-2 text-gray-500">Counted</td><td class="py-2 text-right font-mono">{% if report.counted_cash is None %}— not counted —{% else %}{{ report.counted_cash|floatformat:2 }}{% endif %}</td></tr>
-        <tr class="font-bold border-t">
-          <td class="py-2">Variance</td>
-          <td class="py-2 text-right font-mono {% if report.variance is None %}text-gray-400{% elif report.variance == 0 %}text-green-700{% elif report.variance > 0 %}text-amber-600{% else %}text-red-600{% endif %}">{% if report.variance is None %}—{% else %}{{ report.variance|floatformat:2 }}{% endif %}</td>
-        </tr>
-      </tbody>
-    </table>
-    {% if report.counted_cash is None %}
-      {% if can_count %}
-      <form method="post" class="mt-3 space-y-2 no-print">
-        {% csrf_token %}
-        <p class="text-sm text-amber-700">This till was closed without a count, so the drawer is unproven. Count it now and record what is actually in it — any difference is written off to cash over and short.</p>
-        <label class="block text-sm">
-          <span class="text-xs font-medium text-gray-600">Cash counted</span>
-          <input type="number" step="0.01" min="0" name="closing_cash" placeholder="{{ report.expected_cash }}" required
-                 class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono" />
-        </label>
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary)">Record the count</button>
-      </form>
-      {% elif session.status == 'OPEN' %}
-      <p class="text-sm text-amber-700 mt-3">Nothing has been counted yet, so the drawer is unproven. Record the count on the session page when the shift ends.</p>
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+  <section class="card overflow-hidden">
+    <div class="card-header"><h2 class="card-title">Taken, by how the money came in</h2></div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Method</th><th class="num">Taken</th><th class="num">Refunded</th><th class="num">Net</th></tr></thead>
+        <tbody>
+          {% for m in report.methods %}
+          <tr>
+            <td class="text-ink-2">{{ m.label }}</td>
+            <td class="num">{{ m.taken|money }}</td>
+            <td class="num text-danger">{{ m.given|money }}</td>
+            <td class="num font-semibold">{{ m.net|money }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="Nothing has been sold on this till." compact=True only %}</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr><td>Tickets</td><td class="num">{{ report.ticket_count }}</td><td class="num">{{ report.refund_count }}</td><td class="num">{{ report.total_sales|money }}</td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="border-t border-line px-5 py-3 text-xs text-ink-muted">A card or M-Pesa slip is the bank's business, not the drawer's — it is listed here so the takings can be checked against the statement, but only cash changes what should be counted in hand.</p>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">The drawer</h2></div>
+    <dl class="dl-rows px-5">
+      <div><dt>Opening float</dt><dd>{{ report.opening_cash|money }}</dd></div>
+      <div><dt>Cash taken over the counter</dt><dd class="text-success">{{ report.total_sales|money }}</dd></div>
+      <div><dt>Cash paid back out</dt><dd class="text-danger">{{ report.total_refunds|money }}</dd></div>
+      <div><dt class="font-semibold text-ink">Expected in the drawer</dt><dd class="font-bold">{{ report.expected_cash|money }}</dd></div>
+      <div><dt>Counted</dt><dd>{% if report.counted_cash is None %}— not counted —{% else %}{{ report.counted_cash|money }}{% endif %}</dd></div>
+      <div><dt class="font-semibold text-ink">Variance</dt><dd class="text-lg font-bold{% if report.variance is None %} text-ink-muted{% elif report.variance == 0 %} text-success{% elif report.variance > 0 %} text-warning{% else %} text-danger{% endif %}">{% if report.variance is None %}—{% else %}{{ report.variance|money }}{% endif %}</dd></div>
+    </dl>
+    <div class="card-body border-t border-line">
+      {% if report.counted_cash is None %}
+        {% if can_count %}
+        <form method="post" class="no-print">
+          {% csrf_token %}
+          <div class="alert alert-warning mb-4" role="status">
+            {% include "_includes/icon.html" with name="warning" only %}
+            <div class="alert-body">This till was closed without a count, so the drawer is unproven. Count it now and record what is actually in it — any difference is written off to cash over and short.</div>
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="cashup-counted">Cash counted</label>
+            <input type="number" step="0.01" min="0" inputmode="decimal" id="cashup-counted" name="closing_cash" placeholder="{{ report.expected_cash }}" required class="input text-right font-mono text-base">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block mt-4">Record the count</button>
+        </form>
+        {% elif session.status == 'OPEN' %}
+        <p class="text-sm text-warning">Nothing has been counted yet, so the drawer is unproven. Record the count on the session page when the shift ends.</p>
+        {% else %}
+        <p class="text-sm text-warning">This till was closed without a count, so the drawer is unproven. Only its cashier or a company administrator can record the count.</p>
+        {% endif %}
+      {% elif report.variance == 0 %}
+        <p class="text-sm font-medium text-success">The drawer balances to the ticket.</p>
+      {% elif report.variance > 0 %}
+        <p class="text-sm font-medium text-warning">Over by {{ report.variance|money }} — more in the drawer than the tickets account for.</p>
       {% else %}
-      <p class="text-sm text-amber-700 mt-3">This till was closed without a count, so the drawer is unproven. Only its cashier or a company administrator can record the count.</p>
+        <p class="text-sm font-medium text-danger">Short by {{ report.variance|money }} — the tickets cannot explain this much missing cash.</p>
       {% endif %}
-    {% elif report.variance == 0 %}
-      <p class="text-sm text-green-700 mt-3">The drawer balances to the ticket.</p>
-    {% elif report.variance > 0 %}
-      <p class="text-sm text-amber-700 mt-3">Over by {{ report.variance|floatformat:2 }} — more in the drawer than the tickets account for.</p>
-    {% else %}
-      <p class="text-sm text-red-600 mt-3">Short by {{ report.variance|floatformat:2 }} — the tickets cannot explain this much missing cash.</p>
-    {% endif %}
-  </div>
-</div>
-
-<div class="mt-6 no-print">
-  {% include "_includes/print_button.html" with print_label="Print cash-up" %}
+    </div>
+  </section>
 </div>
 {% endblock %}

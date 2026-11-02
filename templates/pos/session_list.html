@@ -1,50 +1,48 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'pos:session_open' as pa_url %}
+{% can_do "pos:session_open" "POST" as may_open %}{% if may_open %}{% url 'pos:session_open' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Till Sessions" subtitle="Every shift, and how each drawer was proved" action_label="Open a till" action_url=pa_url %}
 
-<div class="flex gap-2 flex-wrap mb-4">
-  <a href="{% url 'pos:session_list' %}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border {% if not active_status %}text-white{% else %}bg-white text-gray-600{% endif %}" {% if not active_status %}style="background: var(--primary); border-color: var(--primary);"{% endif %}>All</a>
+<nav class="tabs no-print" aria-label="Session status">
+  <a href="{% url 'pos:session_list' %}" class="tab{% if not active_status %} tab-active{% endif %}"{% if not active_status %} aria-current="page"{% endif %}>All</a>
   {% for value, label in statuses %}
-  <a href="{% url 'pos:session_list' %}?status={{ value }}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border {% if active_status == value %}text-white{% else %}bg-white text-gray-600{% endif %}" {% if active_status == value %}style="background: var(--primary); border-color: var(--primary);"{% endif %}>{{ label }}</a>
+  <a href="{% url 'pos:session_list' %}?status={{ value }}" class="tab{% if active_status == value %} tab-active{% endif %}"{% if active_status == value %} aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
-</div>
+</nav>
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-left">Closed</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3 text-right">Refunds</th><th class="px-4 py-3 text-right">Expected</th><th class="px-4 py-3 text-right">Counted</th><th class="px-4 py-3 text-right">Variance</th><th class="px-4 py-3 text-left">Status</th></tr>
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Cashier</th><th>Branch</th><th>Opened</th><th>Closed</th><th class="num">Sales</th><th class="num">Refunds</th><th class="num">Expected</th><th class="num">Counted</th><th class="num">Variance</th><th>Status</th></tr>
     </thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% for s in sessions %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier.get_full_name|default:s.cashier.username }}</a></td>
-        <td class="px-4 py-3 text-gray-600">{{ s.branch.name }}</td>
-        <td class="px-4 py-3 text-xs text-gray-500">{{ s.opened_at|date:"d M Y H:i" }}</td>
-        <td class="px-4 py-3 text-xs text-gray-500">{{ s.closed_at|date:"d M Y H:i"|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-mono text-green-700">{{ s.total_sales|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono {% if s.total_refunds %}text-red-700{% else %}text-gray-400{% endif %}">{{ s.total_refunds|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono">{{ s.expected_cash|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono {% if s.closing_cash is None %}text-gray-400{% endif %}">
-          {% if s.closing_cash is None %}—{% else %}{{ s.closing_cash|floatformat:2 }}{% endif %}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold
-          {% if s.variance is None %}text-gray-400{% elif s.variance < 0 %}text-red-700{% elif s.variance > 0 %}text-amber-700{% else %}text-green-700{% endif %}">
-          {% if s.variance is None %}—{% else %}{{ s.variance|floatformat:2 }}{% endif %}</td>
-        <td class="px-4 py-3">
-          {% if s.status == 'OPEN' %}<span class="badge bg-green-50 text-green-700">Open</span>
-          {% elif s.status == 'CLOSING' %}<span class="badge bg-amber-50 text-amber-700">Closing</span>
-          {% else %}<span class="badge bg-gray-100 text-gray-700">Closed</span>{% endif %}
-          {% if s.status != 'OPEN' and s.closing_cash is None %}<span class="badge bg-white text-gray-500 border border-gray-200 ml-1" title="Closed without a cash count">unproved</span>{% endif %}
+      <tr>
+        <td class="whitespace-nowrap"><a href="{% url 'pos:session_detail' s.pk %}" class="row-link">{{ s.cashier.get_full_name|default:s.cashier.username }}</a></td>
+        <td class="text-ink-2">{{ s.branch.name }}</td>
+        <td class="whitespace-nowrap text-xs text-ink-muted">{{ s.opened_at|date:"d M Y H:i" }}</td>
+        <td class="whitespace-nowrap text-xs text-ink-muted">{{ s.closed_at|date:"d M Y H:i"|default:"—" }}</td>
+        <td class="num text-success">{{ s.total_sales|money }}</td>
+        <td class="num{% if s.total_refunds %} text-danger{% else %} text-ink-muted{% endif %}">{{ s.total_refunds|money }}</td>
+        <td class="num">{{ s.expected_cash|money }}</td>
+        <td class="num{% if s.closing_cash is None %} text-ink-muted{% endif %}">{% if s.closing_cash is None %}—{% else %}{{ s.closing_cash|money }}{% endif %}</td>
+        <td class="num font-semibold{% if s.variance is None %} text-ink-muted{% elif s.variance < 0 %} text-danger{% elif s.variance > 0 %} text-warning{% else %} text-success{% endif %}">{% if s.variance is None %}—{% else %}{{ s.variance|money }}{% endif %}</td>
+        <td class="whitespace-nowrap">
+          {% status_badge s.status s.get_status_display %}
+          {% if s.status != 'OPEN' and s.closing_cash is None %}<span class="badge badge-warning ml-1" title="Closed without a cash count">unproved</span>{% endif %}
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="10" class="px-4 py-10 text-center text-gray-500">
-        {% if active_status %}No {{ active_status|lower }} sessions for this company.{% else %}No till sessions yet — open one from the terminal to start trading.{% endif %}</td></tr>
+      <tr><td colspan="10" class="p-0">
+        {% if active_status %}{% with st=active_status|lower %}{% with t="No "|add:st|add:" sessions for this company." %}{% include "_includes/empty_state.html" with icon="clock" title=t compact=True only %}{% endwith %}{% endwith %}
+        {% else %}{% include "_includes/empty_state.html" with icon="clock" title="No till sessions yet — open one from the terminal to start trading." action_label="Open a till" action_url=pa_url compact=True only %}{% endif %}
+      </td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-
-<p class="text-xs text-gray-500 mt-4">Expected cash is the float plus notes taken on cash tickets minus notes paid back on cash refunds — card and mobile slips settle into the bank, so they never enter a drawer. A session closed without a count is marked <em>unproved</em>: the tickets are still in the book, but nobody has attested to the notes.</p>
 {% include "_includes/pagination.html" %}
+
+<p class="mt-4 text-xs text-ink-muted">Expected cash is the float plus notes taken on cash tickets minus notes paid back on cash refunds — card and mobile slips settle into the bank, so they never enter a drawer. A session closed without a count is marked <em>unproved</em>: the tickets are still in the book, but nobody has attested to the notes.</p>
 {% endblock %}

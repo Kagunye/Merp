@@ -1,27 +1,33 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Point of Sale" launcher_subtitle="The counter: tickets, drawers, cash-ups" %}
 
+{% can_do "pos:terminal" "POST" as may_till %}{% can_do "pos:cash_up" as may_cashup %}{% can_do "pos:session_close" "POST" as may_close %}{% can_do "pos:session_open" "POST" as may_open %}
 {% if open_session %}
-<div class="rounded-xl border p-4 mb-2 flex flex-wrap items-center justify-between gap-4" style="border-color: var(--primary); background: #F8FAFF;">
-  <div>
-    <p class="text-sm font-semibold" style="color: var(--primary);">{{ open_session.cashier.get_full_name|default:open_session.cashier.username }} is trading at {{ open_session.branch.name }}</p>
-    <p class="text-xs text-gray-600 mt-0.5">
-      Open since {{ open_session.opened_at|date:"d M, H:i" }} · float {{ open_session.opening_cash }} ·
-      sales {{ open_session.total_sales }} · refunds {{ open_session.total_refunds }} ·
-      the drawer should hold <strong>{{ open_session.expected_cash }}</strong>
-    </p>
+<section class="hero mb-2" aria-label="Your open till">
+  <div class="flex flex-wrap items-end justify-between gap-5">
+    <div class="min-w-0">
+      <p class="hero-label">{{ open_session.cashier.get_full_name|default:open_session.cashier.username }} is trading at {{ open_session.branch.name }}</p>
+      <p class="hero-value">{{ open_session.expected_cash|money }} <span class="hero-unit">in the drawer</span></p>
+      <p class="hero-meta">
+        Open since {{ open_session.opened_at|date:"d M, H:i" }} · float {{ open_session.opening_cash|money }} ·
+        sales {{ open_session.total_sales|money }} · refunds {{ open_session.total_refunds|money }} ·
+        the drawer should hold <strong>{{ open_session.expected_cash|money }}</strong>
+      </p>
+    </div>
+    <div class="hero-actions flex flex-wrap gap-2">
+      {% if may_till %}<a href="{% url 'pos:terminal' %}" class="btn btn-primary">{% include "_includes/icon.html" with name="cart" cls="h-4 w-4" stroke="2" only %}Go to the terminal</a>{% endif %}
+      {% if may_cashup %}<a href="{% url 'pos:cash_up' open_session.pk %}" class="btn btn-ghost">Cash-up sheet</a>{% endif %}
+      {% if may_close %}<a href="{% url 'pos:session_detail' open_session.pk %}" class="btn btn-ghost">Close the till</a>{% endif %}
+    </div>
   </div>
-  <div class="flex gap-2 flex-wrap">
-    <a href="{% url 'pos:terminal' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary);">Go to the terminal</a>
-    <a href="{% url 'pos:cash_up' open_session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg">Cash-up sheet</a>
-    <a href="{% url 'pos:session_detail' open_session.pk %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg">Close the till</a>
-  </div>
-</div>
+</section>
 {% else %}
-<div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 p-4 mb-2 flex flex-wrap items-center justify-between gap-4">
-  <p class="text-sm">The till is shut — a ticket cannot be rung until somebody opens a session and counts the float into the drawer.</p>
-  <a href="{% url 'pos:session_open' %}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary);">Open a till</a>
+<div class="alert alert-warning mb-2 flex-wrap items-center justify-between" role="status">
+  {% include "_includes/icon.html" with name="lock" only %}
+  <div class="alert-body">The till is shut — a ticket cannot be rung until somebody opens a session and counts the float into the drawer.</div>
+  {% if may_open %}<a href="{% url 'pos:session_open' %}" class="btn btn-primary">Open a till</a>{% endif %}
 </div>
 {% endif %}
 
@@ -30,14 +36,14 @@
   <span class="launcher-section-count">4 tiles</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'pos:terminal' %}" class="launcher-tile"><div class="ico ico-mint">🛒</div><span class="label">Terminal</span></a>
-  <a href="{% url 'pos:session_open' %}" class="launcher-tile"><div class="ico ico-amber">🔓</div><span class="label">Open a till</span></a>
+  {% can_do "pos:terminal" as ok %}{% if ok %}<a href="{% url 'pos:terminal' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="cart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Terminal</span></a>{% endif %}
+  {% can_do "pos:session_open" as ok %}{% if ok %}<a href="{% url 'pos:session_open' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="key" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Open a till</span></a>{% endif %}
   {% if open_session %}
-  <a href="{% url 'pos:cash_up' open_session.pk %}" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Cash-up sheet</span></a>
+  {% can_do "pos:cash_up" as ok %}{% if ok %}<a href="{% url 'pos:cash_up' open_session.pk %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cash-up sheet</span></a>{% endif %}
   {% else %}
-  <a href="{% url 'pos:session_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Open sessions</span></a>
+  {% can_do "pos:session_list" as ok %}{% if ok %}<a href="{% url 'pos:session_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Open sessions</span></a>{% endif %}
   {% endif %}
-  <a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Till tickets</span></a>
+  {% can_do "pos:sale_list" as ok %}{% if ok %}<a href="{% url 'pos:sale_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Till tickets</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -45,9 +51,9 @@
   <span class="launcher-section-count">3 tiles</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-slate">💼</div><span class="label">All sessions</span></a>
-  <a href="{% url 'pos:session_list' %}?status=CLOSED" class="launcher-tile"><div class="ico ico-rose">🔒</div><span class="label">Closed shifts</span></a>
-  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">📈</div><span class="label">Cash movement report</span></a>
+  {% can_do "pos:session_list" as ok %}{% if ok %}<a href="{% url 'pos:session_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">All sessions</span></a>{% endif %}
+  {% can_do "pos:session_list" as ok %}{% if ok %}<a href="{% url 'pos:session_list' %}?status=CLOSED" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="lock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Closed shifts</span></a>{% endif %}
+  {% can_do "reporting:cash_flow" as ok %}{% if ok %}<a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cash movement report</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -55,31 +61,37 @@
   <span class="launcher-section-count">3 tiles</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🛍️</div><span class="label">Products &amp; prices</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Stock on hand</span></a>
-  <a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Customers</span></a>
+  {% can_do "inventory:product_list" as ok %}{% if ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Products &amp; prices</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as ok %}{% if ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Stock on hand</span></a>{% endif %}
+  {% can_do "crm:customer_list" as ok %}{% if ok %}<a href="{% url 'crm:customer_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Customers</span></a>{% endif %}
 </div>
+
 
 {% if recent_sessions %}
-<div class="mt-10 bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Recent shifts</h2></div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Cashier</th><th class="px-4 py-3 text-left">Branch</th><th class="px-4 py-3 text-left">Opened</th><th class="px-4 py-3 text-right">Sales</th><th class="px-4 py-3 text-right">Expected cash</th><th class="px-4 py-3 text-left">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for s in recent_sessions %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3"><a href="{% url 'pos:session_detail' s.pk %}" style="color: var(--primary);">{{ s.cashier.get_full_name|default:s.cashier.username }}</a></td>
-        <td class="px-4 py-3 text-gray-600">{{ s.branch.name }}</td>
-        <td class="px-4 py-3 text-xs text-gray-500">{{ s.opened_at|date:"d M Y H:i" }}</td>
-        <td class="px-4 py-3 text-right font-mono">{{ s.total_sales|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right font-mono">{{ s.expected_cash|floatformat:2 }}</td>
-        <td class="px-4 py-3">{% if s.status == 'OPEN' %}<span class="badge bg-green-50 text-green-700">Open</span>{% else %}<span class="badge bg-gray-100 text-gray-700">{{ s.get_status_display }}</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card mt-10 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Recent shifts</h2>
+    <a href="{% url 'pos:session_list' %}" class="card-link">All sessions →</a>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Cashier</th><th>Branch</th><th>Opened</th><th class="num">Sales</th><th class="num">Expected cash</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for s in recent_sessions %}
+        <tr>
+          <td class="whitespace-nowrap"><a href="{% url 'pos:session_detail' s.pk %}" class="row-link">{{ s.cashier.get_full_name|default:s.cashier.username }}</a></td>
+          <td class="text-ink-2">{{ s.branch.name }}</td>
+          <td class="whitespace-nowrap text-xs text-ink-muted">{{ s.opened_at|date:"d M Y H:i" }}</td>
+          <td class="num">{{ s.total_sales|money }}</td>
+          <td class="num">{{ s.expected_cash|money }}</td>
+          <td>{% status_badge s.status s.get_status_display %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
-<p class="text-xs text-gray-500 mt-8">Cash and mobile-money tickets post straight into the book: the till or the bank is debited and revenue and VAT credited at the moment the ticket is rung. A refund is a second ticket, not an edit — the goods go back on the shelf they came off and the revenue is taken back by an offsetting entry.</p>
+<p class="mt-8 text-xs text-ink-muted">Cash and mobile-money tickets post straight into the book: the till or the bank is debited and revenue and VAT credited at the moment the ticket is rung. A refund is a second ticket, not an edit — the goods go back on the shelf they came off and the revenue is taken back by an offsetting entry.</p>
 {% endblock %}
