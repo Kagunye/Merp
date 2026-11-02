@@ -11,7 +11,9 @@
 
 <section class="card mb-5 max-w-3xl">
   <dl class="dl-rows px-5 py-2">
-    <div><dt class="font-semibold text-ink">Total Outstanding</dt><dd class="num text-base font-bold">{{ grand_total|money:bk }}</dd></div>
+    {% if opening_unallocated %}<div><dt>Open bills</dt><dd class="num font-semibold">{{ bills_total|money:bk }}</dd></div>
+    <div><dt>{{ opening_unallocated_label }}</dt><dd class="num">{{ opening_unallocated|money:bk }}</dd></div>{% endif %}
+    <div class="{% if opening_unallocated %}border-t-2 border-line-strong{% endif %}"><dt class="font-semibold text-ink">Total Outstanding — agrees with Accounts Payable 2100</dt><dd class="num text-base font-bold">{{ grand_total|money:bk }}</dd></div>
   </dl>
 </section>
 

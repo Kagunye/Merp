@@ -13,6 +13,7 @@
   <dl class="dl-rows px-5 py-2">
     <div><dt>Open invoices</dt><dd class="num font-semibold">{{ grand_total|money:bk }}</dd></div>
     <div><dt>Less unapplied credit (money received, not yet matched to an invoice)</dt><dd class="num">({{ unapplied_total|money:bk }})</dd></div>
+    {% if opening_unallocated %}<div><dt>{{ opening_unallocated_label }}</dt><dd class="num">{{ opening_unallocated|money:bk }}</dd></div>{% endif %}
     <div class="border-t-2 border-line-strong"><dt class="font-semibold text-ink">Net receivable — agrees with Accounts Receivable 1300</dt><dd class="num text-base font-bold">{{ net_total|money:bk }}</dd></div>
   </dl>
 </section>
