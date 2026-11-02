@@ -91,7 +91,7 @@
   </section>
 
   <div class="space-y-2 text-xs text-ink-muted">
-    <p>Pay is worked out as a share of the calendar month ({{ run.month_days }} days{% if run.is_part_month %}; this run covers {{ run.run_days }} of them, so the monthly tax steps, relief and ceilings are applied for {{ run.run_days }} of {{ run.month_days }} days{% endif %}).
+    <p>Pay is worked out as a share of the calendar month ({{ run.month_days }} days; the monthly tax steps, relief and ceilings are scaled for the days paid in this run).
     Statutory rates are the tables in force on {{ run.period_end|date:"d M Y" }}, the last day of the period: a rate that changes during the month applies to the whole of it.</p>
     <p>Each figure carries the rate and the pay it was taken from, so this slip can be recomputed from the tables months later. {% if run.journal_entry and not own_view and may_journal %}The month was booked as <a class="link" href="{% url 'accounting:journal_entry_detail' run.journal_entry.pk %}">{{ run.journal_entry.reference }}</a>.{% endif %}</p>
   </div>
