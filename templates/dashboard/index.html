@@ -24,7 +24,7 @@
     </div>
     {% if show.cash %}
     {% url 'banking:account_list' as cash_url %}
-    <div class="min-w-0 flex-[0_1_auto] sm:text-right">
+    <div class="flex min-w-0 flex-[0_1_auto] flex-col sm:items-end sm:text-right">
       <p class="hero-label">Cash on hand</p>
       <p class="hero-value">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>
       <p class="hero-meta">All bank and cash accounts · <a href="{{ cash_url }}">View accounts</a></p>

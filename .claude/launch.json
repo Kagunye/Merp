@@ -6,6 +6,12 @@
       "runtimeExecutable": "C:\\Program Files\\Python312\\python.exe",
       "runtimeArgs": ["manage.py", "runserver", "8787", "--noreload", "--settings=config.settings.development"],
       "port": 8787
+    },
+    {
+      "name": "merp-browse",
+      "runtimeExecutable": "C:\\Program Files\\Python312\\python.exe",
+      "runtimeArgs": ["C:\\Users\\Bots\\AppData\\Local\\Temp\\claude\\C--Users-Bots-Music-merp--claude-worktrees-merp-repo-setup-21d282\\b1516a49-dcc2-44f7-b411-386122efac24\\scratchpad\\run_browse.py"],
+      "port": 8789
     }
   ]
 }

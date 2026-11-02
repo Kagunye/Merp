@@ -588,14 +588,30 @@ class Command(BaseCommand):
                          if abs(before[code]) != abs(activity[code])}))
         retained_before = self.account("3200").current_balance
 
+        # The year's profit to date: equal to this period's own profit unless an
+        # earlier month of the year also holds profit and loss (early in a month,
+        # entries this run dated a few days back fall in last month).
+        year_profit = gl_service.profit_for(
+            company, period.fiscal_year.start_date, period.end_date)
         sheet = client.get(reverse("reporting:balance_sheet")).context or {}
         if self.expect("balance sheet renders while the year is open", bool(sheet)):
             self.expect("current year profit is carried so the sheet agrees",
                         sheet["is_balanced"] and sheet["shows_profit"],
                         f"error {sheet['balancing_error']}, carried {sheet['current_year_profit']}")
-            self.expect("the carried figure is this period's own profit",
-                        sheet["current_year_profit"] == profit,
-                        f"{sheet['current_year_profit']} vs {profit}")
+            # CHANGED (date-proof): the carried figure is the year's profit to
+            # date. Early in a month some of this run's entries (dated a few days
+            # back) sit in last month, so it is only this period's own profit
+            # when nothing else in the year is open -- which is not always so.
+            self.expect("the carried figure is the year's profit to date",
+                        sheet["current_year_profit"] == year_profit,
+                        f"{sheet['current_year_profit']} vs {year_profit}")
+
+        # Months close in order: an earlier month of the year that still holds
+        # profit and loss must be closed first, as a bookkeeper would.
+        for earlier in period.fiscal_year.periods.filter(
+                status="OPEN", end_date__lt=period.start_date).order_by("start_date"):
+            self.post(client, f"close {earlier.name} first",
+                      reverse("accounting:period_close", args=[earlier.pk]), {})
 
         self.post(client, "period close",
                   reverse("accounting:period_close", args=[period.pk]), {})
@@ -626,8 +642,8 @@ class Command(BaseCommand):
                         self.account(code).current_balance == Z,
                         f"{code} still holds {self.account(code).current_balance}")
         self.expect("current year profit holds the carried result",
-                    self.account("3300").current_balance == profit,
-                    f"3300 {self.account('3300').current_balance} vs profit {profit}")
+                    self.account("3300").current_balance == year_profit,
+                    f"3300 {self.account('3300').current_balance} vs year profit {year_profit}")
 
         totals = self.posted_lines().aggregate(dr=Sum("debit_amount"), cr=Sum("credit_amount"))
         self.expect("the ledger still balances after the carry-over",
@@ -700,8 +716,9 @@ class Command(BaseCommand):
             self.expect(f"{code} came back to {before[code]}",
                         self.account(code).current_balance == before[code],
                         str(self.account(code).current_balance))
-        self.expect("current year profit is empty again",
-                    self.account("3300").current_balance == Z,
+        # Only this period was reopened: earlier months closed above keep theirs.
+        self.expect("current year profit is back to the earlier months' result",
+                    self.account("3300").current_balance == year_profit - profit,
                     str(self.account("3300").current_balance))
         self.expect("reopening an open period reverses nothing twice",
                     gl_service.closing_entry_for(company, gl_service.PERIOD_CLOSE, period.pk) is None)
@@ -725,8 +742,8 @@ class Command(BaseCommand):
                         year_entry.status == "POSTED" and year_entry.is_balanced(),
                         f"{year_entry.status}, Dr {year_entry.total_debit} / Cr {year_entry.total_credit}")
             self.expect("retained earnings took the year's result",
-                        self.account("3200").current_balance == retained_before + profit,
-                        f"3200 {self.account('3200').current_balance}, was {retained_before}, profit {profit}")
+                        self.account("3200").current_balance == retained_before + year_profit,
+                        f"3200 {self.account('3200').current_balance}, was {retained_before}, year profit {year_profit}")
             self.expect("current year profit cleared into it",
                         self.account("3300").current_balance == Z,
                         str(self.account("3300").current_balance))

@@ -57,7 +57,7 @@
   </section>
 
   {# Earnings and deductions: two clear sections #}
-  <div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+  <div class="grid grid-cols-1 items-start gap-5 2xl:grid-cols-2">
     <section class="card min-w-0 overflow-hidden" aria-label="Earnings">
       <div class="card-header"><h2 class="card-title">Earnings</h2></div>
       {% include "payroll/_payslip_lines.html" with lines=earnings kind="earning" total_label="Gross pay" total=payslip.gross_salary empty_text="No earnings." only %}
