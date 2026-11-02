@@ -507,6 +507,25 @@ class JournalEntry(BaseModel, NotesMixin):
             self.save(update_fields=[
                 "status", "posted_by", "posted_at", "period", "updated_at",
             ])
+            self._cash_floor_hook()
+
+    def _cash_floor_hook(self):
+        """A cash box cannot go below zero (gl_service, "The cash floor").
+
+        Asked here, as every entry posts -- a reversal is posted like any other
+        entry, so reverse() is covered too -- so no screen can forget it. Kept
+        a separate hook so the other rules on posting stay apart from it. A
+        refusal undoes the post: the status written above is rolled back with
+        the atomic block, and the object is put back to what it was.
+        """
+        from apps.accounting import gl_service
+        try:
+            gl_service.check_cash_floor_on_post(self)
+        except ValidationError:
+            self.status = "DRAFT"
+            self.posted_by = None
+            self.posted_at = None
+            raise
 
     @property
     def calendar_warning(self):
@@ -595,8 +614,10 @@ class JournalEntry(BaseModel, NotesMixin):
         if self.is_reversal:
             return self.REVERSE_ELSEWHERE["REVERSAL"]
         if self.entry_type not in self.USER_ENTRY_TYPES:
-            return (f"{self.reference} was written by the ledger as a "
-                    f"{self.get_entry_type_display().lower()} entry. "
+            kind = self.get_entry_type_display().lower()
+            article = "an" if kind[:1] in "aeiou" else "a"
+            return (f"{self.reference} was written by the ledger as {article} "
+                    f"{kind} entry. "
                     + self.REVERSE_ELSEWHERE.get(
                         self.entry_type, "Reverse it from the screen that made it."))
         documents = self.linked_documents()
@@ -667,6 +688,8 @@ class JournalEntry(BaseModel, NotesMixin):
                     debit_amount=line.credit_amount,
                     credit_amount=line.debit_amount,
                 )
+            # Names the change if the cash floor refuses it (gl_service).
+            reversal.cash_floor_doing = f"Reversing {self.reference}"
             reversal.post(user=user)
             # The original stays POSTED. A reversal is a second entry that
             # offsets it, not an eraser: every balance query in the book counts

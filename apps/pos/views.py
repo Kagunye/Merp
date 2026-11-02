@@ -46,7 +46,9 @@ class SessionListView(LoginRequiredMixin, ListView):
         status = (self.request.GET.get("status") or "").strip().upper()
         if status in dict(POSSession.STATUS_CHOICES):
             qs = qs.filter(status=status)
-        return qs
+        # Newest till first, and a fixed order so the pages never shuffle
+        # (paginating an unordered queryset can repeat or skip a session).
+        return qs.order_by("-opened_at", "-created_at")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

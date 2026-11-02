@@ -154,6 +154,11 @@ def feed(entry):
     for account_id, bank in banks.items():
         if BankTransaction.objects.filter(journal_entry=entry, bank_account=bank).exists():
             continue
+        # A movement dated before the account's opening takes the opening back
+        # with it, so the book and the ledger agree on every day (see
+        # gl_service.keep_opening_beneath); across a closed month it stays put.
+        from apps.accounting.gl_service import keep_opening_beneath
+        keep_opening_beneath(bank, entry.posting_date, refuse=False)
         line = _line_for(entry, bank, nets[account_id])
         if line is not None:
             added.append(line)

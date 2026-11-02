@@ -335,10 +335,17 @@ class BankTransactionUpdateView(LoginRequiredMixin, UpdateView):
         The old entry is reversed on its own date and a fresh one booked from
         the corrected line, so the ledger ends up saying what the line now
         says while still showing that it once said something else.
+
+        The reversal and the fresh entry are one change to the cash floor
+        (gl_service.cash_floor): a deposit moved to another account, or
+        re-dated to after the spend it paid for, is checked on the old account
+        and the new one, from the earlier of the two dates, once both entries
+        are in -- not one at a time, which would refuse a harmless re-date at
+        the reversal and never look at the account the money left.
         """
         before = BankTransaction.objects.select_related("journal_entry").get(pk=self.object.pk)
         try:
-            with db_transaction.atomic():
+            with db_transaction.atomic(), gl_service.cash_floor("This correction"):
                 txn = form.save(commit=False)
                 rebook = (before.journal_entry_id is None
                           or any(getattr(before, f) != getattr(txn, f) for f in _LEDGER_FIELDS))
@@ -397,25 +404,34 @@ class BankTransactionDeleteView(LoginRequiredMixin, DeleteView):
         """Delete the line and take its entry off the ledger with it.
 
         The entry is reversed, not erased; a transfer loses both its sides.
+        Taking a deposit or a top-up off a cash box can leave the spends after
+        it paid from notes the box never had: the reversal is checked against
+        the cash floor as it posts (gl_service.cash_floor), and a refusal
+        undoes the whole delete.
+
+        The line's id is kept before anything is deleted: Django clears the
+        pk of a deleted row, and the refusal has to send the bookkeeper back
+        to the line that is still there.
         """
         txn = self.object
+        pk = txn.pk
+        transfer = txn.origin == "TRANSFER" and txn.journal_entry_id
+        doing = ("Deleting this transfer" if transfer
+                 else "Deleting this deposit" if txn.transaction_type == "CREDIT"
+                 else "Deleting this withdrawal")
         try:
-            with db_transaction.atomic():
-                if txn.origin == "TRANSFER" and txn.journal_entry_id:
+            with db_transaction.atomic(), gl_service.cash_floor(doing):
+                if transfer:
                     reversal = gl_service.unbook_bank_transfer(
                         txn.journal_entry, user=self.request.user)
                     what = "Transfer deleted from both accounts"
                 else:
-                    bank, day = txn.bank_account, txn.transaction_date
                     reversal = gl_service.unbook_bank_transaction(txn, user=self.request.user)
                     txn.delete()
-                    # Taking a deposit off a cash box can leave the spends
-                    # after it paid from notes the box never had.
-                    gl_service.refuse_cash_below_zero(bank, day, "Deleting this deposit")
                     what = "Transaction deleted"
         except ValidationError as e:
             messages.error(self.request, e.messages[0])
-            return redirect("banking:transaction_detail", pk=txn.pk)
+            return redirect("banking:transaction_detail", pk=pk)
         messages.success(
             self.request,
             f"{what}; its ledger entry is reversed by {reversal.reference}." if reversal
