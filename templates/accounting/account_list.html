@@ -1,142 +1,76 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-<div class="space-y-5">
-  <!-- Header -->
-  <div class="flex items-center justify-between flex-wrap gap-3">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5">Every account keeps its own shade, from here to the ledger and back.</p>
-    </div>
-    <a href="{% url 'accounting:account_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-      New Account
-    </a>
+{% can_do "accounting:account_create" "POST" as may_create %}{% can_do "accounting:account_edit" "POST" as may_edit %}
+{% can_do "accounting:account_deactivate" "POST" as may_retire %}{% can_do "accounting:account_activate" "POST" as may_restore %}
+{% if may_create %}{% url 'accounting:account_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Every account keeps its own shade, from here to the ledger and back." action_label="New Account" action_url=new_url %}
+
+{% include "_includes/filter_bar.html" with search_placeholder="Code or name" search_value=q extra_template="accounting/_account_filters.html" %}
+
+<div class="toolbar no-print mb-4">
+  <div class="toolbar-group">
+    <a href="{% url 'accounting:journal_entry_list' %}" class="btn btn-secondary btn-sm">{% include "_includes/icon.html" with name="document" cls="h-3.5 w-3.5" only %}Journal Entries</a>
+    <a href="{% url 'accounting:trial_balance' %}" class="btn btn-secondary btn-sm">{% include "_includes/icon.html" with name="chart" cls="h-3.5 w-3.5" only %}Trial Balance</a>
+    <a href="{% url 'accounting:general_ledger' %}" class="btn btn-secondary btn-sm">General Ledger</a>
+    <a href="{% url 'banking:reconciliation_list' %}" class="btn btn-secondary btn-sm">Reconciliations</a>
   </div>
-
-  <!-- Filters -->
-  <form method="get" class="flex gap-3 flex-wrap items-end">
-    <div>
-      <label for="id_q" class="block text-xs text-gray-500 mb-1">Search</label>
-      <input id="id_q" type="text" name="q" value="{{ q }}" placeholder="Code or name"
-        class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-56">
-    </div>
-    <div>
-      <label for="id_type" class="block text-xs text-gray-500 mb-1">Type</label>
-      <select id="id_type" name="type" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-        <option value="">All Types</option>
-        {% for val, label in account_types %}
-          <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label for="id_state" class="block text-xs text-gray-500 mb-1">Status</label>
-      <select id="id_state" name="state" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-        <option value="active" {% if state == 'active' %}selected{% endif %}>Active ({{ active_count }})</option>
-        <option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Retired ({{ inactive_count }})</option>
-        <option value="all" {% if state == 'all' %}selected{% endif %}>Everything</option>
-      </select>
-    </div>
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
-    {% if q or selected_type or state != 'active' %}
-      <a href="{% url 'accounting:account_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>
-    {% endif %}
-  </form>
-
-  <!-- Quick Links -->
-  <div class="flex flex-wrap gap-3">
-    <a href="{% url 'accounting:journal_entry_list' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-      Journal Entries
-    </a>
-    <a href="{% url 'accounting:trial_balance' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
-      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-      Trial Balance
-    </a>
-    <a href="{% url 'accounting:general_ledger' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">General Ledger</a>
-    <a href="{% url 'banking:reconciliation_list' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Reconciliations</a>
-  </div>
-
-  <!-- Table -->
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Code</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Account Name</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Parent</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Balance</th>
-          <th class="px-4 py-3"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
-        {% for account in accounts %}
-        <tr class="group" style="{% account_row account %}">
-          <td class="px-4 py-3">
-            <span class="font-mono text-xs font-semibold px-2 py-0.5 rounded" style="{% account_chip account %}">{{ account.code }}</span>
-          </td>
-          <td class="px-4 py-3 font-medium text-gray-900">
-            {% account_dot account as dot %}<span class="inline-block w-2 h-2 rounded-full mr-2 align-middle" style="{{ dot }}"></span>{% if account.parent %}<span class="text-gray-400 mr-1">└</span>{% endif %}
-            <a href="{% url 'accounting:account_ledger' account.pk %}" class="hover:underline">{{ account.name }}</a>
-            {% if not account.is_active %}<span class="badge bg-gray-200 text-gray-700 ml-1">Retired</span>{% endif %}
-            {% if account.is_reconcilable %}<span class="badge bg-white text-gray-600 border border-gray-200 ml-1" title="Tied out against a statement or subledger">⟳ reconcilable</span>{% endif %}
-          </td>
-          <td class="px-4 py-3">
-            <span class="badge {% if account.account_type in 'ASSET,CASH,BANK,RECEIVABLE' %}bg-blue-50 text-blue-700{% elif account.account_type in 'LIABILITY,PAYABLE' %}bg-orange-50 text-orange-700{% elif account.account_type == 'EQUITY' %}bg-purple-50 text-purple-700{% elif account.account_type == 'REVENUE' %}bg-green-50 text-green-700{% else %}bg-red-50 text-red-700{% endif %}">
-              {{ account.get_account_type_display }}
-            </span>
-          </td>
-          <td class="px-4 py-3 text-gray-500 text-xs">{{ account.parent.name|default:"—" }}</td>
-          <td class="px-4 py-3 text-right font-mono font-semibold {% if account.current_balance >= 0 %}text-gray-900{% else %}text-red-600{% endif %}">
-            {{ account.current_balance|floatformat:2 }}
-          </td>
-          <td class="px-4 py-3 text-right whitespace-nowrap">
-            <a href="{% url 'accounting:account_ledger' account.pk %}" class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-white/70">Ledger</a>
-            <a href="{% url 'accounting:account_edit' account.pk %}" class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-white/70">Edit</a>
-            {% if account.is_active %}
-            <form method="post" action="{% url 'accounting:account_deactivate' account.pk %}" class="inline"
-                  onsubmit="return confirm('Retire {{ account.code }} {{ account.name }}? Posted entries keep their history, but the account stops being offered on new entries.');">
-              {% csrf_token %}
-              <button type="submit" class="text-xs text-red-600 px-2 py-1 rounded hover:bg-white/70">Retire</button>
-            </form>
-            {% else %}
-            <form method="post" action="{% url 'accounting:account_activate' account.pk %}" class="inline">
-              {% csrf_token %}
-              <button type="submit" class="text-xs text-green-700 px-2 py-1 rounded hover:bg-white/70">Restore</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="6" class="px-4 py-12 text-center">
-            <div class="flex flex-col items-center gap-3">
-              <div class="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-                <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-              </div>
-              <p class="text-gray-500 font-medium">No accounts found</p>
-              <a href="{% url 'accounting:account_create' %}" class="text-sm text-primary hover:underline">Add your first account</a>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% account_legend as legend %}
-  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500">
-    <span class="font-semibold text-gray-600">Colour families</span>
-    {% for label, swatch in legend %}
-      <span class="inline-flex items-center gap-1.5">
-        <span class="w-2.5 h-2.5 rounded-full" style="{{ swatch }}"></span>{{ label }}
-      </span>
-    {% endfor %}
-  </div>
-
-  {% include "_includes/pagination.html" %}
-  <p class="text-xs text-gray-400">{{ page_obj.paginator.count }} account(s) shown</p>
 </div>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Code</th><th>Account Name</th><th>Type</th><th>Parent</th><th class="num">Balance</th><th><span class="sr-only">Actions</span></th></tr>
+    </thead>
+    <tbody>
+      {% for account in accounts %}
+      <tr style="{% account_row account %}">
+        <td><span class="mono rounded px-2 py-0.5 text-xs font-semibold" style="{% account_chip account %}">{{ account.code }}</span></td>
+        <td>
+          {% account_dot account as dot %}<span class="mr-2 inline-block h-2 w-2 rounded-full align-middle" style="{{ dot }}"></span>{% if account.parent %}<span class="mr-1 text-ink-muted" aria-hidden="true">└</span>{% endif %}
+          <a href="{% url 'accounting:account_ledger' account.pk %}" class="row-link">{{ account.name }}</a>
+          {% if not account.is_active %}<span class="badge badge-neutral ml-1">Retired</span>{% endif %}
+          {% if account.is_reconcilable %}<span class="badge ml-1" title="Tied out against a statement or subledger">{% include "_includes/icon.html" with name="refresh" cls="h-3 w-3" only %}reconcilable</span>{% endif %}
+        </td>
+        <td>
+          <span class="badge {% if account.account_type in 'ASSET,CASH,BANK,RECEIVABLE' %}badge-info{% elif account.account_type in 'LIABILITY,PAYABLE' %}badge-warning{% elif account.account_type == 'EQUITY' %}badge-brand{% elif account.account_type == 'REVENUE' %}badge-success{% else %}badge-danger{% endif %}">{{ account.get_account_type_display }}</span>
+        </td>
+        <td class="text-xs text-ink-muted">{{ account.parent.name|default:"—" }}</td>
+        <td class="num font-semibold">{{ account.current_balance|money }}</td>
+        <td class="actions">
+          <a href="{% url 'accounting:account_ledger' account.pk %}" class="btn btn-ghost btn-sm">Ledger</a>
+          {% if may_edit %}<a href="{% url 'accounting:account_edit' account.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}
+          {% if account.is_active %}
+          {% if may_retire %}
+          <form method="post" action="{% url 'accounting:account_deactivate' account.pk %}" class="inline"
+                onsubmit="return confirm('Retire {{ account.code|escapejs }} {{ account.name|escapejs }}? Posted entries keep their history, but the account stops being offered on new entries.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger-ghost btn-sm">Retire</button>
+          </form>
+          {% endif %}
+          {% elif may_restore %}
+          <form method="post" action="{% url 'accounting:account_activate' account.pk %}" class="inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-ghost btn-sm">Restore</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No accounts found" text="Try another search, or add the account you need." action_label="Add your first account" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% account_legend as legend %}
+<div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-muted">
+  <span class="font-semibold text-ink-2">Colour families</span>
+  {% for label, swatch in legend %}
+    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full" style="{{ swatch }}"></span>{{ label }}</span>
+  {% endfor %}
+</div>
+
+{% include "_includes/pagination.html" %}
+<p class="mt-2 text-xs text-ink-muted">{{ page_obj.paginator.count }} account(s) shown</p>
 {% endblock %}

@@ -1,109 +1,78 @@
 {% extends "base/base.html" %}
-{% load reporting_extras %}
+{% load reporting_extras ui_extras %}
 {% block title %}Aged Debtors — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Aged Debtors</h1>
-    <p class="text-sm text-gray-500 mt-1">As at {{ today }} · aged in {{ book }}, the currency the ledger keeps</p>
-  </div>
-  <div class="flex items-center gap-2">
-    {% include "_includes/print_button.html" %}
-    <a href="{% url 'reporting:index' %}" class="no-print px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
-  </div>
-</div>
+{% url 'reporting:index' as reports_url %}
+{% with d=today|date:"d M Y" bk=book|default:"" %}{% with sub="As at "|add:d|add:" · aged in "|add:bk|add:", the currency the ledger keeps" %}
+{% include "_includes/page_header.html" with title="Aged Debtors" subtitle=sub secondary_label="All Reports" secondary_url=reports_url %}
+{% endwith %}
 
-<!-- Summary cards -->
-<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-  {% for bucket, total in totals.items %}
-  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-    <p class="text-sm text-gray-500">{% if bucket == 'Current' %}Current (not yet due){% else %}{{ bucket }} days overdue{% endif %}</p>
-    <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }} <span class="text-xs font-medium text-gray-500">{{ book }}</span></p>
-  </div>
-  {% endfor %}
-</div>
-<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 space-y-1">
-  <div class="flex justify-between items-center">
-    <span class="text-sm font-semibold text-amber-900">Open invoices</span>
-    <span class="text-lg font-bold text-amber-900">{{ grand_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
-  </div>
-  <div class="flex justify-between items-center">
-    <span class="text-sm text-amber-900">Less unapplied credit (money received, not yet matched to an invoice)</span>
-    <span class="text-lg font-semibold text-sky-700">-{{ unapplied_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
-  </div>
-  <div class="flex justify-between items-center border-t border-amber-200 pt-1">
-    <span class="text-sm font-semibold text-amber-900">Net receivable — agrees with Accounts Receivable 1300</span>
-    <span class="text-xl font-bold text-amber-900">{{ net_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
-  </div>
-</div>
+{% include "reporting/_ageing_stats.html" %}
+
+<section class="card mb-5 max-w-3xl">
+  <dl class="dl-rows px-5 py-2">
+    <div><dt>Open invoices</dt><dd class="num font-semibold">{{ grand_total|money:bk }}</dd></div>
+    <div><dt>Less unapplied credit (money received, not yet matched to an invoice)</dt><dd class="num">({{ unapplied_total|money:bk }})</dd></div>
+    <div class="border-t-2 border-line-strong"><dt class="font-semibold text-ink">Net receivable — agrees with Accounts Receivable 1300</dt><dd class="num text-base font-bold">{{ net_total|money:bk }}</dd></div>
+  </dl>
+</section>
 
 {% if unapplied %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-  <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-    <h3 class="text-sm font-semibold text-gray-700">Unapplied credit — money on account</h3>
-    <span class="font-mono font-semibold text-sky-700">-{{ unapplied_total|floatformat:2 }}</span>
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Unapplied credit — money on account</h2>
+    <span class="num font-semibold">({{ unapplied_total|money }})</span>
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Receipt</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Customer</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Received</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">Unapplied</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">In {{ book }}</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for row in unapplied %}
-      <tr>
-        <td class="px-4 py-2 text-gray-900">{{ row.payment.reference }}</td>
-        <td class="px-4 py-2 text-gray-900">{{ row.customer.name }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ row.payment.payment_date }}</td>
-        <td class="px-4 py-2 text-right font-mono text-gray-500">{{ row.amount|floatformat:2 }} <span class="text-xs">{{ row.currency }}</span></td>
-        <td class="px-4 py-2 text-right font-mono text-sky-700">-{{ row.base|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Receipt</th><th>Customer</th><th>Received</th><th class="num">Unapplied</th><th class="num">In {{ book }}</th></tr></thead>
+      <tbody>
+        {% for row in unapplied %}
+        <tr>
+          <td class="mono">{{ row.payment.reference }}</td>
+          <td>{{ row.customer.name }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ row.payment.payment_date|date:"d M Y" }}</td>
+          <td class="num text-ink-muted">{{ row.amount|money:row.currency }}</td>
+          <td class="num">({{ row.base|money }})</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
 {% for bucket, invoices in buckets.items %}
 {% if invoices %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-  <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-    <h3 class="text-sm font-semibold text-gray-700">{% if bucket == 'Current' %}Current — not yet due{% else %}{{ bucket }} Days Overdue{% endif %}</h3>
-    <span class="font-mono font-semibold text-gray-900">{{ totals|get_item:bucket|floatformat:2 }}</span>
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">{% if bucket == 'Current' %}Current — not yet due{% else %}{{ bucket }} Days Overdue{% endif %} <span class="tab-count ml-1">{{ invoices|length }}</span></h2>
+    <span class="num font-semibold">{{ totals|get_item:bucket|money }}</span>
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Invoice</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Customer</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Invoice Date</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Due Date</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">On the paper</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">Outstanding ({{ book }})</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for inv in invoices %}
-      <tr>
-        <td class="px-4 py-2 text-gray-900">{{ inv.reference }}</td>
-        <td class="px-4 py-2 text-gray-900">{{ inv.customer.name }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ inv.invoice_date }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ inv.due_date }}</td>
-        <td class="px-4 py-2 text-right font-mono text-gray-500">{{ inv.outstanding_amount|floatformat:2 }} <span class="text-xs">{{ inv.currency }}</span></td>
-        <td class="px-4 py-2 text-right font-mono text-red-600">{{ inv.outstanding_base|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Invoice</th><th>Customer</th><th>Invoice Date</th><th>Due Date</th><th class="num">On the paper</th><th class="num">Outstanding ({{ book }})</th></tr></thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td class="mono">{{ inv.reference }}</td>
+          <td>{{ inv.customer.name }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ inv.invoice_date|date:"d M Y" }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ inv.due_date|date:"d M Y" }}</td>
+          <td class="num text-ink-muted">{{ inv.outstanding_amount|money:inv.currency }}</td>
+          <td class="num font-semibold">{{ inv.outstanding_base|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="5">Total</td><td class="num">{{ totals|get_item:bucket|money }}</td></tr></tfoot>
+    </table>
+  </div>
+</section>
 {% endif %}
 {% endfor %}
 
 {% if not grand_total and not unapplied %}
-<div class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">No outstanding invoices.</div>
+<section class="card">{% include "_includes/empty_state.html" with icon="check-circle" title="No outstanding invoices." only %}</section>
 {% endif %}
+{% endwith %}
 {% endblock %}

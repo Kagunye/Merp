@@ -1,0 +1,3 @@
+{% load ui_extras %}{% can_do "fixed_assets:category_list" as may_cats %}{% can_do "fixed_assets:depreciation_run" "POST" as may_run %}
+{% if may_cats %}<a href="{% url 'fixed_assets:category_list' %}" class="btn btn-secondary">Categories</a>{% endif %}
+{% if may_run %}<a href="{% url 'fixed_assets:depreciation_run' %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="refresh" only %}Run Depreciation</a>{% endif %}

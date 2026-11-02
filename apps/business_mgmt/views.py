@@ -5,42 +5,42 @@ from django.views.generic import TemplateView
 
 from apps.core import access
 
-# (section, [(route, label, icon, colour, method the tile needs)]). A tile that
+# (section, [(route, label, icon, colour, method the tile needs)]); `icon` is
+# an _includes/icon.html name. A tile that
 # opens a form ("Voucher Entry") is shown only to a role that may also save
 # it: offering a form whose Save answers 403 is a dead end, not a shortcut.
 SECTIONS = [
     ("Processing", [
-        ("banking:transaction_list", "Cash Book", "💰", "mint", "GET"),
-        ("banking:transaction_list", "Bank Transactions", "🏦", "sky", "GET"),
-        ("reporting:index", "Financial Reports", "📊", "rose", "GET"),
+        ("banking:transaction_list", "Cash Book", "cash", "mint", "GET"),
+        ("banking:transaction_list", "Bank Transactions", "bank", "sky", "GET"),
+        ("reporting:index", "Financial Reports", "chart", "rose", "GET"),
         # This tile opens the opening-balances screen. It used to be labelled
         # "Budget Planning", which it has never been.
-        ("accounting:opening_balances", "Opening Balances", "📈", "amber", "GET"),
-        ("reporting:cash_flow", "Cash Flow", "💧", "mint", "GET"),
-        ("banking:home", "Reconciliation", "🔁", "sky", "GET"),
-        ("accounting:journal_entry_list", "Journal Entries", "📝", "slate", "GET"),
-        ("accounting:journal_entry_create", "Voucher Entry", "🧾", "peach", "POST"),
+        ("accounting:opening_balances", "Opening Balances", "clipboard", "amber", "GET"),
+        ("reporting:cash_flow", "Cash Flow", "cash", "mint", "GET"),
+        ("banking:home", "Reconciliation", "check-circle", "sky", "GET"),
+        ("accounting:journal_entry_list", "Journal Entries", "document", "slate", "GET"),
+        ("accounting:journal_entry_create", "Voucher Entry", "receipt", "peach", "POST"),
     ]),
     ("Reports", [
-        ("reporting:profit_loss", "Profit & Loss", "📈", "rose", "GET"),
-        ("reporting:balance_sheet", "Balance Sheet", "📊", "mint", "GET"),
-        ("reporting:cash_flow", "Cash Flow Statement", "💧", "slate", "GET"),
-        ("reporting:trial_balance", "Trial Balance", "⚖️", "amber", "GET"),
-        ("reporting:aged_debtors", "Aged Debtors", "⏱️", "rose", "GET"),
-        ("reporting:aged_creditors", "Aged Creditors", "⏱️", "peach", "GET"),
-        ("reporting:index", "Financial Analysis", "🔍", "peach", "GET"),
-        ("reporting:index", "Budget Reports", "📊", "sky", "GET"),
-        ("organizations:company_list", "Consolidation", "🔗", "slate", "GET"),
+        ("reporting:profit_loss", "Profit & Loss", "trending-up", "rose", "GET"),
+        ("reporting:balance_sheet", "Balance Sheet", "chart", "mint", "GET"),
+        ("reporting:cash_flow", "Cash Flow Statement", "cash", "slate", "GET"),
+        ("reporting:trial_balance", "Trial Balance", "check-circle", "amber", "GET"),
+        ("reporting:aged_debtors", "Aged Debtors", "clock", "rose", "GET"),
+        ("reporting:aged_creditors", "Aged Creditors", "clock", "peach", "GET"),
+        ("reporting:index", "Financial Analysis", "search", "peach", "GET"),
+        ("organizations:company_list", "Consolidation", "building", "slate", "GET"),
     ]),
     ("Maintenance", [
-        ("projects:project_list", "Projects / Job Costing", "📂", "rose", "GET"),
-        ("banking:account_list", "Bank Configurations", "⚙️", "slate", "GET"),
-        ("accounting:currency_list", "Currencies", "💱", "amber", "GET"),
-        ("accounting:account_list", "Chart of Accounts", "📋", "sky", "GET"),
-        ("accounting:fiscal_year_list", "Fiscal Periods", "📅", "rose", "GET"),
-        ("organizations:home", "Business Parameters", "⚙️", "slate", "GET"),
-        ("accounting:account_list", "Account Sets", "🗂️", "peach", "GET"),
-        ("organizations:department_list", "Departments", "🏢", "sky", "GET"),
+        ("projects:project_list", "Projects / Job Costing", "briefcase", "rose", "GET"),
+        ("banking:account_list", "Bank Configurations", "cog", "slate", "GET"),
+        ("accounting:currency_list", "Currencies", "cash", "amber", "GET"),
+        ("accounting:account_list", "Chart of Accounts", "clipboard", "sky", "GET"),
+        ("accounting:fiscal_year_list", "Fiscal Periods", "calendar", "rose", "GET"),
+        ("organizations:home", "Business Parameters", "cog", "slate", "GET"),
+        ("accounting:account_list", "Account Sets", "inbox", "peach", "GET"),
+        ("organizations:department_list", "Departments", "building", "sky", "GET"),
     ]),
 ]
 

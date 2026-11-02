@@ -1,0 +1,25 @@
+{% load ui_extras %}
+{% if entry.status == 'DRAFT' %}
+{% can_do "accounting:journal_entry_edit" "POST" as may_edit %}{% can_do "accounting:journal_entry_cancel" "POST" as may_cancel %}{% can_do "accounting:journal_entry_post" "POST" as may_post %}
+{% if may_edit %}<a href="{% url 'accounting:journal_entry_edit' entry.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" only %}Edit draft</a>{% endif %}
+{% if may_cancel %}
+<form method="post" action="{% url 'accounting:journal_entry_cancel' entry.pk %}" class="inline" onsubmit="return confirm('Cancel this draft? It will stay in the journal as a cancelled record.')">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel draft</button>
+</form>
+{% endif %}
+{% if may_post %}
+<form method="post" action="{% url 'accounting:journal_entry_post' entry.pk %}" class="inline" onsubmit="return confirm('Post this journal entry? This cannot be undone.')">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" stroke="2" only %}Post Entry</button>
+</form>
+{% endif %}
+{% elif can_reverse %}
+{% can_do "accounting:journal_entry_reverse" "POST" as may_reverse %}
+{% if may_reverse %}
+<form method="post" action="{% url 'accounting:journal_entry_reverse' entry.pk %}" class="inline" onsubmit="return confirm('Create a reversal entry?')">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="refresh" only %}Reverse Entry</button>
+</form>
+{% endif %}
+{% endif %}

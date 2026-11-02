@@ -1,0 +1,17 @@
+<div class="form-field">
+  <label for="id_type" class="form-label">Type</label>
+  <select id="id_type" name="type" class="select">
+    <option value="">All Types</option>
+    {% for val, label in account_types %}
+      <option value="{{ val }}" {% if selected_type == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="form-field">
+  <label for="id_state" class="form-label">Status</label>
+  <select id="id_state" name="state" class="select">
+    <option value="active" {% if state == 'active' %}selected{% endif %}>Active ({{ active_count }})</option>
+    <option value="inactive" {% if state == 'inactive' %}selected{% endif %}>Retired ({{ inactive_count }})</option>
+    <option value="all" {% if state == 'all' %}selected{% endif %}>Everything</option>
+  </select>
+</div>

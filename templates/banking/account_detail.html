@@ -2,116 +2,109 @@
 {% load ui_extras %}
 {% block content %}
 {% url 'banking:account_list' as back %}
-{% url 'banking:account_edit' account.pk as pa_url %}
-{% include "_includes/page_header.html" with title=account.name subtitle=account.bank_name back_url=back action_label="Edit" action_url=pa_url %}
+{% include "_includes/page_header.html" with title=account.name subtitle=account.bank_name back_url=back back_label="Bank Accounts" actions_template="banking/_account_detail_actions.html" %}
+{% can_do "banking:transaction_create" "POST" as may_new_txn %}{% can_do "banking:transaction_list" as may_txns %}{% can_do "accounting:account_ledger" as may_ledger %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-  <div class="rounded-xl border border-gray-200 p-5" style="{% account_row account %}">
+<div class="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <div class="stat" style="{% account_row account %}">
     {% if account.is_foreign %}
-    <div class="text-xs text-gray-500 mb-1">Balance in {{ account.currency }}, from its transactions</div>
-    <div class="text-2xl font-bold">{{ account.currency }} {{ account.statement_balance|floatformat:2 }}</div>
-    <div class="text-xs text-gray-500 mt-1">Per ledger, in the book's money: {{ book }} {{ account.current_balance|floatformat:2 }}</div>
+    <p class="stat-label"><span class="truncate">Balance in {{ account.currency }}, from its transactions</span></p>
+    <p class="stat-value">{{ account.statement_balance|money:account.currency }}</p>
+    <p class="stat-meta">Per ledger, in the book's money: {{ account.current_balance|money:book }}</p>
     {% else %}
-    <div class="text-xs text-gray-500 mb-1">Balance per ledger</div>
-    <div class="text-2xl font-bold">{{ book }} {{ account.current_balance|floatformat:2 }}</div>
+    <p class="stat-label"><span class="truncate">Balance per ledger</span></p>
+    <p class="stat-value">{{ account.current_balance|money:book }}</p>
     {% endif %}
-    <div class="text-xs text-gray-500 mt-2">As at {{ today|date:"d M Y" }} · {{ unreconciled }} transaction(s) still outstanding</div>
+    <p class="stat-meta">As at {{ today|date:"d M Y" }} · {{ unreconciled }} transaction(s) still outstanding</p>
   </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Account number</div>
-    <div class="text-lg font-semibold text-gray-900 font-mono">{{ account.account_number }}</div>
-    <div class="text-xs text-gray-500 mt-1">{{ account.get_account_type_display }}{% if account.branch %} · {{ account.branch }}{% endif %}</div>
-  </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-5">
-    <div class="text-xs text-gray-500 mb-1">Ledger account</div>
-    <div class="text-lg font-semibold text-gray-900">
-      <span class="font-mono text-xs px-1.5 py-0.5 rounded" style="{% account_chip account %}">{{ account.gl_account.code }}</span>
-      {{ account.gl_account.name }}
+  <section class="card lg:col-span-2">
+    <div class="card-body">
+      <dl class="dl">
+        <div><dt>Account number</dt><dd class="mono">{{ account.account_number }}</dd></div>
+        <div><dt>Type</dt><dd>{{ account.get_account_type_display }}{% if account.branch %} · {{ account.branch }}{% endif %}</dd></div>
+        <div><dt>Ledger account</dt><dd><span class="mono rounded px-1.5 py-0.5 text-xs" style="{% account_chip account %}">{{ account.gl_account.code }}</span> {{ account.gl_account.name }}</dd></div>
+        <div><dt>Reconcilable</dt><dd>{{ account.gl_account.is_reconcilable|yesno:"Yes,No" }}</dd></div>
+      </dl>
     </div>
-    <div class="text-xs text-gray-500 mt-1">Reconcilable: {{ account.gl_account.is_reconcilable|yesno:"Yes,No" }}</div>
+  </section>
+</div>
+
+<div class="toolbar no-print mb-5">
+  <div class="toolbar-group">
+    {% if may_new_txn %}<a href="{% url 'banking:transaction_create' %}?account={{ account.pk }}" class="btn btn-secondary btn-sm">{% include "_includes/icon.html" with name="plus" stroke="2" cls="h-3.5 w-3.5" only %}New transaction</a>{% endif %}
+    {% if may_txns %}<a href="{% url 'banking:transaction_list' %}?account={{ account.pk }}" class="btn btn-secondary btn-sm">All transactions</a>{% endif %}
+    {% if may_ledger %}<a href="{% url 'accounting:account_ledger' account.gl_account.pk %}" class="btn btn-secondary btn-sm">Ledger account</a>{% endif %}
   </div>
 </div>
 
-<div class="no-print flex flex-wrap gap-2 mb-6">
-  <a href="{% url 'banking:reconciliation_create' %}?account={{ account.pk }}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">Reconcile statement</a>
-  <a href="{% url 'banking:transaction_create' %}?account={{ account.pk }}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">New transaction</a>
-  <a href="{% url 'banking:transaction_list' %}?account={{ account.pk }}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">All transactions</a>
-  <a href="{% url 'accounting:account_ledger' account.gl_account.pk %}" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50">Ledger account</a>
-</div>
-
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Statements</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-8">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr>
-        <th class="px-4 py-3 text-left">Statement date</th>
-        <th class="px-4 py-3 text-left">Reference</th>
-        <th class="px-4 py-3 text-right">Brought forward</th>
-        <th class="px-4 py-3 text-right">Cleared</th>
-        <th class="px-4 py-3 text-right">Per statement</th>
-        <th class="px-4 py-3 text-left">Status</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for r in reconciliations %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 whitespace-nowrap">{{ r.statement_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3"><a href="{% url 'banking:reconciliation_detail' r.pk %}" class="font-mono text-xs hover:underline" style="color:var(--primary)">{{ r.reference }}</a></td>
-        <td class="px-4 py-3 text-right font-mono">{{ r.opening_balance|floatformat:2 }}</td>
-        <td class="px-4 py-3 text-right">{{ r.cleared_count }} item(s)</td>
-        <td class="px-4 py-3 text-right font-mono">{{ r.closing_balance|floatformat:2 }}</td>
-        <td class="px-4 py-3"><span class="badge {% if r.status == 'POSTED' %}bg-green-50 text-green-700{% elif r.status == 'DRAFT' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ r.get_status_display }}</span></td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No statements filed for this account yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Statements</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Statement date</th><th>Reference</th><th class="num">Brought forward</th><th class="num">Cleared</th><th class="num">Per statement</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for r in reconciliations %}
+        <tr>
+          <td class="whitespace-nowrap">{{ r.statement_date|date:"d M Y" }}</td>
+          <td class="mono"><a href="{% url 'banking:reconciliation_detail' r.pk %}" class="row-link">{{ r.reference }}</a></td>
+          <td class="num">{{ r.opening_balance|money }}</td>
+          <td class="num">{{ r.cleared_count }} item(s)</td>
+          <td class="num">{{ r.closing_balance|money }}</td>
+          <td>{% status_badge r.status r.get_status_display %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No statements filed for this account yet." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% if future %}
-<h2 class="text-sm font-semibold text-gray-700 mb-1">Dated after today</h2>
-<p class="text-xs text-gray-500 mb-3">Not in the balance above: these carry a date that has not come yet, so the money has not moved and no statement can show it.</p>
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-8">
-  <table class="w-full text-sm">
-    <tbody class="divide-y divide-gray-100">
-      {% for t in future %}
-      <tr>
-        <td class="px-4 py-3 whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="hover:underline">{{ t.transaction_date|date:"d M Y" }}</a></td>
-        <td class="px-4 py-3">{{ t.description|default:"—" }}</td>
-        <td class="px-4 py-3 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">{% if t.signed_amount >= 0 %}+{% else %}−{% endif %}{{ t.amount|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Dated after today</h2><p class="card-subtitle">Not in the balance above: these carry a date that has not come yet, so the money has not moved and no statement can show it.</p></div></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Date</th><th>Description</th><th>Reference</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        {% for t in future %}
+        <tr>
+          <td class="whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="row-link">{{ t.transaction_date|date:"d M Y" }}</a></td>
+          <td>{{ t.description|default:"—" }}</td>
+          <td class="mono text-xs text-ink-muted">{{ t.reference|default:"—" }}</td>
+          <td class="num font-semibold">{{ t.signed_amount|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent transactions</h2>
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr><th class="px-4 py-3 text-left">Date</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-right">Amount</th><th class="px-4 py-3 text-left">Clearing</th></tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for t in transactions %}
-      <tr style="{% account_row account %}">
-        <td class="px-4 py-3 whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="hover:underline">{{ t.transaction_date|date:"d M Y" }}</a></td>
-        <td class="px-4 py-3">{{ t.description|default:"—" }}</td>
-        <td class="px-4 py-3 text-gray-500 text-xs font-mono">{{ t.reference|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-mono font-semibold {% if t.signed_amount >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
-          {% if t.signed_amount >= 0 %}+{% else %}−{% endif %}{{ t.amount|floatformat:2 }}
-        </td>
-        <td class="px-4 py-3">
-          {% if t.reconciliation %}<span class="badge bg-green-50 text-green-700">Cleared · {{ t.reconciliation.reference }}</span>
-          {% else %}<span class="badge bg-amber-50 text-amber-700">Outstanding</span>{% endif %}
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No transactions.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="card overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Recent transactions</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Date</th><th>Description</th><th>Reference</th><th class="num">Amount</th><th>Clearing</th></tr></thead>
+      <tbody>
+        {% for t in transactions %}
+        <tr style="{% account_row account %}">
+          <td class="whitespace-nowrap"><a href="{% url 'banking:transaction_detail' t.pk %}" class="row-link">{{ t.transaction_date|date:"d M Y" }}</a></td>
+          <td>{{ t.description|default:"—" }}</td>
+          <td class="mono text-xs text-ink-muted">{{ t.reference|default:"—" }}</td>
+          <td class="num font-semibold{% if t.signed_amount > 0 %} pos{% endif %}">{{ t.signed_amount|money }}</td>
+          <td class="whitespace-nowrap">
+            {% if t.reconciliation %}<span class="badge badge-success">Cleared · {{ t.reconciliation.reference }}</span>
+            {% else %}<span class="badge badge-warning">Outstanding</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="No transactions." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

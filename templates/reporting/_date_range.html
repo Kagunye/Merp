@@ -1,0 +1,8 @@
+{% if not hide_from %}<div class="form-field">
+  <label for="id_date_from" class="form-label">From</label>
+  <input id="id_date_from" type="date" name="date_from" value="{{ date_from|date:'Y-m-d' }}" class="input">
+</div>{% endif %}
+<div class="form-field">
+  <label for="id_date_to" class="form-label">{% if hide_from %}As at{% else %}To{% endif %}</label>
+  <input id="id_date_to" type="date" name="date_to" value="{{ date_to|date:'Y-m-d' }}" class="input">
+</div>

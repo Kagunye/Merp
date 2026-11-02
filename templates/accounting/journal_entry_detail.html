@@ -1,132 +1,74 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-<div class="space-y-5">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <a href="{% url 'accounting:journal_entry_list' %}" class="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-      </a>
-      <div>
-        <div class="flex items-center gap-2">
-          <h1 class="text-xl font-bold text-gray-900 font-mono">{{ entry.reference }}</h1>
-          <span class="badge {% if entry.reversed_by %}bg-gray-100 text-gray-500{% elif entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% else %}bg-red-50 text-red-700{% endif %}">
-            {% if entry.reversed_by %}Reversed{% else %}{{ entry.get_status_display }}{% endif %}
-          </span>
-        </div>
-        <p class="text-sm text-gray-500 mt-0.5">{{ entry.get_entry_type_display }} · {{ entry.posting_date|date:"d F Y" }}{% if entry.period %} · {{ entry.period.name }}{% endif %}</p>
-      </div>
-    </div>
-    <div class="flex gap-2 flex-wrap">
-      {% include "_includes/print_button.html" %}
-      {% if entry.status == 'DRAFT' %}
-      <a href="{% url 'accounting:journal_entry_edit' entry.pk %}" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50">Edit draft</a>
-      <form method="post" action="{% url 'accounting:journal_entry_cancel' entry.pk %}" onsubmit="return confirm('Cancel this draft? It will stay in the journal as a cancelled record.')">
-        {% csrf_token %}
-        <button type="submit" class="px-4 py-2 text-sm font-medium text-red-700 border border-red-200 bg-white rounded-lg hover:bg-red-50">Cancel draft</button>
-      </form>
-      <form method="post" action="{% url 'accounting:journal_entry_post' entry.pk %}" onsubmit="return confirm('Post this journal entry? This cannot be undone.')">
-        {% csrf_token %}
-        <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg flex items-center gap-2" style="background:var(--primary)">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-          Post Entry
-        </button>
-      </form>
-      {% elif can_reverse %}
-      <form method="post" action="{% url 'accounting:journal_entry_reverse' entry.pk %}" onsubmit="return confirm('Create a reversal entry?')">
-        {% csrf_token %}
-        <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 bg-white rounded-lg hover:bg-gray-50">
-          Reverse Entry
-        </button>
-      </form>
-      {% endif %}
-    </div>
-  </div>
+{% url 'accounting:journal_entry_list' as back %}
+{% include "_includes/page_header.html" with title=entry.reference subtitle=entry.get_entry_type_display eyebrow="Journal entry" back_url=back back_label="Journal Entries" actions_template="accounting/_journal_entry_actions.html" %}
 
-  {% if entry.calendar_warning %}
-  <div class="rounded-xl border px-4 py-3 text-sm flex items-start gap-2" style="background:#FFFBEB;border-color:#FCD34D;color:#92400E">
-    <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-    <span>{{ entry.calendar_advice }}</span>
-  </div>
-  {% endif %}
-  {% if reverse_elsewhere %}
-  <div class="rounded-xl border px-4 py-3 text-sm" style="background:#F9FAFB;border-color:#E5E7EB;color:#4B5563">
-    {{ reverse_elsewhere }}
-  </div>
-  {% endif %}
-  {% if entry.reversed_by %}
-  <div class="rounded-xl border px-4 py-3 text-sm" style="background:#F9FAFB;border-color:#E5E7EB;color:#4B5563">
-    Reversed by <a class="font-mono hover:underline" style="color:var(--primary)" href="{% url 'accounting:journal_entry_detail' entry.reversed_by.pk %}">{{ entry.reversed_by.reference }}</a>.
-  </div>
-  {% endif %}
+{% if entry.calendar_warning %}
+<div class="alert alert-warning mb-5" role="status">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">{{ entry.calendar_advice }}</div>
+</div>
+{% endif %}
+{% if reverse_elsewhere %}
+<div class="alert alert-info mb-5" role="status">
+  {% include "_includes/icon.html" with name="info" only %}
+  <div class="alert-body">{{ reverse_elsewhere }}</div>
+</div>
+{% endif %}
+{% if entry.reversed_by %}
+<div class="alert alert-info mb-5" role="status">
+  {% include "_includes/icon.html" with name="refresh" only %}
+  <div class="alert-body">Reversed by <a class="link mono" href="{% url 'accounting:journal_entry_detail' entry.reversed_by.pk %}">{{ entry.reversed_by.reference }}</a>.</div>
+</div>
+{% endif %}
 
-  <!-- Info cards -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Debit</p>
-      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ entry.total_debit|floatformat:2 }}</p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Credit</p>
-      <p class="text-xl font-bold font-mono text-gray-900 mt-1">{{ entry.total_credit|floatformat:2 }}</p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Balanced</p>
-      <p class="text-xl font-bold mt-1 {% if entry.is_balanced %}text-green-600{% else %}text-red-600{% endif %}">
-        {% if entry.is_balanced %}Yes{% else %}No{% endif %}
-      </p>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Posted By</p>
-      <p class="text-sm font-medium text-gray-900 mt-1">{{ entry.posted_by.full_name|default:"—" }}</p>
-      {% if entry.posted_at %}<p class="text-xs text-gray-400">{{ entry.posted_at|date:"d M Y H:i" }}</p>{% endif %}
-    </div>
+<section class="card mb-5">
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>Status</dt><dd>{% if entry.reversed_by %}{% status_badge "REVERSED" "Reversed" %}{% else %}{% status_badge entry.status entry.get_status_display %}{% endif %}</dd></div>
+      <div><dt>Entry type</dt><dd>{{ entry.get_entry_type_display }}</dd></div>
+      <div><dt>Posting date</dt><dd>{{ entry.posting_date|date:"d F Y" }}{% if entry.period %} · {{ entry.period.name }}{% endif %}</dd></div>
+      <div><dt>Posted By</dt><dd>{{ entry.posted_by.full_name|default:"—" }}{% if entry.posted_at %} <span class="text-xs text-ink-muted">{{ entry.posted_at|date:"d M Y H:i" }}</span>{% endif %}</dd></div>
+      <div><dt>Balanced</dt><dd class="{% if entry.is_balanced %}pos{% else %}neg{% endif %} font-semibold">{% if entry.is_balanced %}Yes{% else %}No{% endif %}</dd></div>
+      {% if entry.notes %}<div class="dl-full"><dt>Notes</dt><dd>{{ entry.notes }}</dd></div>{% endif %}
+    </dl>
   </div>
+</section>
 
-  {% if entry.notes %}
-  <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800">
-    <strong>Notes:</strong> {{ entry.notes }}
-  </div>
-  {% endif %}
+<div class="stat-grid mb-5">
+  {% include "_includes/stat.html" with label="Total Debit" value=entry.total_debit money=True icon="trending-up" tone="info" only %}
+  {% include "_includes/stat.html" with label="Total Credit" value=entry.total_credit money=True icon="trending-down" tone="neutral" only %}
+</div>
 
-  <!-- Lines -->
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-100">
-      <h3 class="font-semibold text-gray-800">Journal Lines</h3>
-    </div>
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="bg-gray-50/50 border-b border-gray-100">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Account</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Description</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Debit</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Credit</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
+<section class="card overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Journal Lines</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Account</th><th>Description</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+      <tbody>
         {% for line in lines %}
         <tr style="{% account_row line.account %}">
-          <td class="px-4 py-3">
-            <span class="font-mono text-xs font-semibold px-1.5 py-0.5 rounded" style="{% account_chip line.account %}">{{ line.account.code }}</span>
-            <span class="ml-2 text-gray-900">{{ line.account.name }}</span>
+          <td>
+            <span class="mono rounded px-1.5 py-0.5 text-xs font-semibold" style="{% account_chip line.account %}">{{ line.account.code }}</span>
+            <span class="ml-2">{{ line.account.name }}</span>
           </td>
-          <td class="px-4 py-3 text-gray-500">{{ line.description|default:"—" }}</td>
-          <td class="px-4 py-3 text-right font-mono {% if line.debit_amount > 0 %}text-gray-900 font-semibold{% else %}text-gray-300{% endif %}">
-            {% if line.debit_amount > 0 %}{{ line.debit_amount|floatformat:2 }}{% else %}—{% endif %}
-          </td>
-          <td class="px-4 py-3 text-right font-mono {% if line.credit_amount > 0 %}text-gray-900 font-semibold{% else %}text-gray-300{% endif %}">
-            {% if line.credit_amount > 0 %}{{ line.credit_amount|floatformat:2 }}{% else %}—{% endif %}
-          </td>
+          <td class="text-ink-2">{{ line.description|default:"—" }}</td>
+          <td class="num">{% if line.debit_amount > 0 %}<span class="font-semibold">{{ line.debit_amount|money }}</span>{% else %}<span class="text-ink-muted">—</span>{% endif %}</td>
+          <td class="num">{% if line.credit_amount > 0 %}<span class="font-semibold">{{ line.credit_amount|money }}</span>{% else %}<span class="text-ink-muted">—</span>{% endif %}</td>
         </tr>
+        {% empty %}
+        <tr class="empty-row"><td colspan="4">No lines on this entry.</td></tr>
         {% endfor %}
-        <tr class="bg-gray-50/50 border-t-2 border-gray-200">
-          <td colspan="2" class="px-4 py-3 font-semibold text-gray-700">Total</td>
-          <td class="px-4 py-3 text-right font-mono font-bold text-gray-900">{{ entry.total_debit|floatformat:2 }}</td>
-          <td class="px-4 py-3 text-right font-mono font-bold text-gray-900">{{ entry.total_credit|floatformat:2 }}</td>
-        </tr>
       </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Total</td>
+          <td class="num">{{ entry.total_debit|money }}</td>
+          <td class="num">{{ entry.total_credit|money }}</td>
+        </tr>
+      </tfoot>
     </table>
   </div>
-</div>
+</section>
 {% endblock %}

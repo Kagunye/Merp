@@ -1,91 +1,91 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="General Ledger" launcher_subtitle="Manage your chart of accounts and journal entries" %}
 
+{% can_do "accounting:account_list" as may_coa %}{% can_do "reporting:balance_sheet" as may_bs %}{% can_do "accounting:journal_entry_list" as may_je %}
+{% if may_coa %}{% url 'accounting:account_list' as accounts_url %}{% endif %}
+{% if may_bs %}{% url 'reporting:balance_sheet' as bs_url %}{% endif %}
+{% if may_je %}{% url 'accounting:journal_entry_list' as je_url %}{% endif %}
+<div class="stat-grid mb-2">
+  {% include "_includes/stat.html" with label="Accounts" value=account_count|default:0 icon="clipboard" tone="neutral" url=accounts_url only %}
+  {% if may_bs %}
+  {% include "_includes/stat.html" with label="Total assets" value=asset_balance|default:0 money=True icon="trending-up" tone="brand" url=bs_url only %}
+  {% include "_includes/stat.html" with label="Total liabilities" value=liability_balance|default:0 money=True icon="trending-down" tone="warning" url=bs_url only %}
+  {% endif %}
+  {% include "_includes/stat.html" with label="Draft entries" value=draft_count|default:0 icon="edit" tone="info" url=je_url only %}
+</div>
+
 <div class="launcher-section-label">
   Processing
-  <span class="launcher-section-count">8 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'accounting:journal_entry_create' %}" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Journal Entry</span></a>
-  <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-rose">💰</div><span class="label">Receipt &amp; Payment Journal</span></a>
-  <a href="{% url 'banking:transfer_create' %}" class="launcher-tile"><div class="ico ico-amber">🔁</div><span class="label">Bank Transfer</span></a>
-  <a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-sky">🧾</div><span class="label">Deposit Slips</span></a>
-  <a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-slate">⚖️</div><span class="label">Reconciliation</span></a>
-  <a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-teal">🔗</div><span class="label">Account Open Item Allocations</span></a>
-  <a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-peach">📚</div><span class="label">Subsidiary Ledger</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">🗂️</div><span class="label">Merge Accounts</span></a>
+  {% can_do "accounting:journal_entry_create" as g_get %}{% can_do "accounting:journal_entry_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'accounting:journal_entry_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Journal Entry</span></a>{% endif %}
+  {% can_do "sales:payment_list" as g_get %}{% if g_get %}<a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Receipt &amp; Payment Journal</span></a>{% endif %}
+  {% can_do "banking:transfer_create" as g_get %}{% can_do "banking:transfer_create" "POST" as g_post %}{% if g_get and g_post %}<a href="{% url 'banking:transfer_create' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Bank Transfer</span></a>{% endif %}
+  {% can_do "banking:transaction_list" as g_get %}{% if g_get %}<a href="{% url 'banking:transaction_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Deposit Slips</span></a>{% endif %}
+  {% can_do "banking:reconciliation_list" as g_get %}{% if g_get %}<a href="{% url 'banking:reconciliation_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Reconciliation</span></a>{% endif %}
+  {% can_do "sales:payment_list" as g_get %}{% if g_get %}<a href="{% url 'sales:payment_list' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Account Open Item Allocations</span></a>{% endif %}
+  {% can_do "accounting:general_ledger" as g_get %}{% if g_get %}<a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Subsidiary Ledger</span></a>{% endif %}
+  {% can_do "accounting:account_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="inbox" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Merge Accounts</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
   Reports
-  <span class="launcher-section-count">6 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'accounting:trial_balance' %}" class="launcher-tile"><div class="ico ico-slate">⚖️</div><span class="label">Trial Balance</span></a>
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Profit &amp; Loss</span></a>
-  <a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Balance Sheet</span></a>
-  <a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Account Balances</span></a>
-  <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-peach">📚</div><span class="label">General Ledger</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Chart of Accounts</span></a>
+  {% can_do "accounting:trial_balance" as g_get %}{% if g_get %}<a href="{% url 'accounting:trial_balance' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Trial Balance</span></a>{% endif %}
+  {% can_do "reporting:profit_loss" as g_get %}{% if g_get %}<a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Profit &amp; Loss</span></a>{% endif %}
+  {% can_do "reporting:balance_sheet" as g_get %}{% if g_get %}<a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Balance Sheet</span></a>{% endif %}
+  {% can_do "accounting:general_ledger" as g_get %}{% if g_get %}<a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Account Balances</span></a>{% endif %}
+  {% can_do "accounting:journal_entry_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">General Ledger</span></a>{% endif %}
+  {% can_do "accounting:account_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Chart of Accounts</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
   Maintenance
-  <span class="launcher-section-count">7 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Accounts</span></a>
-  <a href="{% url 'accounting:currency_list' %}" class="launcher-tile"><div class="ico ico-mint">💱</div><span class="label">Currencies &amp; Rates</span></a>
-  <a href="{% url 'accounting:revaluation' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Exchange Revaluation</span></a>
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Account Sets</span></a>
-  <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Journal Codes</span></a>
-  <a href="{% url 'accounting:fiscal_year_list' %}" class="launcher-tile"><div class="ico ico-peach">📜</div><span class="label">Contract Management</span></a>
+  {% can_do "accounting:account_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Accounts</span></a>{% endif %}
+  {% can_do "accounting:currency_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:currency_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Currencies &amp; Rates</span></a>{% endif %}
+  {% can_do "accounting:revaluation" as g_get %}{% if g_get %}<a href="{% url 'accounting:revaluation' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Exchange Revaluation</span></a>{% endif %}
+  {% can_do "organizations:department_list" as g_get %}{% if g_get %}<a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Departments</span></a>{% endif %}
+  {% can_do "accounting:account_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Account Sets</span></a>{% endif %}
+  {% can_do "accounting:journal_entry_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Journal Codes</span></a>{% endif %}
+  {% can_do "accounting:fiscal_year_list" as g_get %}{% if g_get %}<a href="{% url 'accounting:fiscal_year_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Contract Management</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
   Profit Centers
-  <span class="launcher-section-count">2 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'organizations:branch_list' %}" class="launcher-tile"><div class="ico ico-sky">🏷️</div><span class="label">Profit Centers</span></a>
-  <a href="{% url 'accounting:opening_balances' %}" class="launcher-tile"><div class="ico ico-rose">🧩</div><span class="label">Profit Centers Templates</span></a>
+  {% can_do "organizations:branch_list" as g_get %}{% if g_get %}<a href="{% url 'organizations:branch_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Profit Centers</span></a>{% endif %}
+  {% can_do "accounting:opening_balances" as g_get %}{% if g_get %}<a href="{% url 'accounting:opening_balances' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Profit Centers Templates</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:40px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Accounts</div><div class="text-2xl font-bold text-gray-900">{{ account_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total assets</div><div class="text-2xl font-bold" style="color: var(--primary);">{{ asset_balance|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total liabilities</div><div class="text-2xl font-bold text-amber-600">{{ liability_balance|floatformat:2|default:"0.00" }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Draft entries</div><div class="text-2xl font-bold text-gray-900">{{ draft_count|default:0 }}</div></div>
-</div>
-
-<h2 class="text-sm font-semibold text-gray-700 mb-3">Recent journal entries</h2>
-<div class="bg-white rounded-xl border overflow-hidden mb-10">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-      <tr>
-        <th class="px-4 py-3 text-left">Date</th>
-        <th class="px-4 py-3 text-left">Reference</th>
-        <th class="px-4 py-3 text-left">Narration</th>
-        <th class="px-4 py-3 text-left">Status</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for e in recent_entries %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2">{{ e.posting_date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 font-mono text-xs"><a href="{% url 'accounting:journal_entry_detail' e.pk %}" style="color:var(--primary)">{{ e.reference }}</a></td>
-        <td class="px-4 py-2">{{ e.notes|truncatechars:60 }}</td>
-        <td class="px-4 py-2">
-          <span class="badge {% if e.status == 'POSTED' %}bg-green-50 text-green-700{% else %}bg-gray-100 text-gray-500{% endif %} text-xs px-2 py-0.5">{{ e.get_status_display }}</span>
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">No journal entries yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+{% if may_je %}
+<section class="card mb-10 mt-8 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Recent journal entries</h2>
+    <a href="{% url 'accounting:journal_entry_list' %}" class="card-link">View all →</a>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Date</th><th>Reference</th><th>Narration</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for e in recent_entries %}
+        <tr>
+          <td class="whitespace-nowrap text-ink-2">{{ e.posting_date|date:"d M Y" }}</td>
+          <td class="mono"><a href="{% url 'accounting:journal_entry_detail' e.pk %}" class="row-link">{{ e.reference }}</a></td>
+          <td class="text-ink-2">{{ e.notes|truncatechars:60 }}</td>
+          <td>{% status_badge e.status e.get_status_display %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No journal entries yet." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

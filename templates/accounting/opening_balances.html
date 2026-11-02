@@ -2,54 +2,61 @@
 {% load ui_extras %}
 {% block content %}
 {% url 'accounting:index' as back_url %}
-{% include "_includes/page_header.html" with title="Opening Balances" subtitle="Enter balances by account. Total debits must equal total credits." back_url=back_url %}
+{% include "_includes/page_header.html" with title="Opening Balances" subtitle="Enter balances by account. Total debits must equal total credits." back_url=back_url back_label="General Ledger" hide_print=True %}
 {% can_do "accounting:opening_balances" "POST" as may_post %}
 
 {% if live_opening %}
-<div class="rounded-xl border px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 mb-4" style="background:#F9FAFB;border-color:#E5E7EB;color:#4B5563">
-  <span>This book's opening balances are in <a class="font-mono hover:underline" style="color:var(--primary)" href="{% url 'accounting:journal_entry_detail' live_opening.pk %}">{{ live_opening.reference }}</a>, dated {{ live_opening.posting_date|date:"d M Y" }}. A book is opened once: to correct them, reverse them here and enter the corrected set.</span>
-  {% if may_post %}
-  <form method="post" onsubmit="return confirm('Reverse the opening balances in {{ live_opening.reference }}? Every account they opened goes back to nothing on {{ live_opening.posting_date|date:"d M Y" }}.')">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="reverse">
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-red-700 border border-red-200 bg-white rounded-lg hover:bg-red-50">Reverse opening balances</button>
-  </form>
-  {% endif %}
+<div class="alert alert-info mb-5" role="status">
+  {% include "_includes/icon.html" with name="info" only %}
+  <div class="alert-body flex flex-wrap items-center justify-between gap-3">
+    <span>This book's opening balances are in <a class="link mono" href="{% url 'accounting:journal_entry_detail' live_opening.pk %}">{{ live_opening.reference }}</a>, dated {{ live_opening.posting_date|date:"d M Y" }}. A book is opened once: to correct them, reverse them here and enter the corrected set.</span>
+    {% if may_post %}
+    <form method="post" class="inline" onsubmit="return confirm('Reverse the opening balances in {{ live_opening.reference|escapejs }}? Every account they opened goes back to nothing on {{ live_opening.posting_date|date:"d M Y"|escapejs }}.')">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="reverse">
+      <button type="submit" class="btn btn-danger-ghost btn-sm">Reverse opening balances</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 {% endif %}
 
-<form method="post" class="space-y-4">
+<form method="post" class="no-card space-y-5">
   {% csrf_token %}
-  <div class="bg-white rounded-xl border border-gray-200 p-4 flex items-end gap-4">
-    <div>
-      <label for="id_posting_date" class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Posting date</label>
-      <input id="id_posting_date" type="date" name="posting_date" required class="form-input border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+  <section class="card card-body">
+    <div class="flex flex-wrap items-end gap-4">
+      <div class="form-field">
+        <label for="id_posting_date" class="form-label">Posting date<span class="form-required" aria-hidden="true">*</span></label>
+        <input id="id_posting_date" type="date" name="posting_date" required class="input">
+      </div>
+      <p class="form-help flex-1">A single journal entry labelled "Opening balances" will be created and posted.</p>
     </div>
-    <p class="text-xs text-gray-500 flex-1">A single journal entry labelled "Opening balances" will be created and posted.</p>
-  </div>
+  </section>
 
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-        <tr><th class="px-4 py-3 text-left">Code</th><th class="px-4 py-3 text-left">Account</th><th class="px-4 py-3 text-left">Type</th><th class="px-4 py-3 text-right">Debit</th><th class="px-4 py-3 text-right">Credit</th></tr>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead>
+        <tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Debit</th><th class="num">Credit</th></tr>
       </thead>
-      <tbody class="divide-y divide-gray-100">
+      <tbody>
         {% for acc in accounts %}
         <tr>
-          <td class="px-4 py-2 font-mono text-xs text-gray-500">{{ acc.code }}</td>
-          <td class="px-4 py-2 font-medium">{{ acc.name }}</td>
-          <td class="px-4 py-2 text-xs text-gray-500">{{ acc.get_account_type_display }}</td>
-          <td class="px-4 py-2 text-right"><input type="number" step="0.01" name="dr_{{ acc.pk }}" class="form-input w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right font-mono" placeholder="0.00" /></td>
-          <td class="px-4 py-2 text-right"><input type="number" step="0.01" name="cr_{{ acc.pk }}" class="form-input w-32 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right font-mono" placeholder="0.00" /></td>
+          <td class="mono text-xs text-ink-muted">{{ acc.code }}</td>
+          <td class="font-medium">{{ acc.name }}</td>
+          <td class="text-xs text-ink-muted">{{ acc.get_account_type_display }}</td>
+          <td class="num"><input type="number" step="0.01" name="dr_{{ acc.pk }}" class="input input-sm ml-auto w-32 text-right tabular-nums" placeholder="0.00" aria-label="Debit for {{ acc.code }} {{ acc.name }}"></td>
+          <td class="num"><input type="number" step="0.01" name="cr_{{ acc.pk }}" class="input input-sm ml-auto w-32 text-right tabular-nums" placeholder="0.00" aria-label="Credit for {{ acc.code }} {{ acc.name }}"></td>
         </tr>
+        {% empty %}
+        <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No accounts to open." compact=True only %}</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <div class="flex items-center gap-3">
-    {% if may_post %}<button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Post Opening Balances</button>{% endif %}
-    <a href="{% url 'accounting:index' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
+  <div class="form-actions">
+    <a href="{% url 'accounting:index' %}" class="btn btn-ghost">Cancel</a>
+    {% if may_post %}<button type="submit" class="btn btn-primary">Post Opening Balances</button>{% endif %}
   </div>
 </form>
 {% endblock %}

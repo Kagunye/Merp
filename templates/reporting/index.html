@@ -1,27 +1,37 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Reports" launcher_subtitle="Financial statements and aged balances" %}
+{% can_do "reporting:profit_loss" as g_pl %}{% can_do "reporting:balance_sheet" as g_bs %}{% can_do "reporting:trial_balance" as g_tb %}{% can_do "reporting:cash_flow" as g_cf %}
+{% can_do "reporting:aged_debtors" as g_ad %}{% can_do "reporting:aged_creditors" as g_ac %}{% can_do "sales:ar_aging" as g_ar %}{% can_do "procurement:ap_aging" as g_ap %}
+{% can_do "accounting:general_ledger" as g_gl %}{% can_do "accounting:journal_entry_list" as g_je %}{% can_do "accounting:account_list" as g_coa %}
 
+{% if g_pl or g_bs or g_tb or g_cf %}
 <div class="launcher-section-label">Financial Statements</div>
 <div class="launcher-grid">
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Profit &amp; Loss</span></a>
-  <a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Balance Sheet</span></a>
-  <a href="{% url 'reporting:trial_balance' %}" class="launcher-tile"><div class="ico ico-slate">⚖️</div><span class="label">Trial Balance</span></a>
-  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">💧</div><span class="label">Cash Flow</span></a>
+  {% if g_pl %}<a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Profit &amp; Loss</span></a>{% endif %}
+  {% if g_bs %}<a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Balance Sheet</span></a>{% endif %}
+  {% if g_tb %}<a href="{% url 'reporting:trial_balance' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Trial Balance</span></a>{% endif %}
+  {% if g_cf %}<a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cash Flow</span></a>{% endif %}
 </div>
+{% endif %}
 
+{% if g_ad or g_ac or g_ar or g_ap %}
 <div class="launcher-section-label">Receivables &amp; Payables</div>
 <div class="launcher-grid">
-  <a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-rose">⏱️</div><span class="label">Aged Debtors</span></a>
-  <a href="{% url 'reporting:aged_creditors' %}" class="launcher-tile"><div class="ico ico-peach">⏱️</div><span class="label">Aged Creditors</span></a>
-  <a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-amber">📥</div><span class="label">AR Aging</span></a>
-  <a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-violet">📤</div><span class="label">AP Aging</span></a>
+  {% if g_ad %}<a href="{% url 'reporting:aged_debtors' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Aged Debtors</span></a>{% endif %}
+  {% if g_ac %}<a href="{% url 'reporting:aged_creditors' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Aged Creditors</span></a>{% endif %}
+  {% if g_ar %}<a href="{% url 'sales:ar_aging' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="download" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">AR Aging</span></a>{% endif %}
+  {% if g_ap %}<a href="{% url 'procurement:ap_aging' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">AP Aging</span></a>{% endif %}
 </div>
+{% endif %}
 
+{% if g_gl or g_je or g_coa %}
 <div class="launcher-section-label">Ledger &amp; Journals</div>
 <div class="launcher-grid">
-  <a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-peach">📚</div><span class="label">General Ledger</span></a>
-  <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-mint">📝</div><span class="label">Journal Entries</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">📋</div><span class="label">Chart of Accounts</span></a>
+  {% if g_gl %}<a href="{% url 'accounting:general_ledger' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">General Ledger</span></a>{% endif %}
+  {% if g_je %}<a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Journal Entries</span></a>{% endif %}
+  {% if g_coa %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Chart of Accounts</span></a>{% endif %}
 </div>
+{% endif %}
 {% endblock %}

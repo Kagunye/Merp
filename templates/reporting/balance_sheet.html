@@ -1,89 +1,83 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Balance Sheet — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Balance Sheet</h1>
-    <p class="text-sm text-gray-500 mt-1">As at {{ date_to }}</p>
-  </div>
-  <div class="flex items-center gap-2">
-    {% include "_includes/print_button.html" %}
-    <a href="{% url 'reporting:index' %}" class="no-print px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
-  </div>
+{% url 'reporting:index' as reports_url %}
+{% with t=date_to|date:"d M Y" %}{% with sub="As at "|add:t %}
+{% include "_includes/page_header.html" with title="Balance Sheet" subtitle=sub secondary_label="All Reports" secondary_url=reports_url %}
+{% endwith %}{% endwith %}
+
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="reporting/_date_range.html" hide_from=True submit_label="Run" %}
+
+<div class="stat-grid mb-5">
+  {% include "_includes/stat.html" with label="Total Assets" value=total_assets money=True icon="trending-up" tone="info" only %}
+  {% include "_includes/stat.html" with label="Total Liabilities" value=total_liabilities money=True icon="trending-down" tone="warning" only %}
+  {% include "_includes/stat.html" with label="Total Equity" value=total_equity money=True icon="building" tone="brand" only %}
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="no-print flex flex-wrap gap-3">
-    <div><label for="id_date_to" class="text-xs text-gray-500">As at</label><input id="id_date_to" type="date" name="date_to" value="{{ date_to|date:'Y-m-d' }}" class="block border border-gray-300 rounded-lg px-3 py-1.5 text-sm"></div>
-    <div class="self-end"><button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Run</button></div>
-  </form>
-</div>
+<div class="grid max-w-5xl grid-cols-1 gap-5 lg:grid-cols-2">
+  <section class="card overflow-hidden">
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Assets</th><th class="num">Balance</th></tr></thead>
+        <tbody>
+          {% for row in asset_rows %}
+          <tr><td class="pl-8"><span class="mono mr-2 text-xs text-ink-muted">{{ row.account.code }}</span>{{ row.account.name }}</td><td class="num">{{ row.balance|money }}</td></tr>
+          {% empty %}
+          <tr><td colspan="2" class="pl-8 text-ink-muted">No asset accounts.</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="text-base"><td class="border-t-4 border-double border-line-strong font-bold">Total Assets</td><td class="num border-t-4 border-double border-line-strong font-bold">{{ total_assets|money }}</td></tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-4xl">
-  <!-- Assets -->
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Assets</h3>
-    {% for row in asset_rows %}
-    <div class="flex justify-between text-sm py-1.5">
-      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
-      <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
-    </div>
-    {% empty %}<p class="text-sm text-gray-400 mb-2">No asset accounts.</p>{% endfor %}
-    <div class="flex justify-between text-base font-bold border-t-2 border-gray-400 pt-3 mt-3">
-      <span>Total Assets</span>
-      <span class="font-mono text-gray-900">{{ total_assets|floatformat:2 }}</span>
-    </div>
-  </div>
+  <section class="card overflow-hidden">
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Liabilities &amp; Equity</th><th class="num">Balance</th></tr></thead>
+        <tbody>
+          <tr><td colspan="2" class="section-title bg-surface-2 pt-4">Liabilities</td></tr>
+          {% for row in liability_rows %}
+          <tr><td class="pl-8"><span class="mono mr-2 text-xs text-ink-muted">{{ row.account.code }}</span>{{ row.account.name }}</td><td class="num">{{ row.balance|money }}</td></tr>
+          {% empty %}
+          <tr><td colspan="2" class="pl-8 text-ink-muted">No liability accounts.</td></tr>
+          {% endfor %}
+          <tr class="font-semibold"><td class="border-t-2 border-line-strong">Total Liabilities</td><td class="num border-t-2 border-line-strong">{{ total_liabilities|money }}</td></tr>
 
-  <!-- Liabilities & Equity -->
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">Liabilities</h3>
-    {% for row in liability_rows %}
-    <div class="flex justify-between text-sm py-1.5">
-      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
-      <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
+          <tr><td colspan="2" class="section-title bg-surface-2 pt-4">Equity</td></tr>
+          {% for row in equity_rows %}
+          <tr><td class="pl-8"><span class="mono mr-2 text-xs text-ink-muted">{{ row.account.code }}</span>{{ row.account.name }}</td><td class="num">{{ row.balance|money }}</td></tr>
+          {% empty %}
+          <tr><td colspan="2" class="pl-8 text-ink-muted">No equity accounts.</td></tr>
+          {% endfor %}
+          {% if shows_profit %}
+          <tr class="italic"><td class="pl-8 text-ink-2">Current year profit{% if current_year_profit < 0 %} (loss){% endif %}</td><td class="num">{{ current_year_profit|money }}</td></tr>
+          {% if earlier_unclosed_profit %}
+          <tr class="italic"><td class="pl-8 text-ink-2" title="Posted before {{ current_year_start|date:'d M Y' }} and not yet closed by any year end: dated before the first fiscal year, or in a year still open.">Earlier profit not yet closed{% if earlier_unclosed_profit < 0 %} (loss){% endif %}</td><td class="num">{{ earlier_unclosed_profit|money }}</td></tr>
+          {% endif %}
+          {% endif %}
+          <tr class="font-semibold"><td class="border-t-2 border-line-strong">Total Equity</td><td class="num border-t-2 border-line-strong">{{ total_equity|money }}</td></tr>
+        </tbody>
+        <tfoot>
+          <tr class="text-base"><td class="border-t-4 border-double border-line-strong font-bold">Total Liabilities + Equity</td><td class="num border-t-4 border-double border-line-strong font-bold">{{ total_liab_equity|money }}</td></tr>
+        </tfoot>
+      </table>
     </div>
-    {% empty %}<p class="text-sm text-gray-400 mb-2">No liability accounts.</p>{% endfor %}
-    <div class="flex justify-between text-sm font-semibold border-t border-gray-200 pt-2 mt-2">
-      <span>Total Liabilities</span><span class="font-mono">{{ total_liabilities|floatformat:2 }}</span>
-    </div>
-
-    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mt-6 mb-3">Equity</h3>
-    {% for row in equity_rows %}
-    <div class="flex justify-between text-sm py-1.5">
-      <span class="text-gray-600">{{ row.account.code }} — {{ row.account.name }}</span>
-      <span class="font-mono text-gray-900">{{ row.balance|floatformat:2 }}</span>
-    </div>
-    {% empty %}<p class="text-sm text-gray-400 mb-2">No equity accounts.</p>{% endfor %}
-    {% if shows_profit %}
-    <div class="flex justify-between text-sm py-1.5 italic">
-      <span class="text-gray-600">Current year profit{% if current_year_profit < 0 %} (loss){% endif %}</span>
-      <span class="font-mono text-gray-900">{{ current_year_profit|floatformat:2 }}</span>
-    </div>
-    {% if earlier_unclosed_profit %}
-    <div class="flex justify-between text-sm py-1.5 italic">
-      <span class="text-gray-600" title="Posted before {{ current_year_start|date:'d M Y' }} and not yet closed by any year end: dated before the first fiscal year, or in a year still open.">Earlier profit not yet closed{% if earlier_unclosed_profit < 0 %} (loss){% endif %}</span>
-      <span class="font-mono text-gray-900">{{ earlier_unclosed_profit|floatformat:2 }}</span>
-    </div>
-    {% endif %}
-    {% endif %}
-    <div class="flex justify-between text-sm font-semibold border-t border-gray-200 pt-2 mt-2">
-      <span>Total Equity</span><span class="font-mono">{{ total_equity|floatformat:2 }}</span>
-    </div>
-
-    <div class="flex justify-between text-base font-bold border-t-2 border-gray-400 pt-3 mt-3">
-      <span>Total Liabilities + Equity</span>
-      <span class="font-mono text-gray-900">{{ total_liab_equity|floatformat:2 }}</span>
-    </div>
-  </div>
+  </section>
 </div>
 
 {% if is_balanced %}
-<p class="mt-4 text-xs text-green-700">Assets equal liabilities plus equity — the books balance as at {{ date_to }}.</p>
+<p class="mt-4 flex items-center gap-1.5 text-xs pos">{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4" only %}Assets equal liabilities plus equity — the books balance as at {{ date_to }}.</p>
 {% else %}
-<div class="mt-4 rounded-lg border px-4 py-3 text-sm" style="background:#FEF2F2;border-color:#FCA5A5;color:#B91C1C">
-  Out of balance by {{ balancing_error|floatformat:2 }}. A posted journal entry that does not agree on both sides,
-  or accounts that fall outside the asset, liability and equity groups, will do this — check the trial balance.
+<div class="alert alert-danger mt-4" role="alert">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">
+    Out of balance by {{ balancing_error|money }}. A posted journal entry that does not agree on both sides,
+    or accounts that fall outside the asset, liability and equity groups, will do this — check the trial balance.
+  </div>
 </div>
 {% endif %}
 {% endblock %}

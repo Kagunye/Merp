@@ -1,0 +1,4 @@
+{% load ui_extras %}{% can_do "fixed_assets:asset_edit" "POST" as may_edit %}{% can_do "fixed_assets:asset_depreciate" "POST" as may_dep %}{% can_do "fixed_assets:asset_dispose" "POST" as may_dispose %}
+{% if may_edit %}<a href="{% url 'fixed_assets:asset_edit' asset.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" only %}Edit</a>{% endif %}
+{% if asset.status == 'ACTIVE' and may_dispose %}<a href="{% url 'fixed_assets:asset_dispose' asset.pk %}" class="btn btn-danger-ghost">Dispose Asset</a>{% endif %}
+{% if asset.status == 'ACTIVE' and next_period and may_dep %}<a href="{% url 'fixed_assets:asset_depreciate' asset.pk %}" class="btn btn-primary">{% include "_includes/icon.html" with name="refresh" only %}Run Depreciation</a>{% endif %}

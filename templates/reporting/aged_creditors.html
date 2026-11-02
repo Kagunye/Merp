@@ -1,67 +1,51 @@
 {% extends "base/base.html" %}
-{% load reporting_extras %}
+{% load reporting_extras ui_extras %}
 {% block title %}Aged Creditors — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Aged Creditors</h1>
-    <p class="text-sm text-gray-500 mt-1">As at {{ today }} · aged in {{ book }}, the currency the ledger keeps</p>
-  </div>
-  <div class="flex items-center gap-2">
-    {% include "_includes/print_button.html" %}
-    <a href="{% url 'reporting:index' %}" class="no-print px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">All Reports</a>
-  </div>
-</div>
+{% url 'reporting:index' as reports_url %}
+{% with d=today|date:"d M Y" bk=book|default:"" %}{% with sub="As at "|add:d|add:" · aged in "|add:bk|add:", the currency the ledger keeps" %}
+{% include "_includes/page_header.html" with title="Aged Creditors" subtitle=sub secondary_label="All Reports" secondary_url=reports_url %}
+{% endwith %}
 
-<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-  {% for bucket, total in totals.items %}
-  <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
-    <p class="text-sm text-gray-500">{% if bucket == 'Current' %}Current (not yet due){% else %}{{ bucket }} days overdue{% endif %}</p>
-    <p class="text-xl font-bold text-gray-900 mt-1">{{ total|floatformat:2 }} <span class="text-xs font-medium text-gray-500">{{ book }}</span></p>
-  </div>
-  {% endfor %}
-</div>
-<div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex justify-between items-center">
-  <span class="text-sm font-semibold text-red-900">Total Outstanding</span>
-  <span class="text-xl font-bold text-red-900">{{ grand_total|floatformat:2 }} <span class="text-xs font-medium">{{ book }}</span></span>
-</div>
+{% include "reporting/_ageing_stats.html" %}
+
+<section class="card mb-5 max-w-3xl">
+  <dl class="dl-rows px-5 py-2">
+    <div><dt class="font-semibold text-ink">Total Outstanding</dt><dd class="num text-base font-bold">{{ grand_total|money:bk }}</dd></div>
+  </dl>
+</section>
 
 {% for bucket, bills in buckets.items %}
 {% if bills %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-  <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-    <h3 class="text-sm font-semibold text-gray-700">{% if bucket == 'Current' %}Current — not yet due{% else %}{{ bucket }} Days Overdue{% endif %}</h3>
-    <span class="font-mono font-semibold text-gray-900">{{ totals|get_item:bucket|floatformat:2 }}</span>
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">{% if bucket == 'Current' %}Current — not yet due{% else %}{{ bucket }} Days Overdue{% endif %} <span class="tab-count ml-1">{{ bills|length }}</span></h2>
+    <span class="num font-semibold">{{ totals|get_item:bucket|money }}</span>
   </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Bill</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Supplier</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Bill Date</th>
-        <th class="px-4 py-2 text-left font-semibold text-gray-700">Due Date</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">On the paper</th>
-        <th class="px-4 py-2 text-right font-semibold text-gray-700">Outstanding ({{ book }})</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for bill in bills %}
-      <tr>
-        <td class="px-4 py-2 text-gray-900">{{ bill.reference }}</td>
-        <td class="px-4 py-2 text-gray-900">{{ bill.supplier.name }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ bill.bill_date }}</td>
-        <td class="px-4 py-2 text-gray-600">{{ bill.due_date }}</td>
-        <td class="px-4 py-2 text-right font-mono text-gray-500">{{ bill.outstanding_amount|floatformat:2 }} <span class="text-xs">{{ bill.currency }}</span></td>
-        <td class="px-4 py-2 text-right font-mono text-red-600">{{ bill.outstanding_base|floatformat:2 }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Bill</th><th>Supplier</th><th>Bill Date</th><th>Due Date</th><th class="num">On the paper</th><th class="num">Outstanding ({{ book }})</th></tr></thead>
+      <tbody>
+        {% for bill in bills %}
+        <tr>
+          <td class="mono">{{ bill.reference }}</td>
+          <td>{{ bill.supplier.name }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ bill.bill_date|date:"d M Y" }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ bill.due_date|date:"d M Y" }}</td>
+          <td class="num text-ink-muted">{{ bill.outstanding_amount|money:bill.currency }}</td>
+          <td class="num font-semibold">{{ bill.outstanding_base|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="5">Total</td><td class="num">{{ totals|get_item:bucket|money }}</td></tr></tfoot>
+    </table>
+  </div>
+</section>
 {% endif %}
 {% endfor %}
 
 {% if not grand_total %}
-<div class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">No outstanding bills.</div>
+<section class="card">{% include "_includes/empty_state.html" with icon="check-circle" title="No outstanding bills." only %}</section>
 {% endif %}
+{% endwith %}
 {% endblock %}

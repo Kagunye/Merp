@@ -1,153 +1,145 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-<div class="space-y-5">
-  <div class="flex items-center justify-between flex-wrap gap-3">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5">An open foreign balance was booked at the rate of its own day. A balance sheet drawn on another day should say what it is worth <em>then</em> — the difference is unrealised, so it goes to its own accounts and leaves receivables and payables where the subledger puts them.</p>
-    </div>
-    <div class="flex gap-2">
-      <a href="{% url 'accounting:currency_list' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Currencies &amp; Rates</a>
-      <a href="{% url 'accounting:exchange_rate_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">File a Rate</a>
-    </div>
-  </div>
+{% include "_includes/page_header.html" with title=page_title subtitle="An open foreign balance was booked at the rate of its own day. A balance sheet drawn on another day should say what it is worth then — the difference is unrealised, so it goes to its own accounts and leaves receivables and payables where the subledger puts them." actions_template="accounting/_revaluation_actions.html" %}
 
-  <form method="get" class="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-end flex-wrap gap-3">
-    <div>
-      <label for="id_date" class="block text-xs font-medium text-gray-600 mb-1">Value the open balances as at</label>
-      <input id="id_date" type="date" name="date" value="{{ as_of|date:'Y-m-d' }}" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm">
-    </div>
-    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Read the balances</button>
-    <p class="text-xs text-gray-500 pb-2">Reading changes nothing — it is a page of figures until you post it.</p>
-  </form>
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="accounting/_revaluation_filters.html" submit_label="Read the balances" %}
+<p class="-mt-2 mb-5 text-xs text-ink-muted no-print">Reading changes nothing — it is a page of figures until you post it.</p>
 
-  {% if period_warn %}
-  <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+{% if period_warn %}
+<div class="alert alert-warning mb-5" role="status">
+  {% include "_includes/icon.html" with name="calendar" only %}
+  <div class="alert-body">
     {% if period %}
     {{ period.name }} of {{ period.fiscal_year.name }} is {{ period.get_status_display|lower }}{% if period.fiscal_year.is_closed %}, and its fiscal year is closed{% endif %}. A revaluation dated {{ as_of|date:"d M Y" }} would land inside it.
     {% else %}
     No accounting period covers {{ as_of|date:"d M Y" }} — the entry would be posted without a period.
     {% endif %}
   </div>
-  {% endif %}
+</div>
+{% endif %}
 
-  {% if position.missing %}
-  <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+{% if position.missing %}
+<div class="alert alert-warning mb-5" role="status">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">
     No rate has been filed for {% for code in position.missing %}{{ code }}{% if not forloop.last %}, {% endif %}{% endfor %} on or before {{ as_of|date:"d M Y" }}, so {% if position.missing|length > 1 %}those balances{% else %}that balance{% endif %} cannot be valued. File a rate and read the day again — nothing is posted for a currency you cannot price.
   </div>
-  {% endif %}
+</div>
+{% endif %}
 
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
-      <h2 class="text-sm font-semibold text-gray-900">Open foreign balances at {{ as_of|date:"d M Y" }}</h2>
-      <span class="text-xs text-gray-500">Filed rates, not a live feed</span>
-    </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
-          <tr>
-            <th class="px-4 py-2" rowspan="2">Currency</th>
-            <th class="px-4 py-2" rowspan="2">Rate on the day</th>
-            <th class="px-4 py-2 text-center border-l border-gray-200" colspan="4">Receivables owed to you</th>
-            <th class="px-4 py-2 text-center border-l border-gray-200" colspan="4">Payables you owe</th>
-          </tr>
-          <tr>
-            <th class="px-4 py-2 text-right border-l border-gray-200">Foreign</th>
-            <th class="px-4 py-2 text-right">Carried</th>
-            <th class="px-4 py-2 text-right">Worth</th>
-            <th class="px-4 py-2 text-right">Difference</th>
-            <th class="px-4 py-2 text-right border-l border-gray-200">Foreign</th>
-            <th class="px-4 py-2 text-right">Carried</th>
-            <th class="px-4 py-2 text-right">Worth</th>
-            <th class="px-4 py-2 text-right">Difference</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
-          {% for row in position.rows %}
-          <tr>
-            <td class="px-4 py-3">
-              <span class="font-semibold text-gray-900">{{ row.code }}</span>
-              <div class="text-xs text-gray-500">{{ row.documents }} open document{{ row.documents|pluralize }}</div>
-            </td>
-            <td class="px-4 py-3 font-mono text-gray-600">1 = {{ row.rate|trim_qty }} {{ book }}</td>
-            <td class="px-4 py-3 text-right font-mono border-l border-gray-100">{{ row.ar_foreign|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono text-gray-500">{{ row.ar_carried|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono">{{ row.ar_revalued|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono {% if row.ar_difference > 0 %}text-green-700{% elif row.ar_difference < 0 %}text-red-700{% else %}text-gray-400{% endif %}">{{ row.ar_difference|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono border-l border-gray-100">{{ row.ap_foreign|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono text-gray-500">{{ row.ap_carried|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono">{{ row.ap_revalued|floatformat:2 }}</td>
-            <td class="px-4 py-3 text-right font-mono {% if row.ap_difference > 0 %}text-red-700{% elif row.ap_difference < 0 %}text-green-700{% else %}text-gray-400{% endif %}">{{ row.ap_difference|floatformat:2 }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">Nothing is open in a foreign currency on {{ as_of|date:"d M Y" }} — every unpaid document is held in {{ book }}.</td></tr>
-          {% endfor %}
-        </tbody>
-        {% if position.rows %}
-        <tfoot class="bg-gray-50 border-t border-gray-200 text-sm">
-          <tr>
-            <td class="px-4 py-3 font-semibold text-gray-900" colspan="6">Net unrealised difference on receivables</td>
-            <td class="px-4 py-3 text-right font-mono font-semibold {% if total_receivable > 0 %}text-green-700{% elif total_receivable < 0 %}text-red-700{% else %}text-gray-400{% endif %}" colspan="4">{{ total_receivable|floatformat:2 }} {{ book }}</td>
-          </tr>
-          <tr>
-            <td class="px-4 py-3 font-semibold text-gray-900" colspan="6">Net unrealised difference on payables</td>
-            <td class="px-4 py-3 text-right font-mono font-semibold {% if total_payable > 0 %}text-red-700{% elif total_payable < 0 %}text-green-700{% else %}text-gray-400{% endif %}" colspan="4">{{ total_payable|floatformat:2 }} {{ book }}</td>
-          </tr>
-        </tfoot>
-        {% endif %}
-      </table>
-    </div>
-    <div class="px-4 py-3 border-t border-gray-100 flex items-end justify-between flex-wrap gap-3">
-      <p class="text-xs text-gray-500 max-w-2xl">
-        {% if position.missing %}
-        Nothing can be posted until every currency above has a rate for the day.
-        {% elif not position.rows %}
-        There is no open foreign balance to value on this date.
-        {% else %}
-        Posting moves {{ total_difference|floatformat:2 }} {{ book }} of unrealised exchange difference onto
-        {% if valuation %}
-        {% for account in valuation %}<a href="{% url 'accounting:account_ledger' account.pk %}" class="text-blue-600 hover:underline">{{ account.code }} {{ account.name }}</a>{% if not forloop.last %} and {% endif %}{% endfor %}
-        {% else %}
-        1350 FX Revaluation — Receivables and 2150 FX Revaluation — Payables
-        {% endif %}
-        and their unrealised gain or loss counterparts. The 1300 and 2100 control accounts are not touched, so the invoice and bill books still reconcile to them.
-        {% endif %}
-      </p>
-      <form method="post" action="{% url 'accounting:revaluation_post' %}">
+<section class="card mb-5 overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Open foreign balances at {{ as_of|date:"d M Y" }}</h2>
+    <span class="text-xs text-ink-muted">Filed rates, not a live feed</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th rowspan="2">Currency</th>
+          <th rowspan="2">Rate on the day</th>
+          <th class="border-l border-line text-center" colspan="4">Receivables owed to you</th>
+          <th class="border-l border-line text-center" colspan="4">Payables you owe</th>
+        </tr>
+        <tr>
+          <th class="num border-l border-line">Foreign</th>
+          <th class="num">Carried</th>
+          <th class="num">Worth</th>
+          <th class="num">Difference</th>
+          <th class="num border-l border-line">Foreign</th>
+          <th class="num">Carried</th>
+          <th class="num">Worth</th>
+          <th class="num">Difference</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in position.rows %}
+        <tr>
+          <td>
+            <span class="font-semibold">{{ row.code }}</span>
+            <div class="text-xs text-ink-muted">{{ row.documents }} open document{{ row.documents|pluralize }}</div>
+          </td>
+          <td class="mono whitespace-nowrap text-ink-2">1 = {{ row.rate|trim_qty }} {{ book }}</td>
+          <td class="num border-l border-line">{{ row.ar_foreign|money }}</td>
+          <td class="num text-ink-muted">{{ row.ar_carried|money }}</td>
+          <td class="num">{{ row.ar_revalued|money }}</td>
+          <td class="num font-semibold">{{ row.ar_difference|money }}</td>
+          <td class="num border-l border-line">{{ row.ap_foreign|money }}</td>
+          <td class="num text-ink-muted">{{ row.ap_carried|money }}</td>
+          <td class="num">{{ row.ap_revalued|money }}</td>
+          <td class="num font-semibold">{{ row.ap_difference|money }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" class="p-0">{% with d=as_of|date:"d M Y" bk=book|default:"" %}{% with t="Nothing is open in a foreign currency on "|add:d tx="Every unpaid document is held in "|add:bk|add:"." %}{% include "_includes/empty_state.html" with icon="cash" title=t text=tx compact=True only %}{% endwith %}{% endwith %}</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if position.rows %}
+      <tfoot>
+        <tr>
+          <td colspan="6">Net unrealised difference on receivables</td>
+          <td class="num" colspan="4">{{ total_receivable|money }} {{ book }}</td>
+        </tr>
+        <tr>
+          <td colspan="6">Net unrealised difference on payables</td>
+          <td class="num" colspan="4">{{ total_payable|money }} {{ book }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+  <div class="card-footer flex flex-wrap items-end justify-between gap-3">
+    <p class="max-w-2xl text-xs text-ink-muted">
+      {% if position.missing %}
+      Nothing can be posted until every currency above has a rate for the day.
+      {% elif not position.rows %}
+      There is no open foreign balance to value on this date.
+      {% else %}
+      Posting moves {{ total_difference|money }} {{ book }} of unrealised exchange difference onto
+      {% if valuation %}
+      {% for account in valuation %}<a href="{% url 'accounting:account_ledger' account.pk %}" class="link">{{ account.code }} {{ account.name }}</a>{% if not forloop.last %} and {% endif %}{% endfor %}
+      {% else %}
+      1350 FX Revaluation — Receivables and 2150 FX Revaluation — Payables
+      {% endif %}
+      and their unrealised gain or loss counterparts. The 1300 and 2100 control accounts are not touched, so the invoice and bill books still reconcile to them.
+      {% endif %}
+    </p>
+    {% can_do "accounting:revaluation_post" "POST" as may_post %}
+    {% if may_post %}
+    <form method="post" action="{% url 'accounting:revaluation_post' %}" class="inline no-print">
+      {% csrf_token %}
+      <input type="hidden" name="date" value="{{ as_of|date:'Y-m-d' }}">
+      <button type="submit" class="btn btn-primary disabled:opacity-50" {% if position.missing or not position.rows %}disabled{% endif %}>Post the revaluation</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card mb-5">
+  <div class="card-header"><h2 class="card-title">The revaluation the book is sitting on</h2></div>
+  <div class="card-body">
+    {% if live %}
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <a href="{% url 'accounting:journal_entry_detail' live.pk %}" class="row-link mono">{{ live.reference }}</a>
+        <span class="text-sm text-ink-2"> · posted {{ live.posting_date|date:"d M Y" }} · {{ live.total_debit|money }} {{ book }}</span>
+        <p class="mt-1 text-xs text-ink-muted">{{ live.notes }}</p>
+      </div>
+      {% can_do "accounting:revaluation_reverse" "POST" as may_reverse %}
+      {% if may_reverse %}
+      <form method="post" action="{% url 'accounting:revaluation_reverse' %}" class="inline no-print">
         {% csrf_token %}
         <input type="hidden" name="date" value="{{ as_of|date:'Y-m-d' }}">
-        <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:var(--primary)"
-                {% if position.missing or not position.rows %}disabled{% endif %}>Post the revaluation</button>
+        <button type="submit" class="btn btn-secondary">Reverse it</button>
       </form>
-    </div>
-  </div>
-
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-100">
-      <h2 class="text-sm font-semibold text-gray-900">The revaluation the book is sitting on</h2>
-    </div>
-    <div class="px-4 py-4">
-      {% if live %}
-      <div class="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <a href="{% url 'accounting:journal_entry_detail' live.pk %}" class="text-sm font-semibold text-blue-600 hover:underline">{{ live.reference }}</a>
-          <span class="text-sm text-gray-600"> · posted {{ live.posting_date|date:"d M Y" }} · {{ live.total_debit|floatformat:2 }} {{ book }}</span>
-          <p class="text-xs text-gray-500 mt-1">{{ live.notes }}</p>
-        </div>
-        <form method="post" action="{% url 'accounting:revaluation_reverse' %}">
-          {% csrf_token %}
-          <input type="hidden" name="date" value="{{ as_of|date:'Y-m-d' }}">
-          <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">Reverse it</button>
-        </form>
-      </div>
-      <p class="text-xs text-gray-500 mt-3">The book carries one revaluation at a time: posting a new date reverses this one first. Reversing takes the difference off the balance sheet and leaves every document at the rate it was raised at.</p>
-      {% else %}
-      <p class="text-sm text-gray-500">The book carries no revaluation right now — every foreign balance stands at the rate its own document was raised at.</p>
       {% endif %}
     </div>
+    <p class="mt-3 text-xs text-ink-muted">The book carries one revaluation at a time: posting a new date reverses this one first. Reversing takes the difference off the balance sheet and leaves every document at the rate it was raised at.</p>
+    {% else %}
+    <p class="text-sm text-ink-muted">The book carries no revaluation right now — every foreign balance stands at the rate its own document was raised at.</p>
+    {% endif %}
   </div>
+</section>
 
-  <p class="text-xs text-gray-500">A bank balance held in a foreign currency is not revalued here: the book records it in {{ book }} only, so there is no foreign quantity on hand to price. Payments settle the difference for real, and that realised exchange gain or loss is booked at the time.</p>
-</div>
+<p class="text-xs text-ink-muted">A bank balance held in a foreign currency is not revalued here: the book records it in {{ book }} only, so there is no foreign quantity on hand to price. Payments settle the difference for real, and that realised exchange gain or loss is booked at the time.</p>
 {% endblock %}

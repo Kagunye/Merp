@@ -1,23 +1,24 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-{% url 'accounting:trial_balance' as pa_url %}
-{% include "_includes/page_header.html" with title="General Ledger" subtitle="Chart of accounts organised by type, with balances as at today" action_label="Trial Balance" action_url=pa_url %}
+{% can_do "accounting:trial_balance" "GET" as may_tb %}
+{% if may_tb %}{% url 'accounting:trial_balance' as tb_url %}{% endif %}
+{% include "_includes/page_header.html" with title="General Ledger" subtitle="Chart of accounts organised by type, with balances as at today" secondary_label="Trial Balance" secondary_url=tb_url %}
 
 {% for bucket, accounts in buckets.items %}
 <section class="mb-6">
-  <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">{{ bucket }}</h2>
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-2 text-left">Code</th><th class="px-4 py-2 text-left">Name</th><th class="px-4 py-2 text-right">Balance at {{ as_at|date:"d M Y" }}</th>{% if any_future %}<th class="px-4 py-2 text-right" title="Posted with a date after today. Not in the balance until the day comes.">Dated after today</th>{% endif %}<th class="px-4 py-2"></th></tr></thead>
-      <tbody class="divide-y divide-gray-100">
+  <h2 class="section-title mb-2">{{ bucket }}</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Code</th><th>Name</th><th class="num">Balance at {{ as_at|date:"d M Y" }}</th>{% if any_future %}<th class="num" title="Posted with a date after today. Not in the balance until the day comes.">Dated after today</th>{% endif %}<th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
         {% for a in accounts %}
         <tr style="{% account_row a %}">
-          <td class="px-4 py-2"><span class="font-mono text-xs font-semibold px-1.5 py-0.5 rounded" style="{% account_chip a %}">{{ a.code }}</span></td>
-          <td class="px-4 py-2 text-gray-900">{{ a.name }}{% if a.is_reconcilable %} <span class="text-gray-400" title="Reconcilable">⟳</span>{% endif %}</td>
-          <td class="px-4 py-2 text-right font-mono font-semibold {% if a.balance_today >= 0 %}text-gray-900{% else %}text-red-600{% endif %}">{{ a.balance_today|floatformat:2 }}</td>
-          {% if any_future %}<td class="px-4 py-2 text-right font-mono text-gray-500">{% if a.future_movement %}{{ a.future_movement|floatformat:2 }}{% else %}—{% endif %}</td>{% endif %}
-          <td class="px-4 py-2 text-right"><a href="{% url 'accounting:account_ledger' a.pk %}" class="text-xs" style="color: var(--primary);">View ledger &rarr;</a></td>
+          <td><span class="mono rounded px-1.5 py-0.5 text-xs font-semibold" style="{% account_chip a %}">{{ a.code }}</span></td>
+          <td>{{ a.name }}{% if a.is_reconcilable %} <span class="text-ink-muted" title="Reconcilable">{% include "_includes/icon.html" with name="refresh" cls="inline h-3.5 w-3.5" icon_label="Reconcilable" only %}</span>{% endif %}</td>
+          <td class="num font-semibold">{{ a.balance_today|money }}</td>
+          {% if any_future %}<td class="num text-ink-muted">{% if a.future_movement %}{{ a.future_movement|money }}{% else %}—{% endif %}</td>{% endif %}
+          <td class="actions"><a href="{% url 'accounting:account_ledger' a.pk %}" class="btn btn-ghost btn-sm">View ledger &rarr;</a></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -25,6 +26,6 @@
   </div>
 </section>
 {% empty %}
-<div class="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500">No accounts yet.</div>
+<section class="card">{% include "_includes/empty_state.html" with icon="clipboard" title="No accounts yet." only %}</section>
 {% endfor %}
 {% endblock %}

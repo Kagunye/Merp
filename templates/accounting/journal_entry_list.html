@@ -1,79 +1,35 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-<div class="space-y-5">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5">Double-entry accounting journal</p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <a href="{% url 'accounting:account_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Chart of Accounts</a>
-      <a href="{% url 'accounting:journal_entry_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New Entry
-      </a>
-    </div>
-  </div>
+{% can_do "accounting:journal_entry_create" "POST" as may_create %}
+{% if may_create %}{% url 'accounting:journal_entry_create' as new_url %}{% endif %}
+{% url 'accounting:account_list' as coa_url %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Double-entry accounting journal" action_label="New Entry" action_url=new_url secondary_label="Chart of Accounts" secondary_url=coa_url %}
 
-  <form method="get" class="flex gap-3 flex-wrap">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search reference or notes..."
-      class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 w-64">
-    <select name="status" class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/30">
-      <option value="">All Statuses</option>
-      {% for val, label in status_choices %}
-        <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+{% include "_includes/filter_bar.html" with search_placeholder="Search reference or notes..." search_value=q extra_template="accounting/_journal_filters.html" %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Reference</th><th>Date</th><th>Type</th><th>Notes</th><th class="num">Total Debit</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td class="mono"><a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="row-link">{{ entry.reference }}</a></td>
+        <td class="whitespace-nowrap text-ink-2">{{ entry.posting_date|date:"d M Y" }}</td>
+        <td class="text-xs text-ink-2">{{ entry.get_entry_type_display }}</td>
+        <td class="max-w-xs truncate text-ink-muted">{{ entry.notes|default:"—" }}</td>
+        <td class="num">{{ entry.total_debit|money }}</td>
+        <td>{% if entry.reversed_by %}{% status_badge "REVERSED" "Reversed" %}{% else %}{% status_badge entry.status entry.get_status_display %}{% endif %}</td>
+        <td class="actions"><a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="btn btn-ghost btn-sm">View</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No journal entries found." action_label="Create the first entry" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
-    </select>
-    <button type="submit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Filter</button>
-    {% if q or status_filter %}
-      <a href="{% url 'accounting:journal_entry_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>
-    {% endif %}
-  </form>
-
-  <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Reference</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Date</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Notes</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Total Debit</th>
-          <th class="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
-          <th class="px-4 py-3"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
-        {% for entry in entries %}
-        <tr class="hover:bg-gray-50/50 group">
-          <td class="px-4 py-3">
-            <a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="font-mono font-semibold text-primary hover:underline">{{ entry.reference }}</a>
-          </td>
-          <td class="px-4 py-3 text-gray-600">{{ entry.posting_date|date:"d M Y" }}</td>
-          <td class="px-4 py-3 text-gray-600 text-xs">{{ entry.get_entry_type_display }}</td>
-          <td class="px-4 py-3 text-gray-500 truncate max-w-xs">{{ entry.notes|default:"—" }}</td>
-          <td class="px-4 py-3 text-right font-mono text-gray-900">{{ entry.total_debit|floatformat:2 }}</td>
-          <td class="px-4 py-3 text-center">
-            <span class="badge {% if entry.reversed_by %}bg-gray-100 text-gray-500{% elif entry.status == 'POSTED' %}bg-green-50 text-green-700{% elif entry.status == 'DRAFT' %}bg-yellow-50 text-yellow-700{% else %}bg-red-50 text-red-700{% endif %}">
-              {% if entry.reversed_by %}Reversed{% else %}{{ entry.get_status_display }}{% endif %}
-            </span>
-          </td>
-          <td class="px-4 py-3 text-right opacity-0 group-hover:opacity-100">
-            <a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="text-xs text-gray-500 hover:text-primary px-2 py-1 rounded hover:bg-gray-100">View</a>
-          </td>
-        </tr>
-        {% empty %}
-        <tr>
-          <td colspan="7" class="px-4 py-12 text-center">
-            <p class="text-gray-500">No journal entries found.</p>
-            <a href="{% url 'accounting:journal_entry_create' %}" class="text-sm text-primary hover:underline mt-1 block">Create the first entry</a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% include "_includes/pagination.html" %}
+    </tbody>
+  </table>
 </div>
+
+{% include "_includes/pagination.html" %}
 {% endblock %}
