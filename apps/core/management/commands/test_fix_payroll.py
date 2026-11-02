@@ -66,6 +66,21 @@ Third round (25-44, check_round_three):
    43. buttons a role cannot use are not shown
    44. a payroll officer sees leave but does not decide it
 
+Fourth round (45-51, check_round_four):
+
+   45. a fixed monthly figure that is not pro-rated (a loan, a flat allowance)
+       is charged once a month, on the run that pays the month's last day
+   46. a joiner's or leaver's PAYE in a half-month run is what a monthly run
+       withholds: the steps are scaled by the person's own days in the month
+   47. an expense claim paid with no account chosen comes out of the main
+       bank account, never the till; with no bank account it is refused
+   48. whoever approved a payroll run does not also post it
+   49. leave can be cancelled: the requester before it starts, HR any time,
+       and the days go back into the entitlement
+   50. leave cannot start before the hire date
+   51. no expense line after its claim date or in the future, no claim dated in
+       the future, and no timesheet hours submitted or approved before the day
+
 Exits non-zero when any check fails.
 """
 import datetime
@@ -215,6 +230,8 @@ class Command(BaseCommand):
         self.check_employee_edit()
         # Third round (25-44).
         self.check_round_three()
+        # Fourth round (45-51).
+        self.check_round_four()
 
     def employee(self, number, first, status="ACTIVE", user=None):
         from apps.hr.models import Employee
@@ -309,13 +326,14 @@ class Command(BaseCommand):
         # The posting service refuses a wrong account even when the form is bypassed.
         PayrollRun.objects.filter(pk=aug.pk).update(salary_account=self.account("1200"))
         fm.post(reverse("payroll:run_approve", args=[aug.pk]))
-        resp = fm.post(reverse("payroll:run_post", args=[aug.pk]))
+        # Posted by a second finance manager: the approver may not post.
+        resp = self.c["FM2"].post(reverse("payroll:run_post", args=[aug.pk]))
         aug.refresh_from_db()
-        said = self.said(fm, resp)
+        said = self.said(self.c["FM2"], resp)
         self.expect("posting refuses to charge pay to the bank",
                     aug.journal_entry_id is None and "expense account" in said, said)
         PayrollRun.objects.filter(pk=aug.pk).update(salary_account=None)
-        resp = fm.post(reverse("payroll:run_post", args=[aug.pk]))
+        resp = self.c["FM2"].post(reverse("payroll:run_post", args=[aug.pk]))
         aug.refresh_from_db()
         self.expect("August posts to the default salary account",
                     aug.status == "POSTED" and aug.journal_entry_id is not None,
@@ -460,7 +478,7 @@ class Command(BaseCommand):
         # ── 1. cancelling a run whose entry was already reversed ──
         self.section("1. cancelling a run already reversed in the journal")
         fm.post(reverse("payroll:run_approve", args=[sep.pk]))
-        fm.post(reverse("payroll:run_post", args=[sep.pk]))
+        self.c["FM2"].post(reverse("payroll:run_post", args=[sep.pk]))
         sep.refresh_from_db()
         entry = sep.journal_entry
         if self.expect("September is posted", entry is not None and sep.status == "POSTED",
@@ -1213,9 +1231,9 @@ class Command(BaseCommand):
         if self.expect("November 2026 is raised", nov is not None and nov.payslips.exists(),
                        self.said(po, resp)):
             fm.post(reverse("payroll:run_approve", args=[nov.pk]))
-            resp = fm.post(reverse("payroll:run_post", args=[nov.pk]))
+            resp = fm2.post(reverse("payroll:run_post", args=[nov.pk]))
             nov.refresh_from_db()
-            said = self.said(fm, resp)
+            said = self.said(fm2, resp)
             self.expect("posting refuses an allowance booked to the bank",
                         nov.journal_entry_id is None and "expense account" in said, said)
             fm.post(reverse("payroll:run_cancel", args=[nov.pk]), {"reason": "test"})
@@ -1296,7 +1314,7 @@ class Command(BaseCommand):
                     "not recalculated" in said and "saved as a draft" not in said, said)
 
         self.section("34. the payroll entry is dated on the period end")
-        fm.post(reverse("payroll:run_post", args=[octr.pk]))
+        fm2.post(reverse("payroll:run_post", args=[octr.pk]))
         octr.refresh_from_db()
         entry = octr.journal_entry
         self.expect("October paid on 5 November is booked on 31 October",
@@ -1549,3 +1567,234 @@ class Command(BaseCommand):
                      ask(cf1, "2026-11-14", "2026-11-15"), "weekend")
         self.refused("days already asked for cannot be asked again",
                      ask(self.evans, "2026-11-04", "2026-11-05", client=emp), "already has")
+
+    # ─────────────────────────── fourth round (45-51) ────────────────────────
+
+    def check_round_four(self):
+        from apps.accounting.models import Account
+        from apps.expenses.models import ExpenseCategory, ExpenseClaim
+        from apps.hr.models import LeaveRequest, LeaveType
+        from apps.timesheets.models import TimesheetEntry
+
+        company = self.company
+        hr, po, fm, fm2 = self.c["HR"], self.c["PO"], self.c["FM"], self.c["FM2"]
+        emp = self.c["EMP"]
+        comp_url = reverse("payroll:component_create")
+        comp = {"employee": "", "name": "", "component_type": "ALLOWANCE",
+                "calculation": "FIXED", "amount": "0", "percent": "0",
+                "is_taxable": "on", "gl_account": "", "is_active": "on"}
+
+        loanee = self.employee("LN4", "Loanee")
+        self.contract(loanee, 60000, "2025-01-01")
+        po.post(comp_url, dict(comp, employee=str(loanee.pk), name="Staff loan R4",
+                               component_type="DEDUCTION", amount="10000", is_taxable="",
+                               prorate_part_months="False",
+                               gl_account=str(self.account("2700").pk)))
+        po.post(comp_url, dict(comp, employee=str(loanee.pk), name="Phone flat R4",
+                               amount="3000", prorate_part_months="False"))
+        late = self.employee("JN4", "LateJoiner")
+        self.contract(late, 100000, "2027-06-21")
+        mid = self.employee("JM4", "MidJoiner")
+        self.contract(mid, 100000, "2027-06-10")
+
+        self.section("45. a fixed monthly figure is charged once in a split month")
+        resp, a = self.make_run(po, "PR-27-06A", "2027-06-01", "2027-06-15")
+        resp2, b = self.make_run(po, "PR-27-06B", "2027-06-16", "2027-06-30")
+        if not self.expect("both halves of June 2027 are raised",
+                           a is not None and b is not None and a.payslips.exists()
+                           and b.payslips.exists(),
+                           f"{self.said(po, resp)} / {self.said(po, resp2)}"):
+            return
+
+        def total(run, person, name):
+            slip = run.payslips.filter(employee=person).first()
+            if slip is None:
+                return None
+            return sum((ln.amount for ln in slip.lines.filter(component__name=name)), D("0"))
+
+        loans = [total(r, loanee, "Staff loan R4") for r in (a, b)]
+        phones = [total(r, loanee, "Phone flat R4") for r in (a, b)]
+        self.expect("the 10,000 loan is taken once, on the half with the month's last day",
+                    loans == [D("0"), D("10000.00")], str(loans))
+        self.expect("the 3,000 flat allowance is paid once, on the same half",
+                    phones == [D("0"), D("3000.00")], str(phones))
+
+        self.section("46. a joiner's PAYE does not depend on how the month is cut")
+        slip = b.payslips.filter(employee=late).first()
+        paye = self.line(slip, "PAYE")
+        self.expect("a joiner from 21 June is not on the first half",
+                    not a.payslips.filter(employee=late).exists())
+        self.expect("on the second half, their ten days are taxed as a monthly run "
+                    "would: the whole month's steps and relief",
+                    slip is not None and paye is not None
+                    # 3,879.165 before relief: the hand calculation rounds the
+                    # half cent to even, the payroll rounds it up.
+                    and paye.amount == D("1479.17")
+                    and abs(paye.amount - self.paye(slip.taxable_pay)) <= D("0.01"),
+                    f"{paye and paye.amount} on {slip and slip.taxable_pay}")
+        first = a.payslips.filter(employee=mid).first()
+        second = b.payslips.filter(employee=mid).first()
+        if self.expect("a joiner from 10 June is on both halves",
+                       first is not None and second is not None):
+            pa, pb = self.line(first, "PAYE").amount, self.line(second, "PAYE").amount
+            self.expect("each half uses their own days: 6 of 21 and 15 of 21",
+                        pa == self.paye(first.taxable_pay, D(6) / D(21))
+                        and pb == self.paye(second.taxable_pay, D(15) / D(21)),
+                        f"{pa} / {pb}")
+            whole = self.paye(first.taxable_pay + second.taxable_pay)
+            self.expect("and together they withhold one month's PAYE, to the cent or two",
+                        abs(pa + pb - whole) <= D("0.05"), f"{pa + pb} vs {whole}")
+        split = b.payslips.filter(employee=loanee).first()
+        described = self.line(split, "PAYE").description if split else ""
+        self.expect("somebody employed all month still has half-month steps",
+                    "15 of 30 days" in described, described)
+
+        self.section("48. the approver of a run does not post it")
+        fm.post(reverse("payroll:run_approve", args=[b.pk]))
+        resp = fm.post(reverse("payroll:run_post", args=[b.pk]))
+        b.refresh_from_db()
+        said = self.said(fm, resp)
+        self.expect("the finance manager who approved it is refused",
+                    b.status == "APPROVED" and b.journal_entry_id is None
+                    and "you approved" in said.lower(), said)
+        fm2.post(reverse("payroll:run_post", args=[b.pk]))
+        b.refresh_from_db()
+        self.expect("a second finance manager posts it", b.status == "POSTED", b.status)
+
+        self.section("47. a claim paid with no account chosen")
+        cat = ExpenseCategory.objects.get(company=company, name="Travel")
+        today = datetime.date.today()
+
+        def claim(ref, day=None):
+            emp.post(reverse("expenses:claim_create"), {
+                "reference": ref, "employee": str(self.evans.pk),
+                "claim_date": (day or today).strftime(ISO), "notes": ""})
+            return ExpenseClaim.objects.filter(company=company, reference=ref).first()
+
+        def line(c, day, amount="700"):
+            return emp.post(reverse("expenses:claim_add_line", args=[c.pk]), {
+                "category": str(cat.pk), "description": "Taxi",
+                "expense_date": day.strftime(ISO), "amount": amount})
+
+        def approved(ref):
+            c = claim(ref)
+            line(c, today)
+            emp.post(reverse("expenses:claim_submit", args=[c.pk]))
+            fm.post(reverse("expenses:claim_approve", args=[c.pk]))
+            c.refresh_from_db()
+            return c
+
+        c1 = approved("EXP-R4-BANK")
+        fm2.post(reverse("expenses:claim_pay", args=[c1.pk]),
+                 {"payment_date": today.strftime(ISO)})
+        c1.refresh_from_db()
+        credited = ([ln.account.code for ln in c1.journal_entry.lines.filter(credit_amount__gt=0)]
+                    if c1.journal_entry_id else [])
+        self.expect("it comes out of the main bank account (1200), not the till (1100)",
+                    c1.status == "PAID" and credited == ["1200"], f"{c1.status} {credited}")
+        c2 = approved("EXP-R4-NOBANK")
+        banks = list(Account.objects.filter(company=company, account_type="BANK",
+                                            is_active=True).values_list("pk", flat=True))
+        Account.objects.filter(pk__in=banks).update(is_active=False)
+        resp = fm2.post(reverse("expenses:claim_pay", args=[c2.pk]),
+                        {"payment_date": today.strftime(ISO)})
+        said = self.said(fm2, resp)
+        Account.objects.filter(pk__in=banks).update(is_active=True)
+        c2.refresh_from_db()
+        self.expect("with no bank account in the chart it is refused, not paid from cash",
+                    c2.status == "APPROVED" and c2.journal_entry_id is None
+                    and "choose the account" in said.lower(), said)
+
+        self.section("51. expense and timesheet dates that have not happened")
+        c3 = claim("EXP-R4-DATES", day=today - datetime.timedelta(days=5))
+        line(c3, today - datetime.timedelta(days=1))
+        line(c3, datetime.date(today.year + 1, 6, 1))
+        self.expect("a line dated after the claim, or next year, is refused",
+                    c3 is not None and c3.lines.count() == 0, str(c3 and c3.lines.count()))
+        line(c3, today - datetime.timedelta(days=6))
+        self.expect("a line on or before the claim date is accepted",
+                    c3.lines.count() == 1, str(c3.lines.count()))
+        resp = emp.post(reverse("expenses:claim_create"), {
+            "reference": "EXP-R4-FUTURE", "employee": str(self.evans.pk),
+            "claim_date": (today + datetime.timedelta(days=30)).strftime(ISO), "notes": ""})
+        self.refused("a claim dated in the future is refused", resp, "future")
+
+        ahead = (today + datetime.timedelta(days=200)).strftime(ISO)
+        resp = emp.post(reverse("timesheets:entry_create"), {
+            "project": "", "task": "", "entry_date": ahead, "hours": "6",
+            "description": "planned r4", "billable": "on"})
+        planned = TimesheetEntry.objects.filter(company=company, user=self.users["EMP"],
+                                                description="planned r4").first()
+        self.expect("planned hours 200 days ahead can be saved as a draft",
+                    planned is not None and planned.status == "DRAFT", self.errors(resp))
+        if planned:
+            emp.post(reverse("timesheets:entry_submit", args=[planned.pk]))
+            planned.refresh_from_db()
+            self.expect("but not submitted before the day", planned.status == "DRAFT",
+                        planned.status)
+            TimesheetEntry.objects.filter(pk=planned.pk).update(status="SUBMITTED")
+            hr.post(reverse("timesheets:entry_approve", args=[planned.pk]))
+            planned.refresh_from_db()
+            self.expect("nor approved before the day", planned.status == "SUBMITTED",
+                        planned.status)
+
+        self.section("49-50. leave: cancelled, and not before the hire date")
+        kind = LeaveType.objects.create(company=company, name="Study (r4)", days_per_year=10)
+
+        def ask(client, who, start, end):
+            return client.post(reverse("hr:leave_create"), {
+                "employee": str(who.pk), "leave_type": str(kind.pk),
+                "start_date": start, "end_date": end, "notes": ""})
+
+        def cancel(client, leave):
+            return client.post(reverse("hr:leave_cancel", args=[leave.pk]))
+
+        newcomer = self.employee("NC4", "Newcomer4")
+        newcomer.date_hired = datetime.date(2027, 3, 1)
+        newcomer.save()
+        self.refused("leave starting before the hire date is refused",
+                     ask(hr, newcomer, "2027-02-22", "2027-02-26"), "hired")
+
+        ask(emp, self.evans, "2027-04-05", "2027-04-09")
+        pending = LeaveRequest.objects.get(employee=self.evans, leave_type=kind,
+                                           start_date="2027-04-05")
+        left = pending.entitlement(2027) - pending.days_already_taken(2027, include_self=True)
+        self.expect("a pending request uses its 5 days", left == 5, str(left))
+        resp = cancel(emp, pending)
+        pending.refresh_from_db()
+        self.expect("the employee withdraws their own pending request",
+                    pending.status == "CANCELLED", f"{pending.status} {self.said(emp, resp)}")
+        left = pending.entitlement(2027) - pending.days_already_taken(2027)
+        self.expect("and the 5 days are back in the entitlement", left == 10, str(left))
+        resp = ask(emp, self.evans, "2027-04-05", "2027-04-09")
+        self.expect("the same days can be asked for again", resp.status_code == 302,
+                    self.errors(resp))
+        again = LeaveRequest.objects.get(employee=self.evans, leave_type=kind,
+                                         start_date="2027-04-05", status="PENDING")
+        self.c["ADMIN"].post(reverse("hr:leave_approve", args=[again.pk]),
+                             {"action": "approve"})
+        again.refresh_from_db()
+        cancel(self.c["VIEW"], again)
+        cancel(self.c["PO"], again)
+        again.refresh_from_db()
+        self.expect("somebody else who is not HR cannot cancel it",
+                    again.status == "APPROVED", again.status)
+        cancel(emp, again)
+        again.refresh_from_db()
+        self.expect("granted leave that has not started can be withdrawn by its owner",
+                    again.status == "CANCELLED", again.status)
+        started = LeaveRequest.objects.create(
+            employee=self.evans, leave_type=kind, status="APPROVED",
+            start_date=today - datetime.timedelta(days=1),
+            end_date=today + datetime.timedelta(days=3))
+        resp = cancel(emp, started)
+        started.refresh_from_db()
+        self.expect("leave already under way is not withdrawn by the employee",
+                    started.status == "APPROVED" and "ask hr" in self.said(emp, resp).lower(),
+                    started.status)
+        cancel(hr, started)
+        started.refresh_from_db()
+        self.expect("HR can cancel it", started.status == "CANCELLED", started.status)
+        resp = cancel(hr, started)
+        self.expect("a cancelled request is not cancelled twice",
+                    "already cancelled" in self.said(hr, resp).lower(), self.said(hr, resp))

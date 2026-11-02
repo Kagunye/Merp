@@ -68,6 +68,34 @@ class ExpenseClaimForm(forms.ModelForm):
         if is_new(self):
             self.fields["claim_date"].initial = datetime.date.today()
 
+    def clean_claim_date(self):
+        """A claim is handed in for money already spent, on a day that has come.
+
+        A claim dated next year sorts and reports in a month that has not
+        happened, and every receipt on it would then be "before the claim"
+        whatever its date. Nor may an edit move the claim to before a line
+        already on it: a line is never dated after the claim it is part of.
+        """
+        from django.utils import timezone
+
+        day = self.cleaned_data.get("claim_date")
+        if day is None:
+            return day
+        today = timezone.localdate()
+        if day > today:
+            raise forms.ValidationError(
+                f"{day:%d %b %Y} is in the future. A claim is dated the day it is handed "
+                f"in — today ({today:%d %b %Y}) or earlier.")
+        if not is_new(self):
+            latest = (self.instance.lines.order_by("-expense_date")
+                      .values_list("expense_date", flat=True).first())
+            if latest and latest > day:
+                raise forms.ValidationError(
+                    f"This claim has a line dated {latest:%d %b %Y}, after "
+                    f"{day:%d %b %Y}. A claim cannot be dated before the spending on it — "
+                    "keep a later claim date, or correct the line first.")
+        return day
+
 
 class ExpenseClaimLineForm(forms.ModelForm):
     class Meta:
@@ -75,11 +103,36 @@ class ExpenseClaimLineForm(forms.ModelForm):
         fields = ["category", "description", "expense_date", "amount", "receipt"]
         widgets = {"expense_date": date_input()}
 
-    def __init__(self, *args, company=None, **kwargs):
+    def __init__(self, *args, company=None, claim=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.claim = claim
         self.fields["category"].queryset = ExpenseCategory.objects.filter(company=company)
         if not self.is_bound and not self.fields["expense_date"].initial:
             self.fields["expense_date"].initial = datetime.date.today()
+
+    def clean_expense_date(self):
+        """Money is claimed back after it was spent, never before.
+
+        A line dated after the claim it is on — or after today — is money the
+        claimant has not spent yet: approving it pays out for a receipt that
+        cannot exist. It is refused, and the claimant told which date to use.
+        """
+        from django.utils import timezone
+
+        day = self.cleaned_data.get("expense_date")
+        if day is None:
+            return day
+        today = timezone.localdate()
+        if self.claim is not None and self.claim.claim_date and day > self.claim.claim_date:
+            raise forms.ValidationError(
+                f"This line is dated {day:%d %b %Y}, after the claim's own date of "
+                f"{self.claim.claim_date:%d %b %Y}. A claim is for money already spent — "
+                "enter the day on the receipt, on or before the claim date.")
+        if day > today:
+            raise forms.ValidationError(
+                f"{day:%d %b %Y} is in the future. Enter the day on the receipt — today "
+                "or earlier.")
+        return day
 
     def clean_amount(self):
         amount = self.cleaned_data["amount"]

@@ -452,6 +452,16 @@ class LeaveRequest(BaseModel, NotesMixin):
                 "leave is the day before the person is back at work.")
         if not (self.leave_type_id and self.employee_id):
             return
+        hired = self.employee.date_hired
+        if hired and self.start_date < hired:
+            # Leave is time off from a job the person holds. Days before they
+            # were taken on are not days they could be away from, and counting
+            # them draws on an entitlement for work nobody did.
+            raise ValidationError(
+                f"{self.employee.full_name} was hired on {hired:%d %b %Y}, so leave cannot "
+                f"start on {self.start_date:%d %b %Y}. Start the leave on or after the "
+                "hire date — or correct the hire date on the employee record if it is "
+                "wrong.")
         if self.days_requested == 0:
             raise ValidationError(
                 f"{self.start_date:%d %b} to {self.end_date:%d %b %Y} is a weekend, so it "

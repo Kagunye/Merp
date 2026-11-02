@@ -110,6 +110,22 @@ class EntryDetailView(LoginRequiredMixin, DetailView):
         return company_entries(self.request)
 
 
+def not_worked_yet(entry):
+    """Why these hours cannot be put forward yet, or "" once the day has come.
+
+    A timesheet may hold planned time — a day next week saved as a draft is a
+    plan, and that is allowed. But submitting hours says they were worked, and
+    approving them says somebody agrees they were: both turn into billable time
+    and paid time, and neither can be true of a day that has not happened.
+    """
+    today = timezone.localdate()
+    if entry.entry_date > today:
+        return (f"These hours are for {entry.entry_date:%d %b %Y}, which has not come "
+                "yet. Keep them as a draft and submit them on or after that day, once "
+                "the work has been done.")
+    return ""
+
+
 @login_required
 @require_POST
 def entry_submit(request, pk):
@@ -118,6 +134,8 @@ def entry_submit(request, pk):
         messages.error(request, "Only the person who logged these hours can submit them.")
     elif e.status != "DRAFT":
         messages.error(request, "This entry has already been submitted.")
+    elif not_worked_yet(e):
+        messages.error(request, not_worked_yet(e))
     else:
         e.status = "SUBMITTED"
         e.save(update_fields=["status"])
@@ -134,6 +152,10 @@ def entry_approve(request, pk):
         messages.error(request, "You cannot approve your own hours — somebody else has to.")
     elif e.status != "SUBMITTED":
         messages.error(request, "Only submitted hours can be approved.")
+    elif not_worked_yet(e):
+        # Submitted before this check existed, or the clock has been wound
+        # back: the day still has to have come before anybody signs it off.
+        messages.error(request, not_worked_yet(e))
     else:
         e.status = "APPROVED"
         e.approved_by = request.user

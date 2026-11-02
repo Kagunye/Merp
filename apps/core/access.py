@@ -117,6 +117,9 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("payroll", "rule*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("payroll", "component_*", HR | PAYROLL | FM | AUDIT, PAYROLL | FM),
     ("hr", "leave_approve", NOBODY, HR),
+    # Anybody may withdraw their own leave; HR may cancel anybody's. Which
+    # request a login may cancel is the view's check (leave_cancel_refusal).
+    ("hr", "leave_cancel", NOBODY, EVERYONE),
     ("hr", "leave_*", EVERYONE, EVERYONE),
     ("hr", "contract_*", HR | PAYROLL | AUDIT, HR),
     # Approving a claim is saying the company owes the money: the finance

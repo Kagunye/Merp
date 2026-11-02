@@ -2324,23 +2324,30 @@ def post_expense_claim(claim, bank_account=None, user=None, payment_date=None) -
             "day the money leaves, so enter today or an earlier day once it has been "
             "paid.")
 
+    # The money leaves a specific account, chosen by the person paying. When
+    # they choose none it comes out of the company's main bank account — the
+    # same rule supplier payments follow (the lowest-coded active BANK account,
+    # 1200 in the standard chart) — and never out of whichever cash account
+    # has the lowest code, which is the till float (1100): a claim is not paid
+    # from the shop drawer or the petty-cash box unless somebody chose that box
+    # on purpose. With no bank account in the chart there is no default at all.
     if bank_account and getattr(bank_account, "gl_account_id", None):
         cash_acct = bank_account.gl_account
     else:
-        cash_acct = (
-            _get_account_safe(company, "1100", "1200")
-            or _get_account_by_type(company, "CASH", "BANK")
-        )
+        cash_acct = Account.objects.filter(
+            company=company, account_type="BANK", is_active=True).order_by("code").first()
+        if cash_acct is None:
+            raise ValidationError(
+                f"Choose the account {claim.reference} is paid from. This company has no "
+                "bank account in its chart, so none is assumed — paying a claim out of "
+                "cash or petty cash has to be chosen on purpose, by picking that box "
+                "under 'Paid from'.")
 
     default_expense = (
         _get_account_safe(company, "6000")
         or _get_account_by_type(company, "EXPENSE")
     )
 
-    if not cash_acct:
-        raise ValueError(
-            "GL posting failed: Cash/Bank account not found for expense payment."
-        )
     if not default_expense:
         raise ValueError(
             "GL posting failed: Expense account (code 6000) not found."

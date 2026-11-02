@@ -508,6 +508,62 @@ def leave_approve(request, pk):
     return redirect(reverse("hr:leave_list"))
 
 
+def leave_cancel_refusal(request, leave):
+    """Why this login may not cancel this leave request, or "" when it may.
+
+    The person the leave is for may take back a request nobody has answered
+    yet, and may withdraw granted leave up to the day before it starts — once
+    the first day has come they are away, and what happened is HR's to put
+    right. HR (whoever decides leave) may cancel any live request: somebody
+    came back early, or the request was filed by mistake. A refused or already
+    cancelled request has nothing left to cancel.
+    """
+    company = request.active_company
+    if leave.status not in LeaveRequest.COUNTED_STATUSES:
+        return (f"This request is already {leave.get_status_display().lower()}, so there "
+                "is nothing left to cancel.")
+    if decides_leave(request.user, company):
+        return ""
+    if leave.employee.user_id != request.user.pk:
+        return ("Only the person the leave is for, or HR, can cancel a leave request. "
+                "Ask them to cancel it.")
+    if leave.status == "APPROVED" and leave.start_date <= timezone.localdate():
+        return (f"This leave was granted and began on {leave.start_date:%d %b %Y}, so it "
+                "can no longer be withdrawn from here. Ask HR to cancel it or shorten it.")
+    return ""
+
+
+@login_required
+@require_POST
+def leave_cancel(request, pk):
+    """POST — cancel or withdraw a leave request.
+
+    Sets it CANCELLED, which gives its days back to the year's entitlement: a
+    cancelled request is no longer one of LeaveRequest.COUNTED_STATUSES, so it
+    neither uses up the allowance nor blocks the same days being asked for
+    again. Who cancelled it and when is written on the request, so a granted
+    leave that disappears can be traced.
+    """
+    leave = get_object_or_404(visible_leave(request), pk=pk)
+    refusal = leave_cancel_refusal(request, leave)
+    if refusal:
+        messages.error(request, refusal)
+        return redirect("hr:leave_detail", pk=leave.pk)
+    was = leave.get_status_display().lower()
+    reason = (request.POST.get("reason") or "").strip()
+    who = request.user.get_full_name() or request.user.get_username()
+    note = f"Cancelled by {who} on {timezone.localdate():%d %b %Y}"
+    leave.status = "CANCELLED"
+    leave.rejection_reason = f"{note}: {reason}" if reason else note
+    leave.save(update_fields=["status", "rejection_reason", "updated_at"])
+    messages.success(
+        request,
+        f"The {was} {leave.leave_type.name.lower()} leave for {leave.employee.full_name} "
+        f"from {leave.start_date:%d %b} to {leave.end_date:%d %b %Y} is cancelled, and "
+        f"its {leave.days_requested} working day(s) are back in the entitlement.")
+    return redirect("hr:leave_detail", pk=leave.pk)
+
+
 class LeaveTypeListView(LoginRequiredMixin, CompanyRequiredMixin, ListView):
     """The kinds of leave this company grants, and how many working days each.
 
@@ -614,5 +670,6 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
         ctx["can_decide"] = (access.can(self.request.user, role, "hr", "leave_approve", "POST")
                              and self.object.employee.user_id != self.request.user.pk
                              and self.object.created_by_id != self.request.user.pk)
+        ctx["can_cancel"] = not leave_cancel_refusal(self.request, self.object)
         return ctx
 

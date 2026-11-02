@@ -156,9 +156,15 @@ RECOMMENDED = [
 # debits 300 -> 2,300 (the expense claim's 300 plus the bill). Every other
 # account, and the control total, is unchanged — the same 2,000 is debited,
 # only to a different account.
+#
+# CHANGED (fix4/payroll): the expense claim is paid with no account chosen,
+# and such a claim now comes out of the main bank account (1200), not Cash on
+# Hand (1100) — the same rule supplier payments follow. Its 1,500 moved from
+# the 1100 credits (3,820 -> 2,320) to the 1200 credits (0 -> 1,500); the
+# control total is unchanged.
 EXPECTED = {
-    "1100": ("20000.00", "3820.00"),
-    "1200": ("80500.00", "0.00"),
+    "1100": ("20000.00", "2320.00"),
+    "1200": ("80500.00", "1500.00"),
     "1300": ("880.00", "500.00"),
     "1400": ("5000.00", "750.00"),
     "2100": ("2320.00", "2320.00"),
@@ -5403,13 +5409,20 @@ class Command(BaseCommand):
         # Recalculating writes the payslips afresh, so the slip looked at above
         # is replaced by a new row with the same figures.
         slip = run.payslips.get(employee=self.employee)
-        self.post(client, "approve the run",
+        # Changed deliberately: approving pay and posting it are two people's
+        # work, so a colleague approves the month and this login posts it.
+        pay_approver = self.colleague("payapprover", "Paula")
+        self.post(pay_approver, "approve the run",
                   reverse("payroll:run_approve", args=[run.pk]), {})
         run.refresh_from_db()
         self.expect("approval says whose decision it was and when",
-                    run.status == "APPROVED" and run.approved_by == self.user
+                    run.status == "APPROVED" and run.approved_by is not None
+                    and run.approved_by != self.user
                     and run.approved_at is not None,
                     f"{run.status} by {run.approved_by}")
+        resp = pay_approver.post(reverse("payroll:run_post", args=[run.pk]), {})
+        self.expect_flash(pay_approver, resp, "you approved",
+                          "the person who approved a run does not also post it")
         resp = client.post(reverse("payroll:run_calculate", args=[run.pk]), {})
         self.expect_flash(client, resp, "settled",
                           "an approved run is not a draft any more")

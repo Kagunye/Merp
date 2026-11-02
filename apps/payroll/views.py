@@ -313,6 +313,18 @@ def run_post(request, pk):
                     f"'{run.reference}' is {run.status.lower()}, and pay does not go into "
                     "the book until it has been approved. Approve it first.")
                 return redirect("payroll:run_detail", pk=run.pk)
+            if run.approved_by_id and run.approved_by_id == request.user.pk:
+                # Approving a month's pay and putting it into the book are two
+                # people's work, as with expense claims: the second pair of
+                # hands is what catches a figure the first one waved through.
+                # Nobody is exempt — an administrator who approved the run
+                # asks a colleague to post it like everybody else.
+                messages.error(
+                    request,
+                    f"You approved '{run.reference}', so you cannot also post it. "
+                    "Ask another finance manager to post the run — approving pay and "
+                    "booking it are done by two different people.")
+                return redirect("payroll:run_detail", pk=run.pk)
             clash = services.overlapping_run(run.company, run.period_start, run.period_end, exclude=run)
             if clash:
                 messages.error(
