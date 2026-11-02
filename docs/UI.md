@@ -316,7 +316,10 @@ anything else→info.
 - Icon chips: `tone-brand`, `tone-success`, `tone-warning`, `tone-danger`,
   `tone-info` and `tone-neutral`.
 - Number colours: `neg` (red) and `pos` (green).
-- Text helpers: `muted`, `mono` (references, codes, PINs) and `link`.
+- Text helpers: `muted`, `mono` (references, codes, PINs: tabular Plus
+  Jakarta Sans, semibold, never wraps in a table cell; use the `font-mono`
+  utility only for real code) and `link`. A negative `|money` (`.neg`) turns
+  light red inside a `.hero`.
 - `section-title`.
 - `skip-link` and `sr-only` (Tailwind).
 
