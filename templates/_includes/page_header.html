@@ -1,10 +1,15 @@
-{% comment %}
+{% load ui_extras %}{% comment %}
 Page header: breadcrumbs, back link, eyebrow, title, subtitle, actions.
 
   {% include "_includes/page_header.html" with title="Invoices" subtitle="…" action_label="New invoice" action_url=new_url %}
 
 Params (all optional except title):
   title            h1 text
+  status           a status code: draws {% status_badge status status_label %}
+                   beside the title (same colours as everywhere else)
+  status_label     its text (default: the code in sentence case)
+  badge            a free-text chip beside the title instead (e.g. "Locked")
+  badge_class      variant for `badge`: badge-success|warning|danger|info|neutral|brand
   subtitle         muted line under the title
   eyebrow          small uppercase line above the title (e.g. the company)
   back_url         resolved URL for a "Back" link above the title
@@ -34,7 +39,14 @@ URLs must already be resolved: {% url 'x:y' as u %} then pass u.
     </a>
     {% endif %}
     {% if eyebrow %}<p class="page-eyebrow">{{ eyebrow }}</p>{% endif %}
+    {% if status or badge %}
+    <div class="page-title-row">
+      <h1 class="page-title">{{ title }}</h1>
+      {% if status %}{% status_badge status status_label %}{% else %}<span class="badge {{ badge_class|default:'badge-neutral' }}"><span class="badge-dot" aria-hidden="true"></span>{{ badge }}</span>{% endif %}
+    </div>
+    {% else %}
     <h1 class="page-title">{{ title }}</h1>
+    {% endif %}
     {% if subtitle %}<p class="page-subtitle">{{ subtitle }}</p>{% endif %}
   </div>
   <div class="page-actions no-print">

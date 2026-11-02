@@ -4,18 +4,19 @@
 {% block hero %}
 <p class="auth-hero-eyebrow">Get started</p>
 <h2 class="auth-hero-title">Open your Mofisi account in under a minute.</h2>
+<p class="auth-hero-tagline">Twaimarisha Biashara</p>
 <p class="auth-hero-text">Create your login, then set up your company — or ask your administrator to add you to theirs.</p>
 {% endblock %}
 
 {% block top_right %}
-<span class="text-ink-muted">Already have an account?</span>
+<span class="auth-sub hidden sm:inline">Already have an account?</span>
 <a href="{% url 'accounts:login' %}" class="link">Sign in</a>
 {% endblock %}
 
 {% block content %}
-<p class="page-eyebrow text-brand-ink">Get started</p>
-<h1 class="text-2xl font-bold tracking-tight text-ink sm:text-3xl">Create your account</h1>
-<p class="mb-6 mt-1.5 text-sm text-ink-muted">It takes less than a minute.</p>
+<p class="auth-hero-eyebrow mb-2">Get started</p>
+<h1 class="text-[1.625rem] font-extrabold tracking-tight">Create your account</h1>
+<p class="auth-sub mb-8 mt-1.5 text-[0.9375rem]">It takes less than a minute.</p>
 
 {% if form.non_field_errors %}
 <div class="alert alert-danger mb-5" role="alert">
@@ -24,52 +25,52 @@
 </div>
 {% endif %}
 
-<form method="post" novalidate class="no-card space-y-4">
+<form method="post" novalidate class="no-card space-y-6">
   {% csrf_token %}
 
-  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div class="form-field">
-      <label for="id_first_name" class="form-label">First name</label>
+      <label for="id_first_name" class="auth-label">First name</label>
       <input type="text" name="first_name" id="id_first_name" value="{{ form.first_name.value|default:'' }}"
              placeholder="Jane" autocomplete="given-name" required
-             class="input{% if form.first_name.errors %} is-invalid{% endif %}"{% if form.first_name.errors %} aria-invalid="true"{% endif %}>
+             class="input-line{% if form.first_name.errors %} is-invalid{% endif %}"{% if form.first_name.errors %} aria-invalid="true"{% endif %}>
       {% if form.first_name.errors %}<p class="form-error">{{ form.first_name.errors.0 }}</p>{% endif %}
     </div>
     <div class="form-field">
-      <label for="id_last_name" class="form-label">Last name</label>
+      <label for="id_last_name" class="auth-label">Last name</label>
       <input type="text" name="last_name" id="id_last_name" value="{{ form.last_name.value|default:'' }}"
              placeholder="Doe" autocomplete="family-name" required
-             class="input{% if form.last_name.errors %} is-invalid{% endif %}"{% if form.last_name.errors %} aria-invalid="true"{% endif %}>
+             class="input-line{% if form.last_name.errors %} is-invalid{% endif %}"{% if form.last_name.errors %} aria-invalid="true"{% endif %}>
       {% if form.last_name.errors %}<p class="form-error">{{ form.last_name.errors.0 }}</p>{% endif %}
     </div>
   </div>
 
   <div class="form-field">
-    <label for="id_email" class="form-label">Work email</label>
+    <label for="id_email" class="auth-label">Work email</label>
     <input type="email" name="email" id="id_email" value="{{ form.email.value|default:'' }}"
            placeholder="you@company.com" autocomplete="email" required
-           class="input{% if form.email.errors %} is-invalid{% endif %}"{% if form.email.errors %} aria-invalid="true"{% endif %}>
+           class="input-line{% if form.email.errors %} is-invalid{% endif %}"{% if form.email.errors %} aria-invalid="true"{% endif %}>
     {% if form.email.errors %}<p class="form-error">{{ form.email.errors.0 }}</p>{% endif %}
   </div>
 
   <div class="form-field">
-    <label for="id_phone" class="form-label">Phone <span class="font-normal text-ink-muted">(optional)</span></label>
+    <label for="id_phone" class="auth-label">Phone <span class="font-normal opacity-70">(optional)</span></label>
     <input type="tel" name="phone" id="id_phone" value="{{ form.phone.value|default:'' }}"
-           placeholder="+254 …" autocomplete="tel" class="input{% if form.phone.errors %} is-invalid{% endif %}">
+           placeholder="+254 …" autocomplete="tel" class="input-line{% if form.phone.errors %} is-invalid{% endif %}">
     {% if form.phone.errors %}<p class="form-error">{{ form.phone.errors.0 }}</p>{% endif %}
   </div>
 
-  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     <div class="form-field">
-      <label for="id_password" class="form-label">Password</label>
+      <label for="id_password" class="auth-label">Password</label>
       <input type="password" name="password" id="id_password" placeholder="At least 8 characters" autocomplete="new-password" required
-             class="input{% if form.password.errors %} is-invalid{% endif %}"{% if form.password.errors %} aria-invalid="true"{% endif %}>
+             class="input-line{% if form.password.errors %} is-invalid{% endif %}"{% if form.password.errors %} aria-invalid="true"{% endif %}>
       {% if form.password.errors %}<p class="form-error">{{ form.password.errors.0 }}</p>{% endif %}
     </div>
     <div class="form-field">
-      <label for="id_password_confirm" class="form-label">Confirm password</label>
+      <label for="id_password_confirm" class="auth-label">Confirm password</label>
       <input type="password" name="password_confirm" id="id_password_confirm" placeholder="Re-enter" autocomplete="new-password" required
-             class="input{% if form.password_confirm.errors %} is-invalid{% endif %}"{% if form.password_confirm.errors %} aria-invalid="true"{% endif %}>
+             class="input-line{% if form.password_confirm.errors %} is-invalid{% endif %}"{% if form.password_confirm.errors %} aria-invalid="true"{% endif %}>
       {% if form.password_confirm.errors %}<p class="form-error">{{ form.password_confirm.errors.0 }}</p>{% endif %}
     </div>
   </div>
@@ -82,10 +83,10 @@
     {% if form.terms_accepted.errors %}<p class="form-error">{{ form.terms_accepted.errors.0 }}</p>{% endif %}
   </div>
 
-  <button type="submit" class="btn btn-primary btn-lg btn-block">
+  <button type="submit" class="btn btn-primary btn-block">
     Create account {% include "_includes/icon.html" with name="arrow-right" cls="h-4 w-4" stroke="2" %}
   </button>
 </form>
 
-<p class="mt-6 text-sm text-ink-muted">Already have an account? <a href="{% url 'accounts:login' %}" class="link">Sign in</a></p>
+<p class="auth-sub mt-6 text-center text-sm">Already have an account? <a href="{% url 'accounts:login' %}" class="link">Sign in</a></p>
 {% endblock %}

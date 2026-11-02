@@ -24,37 +24,65 @@ page is the living style guide, and only platform admins can open it.
 
 ## 1. Tokens
 
+The look is **Caritas Online** (cmfb.shiva.co.ke): warm, calm, banking-grade,
+with one confident red. The brief, with the values taken from the live site,
+is `docs/DESIGN-cmfb.md`.
+
 Colours are CSS variables on `:root`, with a dark set under `[data-theme="dark"]`.
 The dark set is used when the user's `theme_preference` is dark, or when it is
-"system" and the device is dark. Tailwind exposes the variables under the
-names below, so `bg-surface`, `text-ink-muted`, `border-line` and `text-success`
-switch theme automatically. Alpha also works: `bg-brand/10`.
+"system" and the device is dark. It is derived from the hero colours
+(`#1a1416` / `#241c1e`), so dark mode stays warm. Tailwind exposes the variables
+under the names below, so `bg-surface`, `text-ink-muted`, `border-line` and
+`text-success` switch theme automatically. Alpha also works: `bg-brand/10`.
 
-| Token | Tailwind name | Use |
+| Token (light) | Tailwind name | Use |
 |---|---|---|
-| `--c-brand` `#C8102E` | `brand`, `primary` | The **one** primary action on a page, the active nav item, focus rings. Nothing else. |
-| `--c-brand-hover` | `brand-hover` | Primary button hover |
-| `--c-brand-50/100` | `brand-50`, `brand-100` | Active-nav tint, `badge-brand`, `tone-brand` |
+| `--c-brand` `#c6272b` (red) | `brand`, `primary` | The **one** primary action on a page, the active nav item, key accents. Nothing else. |
+| `--c-brand-hover` `#a61f24` (red-strong) | `brand-hover`, `brand-strong` | Primary button hover |
+| `--c-brand-deep` `#7e151a` (red-deep) | `brand-deep` | Pressed, dark text on red tint |
+| `--c-brand-50` `#fbeded` (red-tint) / `-100` | `brand-50`, `brand-tint`, `brand-100` | Active nav, `badge-brand`, `tone-brand`, `icon-tile-brand` |
 | `--c-brand-ink` | `brand-ink` | Brand as text (links); lighter in dark mode |
-| `--c-canvas` | `canvas` | Page background |
-| `--c-surface` / `-2` / `-3` | `surface`, `surface-2`, `surface-3` | Cards / table header and subtle fill / hover |
-| `--c-line` / `-strong` | `line`, `line-strong` | Borders, dividers / input borders |
-| `--c-ink` / `-2` / `-muted` | `ink`, `ink-2`, `ink-muted` | Text: primary / secondary / captions |
-| `--c-success` (+`-bg`, `-line`) | `success`, `success-bg`, `success-line` | Paid, posted, approved |
-| `--c-warning` (…) | `warning…` | Partial, pending, low stock |
-| `--c-danger` (…) | `danger…` | Overdue, rejected, negative amounts, destructive actions |
-| `--c-info` (…) | `info…` | Sent, open, in progress |
+| `--c-canvas` `#f6f4f2` (bg) | `canvas` | Page background: warm, never grey |
+| `--c-surface` `#fff` / `-2` `#f7f4f2` / `-3` `#f3efec` | `surface`, `surface-2`, `surface-3` | Cards / table header and inset panels / hover |
+| `--c-chip` `#f3efec`, `--c-icon-bg` `#f6f2ef` | `chip`, `icon-bg` | Pills and the segmented track / icon tiles |
+| `--c-line` `#ece6e2` / `-strong` `#dcd5d0` / `--c-divider` `#f1ece8` | `line`, `line-strong`, `divider` | Card borders / inputs and outline buttons / row separators |
+| `--c-ink` `#151515` / `-2` `#3a3633` / `-muted` `#5e5955` / `-subtle` `#6b6661` / `-faint` `#8a847f` | `ink`, `ink-2`, `ink-muted`, `ink-subtle`, `ink-faint` | Text: primary / secondary / labels / meta / placeholders and disabled only |
+| `--c-credit` `#1e7a4c` | `credit` | Money in (`.pos`, `stat-up`) |
+| `--c-success` `#1e6b44` (+`-bg` `#eaf5ef`, `-line`) | `success`, `success-bg`, `success-line` | Paid, posted, approved |
+| `--c-warning` (...) | `warning...` | Partial, pending, low stock |
+| `--c-danger` `#b42318` (...) | `danger...` | Overdue, rejected, negative amounts, destructive actions |
+| `--c-info` (...) | `info...` | Sent, open, in progress |
+| `--c-hero` `#1a1416`, `--c-hero-2` `#241c1e` | `hero`, `hero-2` | Dark feature panels (`.hero`, sign-in) |
+| `--c-on-hero` / `-muted` `#cfc6c2` / `-credit` `#8fddb3` | `hero-ink`, `hero-muted`, `hero-credit` | Text on hero panels |
 
-All text pairs meet WCAG AA (4.5:1) in both themes. The ratios are listed at
-the top of `tailwind.input.css`. The old names `--primary`, `--primary-dark`,
-`text-primary` and `bg-primary-50` still work, so older templates are fine.
+All body-text pairs meet WCAG AA (4.5:1) in both themes; the ratios are listed
+at the top of `tailwind.input.css`. `ink-faint` is below 4.5:1 and is only for
+placeholders and disabled text. **Old names still work**: `--primary`,
+`--primary-dark`, `text-primary`, `bg-primary-50` and every `--c-*` variable
+from before. The brief's names are also there as plain colours: `--red`,
+`--red-strong`, `--red-deep`, `--red-tint`, `--bg`, `--hero`, `--hero-2`.
 
-**Type.** Inter. Page title `page-title` (text-xl/2xl bold). Card title
-`card-title` (text-sm semibold). Body text-sm. Captions text-xs `text-ink-muted`.
-Section labels `section-title` (xs, uppercase, tracking).
-**Radius.** Cards and tables use `rounded-xl`. Controls and buttons use `rounded-lg`.
-**Spacing.** `page-container` sets the page gutter. Sections use `gap-5` or
-`space-y-5`. Cards use `p-5`.
+**Type.** Plus Jakarta Sans 400-800 for everything (`font-sans`), loaded from
+Google Fonts in `base.html` and `_auth_layout.html`. Playfair Display italic
+(`font-accent`, or `.tagline`) only for a single red accent line such as
+"Twaimarisha Biashara". Page title `page-title` (28px/800). Card title
+`card-title` (16px/700). Body 15px. Labels 14px/600. Meta 12-13px
+`text-ink-muted`. Section labels `section-title` (12px, uppercase, tracking).
+Money: tabular numerals, right aligned, bold for totals.
+
+**Radius.** `rounded-ctl` (12px) for buttons and controls, `rounded-card`
+(20px) for cards, tables and tiles, `rounded-hero` (22px) for hero panels,
+`rounded-full` for chips and pills. Variables: `--radius-sm` 10 to `--radius-2xl` 22.
+
+**Shadows.** Cards have **none**: a 1px `border-line` on white is the look.
+`shadow-primary` (the primary button), `shadow-chip` (the active segment),
+`shadow-pop` (menus). `shadow-card` is kept as a name and now draws nothing.
+
+**Motion.** `--ease` `cubic-bezier(.2,0,0,1)`, `--ease-enter`, 180ms / 280ms;
+`prefers-reduced-motion` turns it off. Buttons and tiles press in (`scale(.98)`).
+
+**Spacing.** `page-container` (max 1280px) sets the page gutter. Sections use
+`gap-6` or `space-y-6`, 32px between big blocks. Cards use `p-5 sm:p-6`.
 
 ---
 
@@ -72,6 +100,12 @@ element wins, for example `btn btn-primary w-full`.
 <button type="submit" class="btn btn-danger-ghost btn-sm">Remove</button>
 <button type="button" class="btn btn-secondary btn-icon" aria-label="More actions">{% include "_includes/icon.html" with name="ellipsis" cls="h-5 w-5" %}</button>
 ```
+Sizes: `.btn` is **52px** tall (radius 12, 16px/700), `btn-sm` **44px**,
+`btn-lg` 56px. In a `page-actions` row and in a `filter-bar` buttons drop to
+44px, and `btn-sm` inside a `.table` is a compact 36px row action. `btn-primary`
+is red with the primary shadow; `btn-secondary`/`btn-outline` are white with a
+`line-strong` border; `btn-ghost` is transparent (inside `.hero` it becomes a
+white-outlined ghost). Every button presses in on `:active`.
 Modifiers: `btn-sm`, `btn-lg`, `btn-block` (full width), `btn-icon` (square,
 needs `aria-label`). Group buttons with `btn-group`. Every variant includes the
 base, so legacy `class="btn-primary"` still renders correctly.
@@ -89,8 +123,74 @@ Use **one** `btn-primary` per view. Secondary actions are `btn-secondary` or
   <div class="card-footer"><button class="btn btn-primary">Save</button></div>
 </section>
 ```
+Cards are white, radius 20, a 1px `line` border and no shadow. Headers and
+footers are split off by a `divider` line.
 When a table sits inside a card, put `overflow-hidden` on the card and
 `rounded-none border-0 shadow-none` on the `table-wrap`. The dashboard does this.
+
+### Hero panel
+One per key page (the dashboard, a module home's summary strip), not
+everywhere. Dark warm `hero` background, radius 22, white text, muted labels,
+credit-green positive figures. Add `hero-sheets` for the two faint angled
+sheets (pure CSS, no markup).
+```html
+<section class="hero hero-sheets">
+  <p class="hero-eyebrow">{{ request.active_company.name }}</p>
+  <h1 class="hero-title">Welcome back, Wanjiku</h1>
+  <p class="hero-tagline">Twaimarisha Biashara</p>          {# Playfair italic, red; optional #}
+  <p class="hero-text">One muted sentence.</p>
+  <p class="hero-label">Cash on hand</p>
+  <p class="hero-value">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>   {# the key figure, big white numerals #}
+  <p class="hero-meta"><span class="hero-credit">+ {{ inflow|money }}</span> this week</p>   {# muted line; hero-debit for money out #}
+  <dl class="hero-figures">                                   {# 2 to 4 secondary figures under a divider (2 cols, 4 from sm) #}
+    <div><dt class="hero-label">Receivables</dt><dd class="hero-figure">{{ ar|money }}</dd></div>
+    <div><dt class="hero-label">Paid this month</dt><dd class="hero-figure hero-credit">{{ paid|money }}</dd></div>
+  </dl>
+  <div class="hero-actions">
+    <a href="..." class="btn btn-primary btn-sm">New invoice</a>
+    <a href="..." class="btn btn-ghost btn-sm">Record receipt</a>   {# ghost = white outline on the hero #}
+  </div>
+</section>
+```
+| Class | What |
+|---|---|
+| `hero` | The panel. Sets the background **and a light text colour**, so plain text inside inherits white (dim it with `opacity-70` or `hero-muted`). |
+| `hero-sheets` | Optional decorative angled sheets. |
+| `hero-eyebrow`, `hero-title`, `hero-tagline`, `hero-text` | Heading block. |
+| `hero-label` | Muted 13px label above a figure. |
+| `hero-value` | The key figure (36px, 48px from sm). `hero-unit` is the small currency/unit after it. |
+| `hero-meta` | Muted 13px line under a figure. |
+| `hero-figures` / `hero-figure` | Grid of secondary figures under a divider / one secondary value (18-20px bold). Old names `hero-stats` / `hero-stat-value` still work. Grid utilities on `hero-figures` override its columns. |
+| `hero-credit` / `hero-debit` | Green / light-red figure text. A negative `|money` turns light red automatically. |
+| `hero-actions` | Button row; `btn-ghost`/`btn-secondary` render white-outlined here. |
+
+Gate every figure in a hero exactly like the tile it replaces (the dashboard
+shows cash only when `show.cash`). **Print:** a hero prints as a plain bordered
+box, black on white, with the sheets dropped; `print:` utilities such as
+`print:bg-surface print:text-ink print:border` still apply.
+
+### Workflow steps
+```html
+<ol class="steps" aria-label="Invoice progress">
+  <li class="step is-done">Draft</li>
+  <li class="step is-done">Submitted</li>
+  <li class="step is-current" aria-current="step">Approved <span class="step-meta">by A. Otieno</span></li>
+  <li class="step">Posted</li>
+</ol>
+```
+Numbered circles joined by a line: `is-done` is a green tick, `is-current`
+(or `aria-current="step"`) is red with a soft ring, the rest are neutral. The
+row scrolls sideways on phones. It also works inside a `.hero`.
+
+### Segmented toggle and icon tiles
+```html
+<div class="seg" role="group" aria-label="Language">
+  <a href="#" class="is-active">English</a><a href="#">Kiswahili</a>   {# active: .is-active, aria-pressed="true" or aria-current #}
+</div>
+<span class="icon-tile">{% include "_includes/icon.html" with name="bank" %}</span>   {# 44px; -sm 36px, -lg 52px; icon-tile-brand = red #}
+```
+On a dark panel use `seg-dark` (automatic inside `.hero` and the sign-in
+panel). `.segmented` is the old name and renders the same.
 
 ### Tables
 ```html
@@ -114,7 +214,8 @@ When a table sits inside a card, put `overflow-hidden` on the card and
   </table>
 </div>
 ```
-- `.table` gives an uppercase muted header, row hover and tabular figures.
+- `.table` gives a 12px uppercase muted header on `surface-2`, rows split by
+  `divider` lines (about 56px tall), `surface-2` row hover and tabular figures.
   The header is `sticky top-0`, and it sticks inside `table-wrap-scroll`.
 - `.num` right-aligns a cell, uses tabular numbers and stops wrapping. Use it on
   the `<th>` too.
@@ -129,6 +230,9 @@ When a table sits inside a card, put `overflow-hidden` on the card and
 <span class="badge badge-success">Active</span>                 {# manual: success|warning|danger|info|neutral|brand #}
 <span class="badge">Plain</span>
 ```
+Badges are pill chips (12px/600) with a 7px status dot (`badge-dot`, which
+`status_badge` always emits): success green, warning amber, danger red,
+neutral faint, info, brand red.
 The status→colour table is `STATUS_VARIANTS` in `ui_extras.py`. It covers
 every status code in the models: DRAFT, SENT, PARTIAL, PAID, OVERDUE,
 CANCELLED, POSTED, APPROVED, PENDING, REJECTED, OPEN, CLOSED, SUBMITTED,
@@ -164,8 +268,12 @@ returns sentence-case text.
 - Errors: add `is-invalid` (or `aria-invalid="true"`, which Django 5 adds
   itself) and `<p class="form-error">…</p>`. Show non-field errors as
   `<div class="alert alert-danger">`.
-- Other pieces: `input-sm`, `.input-group` (an icon followed by `.input`),
-  and `form-section` (an uppercase section label).
+- Controls are **52px**, radius 12, a `line-strong` border; focus is an ink
+  border plus a soft 4px ink ring (never blue). Labels are 14px/600 ink, help
+  13px muted, errors red. On phones the `form-actions` primary goes full width.
+- Other pieces: `input-sm` (44px), `.input-group` (an icon followed by
+  `.input`), `form-section` (an uppercase section label), and `input-line`
+  (an underline field for dark panels; the sign-in uses it).
 - **Raw Django widgets** (`{{ field }}`, `{{ form.as_p }}`) inside `<main>`
   already look like `.input`, `.select` and `.textarea`. You don't need widget
   attrs. The base layer styles them at specificity (0,0,1), so any class wins.
@@ -187,6 +295,7 @@ returns sentence-case text.
   <div class="alert-body"><p class="alert-title">Heads up</p>3 products are below reorder level.</div>
 </div>
 ```
+Alerts are a radius-14 tinted box with ink text and a coloured icon.
 Variants are `alert-success`, `alert-info`, `alert-warning` and `alert-danger`
 (or `alert-error`). Message tags map as error→danger, success, warning, and
 anything else→info.
@@ -235,7 +344,10 @@ anything else→info.
 - Icon chips: `tone-brand`, `tone-success`, `tone-warning`, `tone-danger`,
   `tone-info` and `tone-neutral`.
 - Number colours: `neg` (red) and `pos` (green).
-- Text helpers: `muted`, `mono` (references, codes, PINs) and `link`.
+- Text helpers: `muted`, `mono` (references, codes, PINs: tabular Plus
+  Jakarta Sans, semibold, never wraps in a table cell; use the `font-mono`
+  utility only for real code) and `link`. A negative `|money` (`.neg`) turns
+  light red inside a `.hero`.
 - `section-title`.
 - `skip-link` and `sr-only` (Tailwind).
 
@@ -250,14 +362,14 @@ the loop would otherwise leak into the include.
 
 | Include | Parameters |
 |---|---|
-| `page_header.html` | `title`\*, `subtitle`, `eyebrow`, `back_url`, `back_label`, `crumbs`, `action_label`+`action_url` (primary, shown only when both are set), `action_icon` (`plus` by default, `edit` when the label starts with "Edit", any icon name, or `none`), `secondary_label`+`secondary_url`, `actions_template` (a partial for POST buttons or menus), `hide_print`, `print_label` |
+| `page_header.html` | `title`\*, `status` (a status code: draws a `status_badge` chip beside the title) + `status_label`, or `badge` (a free-text chip) + `badge_class` (`badge-success` etc.), `subtitle`, `eyebrow`, `back_url`, `back_label`, `crumbs`, `action_label`+`action_url` (primary, shown only when both are set), `action_icon` (`plus` by default, `edit` when the label starts with "Edit", any icon name, or `none`), `secondary_label`+`secondary_url`, `actions_template` (a partial for POST buttons or menus), `hide_print`, `print_label` |
 | `filter_bar.html` | `search_name` (default `q`, `"none"` to drop it), `search_value`, `search_placeholder`, `search_label`, `filter_form`, `extra_template`, `submit_label`, `reset_url` |
 | `empty_state.html` | `title`\*, `text`, `icon`, `action_label`+`action_url`, `secondary_label`+`secondary_url`, `compact` |
 | `stat.html` | `label`\*, `value`, `money`, `qty`, `currency`, `unit`, `meta`, `icon`, `tone`, `url`, `trend` (`up`/`down`), `value_class` |
 | `data_table.html` | `table_template`\*, `title`, `subtitle`, `count`, `actions_template`, `empty`, `empty_title`, `empty_text`, `empty_icon`, `empty_action_label`, `empty_action_url`, `scroll`, `paginate` |
 | `status_badge.html` | `status`\*, `label` |
 | `breadcrumbs.html` | `crumbs` (a list of `{"label","url"}`, where the last item is the current page), `home` (False hides "Home") |
-| `icon.html` | `name`\*, `cls` (default `h-4 w-4`), `stroke` (default 1.75), `icon_label` (makes the icon announced). There are 50 names, all listed at `/dashboard/ui/#icons`. |
+| `icon.html` | `name`\*, `cls` (default `h-4 w-4`), `stroke` (default 1.75), `icon_label` (makes the icon announced). There are 51 names (including `minus`), all listed at `/dashboard/ui/#icons`. |
 | `pagination.html` | Takes no parameters. It needs `is_paginated`, `page_obj` and `request`, and keeps the other query params. |
 | `model_form.html` | `form`\*, `title`, `subtitle`, `back_url`, `cancel_url`, `submit_label`, `section_label`, `extra_template`. Unchanged from before. |
 | `launcher.html` | `launcher_title`, `launcher_subtitle`. The tiles stay inline as `<a … class="launcher-tile">`, and tests count that exact attribute. |
@@ -326,9 +438,20 @@ and `form-actions` (see §2). Field `name`s must stay exactly as the view reads 
   letterhead, and repeats table headers on every page.
 
 ### Dashboard / home page
-See `dashboard/index.html`: stat tiles, chart cards (Chart.js reads colours
-from the CSS variables) and card-wrapped tables. Each block is gated on the
-same right as the page it links to.
+See `dashboard/index.html`: a dark `hero` first (company, the Playfair
+tagline, cash on hand when the role may see it, quick actions as primary and
+ghost buttons), then stat tiles, chart cards (Chart.js reads colours from the
+CSS variables: revenue `brand`, expenses `line-strong`, cash `credit`,
+tooltips on `hero`) and card-wrapped tables. Each block is gated on the same
+right as the page it links to.
+
+### Module home (launcher)
+`_includes/launcher.html` draws the header (title, subtitle and a date pill).
+Tiles are cards (radius 20, 1px border, a 44px icon tile on top, a bold label
+and a chevron) that turn red-tint on hover. Keep the markup exactly
+`<a href="..." class="launcher-tile"><div class="ico ...">...</div><span class="label">...</span></a>`.
+An optional small `hero` strip with the module's 2 to 4 key figures may sit
+between the header and the tiles.
 
 ---
 
@@ -363,6 +486,8 @@ same right as the page it links to.
 - Don't put `btn-primary` on destructive actions. Use `btn-danger` and confirm
   with `onsubmit="return confirm(…)"`.
 - Don't use emoji as icons in new markup. Use `_includes/icon.html`.
+- Don't add solid-red sidebars or headers, blue focus rings, grey canvases or
+  drop shadows on cards.
 - Don't let the page scroll sideways at 375px. Wide content belongs in
   `table-wrap`.
 
@@ -370,13 +495,17 @@ same right as the page it links to.
 
 ## 6. App shell notes
 
-- **Sidebar** (`base.html` with `base/_nav_item.html`). Groups are Finance,
+- **Sidebar** (`base.html` with `base/_nav_item.html`). A white surface with
+  a right border (never solid red). Items are 44px, radius 12; the active one
+  is red-tint with a red icon and text. Group labels are 11px uppercase
+  `ink-faint`. The collapsed rail keeps 44px icon tiles. Groups are Finance,
   Sales, Supply chain, People and Workspace, with Control Panel at the bottom.
   Each item shows only when `nav.<namespace>` is true (`can_view_module`).
   On phones it is a drawer, on tablets a 72px rail that expands as an overlay,
   and on desktop it is expanded with the choice remembered. The active item
   comes from `request.resolver_match.namespace`.
-- **Top bar.** It has the search box (to `dashboard:search`), the company and
+- **Top bar.** White, 72px, a bottom border. It has the search box as a 44px
+  pill (to `dashboard:search`), the company and
   branch switcher (`user_companies`, plus `user_branches` from the context
   processor), Print, the notifications dropdown and the user menu. Platform
   admins also get a "UI style guide" link.
@@ -386,6 +515,14 @@ same right as the page it links to.
   and `role="alert"`/`status` on messages.
 - **Print.** The rules are at the end of `tailwind.input.css`: the letterhead
   `.print-header`, `.no-print`, no shell, and black on white.
-- **Signed-out pages** extend `accounts/_auth_layout.html`, which provides the
-  hero panel, the logo, the messages and the security footer. Its blocks are
-  `title`, `hero`, `top_right`, `content` and `scripts`.
+- **Signed-out pages** extend `accounts/_auth_layout.html`: a split screen
+  like the live sign-in. Left (desktop only) is Mofisi's own photo
+  (`signin-hero.webp`, with the brand gradient behind it) and a dark glass
+  welcome card (`hero` block: `auth-hero-eyebrow`, `auth-hero-title`,
+  `auth-hero-tagline`, `auth-hero-text`). Right is the dark `auth-panel`
+  with the white logo, `top_right` (the English | Kiswahili `seg`), the form
+  and the "Keep your password and codes to yourself" note. Fields on the panel
+  use `auth-label` + `input-line` and `auth-link`; buttons are
+  `btn btn-primary` with an outlined `btn btn-secondary` beside it. Never
+  hot-link the bank's photos or logos. Its blocks are `title`, `hero`,
+  `top_right`, `content` and `scripts`.
