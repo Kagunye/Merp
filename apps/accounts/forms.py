@@ -3,6 +3,8 @@ from django import forms
 from django.contrib.auth import password_validation
 from django.contrib.auth.forms import PasswordChangeForm
 
+from apps.organizations.models import CompanyMembership
+
 from .models import User
 
 
@@ -141,6 +143,23 @@ class UserEditForm(forms.ModelForm):
             return self.instance.email
         return clean_unique_email(self)
 
+    def clean_username(self):
+        """The username, refused if another account has it in any case.
+
+        The database's unique check is case-sensitive on Postgres, so "Jane"
+        could be saved beside "jane" and the two people mistaken for each
+        other on every screen that shows the user ID.
+        """
+        username = (self.cleaned_data.get("username") or "").strip()
+        if self.fields["username"].disabled:
+            return self.instance.username
+        if username and User.objects.filter(username__iexact=username).exclude(
+                pk=self.instance.pk).exists():
+            raise forms.ValidationError(
+                "Another account already uses this user ID (perhaps with different "
+                "capital letters). Choose a different one.")
+        return username
+
     def clean_timezone(self):
         from apps.organizations.validators import validate_timezone
         return validate_timezone((self.cleaned_data.get("timezone") or "").strip())
@@ -192,10 +211,19 @@ class MemberEditForm(MemberRoleMixin, UserEditForm):
 
 
 class AddExistingUserForm(forms.Form):
-    """A company admin adds somebody who already has a login."""
+    """A company admin invites somebody who may already have a login.
+
+    The form deliberately learns nothing about the email: whether an account
+    uses it, whose it is, whether they are already a member. Telling the admin
+    "No active account uses this email" or "Jane Doe is already a member"
+    let anybody with a company of their own (which takes a minute to set up)
+    test any address and read back the owner's name. The view gives the same
+    answer whatever was typed.
+    """
     email = forms.EmailField(
         label="Their email address",
-        help_text="The email they already sign in with. To add someone new, use New user instead.")
+        help_text="The email they sign in to Mofisi with. They are sent an invitation "
+                  "and join once they accept it.")
     company_role = forms.ChoiceField(label="Role in this company", initial="EMPLOYEE")
 
     def __init__(self, *args, company=None, **kwargs):
@@ -203,27 +231,36 @@ class AddExistingUserForm(forms.Form):
         from apps.organizations.models import CompanyMembership
         self.company = company
         self.fields["company_role"].choices = CompanyMembership.ROLE_CHOICES
-        self.user = None
 
     def clean_email(self):
-        from apps.organizations.models import CompanyMembership
-        email = (self.cleaned_data.get("email") or "").strip()
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
-        if user is None:
-            raise forms.ValidationError(
-                "No active account uses this email. Check the spelling, or create the "
-                "account with New user.")
-        existing = CompanyMembership.objects.filter(user=user, company=self.company).first()
-        if existing is not None:
-            if existing.is_active:
-                raise forms.ValidationError(
-                    f"{user.full_name} is already a member of {self.company.name} "
-                    f"({existing.get_role_display()}). Change their role from Edit instead.")
-            raise forms.ValidationError(
-                f"{user.full_name} was a member of {self.company.name} and is disabled. "
-                "Re-enable them from the user list instead.")
-        self.user = user
-        return email
+        return (self.cleaned_data.get("email") or "").strip().lower()
+
+
+class MembershipEditForm(MemberRoleMixin, forms.ModelForm):
+    """What a company admin may change about a colleague: their seat here.
+
+    A person's name, email, username, phone, password and the rest of their
+    profile belong to the person, not to whichever company they work for.
+    Letting a company admin edit them was the second half of an account
+    takeover (change the email to your own, then ask for a password reset),
+    and it let one company rewrite what every other company the person works
+    for sees. Only the person themself, or a platform administrator, edits
+    those; the company admin edits the role, branch and department, and turns
+    access on or off from the user list.
+    """
+
+    class Meta:
+        model = CompanyMembership
+        fields = ["branch", "department"]
+
+    def __init__(self, *args, membership=None, editing_self=False, **kwargs):
+        super().__init__(*args, instance=membership, **kwargs)
+        from apps.organizations.models import Branch, Department
+        company = membership.company
+        self.fields["branch"].queryset = Branch.objects.filter(company=company, is_active=True)
+        self.fields["department"].queryset = Department.objects.filter(company=company, is_active=True)
+        self.add_role_field(membership, editing_self=editing_self)
+        self.order_fields(["company_role", "branch", "department"])
 
 
 class ChangePasswordForm(PasswordChangeForm):

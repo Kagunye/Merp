@@ -1,0 +1,32 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title=page_title|default:"Invitations" subtitle="Companies that have asked you to join them" hide_print=True %}
+<section class="card overflow-hidden">
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Company</th><th>Role</th><th>Invited by</th><th>Expires</th><th></th></tr></thead>
+      <tbody>
+        {% for inv in invitations %}
+        <tr>
+          <td class="font-medium">{{ inv.company.name }}</td>
+          <td>{{ inv.get_role_display }}</td>
+          <td class="text-ink-2">{{ inv.invited_by.full_name|default:"—" }}</td>
+          <td class="text-ink-2">{{ inv.expires_at|date:"d M Y" }}</td>
+          <td class="text-right">
+            <form method="post" action="{% url 'accounts:invitation_respond' inv.token %}" class="no-card inline-flex gap-2">
+              {% csrf_token %}
+              <button type="submit" name="decision" value="accept" class="btn btn-primary btn-sm">Accept</button>
+              <button type="submit" name="decision" value="decline" class="btn btn-ghost btn-sm">Decline</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="p-0">
+          {% include "_includes/empty_state.html" with icon="users" title="No pending invitations" text="When a company invites you, it appears here until you accept or decline it." compact=True %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -12,6 +12,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
 
 
@@ -401,7 +402,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return {"recent_activities": activities[:8]}
 
 
+# Switching company or branch changes what every later page shows and where
+# every later document is filed, so it is a POST with a CSRF token (the
+# switcher's menu items are small forms). As GETs, any page elsewhere could
+# switch a signed-in user's company with an <img src>, and their next
+# invoice would quietly land in the wrong books.
 @login_required
+@require_POST
 def switch_company(request, company_id):
     from apps.organizations.models import Company
     company = get_object_or_404(Company, id=company_id, is_active=True)
@@ -413,6 +420,7 @@ def switch_company(request, company_id):
 
 
 @login_required
+@require_POST
 def switch_branch(request, branch_id):
     from apps.organizations.models import Branch
     branch = get_object_or_404(

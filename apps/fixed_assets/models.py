@@ -152,7 +152,7 @@ class FixedAsset(BaseModel, NotesMixin):
                     f"The chosen {field.replace('_', ' ')} belongs to another book. "
                     "A register that points at another company's records would post "
                     "into a ledger it has no business touching.")
-        if self.warranty_expiry and self.warranty_expiry < self.purchase_date:
+        if self.warranty_expiry and self.purchase_date and self.warranty_expiry < self.purchase_date:
             raise ValidationError(
                 "The warranty ends before the asset was bought, which cannot be right. "
                 "Check the two dates.")

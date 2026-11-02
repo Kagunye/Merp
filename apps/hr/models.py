@@ -51,6 +51,21 @@ class Employee(BaseModel, AddressMixin, ContactMixin, NotesMixin):
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
 
+    def clean(self):
+        # A hire date before 1950 or a date of birth that makes the person a
+        # child is a slip of the year field, not a fact to put on the books.
+        super().clean()
+        from apps.organizations.validators import birth_date_error, earliest_date_error
+        errors = {}
+        msg = earliest_date_error(self.date_hired, "The hire date")
+        if msg:
+            errors["date_hired"] = msg
+        msg = birth_date_error(self.date_of_birth)
+        if msg:
+            errors["date_of_birth"] = msg
+        if errors:
+            raise ValidationError(errors)
+
 
 class Contract(BaseModel):
     CONTRACT_TYPES = [

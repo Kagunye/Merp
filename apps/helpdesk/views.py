@@ -34,6 +34,22 @@ def can_close(request, ticket):
         ticket.raised_by_id is not None and ticket.raised_by_id == request.user.pk)
 
 
+def can_see_internal(request, ticket):
+    """Whether this person may read (and write) a ticket's internal notes.
+
+    Internal notes are the team talking among themselves -- "customer is on
+    credit hold", "don't promise a date" -- and were shown to everybody who
+    could open the ticket, the person who raised it included. They are for
+    the people handling the ticket: its assignee, a company ADMIN, and staff
+    given the helpdesk change permission.
+    """
+    if _is_admin(request):
+        return True
+    if ticket.assigned_to_id is not None and ticket.assigned_to_id == request.user.pk:
+        return True
+    return request.user.has_perm("helpdesk.change_ticket")
+
+
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
     template_name = "helpdesk/home.html"
 
@@ -95,7 +111,7 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
         # The number shown on the form was only a preview; it is taken here.
         form.instance.reference = SequenceCounter.claim_number(
             company, TICKET_PREFIX, form.instance.reference,
-            taken=lambda ref: Ticket.objects.filter(company=company, reference=ref).exists())
+            taken=lambda ref: Ticket.objects.filter(company=company, reference__iexact=ref).exists())
         messages.success(self.request, f"Ticket {form.instance.reference} opened.")
         return super().form_valid(form)
 
@@ -117,6 +133,12 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["comment_form"] = TicketCommentForm()
+        internal = can_see_internal(self.request, self.object)
+        ctx["can_see_internal"] = internal
+        comments = self.object.comments.select_related("author").all()
+        ctx["comments"] = comments if internal else comments.filter(is_internal=False)
+        if not internal:
+            ctx["comment_form"].fields.pop("is_internal", None)
         ctx["can_resolve"] = can_resolve(self.request, self.object)
         ctx["can_close"] = can_close(self.request, self.object)
         return ctx
@@ -137,6 +159,10 @@ def ticket_comment(request, pk):
         c = form.save(commit=False)
         c.ticket = ticket
         c.author = request.user
+        if not can_see_internal(request, ticket):
+            # Somebody who can't read internal notes can't write one either:
+            # their reply is an ordinary one, visible to the ticket's audience.
+            c.is_internal = False
         c.save()
         messages.success(request, "Reply posted.")
     else:

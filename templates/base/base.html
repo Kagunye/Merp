@@ -141,23 +141,25 @@
         <div id="menu-company" class="menu hidden w-[min(18rem,calc(100vw-1.5rem))]" role="menu">
           <p class="menu-label">Company</p>
           {% for co in user_companies %}
-          <a href="{% url 'dashboard:switch_company' co.id %}?next={{ request.path }}" role="menuitem"
-             class="menu-item{% if co == active_company %} menu-item-active{% endif %}"{% if co == active_company %} aria-current="true"{% endif %}>
+          <form method="post" action="{% url 'dashboard:switch_company' co.id %}" class="no-card">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+          <button type="submit" role="menuitem"
+             class="menu-item w-full text-left{% if co == active_company %} menu-item-active{% endif %}"{% if co == active_company %} aria-current="true"{% endif %}>
             <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold {% if co == active_company %}bg-brand text-white{% else %}bg-surface-3 text-ink-2{% endif %}">{{ co.name|first|upper }}</span>
             <span class="min-w-0 flex-1 truncate">{{ co.name }}</span>
             {% if co == active_company %}{% include "_includes/icon.html" with name="check" cls="h-4 w-4 text-brand-ink" stroke="2" %}{% endif %}
-          </a>
+          </button></form>
           {% endfor %}
           {% if user_branches %}
           <div class="menu-sep"></div>
           <p class="menu-label">Branch</p>
           {% for br in user_branches %}
-          <a href="{% url 'dashboard:switch_branch' br.id %}?next={{ request.path }}" role="menuitem"
-             class="menu-item{% if br == active_branch %} menu-item-active{% endif %}"{% if br == active_branch %} aria-current="true"{% endif %}>
+          <form method="post" action="{% url 'dashboard:switch_branch' br.id %}" class="no-card">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+          <button type="submit" role="menuitem"
+             class="menu-item w-full text-left{% if br == active_branch %} menu-item-active{% endif %}"{% if br == active_branch %} aria-current="true"{% endif %}>
             {% include "_includes/icon.html" with name="map-pin" cls="h-4 w-4" %}
             <span class="min-w-0 flex-1 truncate">{{ br.name }}</span>
             {% if br == active_branch %}{% include "_includes/icon.html" with name="check" cls="h-4 w-4 text-brand-ink" stroke="2" %}{% endif %}
-          </a>
+          </button></form>
           {% endfor %}
           {% endif %}
         </div>

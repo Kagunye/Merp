@@ -34,7 +34,7 @@ class TicketForm(forms.ModelForm):
         reference = (self.cleaned_data.get("reference") or "").strip()
         prefix = TICKET_PREFIX
         series = reference[len(prefix):] if reference.upper().startswith(prefix) else ""
-        if self.instance._state.adding and series.isdigit():
+        if self.instance._state.adding and series.isascii() and series.isdigit():
             return reference
         if reference and self.company is not None:
             twin = Ticket.objects.filter(company=self.company, reference__iexact=reference).exclude(

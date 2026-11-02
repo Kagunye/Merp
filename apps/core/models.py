@@ -89,6 +89,11 @@ class SequenceCounter(models.Model):
     prefix = models.CharField(max_length=20)
     last_number = models.PositiveIntegerField(default=0)
 
+    # How far ahead of the last issued number a typed reference may move the
+    # counter, and the most the column can hold (a 32-bit integer on Postgres).
+    MAX_TYPED_JUMP = 10_000
+    MAX_COUNTER = 2_147_483_647
+
     class Meta:
         unique_together = [("company", "prefix")]
 
@@ -137,12 +142,28 @@ class SequenceCounter(models.Model):
         number, a supplier's own): it is kept as typed and the counter is left
         alone. `taken` is a callable answering "does a record already use this
         reference?"; without it an issued number is assumed free.
+
+        Two guards keep one typed value from damaging the series for everyone:
+
+        * the prefix is matched without regard to case, and a series number is
+          saved in the series' own spelling: "tkt-00001" is TKT-00001, not a
+          second reference beside it;
+        * a typed number may move the counter only a little way ahead -- at
+          most MAX_TYPED_JUMP past the last issued number, and never past what
+          the column holds (MAX_COUNTER, Postgres int4). "TKT-9223372036854775807"
+          used to set the counter so high that every later save failed, and
+          "TKT-99999999999999999999" was a 500 on the spot. Such a number is
+          kept as a hand-typed reference instead and the series carries on.
         """
         from django.db import transaction
         value = (value or "").strip()
-        rest = value[len(prefix):] if value.startswith(prefix) else None
-        if value and not (rest and rest.isdigit()):
+        rest = value[len(prefix):] if value.upper().startswith(prefix.upper()) else None
+        # isascii(): str.isdigit() is also true for "²" or Arabic-Indic digits,
+        # which int() then refuses or reads as a number nobody typed.
+        if value and not (rest and rest.isascii() and rest.isdigit()):
             return value
+        if value:
+            value = f"{prefix}{rest}"
         with transaction.atomic():
             obj, _ = cls.objects.select_for_update().get_or_create(
                 company=company, prefix=prefix, defaults={"last_number": 0}
@@ -150,10 +171,14 @@ class SequenceCounter(models.Model):
             if value:
                 wanted = int(rest)
                 if wanted > obj.last_number:
-                    obj.last_number = wanted
-                    obj.save(update_fields=["last_number"])
-                    return value
-                if not (taken and taken(value)):
+                    if wanted <= min(obj.last_number + cls.MAX_TYPED_JUMP, cls.MAX_COUNTER):
+                        obj.last_number = wanted
+                        obj.save(update_fields=["last_number"])
+                        return value
+                    # Too far ahead: a hand reference, the counter untouched.
+                    if not (taken and taken(value)):
+                        return value
+                elif not (taken and taken(value)):
                     return value
             while True:
                 obj.last_number += 1

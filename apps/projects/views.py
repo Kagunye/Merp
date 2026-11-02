@@ -72,6 +72,8 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
             # A preview: the number is taken at save time (claim_number), so
             # opening this form and leaving does not leave a gap in the series.
             form.fields["reference"].initial = SequenceCounter.peek_number(company, "PRJ-")
+            # Blank is fine too: the next number is issued on save.
+            form.fields["reference"].required = False
         from apps.core.forms import company_users
         form.fields["manager"].queryset = company_users(company)
         form.fields["start_date"].initial = datetime.date.today()
@@ -83,8 +85,11 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
         form.instance.company = company
         form.instance.reference = SequenceCounter.claim_number(
             company, "PRJ-", form.instance.reference,
-            taken=lambda ref: Project.objects.filter(company=company, reference=ref).exists())
-        form.instance.manager = self.request.user
+            taken=lambda ref: Project.objects.filter(company=company, reference__iexact=ref).exists())
+        # The manager picked on the form is kept; the person creating the
+        # project is only the default when nobody was picked.
+        if not form.cleaned_data.get("manager"):
+            form.instance.manager = self.request.user
         messages.success(self.request, f"Project '{form.instance.name}' created.")
         return super().form_valid(form)
 

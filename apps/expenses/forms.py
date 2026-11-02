@@ -67,6 +67,15 @@ class ExpenseClaimForm(forms.ModelForm):
         self.fields["employee"].queryset = staff
         if is_new(self):
             self.fields["claim_date"].initial = datetime.date.today()
+            # Optional on a new claim: left blank, or as the previewed EXP-
+            # number, the next number in the series is issued when the claim
+            # is saved (SequenceCounter.claim_number in the create view).
+            self.fields["reference"].required = False
+            self.fields["reference"].help_text = (
+                "Leave as shown to take the next claim number, or type your own.")
+            if company is not None:
+                from apps.core.models import SequenceCounter
+                self.fields["reference"].initial = SequenceCounter.peek_number(company, "EXP-")
 
     def clean_claim_date(self):
         """A claim is handed in for money already spent, on a day that has come.

@@ -4,6 +4,16 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.accounts.views import throttled_admin_login
+
+# The Django admin's sign-in form shares the sign-in page's lockout: five
+# failures for one account or one address within 15 minutes pause it, and
+# every attempt is recorded (apps.accounts.views.throttled_admin_login).
+# Set before admin.site.urls is read, which is when the route is bound.
+if not getattr(admin.site.login, "_merp_throttled", False):
+    admin.site.login = throttled_admin_login(admin.site.login)
+    admin.site.login._merp_throttled = True
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("apps.core.urls")),
@@ -57,20 +67,23 @@ except ImportError:
 # at all), is pictures that are shown inline on pages -- avatars, company and
 # customer logos, product images -- which are not confidential and which a
 # development server has no other way to show.
-PUBLIC_MEDIA_PREFIXES = ("users/avatars/", "companies/logos/", "customers/logos/",
-                         "products/images/")
+#
+# config.media_views.public_media serves them: it resolves the path and
+# refuses anything outside MEDIA_ROOT/<public prefix>, any "." or ".."
+# segment however it was encoded, and anything that is not a picture.
+from config.media_views import PUBLIC_MEDIA_PREFIXES  # noqa: E402  (re-exported)
 
 if settings.DEBUG:
     import re as _re
 
     from django.urls import re_path
-    from django.views.static import serve as _serve
+
+    from config.media_views import public_media as _public_media
 
     _media = _re.escape(settings.MEDIA_URL.lstrip("/"))
     _prefixes = "|".join(_re.escape(p) for p in PUBLIC_MEDIA_PREFIXES)
     urlpatterns += [
-        re_path(rf"^{_media}(?P<path>(?:{_prefixes})[^/][^\\]*)$", _serve,
-                {"document_root": settings.MEDIA_ROOT}, name="public_media"),
+        re_path(rf"^{_media}(?P<path>(?:{_prefixes}).+)$", _public_media, name="public_media"),
     ]
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     try:

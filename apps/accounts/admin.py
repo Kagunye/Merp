@@ -23,3 +23,14 @@ class LoginAttemptAdmin(admin.ModelAdmin):
     list_display = ["email", "success", "ip_address", "created_at"]
     list_filter = ["success"]
     readonly_fields = ["email", "user", "ip_address", "user_agent", "success", "created_at"]
+
+
+from .models import CompanyInvitation  # noqa: E402
+
+
+@admin.register(CompanyInvitation)
+class CompanyInvitationAdmin(admin.ModelAdmin):
+    list_display = ["email", "company", "role", "created_at", "expires_at", "accepted_at", "declined_at"]
+    list_filter = ["role"]
+    search_fields = ["email", "company__name"]
+    readonly_fields = ["token", "created_at"]

@@ -48,6 +48,22 @@ written to a temporary folder that is deleted afterwards.
                                   owe or their invoices
    14. links a role can't use  -> user management, workshop tiles, department
                                   create/edit are hidden from roles refused them
+   15. identity fields         -> a company admin edits the seat (role, branch,
+                                  department), never the person's email, name or
+                                  username; the takeover chain fails; username
+                                  case twins and disabling the last admin refused
+   16. /media/ pictures        -> only real images under the public prefixes;
+                                  no traversal however encoded
+   17. admin sign-in           -> /admin/login/ shares the five-failure lockout
+                                  and records every attempt
+   18. switching               -> company/branch switches are POST only
+   19. numbering               -> a typed number moves the counter only a little
+                                  way, never past int4; any case of the prefix
+   20. more range checks       -> 1950 floor on dates, 14-year-old minimum age,
+                                  product prices, last HQ, asset warranty, the
+                                  project manager pick, optional claim number
+   21. upload sniff            -> text files read in full with tolerant patterns
+   22. internal notes          -> hidden from people who don't handle the ticket
 """
 import datetime
 import re
@@ -215,6 +231,14 @@ class Command(BaseCommand):
         self.check_notification_links()
         self.check_crm_leak()
         self.check_hidden_links()
+        self.check_identity_fields()
+        self.check_public_media()
+        self.check_admin_login()
+        self.check_switching()
+        self.check_numbering_bounds()
+        self.check_round4_forms()
+        self.check_upload_sniff()
+        self.check_internal_notes()
 
     # ───────────────────────────── 1. company ────────────────────────────────
 
@@ -518,20 +542,76 @@ class Command(BaseCommand):
 
     def check_members(self):
         from apps.organizations.models import CompanyMembership
-        self.section("7. adding existing users and changing roles")
+        from apps.accounts.models import CompanyInvitation
+        self.section("7. inviting existing users and changing roles")
+        same = "If that person has a Mofisi account, they've been invited."
         outsider = self.make_user("outsider")
+        mail.outbox = []
         r = self.A.post(reverse("accounts:user_add_existing"),
                         {"email": outsider.email.upper(), "company_role": "SALES_REP"})
-        m = CompanyMembership.objects.filter(company=self.a, user=outsider).first()
-        self.expect("an admin adds an existing login by email, with a role",
-                    r.status_code == 302 and m is not None and m.role == "SALES_REP",
+        inv = CompanyInvitation.objects.filter(company=self.a, email=outsider.email).first()
+        self.expect("inviting an existing login records an invitation, not a membership",
+                    r.status_code == 302 and inv is not None and inv.role == "SALES_REP"
+                    and not CompanyMembership.objects.filter(company=self.a, user=outsider).exists(),
                     f"HTTP {r.status_code} {self.form_errors(r)}")
-        r = self.A.post(reverse("accounts:user_add_existing"),
-                        {"email": outsider.email, "company_role": "VIEWER"})
-        self.expect("adding them twice is refused", r.status_code == 200 and "email" in self.form_errors(r))
+        self.expect("...with the same neutral answer", same in self.flashes(self.A, r), str(self.flashes(self.A, r)))
+        link = f"https://erp.example.test/auth/invitations/{inv.token}/" if inv else "?"
+        self.expect("...and an email with a SITE_URL link to accept it",
+                    len(mail.outbox) == 1 and link in mail.outbox[0].body and mail.outbox[0].to == [outsider.email],
+                    str([m.body for m in mail.outbox]))
+        self.expect("...that expires in 14 days", inv is not None and 13 <= (
+            inv.expires_at - timezone.now()).days <= 14)
+        mail.outbox = []
         r = self.A.post(reverse("accounts:user_add_existing"),
                         {"email": f"ghost.{self.stamp}@platform.local", "company_role": "VIEWER"})
-        self.expect("an unknown email is refused", r.status_code == 200 and "email" in self.form_errors(r))
+        self.expect("an unknown email gets the very same answer (no enumeration), and no email",
+                    r.status_code == 302 and same in self.flashes(self.A, r) and not mail.outbox,
+                    f"HTTP {r.status_code} {self.flashes(self.A, r)}")
+        r = self.A.post(reverse("accounts:user_add_existing"),
+                        {"email": self.a_admin.email, "company_role": "VIEWER"})
+        self.expect("an existing member gets the same answer too, and nothing changes",
+                    r.status_code == 302 and same in self.flashes(self.A, r)
+                    and CompanyMembership.objects.get(company=self.a, user=self.a_admin).role == "ADMIN")
+        # Somebody else holding the link can't use it.
+        snoop_user = self.make_user("snoop")
+        self.login(snoop_user).post(reverse("accounts:invitation_respond", args=[inv.token]),
+                                    {"decision": "accept"})
+        inv.refresh_from_db()
+        self.expect("another account opening the link does not join anyone",
+                    not CompanyMembership.objects.filter(company=self.a, user=snoop_user).exists()
+                    and not CompanyMembership.objects.filter(company=self.a, user=outsider).exists()
+                    and inv.accepted_at is None)
+        oc = self.login(outsider)
+        r = oc.get(reverse("accounts:invitations"))
+        self.expect("the invited person sees the invitation on their Invitations screen",
+                    r.status_code == 200 and self.a.name in self.text(r), f"HTTP {r.status_code}")
+        r = oc.get(reverse("accounts:profile"))
+        self.expect("...and a note about it on their profile",
+                    any("pending company invitation" in m for m in self.flash(r)), str(self.flash(r)))
+        r = oc.post(reverse("accounts:invitation_respond", args=[inv.token]), {"decision": "accept"})
+        m = CompanyMembership.objects.filter(company=self.a, user=outsider).first()
+        self.expect("accepting it (signed in as themselves) creates the membership with the role",
+                    r.status_code == 302 and m is not None and m.role == "SALES_REP" and m.is_active,
+                    f"HTTP {r.status_code}")
+        r = oc.post(reverse("accounts:invitation_respond", args=[inv.token]), {"decision": "accept"})
+        self.expect("an accepted invitation can't be used again",
+                    CompanyMembership.objects.filter(company=self.a, user=outsider).count() == 1)
+        # Declining and expiry.
+        decliner = self.make_user("decliner")
+        self.A.post(reverse("accounts:user_add_existing"), {"email": decliner.email, "company_role": "ADMIN"})
+        d_inv = CompanyInvitation.objects.get(company=self.a, email=decliner.email, declined_at__isnull=True)
+        dc = self.login(decliner)
+        dc.post(reverse("accounts:invitation_respond", args=[d_inv.token]), {"decision": "decline"})
+        dc.post(reverse("accounts:invitation_respond", args=[d_inv.token]), {"decision": "accept"})
+        self.expect("a declined invitation joins nobody",
+                    not CompanyMembership.objects.filter(company=self.a, user=decliner).exists())
+        self.A.post(reverse("accounts:user_add_existing"), {"email": decliner.email, "company_role": "VIEWER"})
+        e_inv = CompanyInvitation.objects.get(company=self.a, email=decliner.email, declined_at__isnull=True)
+        CompanyInvitation.objects.filter(pk=e_inv.pk).update(
+            expires_at=timezone.now() - datetime.timedelta(minutes=1))
+        dc.post(reverse("accounts:invitation_respond", args=[e_inv.token]), {"decision": "accept"})
+        self.expect("an expired invitation joins nobody",
+                    not CompanyMembership.objects.filter(company=self.a, user=decliner).exists())
         _, rep_client = self.member(self.a, "SALES_REP")
         r = rep_client.post(reverse("accounts:user_add_existing"),
                             {"email": self.make_user("x").email, "company_role": "ADMIN"})
@@ -823,3 +903,385 @@ class Command(BaseCommand):
         may_change = access.can(hr_user, "HR_MANAGER", "organizations", "department_create", "POST")
         self.expect("department New/Edit links follow the role table for HR_MANAGER",
                     (reverse("organizations:department_create") in page) == may_change)
+
+    # ───────────────────────────── 15. identity fields ───────────────────────
+
+    def check_identity_fields(self):
+        from apps.accounts.models import CompanyInvitation, User
+        from apps.organizations.models import CompanyMembership
+        self.section("15. a company admin edits the seat, not the person")
+        # The takeover chain: register, create a company, add the victim, edit
+        # their email, reset the password, sign in as them.
+        victim = self.make_user("victim")
+        att = Client(raise_request_exception=False)
+        att_email = f"att.{self.stamp}@evil.local"
+        att.post(reverse("accounts:register"), {
+            "first_name": "Att", "last_name": "Acker", "email": att_email, "phone": "",
+            "password": STRONG_PW, "password_confirm": STRONG_PW, "terms_accepted": "on"})
+        att.post(reverse("organizations:company_create"), self.company_data(f"Evil {self.stamp}"))
+        from apps.organizations.models import Company
+        evil = Company.objects.filter(name=f"Evil {self.stamp}").first()
+        self.expect("(the attacker registered and set up a company)", evil is not None)
+        if evil is None:
+            return
+        session = att.session
+        session["active_company_id"] = str(evil.id)
+        session.save()
+        att.post(reverse("accounts:user_add_existing"), {"email": victim.email, "company_role": "EMPLOYEE"})
+        self.expect("add-existing gives the attacker no membership over the victim",
+                    not CompanyMembership.objects.filter(company=evil, user=victim).exists())
+        r = att.post(reverse("accounts:user_edit", args=[victim.pk]), {
+            "first_name": "Owned", "last_name": "X", "email": f"mine.{self.stamp}@evil.local",
+            "username": victim.username, "phone": "", "job_title": "", "bio": "",
+            "timezone": "Africa/Nairobi", "theme_preference": "light", "company_role": "EMPLOYEE"})
+        victim.refresh_from_db()
+        self.expect("...and cannot open the victim's edit page", r.status_code == 404
+                    and victim.first_name == "Victim" and victim.email.endswith("@platform.local"),
+                    f"HTTP {r.status_code} {victim.email}")
+
+        # Even once the person accepted and is a member, their identity is theirs.
+        CompanyInvitation.objects.filter(email=victim.email).update(
+            expires_at=timezone.now() + datetime.timedelta(days=1))
+        inv = CompanyInvitation.objects.filter(company=evil, email=victim.email).first()
+        self.login(victim).post(reverse("accounts:invitation_respond", args=[inv.token]),
+                                {"decision": "accept"})
+        m = CompanyMembership.objects.filter(company=evil, user=victim).first()
+        self.expect("(the victim accepted)", m is not None)
+        before = (victim.email, victim.first_name, victim.username, victim.phone)
+        r = att.post(reverse("accounts:user_edit", args=[victim.pk]), {
+            "first_name": "Owned", "last_name": "X", "email": f"mine2.{self.stamp}@evil.local",
+            "username": f"owned.{self.stamp}", "phone": "+000", "job_title": "", "bio": "",
+            "timezone": "Pacific/Kiritimati", "theme_preference": "dark", "company_role": "ACCOUNTANT"})
+        victim.refresh_from_db()
+        m.refresh_from_db()
+        self.expect("a company admin's edit leaves email, name, username and phone alone",
+                    (victim.email, victim.first_name, victim.username, victim.phone) == before,
+                    f"{before} -> {(victim.email, victim.first_name, victim.username, victim.phone)}")
+        self.expect("...but changes the role", r.status_code == 302 and m.role == "ACCOUNTANT",
+                    f"HTTP {r.status_code} {self.form_errors(r)} {m.role}")
+        r = att.get(reverse("accounts:user_edit", args=[victim.pk]))
+        fields = set(r.context["form"].fields) if r.context and "form" in r.context else set()
+        self.expect("the company admin's form offers only role, branch and department",
+                    fields == {"company_role", "branch", "department"}, str(fields))
+        mail.outbox = []
+        Client().post(reverse("accounts:password_reset"), {"email": f"mine2.{self.stamp}@evil.local"})
+        self.expect("a reset for the attacker's address mails nobody", not mail.outbox)
+        # A platform admin may still correct the record.
+        root = User.objects.create(username=f"root15.{self.stamp}", email=f"root15.{self.stamp}@platform.local",
+                                   is_superuser=True)
+        r = self.login(root, evil).post(reverse("accounts:user_edit", args=[victim.pk]), {
+            "first_name": "Victoria", "last_name": "Fix", "email": victim.email,
+            "username": victim.username, "phone": "", "job_title": "", "bio": "",
+            "timezone": "Africa/Nairobi", "theme_preference": "light", "company_role": "ACCOUNTANT"})
+        victim.refresh_from_db()
+        self.expect("a platform admin can still correct a name", victim.first_name == "Victoria",
+                    f"HTTP {r.status_code} {self.form_errors(r)}")
+
+        # Username case twins.
+        me = self.make_user("casey")
+        other = self.make_user("other")
+        r = self.login(me).post(reverse("accounts:profile_edit"), {
+            "first_name": "Casey", "last_name": "Fix", "email": me.email, "username": other.username.upper(),
+            "phone": "", "job_title": "", "bio": "", "timezone": "Africa/Nairobi", "theme_preference": "light"})
+        self.expect("a username differing only in case is refused",
+                    r.status_code == 200 and "username" in self.form_errors(r), str(self.form_errors(r)))
+
+        # The last active admin can't be disabled, not even by a platform admin.
+        sole = CompanyMembership.objects.get(company=self.b, user=self.b_admin)
+        rc = self.login(root, self.b)
+        r = rc.post(reverse("accounts:user_toggle", args=[self.b_admin.pk]))
+        sole.refresh_from_db()
+        self.expect("disabling a company's last active admin is refused",
+                    sole.is_active and any("only active admin" in t for t in self.flashes(rc, r)),
+                    f"active={sole.is_active}")
+
+    # ───────────────────────────── 16. /media/ ───────────────────────────────
+
+    def check_public_media(self):
+        import os
+        from django.conf import settings
+        from django.urls import NoReverseMatch
+        from config.media_views import _resolve
+        self.section("16. /media/ serves only public pictures")
+        root = settings.MEDIA_ROOT
+        os.makedirs(os.path.join(root, "users", "avatars"), exist_ok=True)
+        os.makedirs(os.path.join(root, "documents"), exist_ok=True)
+        with open(os.path.join(root, "users", "avatars", "me.png"), "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n")
+        with open(os.path.join(root, "users", "avatars", "notes.txt"), "wb") as fh:
+            fh.write(b"hello")
+        with open(os.path.join(root, "documents", "secret.png"), "wb") as fh:
+            fh.write(b"secret")
+        self.expect("a real avatar resolves", _resolve("users/avatars/me.png") is not None)
+        for bad in ("users/avatars/../../documents/secret.png", "users/avatars/x/../../documents/secret.png",
+                    "users/avatars/..\\..\\documents\\secret.png", "users/avatars/./me.png",
+                    "users/avatars//me.png", "users/avatars/notes.txt", "users/avatars/missing.png",
+                    "documents/secret.png", "users/avatars/me.png\x00.png"):
+            self.expect(f"refused: {bad!r}", _resolve(bad) is None)
+        try:
+            reverse("public_media", kwargs={"path": "users/avatars/me.png"})
+            routed = True
+        except NoReverseMatch:
+            routed = False
+        if routed:
+            for url in ("/media/users/avatars/%2e%2e/%2e%2e/documents/secret.png",
+                        "/media/users/avatars/..%2f..%2fdocuments/secret.png",
+                        "/media/users/avatars/x/../../documents/secret.png"):
+                r = self.A.get(url)
+                self.expect(f"GET {url} does not hand out the document", r.status_code == 404,
+                            f"HTTP {r.status_code}")
+            r = self.A.get("/media/users/avatars/me.png")
+            self.expect("GET a real avatar still works", r.status_code == 200, f"HTTP {r.status_code}")
+        else:
+            self.expect("with DEBUG off there is no /media/ route at all", True)
+
+    # ───────────────────────────── 17. admin sign-in ─────────────────────────
+
+    def check_admin_login(self):
+        from apps.accounts.models import LoginAttempt
+        self.section("17. /admin/login/ shares the lockout")
+        from apps.accounts.models import User
+        staff = User.objects.create(username=f"staff.{self.stamp}", email=f"staff.{self.stamp}@platform.local",
+                                    is_staff=True, is_superuser=True)
+        staff.set_password(STRONG_PW)
+        staff.save()
+        url = "/admin/login/?next=/admin/"
+        for i in range(5):
+            Client().post(url, {"username": staff.email, "password": f"wrong-{i}"}, REMOTE_ADDR=f"10.7.0.{i + 1}")
+        fails = LoginAttempt.objects.filter(email__iexact=staff.email, success=False).count()
+        self.expect("each failed admin sign-in is recorded", fails == 5, str(fails))
+        c = Client()
+        r = c.post(url, {"username": staff.email, "password": STRONG_PW}, REMOTE_ADDR="10.7.0.99")
+        self.expect("the sixth try, with the right password, is refused (429)",
+                    r.status_code == 429 and "_auth_user_id" not in c.session, f"HTTP {r.status_code}")
+        LoginAttempt.objects.filter(email__iexact=staff.email).update(
+            created_at=timezone.now() - datetime.timedelta(minutes=16))
+        c = Client()
+        r = c.post(url, {"username": staff.email, "password": STRONG_PW}, REMOTE_ADDR="10.7.0.98")
+        self.expect("after the window the admin signs in, and it is recorded",
+                    r.status_code == 302 and LoginAttempt.objects.filter(
+                        email__iexact=staff.email, success=True).exists(), f"HTTP {r.status_code}")
+
+    # ───────────────────────────── 18. switching ─────────────────────────────
+
+    def check_switching(self):
+        from apps.organizations.models import Branch, CompanyMembership
+        self.section("18. switching company or branch is a POST")
+        user = self.make_user("switcher")
+        CompanyMembership.objects.create(company=self.a, user=user, role="VIEWER", is_default=True)
+        CompanyMembership.objects.create(company=self.b, user=user, role="VIEWER")
+        c = self.login(user, self.a)
+        url = reverse("dashboard:switch_company", args=[self.b.pk])
+        r = c.get(url)
+        self.expect("GET switch-company is refused (405) and changes nothing",
+                    r.status_code == 405 and c.session.get("active_company_id") == str(self.a.id),
+                    f"HTTP {r.status_code}")
+        r = c.post(url, {"next": "/sales/"})
+        self.expect("POST switches and follows a local next",
+                    r.status_code == 302 and r["Location"] == "/sales/"
+                    and c.session.get("active_company_id") == str(self.b.id), f"HTTP {r.status_code}")
+        r = c.post(reverse("dashboard:switch_company", args=[self.a.pk]), {"next": "https://evil.example/"})
+        self.expect("...but not an off-site one", r.status_code == 302 and r["Location"] == "/dashboard/",
+                    r.get("Location", ""))
+        branch = Branch.objects.filter(company=self.a, is_active=True).first()
+        r = c.get(reverse("dashboard:switch_branch", args=[branch.pk]))
+        self.expect("GET switch-branch is refused (405)", r.status_code == 405, f"HTTP {r.status_code}")
+        r = c.post(reverse("dashboard:switch_branch", args=[branch.pk]))
+        self.expect("POST switch-branch works", r.status_code == 302
+                    and c.session.get("active_branch_id") == str(branch.id))
+        enforced = Client(enforce_csrf_checks=True)
+        enforced.force_login(user, backend="django.contrib.auth.backends.ModelBackend")
+        r = enforced.post(url)
+        self.expect("a switch without a CSRF token is refused", r.status_code == 403, f"HTTP {r.status_code}")
+        page = self.text(c.get(reverse("dashboard:index")))
+        self.expect("the switcher posts a form with a CSRF token",
+                    'method="post" action="' + url in page and "csrfmiddlewaretoken" in page)
+
+    # ───────────────────────────── 19. numbering ─────────────────────────────
+
+    def check_numbering_bounds(self):
+        from apps.core.models import SequenceCounter
+        from apps.helpdesk.models import Ticket
+        self.section("19. a typed number can't break the series")
+
+        def last():
+            return SequenceCounter.objects.filter(company=self.a, prefix="TKT-").values_list(
+                "last_number", flat=True).first() or 0
+
+        def open_ticket(reference, subject):
+            return self.E.post(reverse("helpdesk:ticket_create"), {
+                "reference": reference, "subject": subject, "description": "", "customer": "",
+                "requester_name": "", "requester_email": "", "channel": "WEB", "priority": "NORMAL",
+                "assigned_to": ""})
+
+        start = last()
+        for ref in ("TKT-9223372036854775807", "TKT-99999999999999999999", f"TKT-{start + 10_001}",
+                    "TKT-2147483648"):
+            r = open_ticket(ref, f"Huge {ref}")
+            t = Ticket.objects.filter(company=self.a, subject=f"Huge {ref}").first()
+            self.expect(f"{ref}: saved, no 500, counter untouched",
+                        r.status_code == 302 and t is not None and last() == start,
+                        f"HTTP {r.status_code} last={last()}")
+        r = open_ticket("", "After huge")
+        t = Ticket.objects.filter(company=self.a, subject="After huge").first()
+        self.expect("the series carries on with the next number",
+                    t is not None and t.reference == f"TKT-{str(start + 1).zfill(5)}", t and t.reference)
+        near = start + 50
+        open_ticket(f"tkt-{str(near).zfill(5)}", "Near ahead")
+        t = Ticket.objects.filter(company=self.a, subject="Near ahead").first()
+        self.expect("a lower-case series number is saved as TKT- and moves the counter a little",
+                    t is not None and t.reference == f"TKT-{str(near).zfill(5)}" and last() == near,
+                    f"{t and t.reference} last={last()}")
+        r = open_ticket(f"tkt-{str(near).zfill(5)}", "Near again")
+        t2 = Ticket.objects.filter(company=self.a, subject="Near again").first()
+        self.expect("the same number in another case gets a fresh number, not a twin",
+                    t2 is not None and t2.reference.upper() != f"TKT-{str(near).zfill(5)}",
+                    t2 and t2.reference)
+        # Directly, for any caller.
+        value = SequenceCounter.claim_number(self.a, "QQQ-", "QQQ-" + "9" * 40)
+        self.expect("claim_number keeps an absurd number as a hand reference",
+                    value == "QQQ-" + "9" * 40 and not SequenceCounter.objects.filter(
+                        company=self.a, prefix="QQQ-", last_number__gt=0).exists())
+        self.expect("claim_number ignores non-ASCII digits",
+                    SequenceCounter.claim_number(self.a, "QQQ-", "QQQ-²²") == "QQQ-²²")
+
+    # ───────────────────────────── 20. more ranges ───────────────────────────
+
+    def check_round4_forms(self):
+        from apps.expenses.models import ExpenseClaim
+        from apps.fixed_assets.models import FixedAsset
+        from apps.hr.models import Employee
+        from apps.inventory.forms import ProductForm
+        from apps.organizations.models import Branch
+        from apps.projects.models import Project, Task
+        from apps.recruitment.models import Interview, JobOpening
+        self.section("20. more range checks and form fixes")
+        old = datetime.date(1949, 12, 31)
+        self.refused("an interview in 1949",
+                     Interview(scheduled_at=timezone.make_aware(datetime.datetime(1949, 6, 1, 10)),
+                               duration_minutes=30).clean, "scheduled_at")
+        self.refused("an opening posted in 1949",
+                     JobOpening(company=self.a, title="J", posted_date=old).clean, "posted_date")
+        self.refused("a hire date in 1949",
+                     Employee(company=self.a, first_name="a", last_name="b", date_hired=old).clean, "date_hired")
+        today = datetime.date.today()
+        self.refused("a 10-year-old employee",
+                     Employee(company=self.a, first_name="a", last_name="b", date_hired=today,
+                              date_of_birth=today.replace(year=today.year - 10)).clean, "date_of_birth")
+        self.refused("a project starting in 1949",
+                     Project(company=self.a, name="P", start_date=old).clean, "start_date")
+        self.refused("a task due in 1949", Task(title="T", due_date=old).clean, "due_date")
+        try:
+            Employee(company=self.a, first_name="a", last_name="b", date_hired=today,
+                     date_of_birth=datetime.date(today.year - 30, 1, 1)).clean()
+            ok = True
+        except ValidationError:
+            ok = False
+        self.expect("a 30-year-old hired today is fine", ok)
+
+        form = ProductForm(data={"cost_price": "-1", "selling_price": "-2", "reorder_level": "-3",
+                                 "reorder_quantity": "-4"}, company=self.a)
+        form.is_valid()
+        self.expect("negative product cost, price and reorder figures are refused",
+                    {"cost_price", "selling_price", "reorder_level", "reorder_quantity"} <= set(form.errors),
+                    str(list(form.errors)))
+
+        hq = Branch.objects.get(company=self.a, is_headquarters=True)
+        r = self.A.post(reverse("organizations:branch_edit", args=[hq.pk]), {
+            "company": str(self.a.pk), "name": hq.name, "code": hq.code, "manager_name": "",
+            "phone": "", "email": "", "address_line1": "", "city": "", "country": "Kenya"})
+        hq.refresh_from_db()
+        self.expect("unticking Headquarters on the only HQ is refused",
+                    hq.is_headquarters and "is_headquarters" in self.form_errors(r),
+                    f"HTTP {r.status_code} {self.form_errors(r)}")
+
+        try:
+            FixedAsset(company=self.a, code="FA-X", name="Van", purchase_date=None,
+                       warranty_expiry=today, purchase_cost=D("100"), residual_value=D("0"),
+                       useful_life_years=3).clean()
+            crashed = False
+        except ValidationError:
+            crashed = False
+        except TypeError:
+            crashed = True
+        self.expect("a warranty date with no purchase date is not a TypeError", not crashed)
+        r = self.A.post(reverse("fixed_assets:asset_create"), {
+            "code": "", "name": "Van", "purchase_date": "", "purchase_cost": "100", "residual_value": "0",
+            "useful_life_years": "3", "depreciation_method": "STRAIGHT_LINE", "warranty_expiry": "2030-01-01"})
+        self.expect("...and the asset form answers with a form, not a 500", r.status_code in (200, 302),
+                    f"HTTP {r.status_code}")
+
+        _, pm = self.member(self.a, "PROJECT_MANAGER", "pm.pick")
+        picked = self.make_user("picked")
+        from apps.organizations.models import CompanyMembership
+        CompanyMembership.objects.create(company=self.a, user=picked, role="EMPLOYEE")
+        base = {"reference": "", "name": f"Picked {self.stamp}", "description": "", "status": "PLANNING",
+                "start_date": today.isoformat(), "end_date": "", "budget": "0", "customer": "",
+                "branch": "", "notes": ""}
+        r = pm.post(reverse("projects:project_create"), {**base, "manager": str(picked.pk)})
+        p = Project.objects.filter(company=self.a, name=f"Picked {self.stamp}").first()
+        self.expect("the manager picked on the new-project form is kept",
+                    p is not None and p.manager_id == picked.pk, f"HTTP {r.status_code} {self.form_errors(r)}")
+
+        from apps.hr.models import Employee as Emp
+        emp = Emp.objects.create(company=self.a, employee_number=f"E{self.stamp[-6:]}", first_name="Claim",
+                                 last_name="Ant", date_hired=today)
+        r = self.A.get(reverse("expenses:claim_create"))
+        preview = r.context["form"].fields["reference"].initial if r.context else ""
+        self.expect("the new-claim form previews an EXP- number", str(preview).startswith("EXP-"), str(preview))
+        r = self.A.post(reverse("expenses:claim_create"), {
+            "reference": "", "employee": str(emp.pk), "claim_date": today.isoformat(), "notes": "blank ref"})
+        claim = ExpenseClaim.objects.filter(company=self.a, notes="blank ref").first()
+        self.expect("a claim saved with no reference is numbered",
+                    claim is not None and claim.reference.startswith("EXP-"),
+                    f"HTTP {r.status_code} {self.form_errors(r)}")
+
+    # ───────────────────────────── 21. upload sniff ──────────────────────────
+
+    def check_upload_sniff(self):
+        from apps.documents.validators import validate_upload
+        self.section("21. text uploads are read in full")
+        cases = {
+            "img onerror": b"hello <img src=x onerror =alert(1)>",
+            "details ontoggle": b"<details open ontoggle=alert(1)>",
+            "meta refresh": b'<meta http-equiv="refresh" content="0;url=https://evil.example">',
+            "script after 8 KB": b"a" * 9000 + b"<script>alert(1)</script>",
+            "spaced tag": b"< script >alert(1)</script>",
+        }
+        for label, content in cases.items():
+            try:
+                validate_upload(SimpleUploadedFile("note.txt", content, content_type="text/plain"))
+                refused = False
+            except ValidationError:
+                refused = True
+            self.expect(f".txt with {label} is refused", refused)
+        for label, content in (("plain notes", b"one = 1\nprice=5\nmeet on monday"),
+                               ("a csv", b"name,amount\nonions,5\n")):
+            try:
+                validate_upload(SimpleUploadedFile("ok.csv", content, content_type="text/csv"))
+                passed = True
+            except ValidationError:
+                passed = False
+            self.expect(f"{label} still uploads", passed)
+
+    # ───────────────────────────── 22. internal notes ────────────────────────
+
+    def check_internal_notes(self):
+        from apps.helpdesk.models import Ticket, TicketComment
+        self.section("22. internal notes are for the people handling the ticket")
+        agent, agent_c = self.member(self.a, "SALES_REP", "agent22")
+        raiser, raiser_c = self.member(self.a, "EMPLOYEE", "raiser22")
+        t = Ticket.objects.create(company=self.a, reference=f"NOTE-{self.stamp}", subject="Notes",
+                                  assigned_to=agent, raised_by=raiser)
+        TicketComment.objects.create(ticket=t, author=agent, body="SECRET-INTERNAL", is_internal=True)
+        TicketComment.objects.create(ticket=t, author=agent, body="PUBLIC-REPLY", is_internal=False)
+        url = reverse("helpdesk:ticket_detail", args=[t.pk])
+        page = self.text(raiser_c.get(url))
+        self.expect("the person who raised it sees the reply but not the internal note",
+                    "PUBLIC-REPLY" in page and "SECRET-INTERNAL" not in page)
+        self.expect("the assignee sees the internal note", "SECRET-INTERNAL" in self.text(agent_c.get(url)))
+        self.expect("the company admin sees the internal note", "SECRET-INTERNAL" in self.text(self.A.get(url)))
+        raiser_c.post(reverse("helpdesk:ticket_comment", args=[t.pk]), {"body": "Sneaky", "is_internal": "on"})
+        c = TicketComment.objects.filter(ticket=t, body="Sneaky").first()
+        self.expect("a reply from someone who can't read internal notes is never internal",
+                    c is not None and not c.is_internal)

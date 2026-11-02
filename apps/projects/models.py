@@ -36,6 +36,10 @@ class Project(BaseModel, NotesMixin):
         errors = {}
         if self.budget is not None and self.budget < 0:
             errors["budget"] = "A budget can't be negative. Enter 0 if there is no budget yet."
+        from apps.organizations.validators import earliest_date_error
+        msg = earliest_date_error(self.start_date, "The start date")
+        if msg:
+            errors["start_date"] = msg
         if self.start_date and self.end_date and self.end_date < self.start_date:
             errors["end_date"] = (
                 f"The project can't end ({self.end_date:%d %b %Y}) before it starts "
@@ -76,6 +80,13 @@ class Task(BaseModel, NotesMixin):
         return self.title
 
     def clean(self):
+        from apps.organizations.validators import earliest_date_error
+        errors = {}
         if self.estimated_hours is not None and self.estimated_hours < 0:
-            raise ValidationError({"estimated_hours":
-                                   "Estimated hours can't be negative. Enter 0 or more, or leave it blank."})
+            errors["estimated_hours"] = (
+                "Estimated hours can't be negative. Enter 0 or more, or leave it blank.")
+        msg = earliest_date_error(self.due_date, "The due date")
+        if msg:
+            errors["due_date"] = msg
+        if errors:
+            raise ValidationError(errors)

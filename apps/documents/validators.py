@@ -5,7 +5,8 @@ receipt, a logo, a photo -- goes through `validate_upload`. Three checks:
 
 * the extension must be on a short whitelist of office, image and text
   formats (`ALLOWED_UPLOAD_EXTENSIONS`);
-* the first few kilobytes must not look like HTML, SVG or script, whatever
+* the content must not look like HTML, SVG or script (the whole file for
+  .txt/.csv, the first few kilobytes of anything else), whatever
   the extension says. A file called `invoice.pdf` that is really an HTML
   page is a stored cross-site-scripting attack the moment a browser renders
   it inline: it runs as this site, with the viewer's session;
@@ -17,6 +18,7 @@ Files are also only ever served as downloads, through the protected views in
 be saved by the browser rather than run.
 """
 import os
+import re
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -45,6 +47,24 @@ MARKUP_MARKERS = (
 )
 
 
+# Plain-text uploads are read in full (up to the size cap), not just their
+# head: a .txt or .csv has no structure a browser must find up front, so an
+# attacker could otherwise pad 8 KB of harmless text and put the <script>
+# after it. Binary formats (PDF, images, office files) keep the head sniff;
+# their compressed bodies are full of chance byte runs.
+TEXT_EXTENSIONS = ("txt", "csv")
+
+# Tolerant patterns for text uploads. Browsers accept "< script", "onerror =",
+# tabs and newlines inside a tag, and many more tags than the fixed byte list
+# above names: <img onerror>, <details open ontoggle>, <meta http-equiv=
+# refresh> all run or redirect with no <script> at all. An event handler
+# (on...=) is looked for inside a tag only, so a line of text like
+# "one = 1" in a CSV is not mistaken for one.
+MARKUP_TAG_RE = re.compile(
+    rb"<\s*/?\s*(script|iframe|object|embed|svg|meta|details|img|link|style|html|body|form|input)\b")
+EVENT_HANDLER_RE = re.compile(rb"<[^<>]*\bon\w+\s*=")
+
+
 def max_upload_size():
     return int(getattr(settings, "MAX_UPLOAD_SIZE", DEFAULT_MAX_UPLOAD_SIZE))
 
@@ -53,8 +73,8 @@ def _human(size):
     return f"{size / (1024 * 1024):.0f} MB" if size >= 1024 * 1024 else f"{size // 1024} KB"
 
 
-def _head(value):
-    """The first SNIFF_BYTES of an upload, leaving its read position alone."""
+def _head(value, limit=SNIFF_BYTES):
+    """The first `limit` bytes of an upload, leaving its read position alone."""
     f = getattr(value, "file", value)
     if f is None or not hasattr(f, "read"):
         return b""
@@ -65,7 +85,7 @@ def _head(value):
     try:
         if hasattr(f, "seek"):
             f.seek(0)
-        head = f.read(SNIFF_BYTES) or b""
+        head = f.read(limit) or b""
     finally:
         if pos is not None and hasattr(f, "seek"):
             f.seek(pos)
@@ -80,9 +100,22 @@ def looks_like_markup(head: bytes) -> bool:
     UTF-16 text is folded to plain bytes first (dropping the NULs), so an
     HTML page saved as UTF-16 is still recognised.
     """
-    sample = head.lstrip(b"\xef\xbb\xbf\xff\xfe\x00\t\r\n ")
-    sample = sample.replace(b"\x00", b"").lower()
+    sample = _fold(head)
     return any(marker in sample for marker in MARKUP_MARKERS)
+
+
+def _fold(data: bytes) -> bytes:
+    """Lower-case, with a leading BOM/whitespace and every NUL (UTF-16) removed."""
+    sample = data.lstrip(b"\xef\xbb\xbf\xff\xfe\x00\t\r\n ")
+    return sample.replace(b"\x00", b"").lower()
+
+
+def text_looks_like_markup(data: bytes) -> bool:
+    """The stricter check for plain-text uploads: the whole file, tolerant patterns."""
+    sample = _fold(data)
+    return (any(marker in sample for marker in MARKUP_MARKERS)
+            or MARKUP_TAG_RE.search(sample) is not None
+            or EVENT_HANDLER_RE.search(sample) is not None)
 
 
 @deconstructible
@@ -109,7 +142,11 @@ class UploadValidator:
             raise ValidationError(
                 f"'{name}' is {_human(size)}; the largest file you can upload is "
                 f"{_human(limit)}. Compress it or split it and try again.", code="file_size")
-        if looks_like_markup(_head(value)):
+        if ext in TEXT_EXTENSIONS:
+            suspicious = text_looks_like_markup(_head(value, limit + 1))
+        else:
+            suspicious = looks_like_markup(_head(value))
+        if suspicious:
             raise ValidationError(
                 f"'{name}' contains web-page or script content (HTML, SVG or "
                 "JavaScript), which can't be stored here whatever its extension. "

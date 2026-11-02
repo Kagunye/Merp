@@ -125,11 +125,14 @@ class ExpenseClaimCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVie
         form.instance.company = self.request.active_company
         # Who typed it in, so they cannot also approve or pay it.
         form.instance.created_by = self.request.user
-        if not form.instance.reference:
-            from apps.core.models import SequenceCounter
-            form.instance.reference = SequenceCounter.next_number(
-                self.request.active_company, "EXP-"
-            )
+        from apps.core.models import SequenceCounter
+        company = self.request.active_company
+        # The preview on the form is only taken now, so two people saving
+        # the same previewed number get two different claims.
+        form.instance.reference = SequenceCounter.claim_number(
+            company, "EXP-", form.instance.reference,
+            taken=lambda ref: ExpenseClaim.objects.filter(
+                company=company, reference__iexact=ref).exists())
         response = super().form_valid(form)
         messages.success(self.request, "Expense claim created. Add line items.")
         return response
