@@ -1,85 +1,85 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}{{ project.name }} — Projects — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <nav class="text-sm text-gray-500 mb-1"><a href="{% url 'projects:project_list' %}" class="hover:underline">Projects</a> / <span class="text-gray-900 font-medium">{{ project.reference }}</span></nav>
-    <h1 class="text-2xl font-bold text-gray-900">{{ project.name }}</h1>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <span class="badge {% if project.status == 'ACTIVE' %}bg-green-50 text-green-700{% elif project.status == 'COMPLETED' %}bg-blue-50 text-blue-700{% elif project.status == 'PLANNING' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %} text-sm px-3 py-1.5">{{ project.get_status_display }}</span>
-    <a href="{% url 'projects:project_task_create' project.pk %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ Add Task</a>
-  </div>
+{% url 'projects:project_list' as back %}
+{% can_do "projects:project_task_create" "POST" as may_add_task %}{% if may_add_task %}{% url 'projects:project_task_create' project.pk as task_url %}{% endif %}
+{% can_do "projects:task_detail" as may_task %}
+{% include "_includes/page_header.html" with title=project.name eyebrow=project.reference back_url=back back_label="Projects" action_label="Add Task" action_url=task_url %}
+
+<section aria-label="Project figures" class="stat-grid mb-5">
+  {% include "_includes/stat.html" with label="Budget" value=project.budget money=True meta="Agreed for this project" icon="cash" tone="info" only %}
+  {% include "_includes/stat.html" with label="Progress" value=project.progress_percent unit="%" meta="Of tasks complete" icon="trending-up" tone="success" only %}
+  {% include "_includes/stat.html" with label="Estimated hours" value=hours.estimated qty=True unit="hrs" meta="Across all tasks" icon="clock" tone="neutral" only %}
+  {% include "_includes/stat.html" with label="Actual hours" value=hours.actual qty=True unit="hrs" meta="Logged against tasks" icon="clock" tone="warning" only %}
+</section>
+
+<div class="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <section class="card lg:col-span-2">
+    <div class="card-header">
+      <h2 class="card-title">Project Details</h2>
+      {% status_badge project.status project.get_status_display %}
+    </div>
+    <div class="card-body">
+      <dl class="dl">
+        <div><dt>Reference</dt><dd class="mono">{{ project.reference }}</dd></div>
+        <div><dt>Customer</dt><dd>{{ project.customer.name|default:"—" }}</dd></div>
+        <div><dt>Manager</dt><dd>{{ project.manager.full_name|default:"—" }}</dd></div>
+        <div><dt>Budget</dt><dd class="tabular-nums">{{ project.budget|money }}</dd></div>
+        <div><dt>Start Date</dt><dd>{{ project.start_date|date:"d M Y" }}</dd></div>
+        <div><dt>End Date</dt><dd>{{ project.end_date|date:"d M Y"|default:"—" }}</dd></div>
+        {% if project.description %}<div class="dl-full"><dt>Description</dt><dd>{{ project.description|linebreaksbr }}</dd></div>{% endif %}
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Progress</h2></div>
+    <div class="card-body">
+      <p class="text-center text-4xl font-bold tabular-nums text-ink">{{ project.progress_percent }}%</p>
+      <p class="mt-1 text-center text-sm text-ink-muted">Complete</p>
+      <div class="my-4 h-2 rounded-full bg-surface-3" role="progressbar" aria-valuenow="{{ project.progress_percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="Project progress">
+        <div class="h-2 rounded-full bg-success" style="width:{{ project.progress_percent }}%"></div>
+      </div>
+      <dl class="dl-rows">
+        <div><dt>Total</dt><dd>{{ task_counts.total }}</dd></div>
+        <div><dt>To do</dt><dd>{{ task_counts.todo }}</dd></div>
+        <div><dt>In Progress</dt><dd>{{ task_counts.in_progress }}</dd></div>
+        <div><dt>Done</dt><dd>{{ task_counts.done }}</dd></div>
+      </dl>
+    </div>
+  </section>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-  <div class="bg-white rounded-xl border border-gray-200 p-6 lg:col-span-2">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Project Details</h2>
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-      <div><dt class="text-gray-500">Reference</dt><dd class="font-medium text-gray-900">{{ project.reference }}</dd></div>
-      <div><dt class="text-gray-500">Customer</dt><dd class="text-gray-900">{{ project.customer.name|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Manager</dt><dd class="text-gray-900">{{ project.manager.full_name|default:"—" }}</dd></div>
-      <div><dt class="text-gray-500">Budget</dt><dd class="text-gray-900 font-mono">{{ project.budget|floatformat:2 }}</dd></div>
-      <div><dt class="text-gray-500">Start Date</dt><dd class="text-gray-900">{{ project.start_date }}</dd></div>
-      <div><dt class="text-gray-500">End Date</dt><dd class="text-gray-900">{{ project.end_date|default:"—" }}</dd></div>
-    </dl>
-    {% if project.description %}<p class="text-sm text-gray-600 mt-4">{{ project.description }}</p>{% endif %}
+<section class="card overflow-hidden">
+  <div class="card-header">
+    <h2 class="card-title">Tasks <span class="tab-count ml-1">{{ task_counts.total }}</span></h2>
+    {% if task_url %}<a href="{{ task_url }}" class="btn btn-ghost btn-sm">{% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}Add Task</a>{% endif %}
   </div>
-  <div class="bg-white rounded-xl border border-gray-200 p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-4">Progress</h2>
-    <div class="text-center mb-4">
-      <p class="text-4xl font-bold text-gray-900">{{ project.progress_percent }}%</p>
-      <p class="text-sm text-gray-500 mt-1">Complete</p>
-    </div>
-    <div class="bg-gray-200 rounded-full h-2 mb-4">
-      <div class="bg-green-500 h-2 rounded-full" style="width:{{ project.progress_percent }}%"></div>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-center text-sm">
-      <div class="bg-blue-50 rounded-lg p-2"><p class="text-xl font-bold text-blue-700">{{ task_counts.total }}</p><p class="text-xs text-blue-600">Total</p></div>
-      <div class="bg-amber-50 rounded-lg p-2"><p class="text-xl font-bold text-amber-700">{{ task_counts.in_progress }}</p><p class="text-xs text-amber-600">In Progress</p></div>
-      <div class="bg-green-50 rounded-lg p-2"><p class="text-xl font-bold text-green-700">{{ task_counts.done }}</p><p class="text-xs text-green-600">Done</p></div>
-    </div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead>
+        <tr><th>Task</th><th>Assigned To</th><th>Priority</th><th>Status</th><th>Due Date</th><th class="num">Est. Hrs</th><th class="num">Actual Hrs</th></tr>
+      </thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td>{% if may_task %}<a href="{% url 'projects:task_detail' task.pk %}" class="row-link">{{ task.title }}</a>{% else %}<span class="font-medium text-ink">{{ task.title }}</span>{% endif %}</td>
+          <td class="text-ink-2">{{ task.assigned_to.full_name|default:"Unassigned" }}</td>
+          <td>{% status_badge task.priority task.get_priority_display %}</td>
+          <td>{% status_badge task.status task.get_status_display %}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ task.due_date|date:"d M Y"|default:"—" }}</td>
+          <td class="num">{{ task.estimated_hours|qty }}</td>
+          <td class="num">{{ task.actual_hours|qty }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No tasks yet" text="Break the project into tasks to track progress and hours." action_label="Add first task" action_url=task_url compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if tasks %}
+      <tfoot><tr><td colspan="5">Total hours</td><td class="num">{{ hours.estimated|qty }}</td><td class="num">{{ hours.actual|qty }}</td></tr></tfoot>
+      {% endif %}
+    </table>
   </div>
-</div>
-
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-    <h2 class="text-base font-semibold text-gray-900">Tasks</h2>
-    <a href="{% url 'projects:project_task_create' project.pk %}" class="text-sm font-medium" style="color:var(--primary)">+ Add Task</a>
-  </div>
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Task</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Assigned To</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Priority</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Due Date</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Est. Hrs</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
-      {% for task in tasks %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-medium text-gray-900">{{ task.title }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ task.assigned_to.full_name|default:"Unassigned" }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if task.priority == 'URGENT' %}bg-red-50 text-red-700{% elif task.priority == 'HIGH' %}bg-orange-50 text-orange-700{% elif task.priority == 'MEDIUM' %}bg-amber-50 text-amber-700{% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ task.get_priority_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3">
-          <span class="badge {% if task.status == 'DONE' %}bg-green-50 text-green-700{% elif task.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% elif task.status == 'REVIEW' %}bg-purple-50 text-purple-700{% elif task.status == 'CANCELLED' %}bg-gray-100 text-gray-600{% else %}bg-amber-50 text-amber-700{% endif %}">
-            {{ task.get_status_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3 text-gray-600">{{ task.due_date|default:"—" }}</td>
-        <td class="px-4 py-3 text-right text-gray-600">{{ task.estimated_hours|default:"—" }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No tasks yet. <a href="{% url 'projects:project_task_create' project.pk %}" style="color:var(--primary)" class="font-medium">Add first task</a></td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+</section>
 {% endblock %}

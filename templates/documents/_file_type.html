@@ -1,0 +1,1 @@
+{% with m=mime|default:""|lower %}{% if 'pdf' in m %}PDF{% elif 'image' in m %}Image{% elif 'sheet' in m or 'excel' in m or 'csv' in m %}Spreadsheet{% elif 'presentation' in m or 'powerpoint' in m %}Presentation{% elif 'word' in m or 'opendocument.text' in m %}Word document{% elif 'text' in m %}Text{% elif 'zip' in m %}Archive{% else %}File{% endif %}{% endwith %}

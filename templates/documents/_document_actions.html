@@ -1,0 +1,3 @@
+{% load ui_extras %}
+{% can_do "documents:document_delete" "POST" as may_delete %}
+{% if can_delete and may_delete %}<a href="{% url 'documents:document_delete' doc.pk %}" class="btn btn-danger-ghost">{% include "_includes/icon.html" with name="trash" cls="h-4 w-4" only %}Delete</a>{% endif %}

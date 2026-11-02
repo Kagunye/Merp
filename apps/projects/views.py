@@ -117,6 +117,10 @@ class ProjectDetailView(LoginRequiredMixin, DetailView):
             "in_progress": self.object.tasks.filter(status="IN_PROGRESS").count(),
             "todo": self.object.tasks.filter(status="TODO").count(),
         }
+        # Display only: the hour totals shown under the task table.
+        from django.db.models import Sum
+        ctx["hours"] = self.object.tasks.aggregate(
+            estimated=Sum("estimated_hours"), actual=Sum("actual_hours"))
         return ctx
 
 

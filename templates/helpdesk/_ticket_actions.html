@@ -1,0 +1,8 @@
+{% load ui_extras %}
+{% can_do "helpdesk:ticket_resolve" "POST" as may_resolve %}{% can_do "helpdesk:ticket_close" "POST" as may_close %}
+{% if may_resolve and can_resolve and ticket.status != 'RESOLVED' and ticket.status != 'CLOSED' %}
+<form method="post" action="{% url 'helpdesk:ticket_resolve' ticket.pk %}" class="no-card">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4" %}Mark resolved</button></form>
+{% endif %}
+{% if may_close and can_close and ticket.status != 'CLOSED' %}
+<form method="post" action="{% url 'helpdesk:ticket_close' ticket.pk %}" class="no-card" onsubmit="return confirm('Close this ticket? It will take no more replies.');">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="x-circle" cls="h-4 w-4" %}Close ticket</button></form>
+{% endif %}

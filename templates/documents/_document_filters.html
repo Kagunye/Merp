@@ -1,0 +1,7 @@
+<div class="form-field">
+  <label class="form-label" for="fb-category">Category</label>
+  <select id="fb-category" name="category" class="select">
+    <option value="">All</option>
+    {% for c in categories %}<option value="{{ c.id }}"{% if selected_category == c.id|stringformat:'s' %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
+  </select>
+</div>

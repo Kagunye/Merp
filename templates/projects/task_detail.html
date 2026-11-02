@@ -1,16 +1,25 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'projects:task_list' as back %}
-{% include "_includes/page_header.html" with title=task.title subtitle=task.project.name back_url=back %}
-<div class="max-w-2xl bg-white rounded-xl border border-gray-200 p-6">
-  <div class="grid grid-cols-2 gap-5 text-sm">
-    <div><div class="text-xs text-gray-500">Project</div><div class="font-semibold">{{ task.project.name }}</div></div>
-    <div><div class="text-xs text-gray-500">Status</div><div><span class="badge bg-gray-100 text-gray-700">{{ task.get_status_display|default:task.status }}</span></div></div>
-    <div><div class="text-xs text-gray-500">Assignee</div><div class="font-semibold">{{ task.assigned_to.full_name|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Priority</div><div class="font-semibold">{{ task.get_priority_display|default:task.priority|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Start</div><div class="font-semibold">{{ task.start_date|date:"d M Y"|default:"—" }}</div></div>
-    <div><div class="text-xs text-gray-500">Due</div><div class="font-semibold">{{ task.due_date|date:"d M Y"|default:"—" }}</div></div>
-    <div class="col-span-2"><div class="text-xs text-gray-500">Description</div><div class="text-sm text-gray-900 mt-1">{{ task.description|default:"—"|linebreaks }}</div></div>
+{% include "_includes/page_header.html" with title=task.title subtitle=task.project.name back_url=back back_label="Tasks" %}
+
+<section class="card max-w-3xl">
+  <div class="card-header">
+    <h2 class="card-title">Task details</h2>
+    {% status_badge task.status task.get_status_display %}
   </div>
-</div>
+  <div class="card-body">
+    <dl class="dl">
+      <div><dt>Project</dt><dd>{% can_do "projects:project_detail" as may_project %}{% if may_project %}<a href="{% url 'projects:project_detail' task.project.pk %}" class="link">{{ task.project.name }}</a>{% else %}{{ task.project.name }}{% endif %}</dd></div>
+      <div><dt>Status</dt><dd>{{ task.get_status_display|default:task.status }}</dd></div>
+      <div><dt>Assignee</dt><dd>{{ task.assigned_to.full_name|default:"—" }}</dd></div>
+      <div><dt>Priority</dt><dd>{% if task.priority %}{% status_badge task.priority task.get_priority_display %}{% else %}—{% endif %}</dd></div>
+      <div><dt>Due</dt><dd>{{ task.due_date|date:"d M Y"|default:"—" }}</dd></div>
+      <div><dt>Hours</dt><dd class="tabular-nums">{{ task.actual_hours|qty }} logged of {{ task.estimated_hours|qty }} estimated</dd></div>
+      <div class="dl-full"><dt>Description</dt><dd>{{ task.description|default:"—"|linebreaksbr }}</dd></div>
+      {% if task.notes %}<div class="dl-full"><dt>Notes</dt><dd>{{ task.notes|linebreaksbr }}</dd></div>{% endif %}
+    </dl>
+  </div>
+</section>
 {% endblock %}

@@ -1,57 +1,85 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% url 'helpdesk:ticket_list' as back %}
-{% include "_includes/page_header.html" with title=ticket.subject subtitle=ticket.reference back_url=back %}
+{% include "_includes/page_header.html" with title=ticket.subject subtitle=ticket.reference back_url=back back_label="Tickets" actions_template="helpdesk/_ticket_actions.html" %}
 
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div><div class="font-semibold">{{ ticket.get_status_display }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Priority</div><div class="font-semibold">{{ ticket.get_priority_display }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Customer</div><div class="font-semibold">{{ ticket.customer|default:ticket.requester_name|default:"—" }}</div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Assignee</div><div class="font-semibold">{{ ticket.assigned_to|default:"—" }}</div></div>
-</div>
+<div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
+  <div class="min-w-0 space-y-5 lg:col-span-2">
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Description</h2></div>
+      <div class="card-body text-sm text-ink">{{ ticket.description|default:"(no description)"|linebreaks }}</div>
+    </section>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
-    <h3 class="text-sm font-semibold mb-2 text-gray-700">Description</h3>
-    <div class="text-sm text-gray-900 mb-6">{{ ticket.description|default:"(no description)"|linebreaks }}</div>
-
-    <h3 class="text-sm font-semibold mb-3 text-gray-700">Conversation</h3>
-    <div class="space-y-3 mb-6">
-      {% for c in comments %}
-      <div class="rounded-lg border {% if c.is_internal %}bg-amber-50 border-amber-200{% else %}bg-gray-50 border-gray-200{% endif %} p-3">
-        <div class="flex justify-between text-xs text-gray-500 mb-1"><span>{{ c.author|default:"System" }}{% if c.is_internal %} · <strong>Internal note</strong>{% endif %}</span><span>{{ c.created_at|date:"d M Y H:i" }}</span></div>
-        <div class="text-sm text-gray-900">{{ c.body|linebreaks }}</div>
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <h2 class="card-title">Conversation</h2>
       </div>
-      {% empty %}
-      <p class="text-sm text-gray-500">No replies yet.</p>
-      {% endfor %}
-    </div>
+      {# Internal notes are for staff who work the ticket: the assignee or an admin (can_resolve), or a colleague #}
+      {# with helpdesk change rights (may comment). Viewers and auditors never see them. #}
+      {% can_do "helpdesk:ticket_comment" "POST" as may_comment %}{% can_do "helpdesk:ticket_resolve" "POST" as may_resolve_route %}
+      {# Who may read internal notes is decided in the view (can_see_internal), which also filters `comments`. #}{% if can_see_internal %}{% firstof "1" as may_internal %}{% endif %}
+      <ol class="card-body space-y-3" aria-label="Replies, oldest first">
+        {% for c in comments %}
+        {% if not c.is_internal or may_internal %}
+        <li class="rounded-xl border p-4 {% if c.is_internal %}border-warning-line bg-warning-bg{% else %}border-line bg-surface{% endif %}">
+          <div class="flex items-start gap-3">
+            <span class="avatar shrink-0" aria-hidden="true">{% if c.author %}{{ c.author.initials }}{% else %}{% include "_includes/icon.html" with name="cog" cls="h-4 w-4" only %}{% endif %}</span>
+            <div class="min-w-0 flex-1">
+              <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <span class="font-semibold text-ink">{{ c.author|default:"System" }}</span>
+                {% if c.is_internal %}<span class="badge badge-warning">{% include "_includes/icon.html" with name="lock" cls="h-3 w-3" only %}Internal note</span>{% endif %}
+                <time class="ml-auto text-xs text-ink-muted" datetime="{{ c.created_at|date:'c' }}">{{ c.created_at|date:"d M Y H:i" }}</time>
+              </p>
+              <div class="mt-2 break-words text-sm leading-relaxed text-ink-2">{{ c.body|linebreaks }}</div>
+            </div>
+          </div>
+        </li>
+        {% endif %}
+        {% empty %}
+        <li class="py-4 text-center text-sm text-ink-muted">No replies yet.</li>
+        {% endfor %}
+      </ol>
 
-    {% if ticket.status != 'CLOSED' %}
-    <form method="post" action="{% url 'helpdesk:ticket_comment' ticket.pk %}">
-      {% csrf_token %}
-      <label>Reply</label>
-      {{ comment_form.body }}
-      {% if can_see_internal %}<label class="form-check mt-2">{{ comment_form.is_internal }} Internal note (hidden from customer)</label>{% endif %}
-      <div class="form-actions"><button type="submit">Post reply</button></div>
-    </form>
-    {% endif %}
+      {% if ticket.status == 'CLOSED' %}
+      <div class="card-footer text-sm text-ink-muted">This ticket is closed, so it takes no new replies.</div>
+      {% elif may_comment %}
+      <div class="card-footer">
+        <form method="post" action="{% url 'helpdesk:ticket_comment' ticket.pk %}" class="no-card w-full" novalidate>
+          {% csrf_token %}
+          <div class="form-field">
+            <label class="form-label" for="{{ comment_form.body.id_for_label }}">Reply</label>
+            {{ comment_form.body }}
+            {% if comment_form.body.errors %}<p class="form-error">{{ comment_form.body.errors|join:" " }}</p>{% endif %}
+          </div>
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+            {% if may_internal %}<label class="check" for="{{ comment_form.is_internal.id_for_label }}">{{ comment_form.is_internal }} Internal note (hidden from customer)</label>{% else %}<span></span>{% endif %}
+            <button type="submit" class="btn btn-primary">Post reply</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </section>
   </div>
 
-  <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-    <h3 class="text-sm font-semibold text-gray-700">Actions</h3>
-    {% if can_resolve and ticket.status not in 'RESOLVED,CLOSED' %}
-      <form method="post" action="{% url 'helpdesk:ticket_resolve' ticket.pk %}">{% csrf_token %}<button type="submit" class="btn btn-primary w-full">Mark resolved</button></form>
-    {% endif %}
-    {% if can_close and ticket.status != 'CLOSED' %}
-      <form method="post" action="{% url 'helpdesk:ticket_close' ticket.pk %}">{% csrf_token %}<button type="submit" class="w-full btn-outline">Close ticket</button></form>
-    {% endif %}
-    <div class="pt-3 border-t text-xs text-gray-500 space-y-1">
-      <div>Channel: {{ ticket.get_channel_display }}</div>
-      <div>Opened: {{ ticket.opened_at|date:"d M Y H:i" }}</div>
-      {% if ticket.resolved_at %}<div>Resolved: {{ ticket.resolved_at|date:"d M Y H:i" }}</div>{% endif %}
-      {% if ticket.closed_at %}<div>Closed: {{ ticket.closed_at|date:"d M Y H:i" }}</div>{% endif %}
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Details</h2>
+      {% status_badge ticket.status ticket.get_status_display %}
     </div>
-  </div>
+    <div class="card-body">
+      <dl class="dl dl-1">
+        <div><dt>Status</dt><dd>{{ ticket.get_status_display }}</dd></div>
+        <div><dt>Priority</dt><dd>{% status_badge ticket.priority ticket.get_priority_display %}</dd></div>
+        <div><dt>Customer</dt><dd>{{ ticket.customer|default:ticket.requester_name|default:"—" }}</dd></div>
+        {% if ticket.requester_email %}<div><dt>Requester email</dt><dd class="break-all">{{ ticket.requester_email }}</dd></div>{% endif %}
+        <div><dt>Assignee</dt><dd>{{ ticket.assigned_to|default:"—" }}</dd></div>
+        <div><dt>Channel</dt><dd>{{ ticket.get_channel_display }}</dd></div>
+        <div><dt>Opened</dt><dd>{{ ticket.opened_at|date:"d M Y H:i" }}</dd></div>
+        {% if ticket.resolved_at %}<div><dt>Resolved</dt><dd>{{ ticket.resolved_at|date:"d M Y H:i" }}</dd></div>{% endif %}
+        {% if ticket.closed_at %}<div><dt>Closed</dt><dd>{{ ticket.closed_at|date:"d M Y H:i" }}</dd></div>{% endif %}
+      </dl>
+    </div>
+  </section>
 </div>
 {% endblock %}
