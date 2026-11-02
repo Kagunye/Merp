@@ -43,6 +43,16 @@ a bookkeeper would, and checks the ledger says what the paper says:
   29. the dashboard chart's expenses include cost of goods, and skip the future
   30. a cancelled invoice or a credit note cannot be posted
   31. Post, Cancel and Reverse are hidden from roles that may not use them
+   32. an INV- number typed by hand is never issued again; stock follows the
+       invoice, not its number
+   33. an order's draft keeps the order's customer and currency
+   34. a foreign invoice paid in slices leaves nothing in AR
+   35. a receipt or invoice whose posting fails is not kept
+   36. a delivery form sent twice delivers once
+   37. a line too large for the books is refused, not a 500
+   38. order numbers: optional, unique, one order per form
+   39. credit notes are not dated ahead; credit is not applied in a closed month
+   40. an order whose invoice was credited in full can be billed again or cancelled
 """
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -279,6 +289,24 @@ class Command(BaseCommand):
         self.check_cancelled_not_posted(client)
         self.section("31. Buttons a role cannot use are not shown")
         self.check_hidden_buttons(client)
+        self.section("32. Invoice numbers are issued once; stock follows the invoice")
+        self.check_invoice_numbers(client)
+        self.section("33. An order's draft keeps the order's customer and currency")
+        self.check_order_draft_party(client)
+        self.section("34. A USD invoice paid in two slices leaves nothing in AR")
+        self.check_sliced_fx_settlement(client)
+        self.section("35. A document whose posting fails is not kept")
+        self.check_failed_posting_rolls_back(client)
+        self.section("36. A delivery form sent twice delivers once")
+        self.check_delivery_token(client)
+        self.section("37. A line too large for the books is refused")
+        self.check_overflow(client)
+        self.section("38. Order numbers: optional, unique, one order per form")
+        self.check_order_numbers(client)
+        self.section("39. Credit-note dates and credit applied in a closed month")
+        self.check_round4_dates(client)
+        self.section("40. A fully credited order's invoice no longer bills it")
+        self.check_fully_credited_order(client)
 
     def setup_company(self, client, stamp):
         from apps.accounting.models import Account, Currency, ExchangeRate, TaxRate
@@ -448,10 +476,23 @@ class Command(BaseCommand):
                     and inv.outstanding_amount == D("2800.00"),
                     f"{inv.status} {inv.total_amount} {inv.outstanding_amount}")
 
+    def direct_draft(self, client, reference, lines, currency="KES"):
+        """A direct invoice left as a draft: raised by a sales rep, for finance.
+
+        Section 2 used to switch the currency of a draft raised from an order.
+        An order's draft now keeps the order's customer and currency (section
+        33), so the re-stamping is checked on a direct draft instead.
+        """
+        self.as_role("SALES_REP")
+        try:
+            return self.make_invoice(client, reference, lines, currency=currency)
+        finally:
+            self.as_role("ADMIN")
+
     def check_draft_currency_restamped(self, client):
-        order = self.make_order(client, "FIX-2-SO", [self.line(self.service, "1", "100", tax=False)])
-        draft = self.convert(client, order) if order else None
-        if not self.expect("a KES draft raised from an order", draft and draft.status == "DRAFT"):
+        draft = self.direct_draft(client, "FIX-2-DRAFT",
+                                  [self.line(self.service, "1", "100", tax=False)])
+        if not self.expect("a KES direct draft", draft and draft.status == "DRAFT"):
             return
         self.expect("the KES draft carries rate 1", draft.rate == D("1"), str(draft.exchange_rate))
         url = reverse("sales:invoice_edit", args=[draft.pk])
@@ -469,9 +510,9 @@ class Command(BaseCommand):
                     str(self.entry_total(draft.journal_entry, "1300", "debit")))
 
         # And back again: a USD draft switched to the book's money is worth 1.
-        order = self.make_order(client, "FIX-2-SO-B", [self.line(self.service, "1", "100", tax=False)],
-                                currency="USD")
-        draft = self.convert(client, order) if order else None
+        draft = self.direct_draft(client, "FIX-2-DRAFT-B",
+                                  [self.line(self.service, "1", "100", tax=False)],
+                                  currency="USD")
         if draft:
             self.accepted(client, "switch a USD draft to KES",
                           reverse("sales:invoice_edit", args=[draft.pk]),
@@ -1487,12 +1528,26 @@ class Command(BaseCommand):
                     not Invoice.objects.filter(original_invoice=inv).exists()
                     and any("cannot come before" in m for m in self.flashes(client, response)))
         url = reverse("sales:invoice_credit_note", args=[inv.pk])
-        self.send(client, "credit dated a day after the invoice", url,
-                  {f"credit_qty_{line.pk}": "1", "reason": "dated",
-                   "credit_date": str(ahead + datetime.timedelta(days=1))})
-        note = Invoice.objects.filter(original_invoice=inv).first()
+        response = self.send(client, "credit dated a day after the invoice, still ahead", url,
+                             {f"credit_qty_{line.pk}": "1", "reason": "dated",
+                              "credit_date": str(ahead + datetime.timedelta(days=1))})
+        self.expect("a credit note dated after today is refused",
+                    not Invoice.objects.filter(original_invoice=inv).exists()
+                    and any("still to come" in m for m in self.flashes(client, response)))
+        past = self.today - datetime.timedelta(days=10)
+        data = {"reference": "FIX-26-PAST", "customer": self.customer.pk,
+                "invoice_date": str(past), "due_date": str(past + datetime.timedelta(days=30)),
+                "currency": "KES", "notes": ""}
+        self.accepted(client, "an invoice dated ten days ago", reverse("sales:invoice_create"),
+                      merge(data, formset("lines", [self.line(self.service, "2", "1000")])))
+        older = Invoice.objects.get(company=self.company, reference="FIX-26-PAST")
+        self.send(client, "credit dated a day after that invoice",
+                  reverse("sales:invoice_credit_note", args=[older.pk]),
+                  {f"credit_qty_{older.lines.first().pk}": "1", "reason": "dated",
+                   "credit_date": str(past + datetime.timedelta(days=1))})
+        note = Invoice.objects.filter(original_invoice=older).first()
         self.expect("the note takes the chosen date, and so does its entry",
-                    note is not None and note.invoice_date == ahead + datetime.timedelta(days=1)
+                    note is not None and note.invoice_date == past + datetime.timedelta(days=1)
                     and note.journal_entry.posting_date == note.invoice_date,
                     f"{note and note.invoice_date}")
         page = client.get(reverse("sales:invoice_detail", args=[inv.pk])).content.decode()
@@ -1638,3 +1693,295 @@ class Command(BaseCommand):
                             (reverse_url in page) == shown)
         finally:
             self.as_role("ADMIN")
+
+    # ─────────────────────────── fourth round ────────────────────────────────
+
+    def check_invoice_numbers(self, client):
+        from apps.core.models import SequenceCounter
+        from apps.sales.models import Invoice
+        rod = self.stocked("ROD-32", "Steel rod 32", "1100", "40", "600")
+        preview = client.get(reverse("sales:invoice_create")).context["form"]["reference"].value()
+        self.expect("the new-invoice form previews the next INV- number",
+                    preview == SequenceCounter.peek_number(self.company, "INV-"), str(preview))
+        header = {"customer": self.customer.pk, "invoice_date": str(self.today),
+                  "due_date": str(self.today + datetime.timedelta(days=30)),
+                  "currency": "KES", "notes": ""}
+        self.accepted(client, f"invoice typed as {preview}", reverse("sales:invoice_create"),
+                      merge(header, {"reference": preview},
+                            formset("lines", [self.line(rod, "5", "1100", tax=False)])))
+        first = Invoice.objects.get(company=self.company, reference=preview)
+        self.expect("the first invoice took 5 rods off the shelf", self.shelf(rod) == D("35"),
+                    str(self.shelf(rod)))
+        before = set(Invoice.objects.filter(company=self.company).values_list("pk", flat=True))
+        self.accepted(client, "the next invoice left blank", reverse("sales:invoice_create"),
+                      merge(header, {"reference": ""},
+                            formset("lines", [self.line(rod, "7", "1100", tax=False)])))
+        second = Invoice.objects.filter(company=self.company).exclude(pk__in=before).first()
+        self.expect("the blank invoice gets a number of its own",
+                    second is not None and second.reference != first.reference
+                    and Invoice.objects.filter(company=self.company,
+                                               reference__iexact=first.reference).count() == 1,
+                    f"{first.reference} / {second and second.reference}")
+        self.expect("and its own 7 rods leave the shelf", self.shelf(rod) == D("28"),
+                    str(self.shelf(rod)))
+        if second is not None:
+            self.send(client, "cancel the second invoice",
+                      reverse("sales:invoice_cancel", args=[second.pk]), {})
+            first.refresh_from_db()
+            self.expect("cancelling it brings back its 7 only; the first's 5 stay sold",
+                        self.shelf(rod) == D("35") and first.status == "SENT",
+                        f"shelf {self.shelf(rod)} first {first.status}")
+            self.send(client, "cancel the second invoice again",
+                      reverse("sales:invoice_cancel", args=[second.pk]), {})
+            self.expect("and nothing comes back twice", self.shelf(rod) == D("35"))
+        self.refused(client, "an invoice typed with the first number in lower case",
+                     reverse("sales:invoice_create"),
+                     merge(header, {"reference": first.reference.lower()},
+                           formset("lines", [self.line(self.service)])),
+                     needle="already used")
+
+    def check_order_draft_party(self, client):
+        order = self.make_order(client, "FIX-33-SO", [self.line(self.service, "3", "1500")])
+        draft = self.convert(client, order)
+        if not self.expect("a draft raised from the order", draft is not None):
+            return
+        form = client.get(reverse("sales:invoice_edit", args=[draft.pk])).context["form"]
+        self.expect("the draft shows customer and currency fixed",
+                    form.fields["customer"].disabled and form.fields["currency"].disabled)
+        saved = draft.lines.first()
+        self.send(client, "re-point the draft to another customer in USD",
+                  reverse("sales:invoice_edit", args=[draft.pk]),
+                  self.edit_data(draft, [(saved, {})], customer=self.other_customer.pk,
+                                 currency="USD"))
+        draft.refresh_from_db()
+        self.expect("the draft still bills the order's customer in the order's currency",
+                    draft.customer_id == order.customer_id and draft.currency == order.currency,
+                    f"{draft.customer} {draft.currency}")
+
+    def check_sliced_fx_settlement(self, client):
+        from apps.accounting.models import Currency, ExchangeRate
+        from apps.crm.models import Customer
+        from apps.sales.models import Invoice
+        usd = Currency.objects.get(code="USD")
+        dated = self.today - datetime.timedelta(days=45)
+        # 3.00 at 131.255 is 393.765, rounded up to 393.77; 6.00 is 787.53.
+        # Two halves cleared at their own value would take 787.54 off AR.
+        ExchangeRate.objects.create(company=self.company, currency=usd, effective_date=dated,
+                                    rate=D("131.255"), source="MANUAL")
+        payer = Customer.objects.create(company=self.company, name="Sliced Exporters")
+        before = self.entry_ids()
+        data = {"reference": "FIX-34-INV", "customer": payer.pk, "invoice_date": str(dated),
+                "due_date": str(self.today), "currency": "USD", "notes": ""}
+        self.accepted(client, "USD 6.00 invoice at 131.255", reverse("sales:invoice_create"),
+                      merge(data, formset("lines", [self.line(self.service, "1", "6", tax=False)])))
+        inv = Invoice.objects.get(company=self.company, reference="FIX-34-INV")
+        self.expect("it went into AR at 787.53", inv.total_amount_base == D("787.53"),
+                    str(inv.total_amount_base))
+        self.pay(client, "FIX-34-PAY1", "3", currency="USD", customer=payer)
+        inv.refresh_from_db()
+        held = self.net_moved("1300", before)
+        self.expect("part paid, the invoice's book balance is what AR holds",
+                    inv.outstanding_base == held and held == D("393.76"),
+                    f"outstanding_base {inv.outstanding_base} AR {held}")
+        self.pay(client, "FIX-34-PAY2", "3", currency="USD", customer=payer)
+        inv.refresh_from_db()
+        self.expect("paid in full, AR holds nothing for it",
+                    inv.status == "PAID" and self.net_moved("1300", before) == Z
+                    and inv.outstanding_base == Z,
+                    f"{inv.status} AR {self.net_moved('1300', before)}")
+
+    def closed_month(self, on_date):
+        from apps.accounting.models import period_for
+        period = period_for(self.company, on_date)
+        return period
+
+    def check_failed_posting_rolls_back(self, client):
+        from apps.core.models import SequenceCounter
+        from apps.crm.models import Customer
+        from apps.sales.models import CustomerPayment, Invoice
+        day = self.today - datetime.timedelta(days=70)
+        period = self.closed_month(day)
+        if not self.expect("an accounting period to close", period is not None):
+            return
+        payer = Customer.objects.create(company=self.company, name="Closed Month Ltd")
+        status = period.status
+        period.status = "CLOSED"
+        period.save(update_fields=["status"])
+        try:
+            preview = SequenceCounter.peek_number(self.company, "PAY-")
+            data = {"reference": "", "customer": payer.pk, "payment_date": str(day),
+                    "amount": "1000", "currency": "KES", "payment_method": "MPESA",
+                    "bank_account": "", "transaction_reference": "QXA32FAIL", "notes": ""}
+            response = self.send(client, "receipt dated in a closed month",
+                                 reverse("sales:payment_create"), data)
+            self.expect("the form comes back saying why",
+                        response is not None and response.status_code == 200
+                        and any("not recorded" in e and "closed" in e
+                                for e in self.errors(response)),
+                        str(self.errors(response) if response else ""))
+            self.expect("no receipt is kept, and its number is not used up",
+                        not CustomerPayment.objects.filter(customer=payer).exists()
+                        and SequenceCounter.peek_number(self.company, "PAY-") == preview)
+            data = {"reference": "FIX-35-INV", "customer": payer.pk, "invoice_date": str(day),
+                    "due_date": str(self.today), "currency": "KES", "notes": ""}
+            response = self.send(client, "invoice dated in a closed month",
+                                 reverse("sales:invoice_create"),
+                                 merge(data, formset("lines", [self.line(self.service)])))
+            self.expect("an invoice that cannot be posted is not kept either",
+                        response is not None and response.status_code == 200
+                        and not Invoice.objects.filter(company=self.company,
+                                                       reference="FIX-35-INV").exists(),
+                        str(self.errors(response) if response else ""))
+        finally:
+            period.status = status
+            period.save(update_fields=["status"])
+        data = {"reference": "", "customer": payer.pk, "payment_date": str(self.today),
+                "amount": "1000", "currency": "KES", "payment_method": "MPESA",
+                "bank_account": "", "transaction_reference": "QXA32FAIL", "notes": ""}
+        # The M-Pesa code is free again: the failed receipt never existed.
+        response = self.send(client, "the same receipt on an open date",
+                             reverse("sales:payment_create"), data)
+        self.expect("goes through with the same M-Pesa code",
+                    response is not None and response.status_code == 302
+                    and CustomerPayment.objects.filter(customer=payer).count() == 1)
+
+    def check_delivery_token(self, client):
+        order = self.make_order(client, "FIX-36-SO", [self.line(self.service, "20", "1500")])
+        line = order.lines.first()
+        page = client.get(reverse("sales:order_deliver", args=[order.pk]))
+        token = page.context.get("form_token")
+        self.expect("the delivery page carries a one-time ticket",
+                    bool(token) and 'name="form_token"' in page.content.decode())
+        data = {"warehouse": self.warehouse.pk, f"deliver_qty_{line.pk}": "5",
+                "form_token": token}
+        url = reverse("sales:order_deliver_record", args=[order.pk])
+        self.send(client, "deliver 5", url, data)
+        response = self.send(client, "the same delivery form again", url, data)
+        line.refresh_from_db()
+        self.expect("one form for 5, sent twice, delivers 5",
+                    line.delivered_quantity == D("5"), str(line.delivered_quantity))
+        self.expect("the second copy is told it was already sent",
+                    any("already sent" in m for m in self.flashes(client, response)))
+
+    def check_overflow(self, client):
+        from apps.sales.models import Invoice, SalesOrder
+        header = {"reference": "FIX-37-INV", "customer": self.customer.pk,
+                  "invoice_date": str(self.today),
+                  "due_date": str(self.today + datetime.timedelta(days=30)),
+                  "currency": "KES", "notes": ""}
+        self.refused(client, "a line of 99,999,999 at 9,999,999", reverse("sales:invoice_create"),
+                     merge(header, formset("lines", [self.line(self.service, "99999999",
+                                                               "9999999")])),
+                     needle="more than a document can carry")
+        rows = [self.line(self.service, "99999999", "90000", tax=False) for _ in range(2)]
+        self.refused(client, "lines that fit alone but not together",
+                     reverse("sales:invoice_create"), merge(header, formset("lines", rows)),
+                     needle="add up to")
+        self.expect("nothing was saved", not Invoice.objects.filter(
+            company=self.company, reference="FIX-37-INV").exists())
+        order = {"reference": "FIX-37-SO", "customer": self.customer.pk,
+                 "order_date": str(self.today), "delivery_date": "",
+                 "warehouse": self.warehouse.pk, "sales_rep": "", "currency": "KES",
+                 "discount_percent": "0", "branch": "", "notes": ""}
+        self.refused(client, "an order line of 99,999,999 at 9,999,999",
+                     reverse("sales:order_create"),
+                     merge(order, formset("lines", [self.line(self.service, "99999999",
+                                                              "9999999")])),
+                     needle="more than a document can carry")
+        self.expect("no order was saved", not SalesOrder.objects.filter(
+            company=self.company, reference="FIX-37-SO").exists())
+
+    def check_order_numbers(self, client):
+        from apps.core.models import SequenceCounter
+        from apps.sales.models import SalesOrder
+        page = client.get(reverse("sales:order_create"))
+        preview = page.context["form"]["reference"].value()
+        self.expect("the order form previews the next SO- number and carries a ticket",
+                    preview == SequenceCounter.peek_number(self.company, "SO-")
+                    and bool(page.context.get("form_token")), str(preview))
+        header = {"customer": self.customer.pk, "order_date": str(self.today),
+                  "delivery_date": "", "warehouse": self.warehouse.pk, "sales_rep": "",
+                  "currency": "KES", "discount_percent": "0", "branch": "", "notes": ""}
+        lines = formset("lines", [self.line(self.service, "1", "2500")])
+        count = SalesOrder.objects.filter(company=self.company).count()
+        self.accepted(client, "an order with no number", reverse("sales:order_create"),
+                      merge(header, {"reference": ""}, lines))
+        made = SalesOrder.objects.filter(company=self.company).order_by("-created_at").first()
+        self.expect("it is numbered from the SO- series",
+                    SalesOrder.objects.filter(company=self.company).count() == count + 1
+                    and made.reference.startswith("SO-"), made.reference)
+        self.accepted(client, "order FIX-38-SO", reverse("sales:order_create"),
+                      merge(header, {"reference": "FIX-38-SO"}, lines))
+        self.refused(client, "a second order numbered fix-38-so", reverse("sales:order_create"),
+                     merge(header, {"reference": "fix-38-so"}, lines), needle="already used")
+        token = client.get(reverse("sales:order_create")).context["form_token"]
+        data = merge(header, {"reference": "", "form_token": token}, lines)
+        count = SalesOrder.objects.filter(company=self.company).count()
+        self.send(client, "order form", reverse("sales:order_create"), data)
+        self.send(client, "the same order form again", reverse("sales:order_create"), data)
+        self.expect("an order form sent twice books one order",
+                    SalesOrder.objects.filter(company=self.company).count() == count + 1)
+
+    def check_round4_dates(self, client):
+        from apps.crm.models import Customer
+        from apps.sales.models import CustomerPayment, Invoice
+        inv = self.make_invoice(client, "FIX-39-INV", [self.line(self.service, "2", "2500")])
+        response = self.send(client, "credit note dated in 2031",
+                             reverse("sales:invoice_credit_note", args=[inv.pk]),
+                             {f"credit_qty_{inv.lines.first().pk}": "1", "reason": "x",
+                              "credit_date": "2031-01-01"})
+        self.expect("a credit note dated years ahead is refused",
+                    not Invoice.objects.filter(original_invoice=inv).exists()
+                    and any("still to come" in m for m in self.flashes(client, response)))
+
+        day = self.today - datetime.timedelta(days=70)
+        period = self.closed_month(day)
+        if period is None:
+            return
+        payer = Customer.objects.create(company=self.company, name="Closed Credit Ltd")
+        data = {"reference": "FIX-39-PAY", "customer": payer.pk, "payment_date": str(day),
+                "amount": "1000", "currency": "KES", "payment_method": "CASH",
+                "bank_account": "", "transaction_reference": "", "notes": ""}
+        self.send(client, "money on account", reverse("sales:payment_create"), data)
+        bill = {"reference": "FIX-39-OWED", "customer": payer.pk, "invoice_date": str(day),
+                "due_date": str(self.today), "currency": "KES", "notes": ""}
+        self.accepted(client, "an invoice the same day", reverse("sales:invoice_create"),
+                      merge(bill, formset("lines", [self.line(self.service, "1", "1000",
+                                                              tax=False)])))
+        owed = Invoice.objects.get(company=self.company, reference="FIX-39-OWED")
+        payment = CustomerPayment.objects.get(company=self.company, reference="FIX-39-PAY")
+        status = period.status
+        period.status = "CLOSED"
+        period.save(update_fields=["status"])
+        try:
+            response = self.apply(client, payment, owed, "500",
+                                  on_date=day + datetime.timedelta(days=1))
+            owed.refresh_from_db()
+            error = response.context.get("error") if response is not None and response.context else ""
+            self.expect("credit applied on a date in a closed month is refused",
+                        owed.paid_amount == Z and "closed" in (error or ""), str(error))
+        finally:
+            period.status = status
+            period.save(update_fields=["status"])
+
+    def check_fully_credited_order(self, client):
+        for reference, then in (("FIX-40-SO-A", "reinvoice"), ("FIX-40-SO-B", "cancel")):
+            order = self.make_order(client, reference, [self.line(self.service, "1", "2500")])
+            inv = self.convert(client, order)
+            if not self.expect(f"{reference} invoiced", inv is not None):
+                continue
+            self.send(client, "post it", reverse("sales:invoice_post", args=[inv.pk]), {})
+            inv.refresh_from_db()
+            self.credit(client, inv, [(inv.lines.first(), "1")])
+            order.refresh_from_db()
+            self.expect(f"{reference}: once credited in full the order is billable again",
+                        order.status != "INVOICED", order.status)
+            if then == "reinvoice":
+                again = self.convert(client, order)
+                self.expect("it can be invoiced again", again is not None and again.pk != inv.pk)
+            else:
+                response = self.send(client, "cancel the order",
+                                     reverse("sales:order_cancel", args=[order.pk]), {})
+                order.refresh_from_db()
+                self.expect("it can be cancelled", order.status == "CANCELLED",
+                            f"{order.status} {self.flashes(client, response)}")

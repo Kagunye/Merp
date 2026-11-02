@@ -3,8 +3,43 @@ import datetime
 from decimal import Decimal
 from django import forms
 from apps.core.forms import date_input, is_new, pick_currency
-from django.forms import inlineformset_factory
+from django.forms import BaseInlineFormSet, inlineformset_factory
 from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine
+
+
+# The largest figure a money column holds: fifteen digits, two of them after
+# the point, so anything from 10,000,000,000,000 up cannot be stored. A line
+# of 99,999,999 units at 9,999,999 each is worth about 10^15; it used to reach
+# the database and come back as a server error instead of a message.
+MONEY_CEILING = Decimal("1e13")
+
+
+def _too_big(value):
+    return value is not None and abs(value) >= MONEY_CEILING
+
+
+def _line_worth(data):
+    """What a line's cleaned figures add up to, tax included, or None."""
+    qty, price = data.get("quantity"), data.get("unit_price")
+    if qty is None or price is None:
+        return None
+    discount = data.get("discount_percent") or Decimal("0")
+    net = qty * price * (Decimal("100") - discount) / Decimal("100")
+    tax_rate = data.get("tax_rate")
+    tax = net * (tax_rate.rate / Decimal("100")) if tax_rate is not None else Decimal("0")
+    return net + tax
+
+
+def _in_series(reference, prefix):
+    """Whether a reference is a number from the company's own series.
+
+    Such a number is the preview a create form showed (SequenceCounter.peek_number)
+    or a number typed in the same shape; the view takes it with claim_number,
+    which hands out the next free one if somebody else saved under it while the
+    form was open. Only a reference outside the series can clash on its own.
+    """
+    rest = reference[len(prefix):] if reference.startswith(prefix) else ""
+    return rest.isdigit()
 
 
 def _plain_percent(value):
@@ -60,6 +95,48 @@ class LineFiguresMixin:
     def clean_discount_percent(self):
         return _discount_in_range(self.cleaned_data.get("discount_percent"))
 
+    def clean(self):
+        """A line has to be worth a figure the books can hold.
+
+        Quantity and price each fit their own column, yet multiplied together
+        they can exceed what a line total, a document total or a ledger line
+        can store. Refused here, on the line, with the reason, rather than
+        failing in the database as a server error.
+        """
+        cleaned = super().clean()
+        worth = _line_worth(cleaned)
+        if _too_big(worth):
+            raise forms.ValidationError(
+                f"This line comes to about {worth:,.0f}, more than a document can "
+                f"carry (under {MONEY_CEILING:,.0f}). Check the quantity and the "
+                "unit price — one of them is probably mistyped — or split the sale "
+                "over several invoices.")
+        return cleaned
+
+
+class LinesTotalFormSet(BaseInlineFormSet):
+    """Line formsets whose lines together still fit a document's total.
+
+    Each line may fit on its own and the sum still not: ten lines of a
+    trillion each are a total of ten trillion. Checked over the lines being
+    kept, so a line marked for removal does not count.
+    """
+
+    def clean(self):
+        super().clean()
+        total = Decimal("0")
+        for form in self.forms:
+            data = getattr(form, "cleaned_data", None) or {}
+            if not data or data.get("DELETE"):
+                continue
+            total += _line_worth(data) or Decimal("0")
+        if _too_big(total):
+            raise forms.ValidationError(
+                f"The lines add up to about {total:,.0f}, more than a document can "
+                f"carry (under {MONEY_CEILING:,.0f}). Check the quantities and "
+                "prices, or split the sale over several documents.")
+        self.lines_total = total
+
 
 def _reference_taken(model, company, reference, exclude_pk=None):
     """Is this reference already on another document of the company's?"""
@@ -101,12 +178,42 @@ class InvoiceForm(forms.ModelForm):
             self.fields["invoice_date"].initial = datetime.date.today()
             self.fields["due_date"].initial = datetime.date.today() + datetime.timedelta(days=30)
 
+        order = self.instance.sales_order if self.instance.sales_order_id else None
+        if order is not None and not is_new(self):
+            # A draft raised from an order bills that order: its customer, in
+            # the order's money. Switching either would book a receivable on
+            # somebody the order never sold to, or in a currency it was never
+            # priced in, while the order still counted the units as billed.
+            # Both are shown, fixed to the order's own values; a different
+            # customer or currency is a new direct invoice.
+            from apps.crm.models import Customer
+            self.fields["customer"].queryset = Customer.objects.filter(pk=order.customer_id)
+            self.initial["customer"] = order.customer_id
+            self.initial["currency"] = order.currency
+            for name in ("customer", "currency"):
+                self.fields[name].disabled = True
+                self.fields[name].help_text = (
+                    f"Fixed by order {order.reference}. To bill someone else or in "
+                    "another currency, raise a direct invoice.")
+            if order.currency not in dict(getattr(self.fields["currency"], "choices", [])):
+                self.fields["currency"].choices = list(self.fields["currency"].choices) + [
+                    (order.currency, f"{order.currency} — as ordered")]
+
     def clean_reference(self):
         """One number, one invoice. A second invoice under a number the company
         has already issued is either the same sale typed twice — a double
         charge on the customer's account — or a paper nobody can tell apart
-        from the first when the customer quotes it."""
+        from the first when the customer quotes it. Matched whatever the case,
+        so inv-00007 cannot sit beside INV-00007.
+
+        A new invoice carrying a number from the INV- series is left to the
+        view, which takes it with SequenceCounter.claim_number: that moves the
+        counter past it (so the next blank invoice cannot be given the same
+        number again) and hands out the next free number if somebody saved
+        under it while this form was open."""
         reference = (self.cleaned_data.get("reference") or "").strip()
+        if is_new(self) and _in_series(reference, "INV-"):
+            return reference
         if _reference_taken(Invoice, self.company or getattr(self.instance, "company", None),
                             reference, exclude_pk=self.instance.pk):
             raise forms.ValidationError(
@@ -156,6 +263,7 @@ InvoiceLineFormSet = inlineformset_factory(
     Invoice,
     InvoiceLine,
     form=InvoiceLineForm,
+    formset=LinesTotalFormSet,
     extra=3,
     min_num=1,
     validate_min=True,
@@ -210,8 +318,13 @@ class CustomerPaymentForm(forms.ModelForm):
         """A receipt number is issued once. The same form sent twice — a double
         click, a refresh after a slow save — would otherwise book the money in
         the bank twice and clear the customer's invoices with cash that only
-        came in once."""
+        came in once.
+
+        A new receipt numbered in the PAY- series is taken by the view with
+        SequenceCounter.claim_number, which skips a number already in use."""
         reference = (self.cleaned_data.get("reference") or "").strip()
+        if is_new(self) and _in_series(reference, "PAY-"):
+            return reference
         if _reference_taken(CustomerPayment, self.company, reference,
                             exclude_pk=self.instance.pk):
             raise forms.ValidationError(
@@ -251,6 +364,11 @@ class SalesOrderForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.company = company
+        # Left blank, the next SO- number is drawn when the order is saved; a
+        # create form shows that number as a preview.
+        self.fields["reference"].required = False
+        self.fields["reference"].help_text = "Leave blank to use the next order number."
         if company:
             from apps.crm.models import Customer
             from apps.organizations.models import Warehouse, Branch, CompanyMembership
@@ -270,6 +388,24 @@ class SalesOrderForm(forms.ModelForm):
 
     def clean_discount_percent(self):
         return _discount_in_range(self.cleaned_data.get("discount_percent"))
+
+    def clean_reference(self):
+        """One number, one order, whatever its case.
+
+        Two orders under one number cannot be told apart when the customer
+        quotes it, and the invoices and deliveries raised from them name the
+        order by that number. A number in the SO- series on a new order is
+        taken by the view (SequenceCounter.claim_number), which moves on to
+        the next free one if it was used while the form was open."""
+        reference = (self.cleaned_data.get("reference") or "").strip()
+        if is_new(self) and _in_series(reference, "SO-"):
+            return reference
+        company = self.company or getattr(self.instance, "company", None)
+        if _reference_taken(SalesOrder, company, reference, exclude_pk=self.instance.pk):
+            raise forms.ValidationError(
+                f"Order number {reference} is already used in this company. Leave "
+                "the number to the system or pick one that is not taken.")
+        return reference
 
 
 class SalesOrderLineForm(LineFiguresMixin, forms.ModelForm):
@@ -292,6 +428,7 @@ SalesOrderLineFormSet = inlineformset_factory(
     SalesOrder,
     SalesOrderLine,
     form=SalesOrderLineForm,
+    formset=LinesTotalFormSet,
     extra=3,
     min_num=1,
     validate_min=True,
