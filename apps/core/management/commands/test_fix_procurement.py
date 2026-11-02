@@ -59,6 +59,27 @@ Round three (R3-n in the output):
    16. status words read as English in messages
    17. a payment that names no account leaves the main bank, never the till
    18. buttons a role cannot use are not shown
+
+Round four (R4-n in the output):
+    1. paying a bill dated in a closed month says so instead of failing, and
+       a draft is posted and paid in one transaction or not at all
+    2. an untracked product has no shelf: no movements, left off the count;
+       re-tracking empties stale shelves; a service with unbilled receipts
+       cannot be turned into stock
+    3. adjustments, counts, transfers and work-order completions cannot be
+       dated in the future or in a closed month
+    4. a unit in use keeps its factor, kind and base; a product with stock
+       keeps its unit
+    5. recipe scrap is from 0 up to (not including) 100 per cent
+    6. a product's inventory account is a stock account, never 1450
+    7. a below-zero shelf brought back to exactly nothing is worth nothing;
+       the price difference goes to 5400
+    8. a typed bill cannot be charged to contra, header, revaluation or
+       control accounts
+    9. number boxes take ASCII digits only: no "1_0", no full-width digits
+   10. nothing is received, transferred, adjusted or made into an inactive
+       warehouse
+   11. the work-order closed-period message reads properly
 """
 import datetime
 from decimal import Decimal as D
@@ -314,6 +335,26 @@ class Command(AccountingCommand):
         self.check_payments_round3(client)
         self.section("R3-18. Buttons a role cannot use are not shown")
         self.check_hidden_buttons(client)
+
+        # ── the fourth round (R4-n: that round's bug list) ──
+        self.section("R4-1. Paying a bill in a closed month is a message, all or nothing")
+        self.check_pay_closed_bill(client)
+        self.section("R4-2. Untracked products have no shelf; re-tracking starts empty")
+        self.check_retracking(client)
+        self.section("R4-3/11. Stock documents cannot be dated ahead or in a closed month")
+        self.check_future_stock_dates(client)
+        self.section("R4-4. A unit in use keeps its size")
+        self.check_units_in_use(client)
+        self.section("R4-5. Recipe scrap is 0 to under 100 per cent")
+        self.check_scrap(client)
+        self.section("R4-6/8. Stock and bills stay off the ledger's own accounts")
+        self.check_reserved_accounts(client)
+        self.section("R4-7. A negative shelf answered back to nothing is worth nothing")
+        self.check_negative_shelf_empties(client)
+        self.section("R4-9. Number boxes take plain digits only")
+        self.check_plain_digits(client)
+        self.section("R4-10. Nothing is put into an inactive warehouse")
+        self.check_inactive_warehouse(client)
 
         self.section("The book at the end")
         self.stock_agrees("after the whole run")
@@ -1887,3 +1928,422 @@ class Command(AccountingCommand):
         page = stores.get(url).content.decode()
         self.expect("the warehouse manager does",
                     all(a in page for a in actions))
+
+    # ─────────────────────────── round four ──────────────────────────────────
+
+    def closed_month(self):
+        """Last month's accounting period, closed — and the day it covers.
+
+        The caller reopens it (self.reopen) once done, so later sections can
+        still post where they expect to.
+        """
+        from apps.accounting.models import period_for
+        from apps.organizations.models import AccountingPeriod, FiscalYear
+
+        day = self.today.replace(day=1) - datetime.timedelta(days=1)
+        period = period_for(self.company, day)
+        if period is None:
+            fy, _ = FiscalYear.objects.get_or_create(
+                company=self.company, name=f"FY-R4-{self.stamp}",
+                defaults={"start_date": day.replace(day=1), "end_date": day})
+            period = AccountingPeriod.objects.create(
+                fiscal_year=fy, name=f"{day:%B %Y}", start_date=day.replace(day=1),
+                end_date=day)
+        period.status = "CLOSED"
+        period.save(update_fields=["status"])
+        return period, day
+
+    def reopen(self, period):
+        period.status = "OPEN"
+        period.save(update_fields=["status"])
+
+    def said(self, client, response):
+        return " ".join(str(m) for m in self.flashes(client, response))
+
+    # ── R4-1 ──
+    def check_pay_closed_bill(self, client):
+        from apps.accounting.models import JournalEntry
+        from apps.procurement.models import Bill
+
+        buyer = self.role_client("PROCUREMENT")
+        last = self.today.replace(day=1) - datetime.timedelta(days=5)
+        self.post(buyer, "a draft bill dated last month", reverse("procurement:bill_create"),
+                  self.bill_form("BILL-R4-1", supplier_reference="R4-1", bill_date=last,
+                                 due_date=last + datetime.timedelta(days=30)))
+        bill = Bill.objects.get(company=self.company, reference="BILL-R4-1")
+        self.expect("the buyer's bill is a draft", bill.status == "DRAFT"
+                    and not bill.journal_entry_id, bill.status)
+        period, _day = self.closed_month()
+        entries = JournalEntry.objects.filter(company=self.company).count()
+        resp = client.post(reverse("procurement:bill_pay", args=[bill.pk]), {"amount": "100"})
+        bill.refresh_from_db()
+        said = self.said(client, resp)
+        self.expect("paying a draft bill dated in a closed month is not a server error",
+                    resp.status_code == 302, f"HTTP {resp.status_code}")
+        self.expect("and nothing is half done: the bill is still an unpaid draft",
+                    bill.status == "DRAFT" and not bill.journal_entry_id
+                    and bill.paid_amount == Z
+                    and JournalEntry.objects.filter(company=self.company).count() == entries,
+                    f"{bill.status}, JE {bill.journal_entry_id}, paid {bill.paid_amount}")
+        self.expect("the message is the closed-period one", "closed" in said.lower()
+                    and "reopen" in said.lower(), said)
+        self.reopen(period)
+        # Posted while open; then the month closes and a payment dated in it
+        # is refused with the same message rather than a server error.
+        self.post(client, "post the bill", reverse("procurement:bill_post", args=[bill.pk]), {})
+        bill.refresh_from_db()
+        period, day = self.closed_month()
+        resp = client.post(reverse("procurement:bill_pay", args=[bill.pk]),
+                           {"amount": "100", "payment_date": str(max(day, bill.bill_date))})
+        bill.refresh_from_db()
+        said = self.said(client, resp)
+        self.expect("a payment dated in a closed month is refused, not a server error",
+                    resp.status_code == 302 and bill.paid_amount == Z
+                    and "closed" in said.lower(), f"HTTP {resp.status_code}: {said}")
+        self.reopen(period)
+
+    # ── R4-2 ──
+    def check_retracking(self, client):
+        from django.core.exceptions import ValidationError
+        from apps.inventory.models import StockLevel, StockMovement
+
+        item = self.make_product(client, "RT-R4", "100")
+        po = self.order(client, "PO-R4-2", [(item, 10, "100", False)])
+        self.receive(client, po, [(po.lines.first(), 10)])
+        self.bill_order(client, po)
+        self.adjust(client, "ADJUSTMENT_MINUS", "10", product=item)
+        edit = reverse("inventory:product_edit", args=[item.pk])
+        self.post(client, "untrack the emptied product", edit,
+                  self.product_data(item, track_inventory=None))
+        item.refresh_from_db()
+        self.expect("an empty, billed product can stop being tracked", not item.track_inventory)
+
+        level = self.shelf(item)
+        moves = StockMovement.objects.filter(product=item).count()
+        client.post(reverse("inventory:inventory_count", args=[self.warehouse.pk]), {
+            "movement_date": str(self.today), f"count_{level.pk}": "7"})
+        level.refresh_from_db()
+        self.expect("a count does not touch an untracked product's shelf",
+                    level.quantity == Z and level.value == Z
+                    and StockMovement.objects.filter(product=item).count() == moves,
+                    f"{level.quantity} / {level.value}")
+        page = client.get(reverse("inventory:inventory_count",
+                                  args=[self.warehouse.pk])).content.decode()
+        self.expect("and the count sheet leaves it off", f"count_{level.pk}" not in page)
+        try:
+            with transaction.atomic():
+                StockMovement.objects.create(
+                    product=item, warehouse=self.warehouse, movement_type="ADJUSTMENT_PLUS",
+                    quantity=D("7"), unit_cost=D("100"), movement_date=self.today)
+            refused = False
+        except ValidationError:
+            refused = True
+        self.expect("no stock movement can be made for an untracked product", refused)
+
+        # A shelf left over from before (written straight to the table) is
+        # emptied when tracking comes back on, so 1400 still equals the shelves.
+        StockLevel.objects.filter(pk=level.pk).update(quantity=D("7"), value=D("700"))
+        resp = client.post(edit, self.product_data(item, track_inventory="on"))
+        item.refresh_from_db()
+        level.refresh_from_db()
+        self.expect("re-tracking empties the stale shelf",
+                    item.track_inventory and level.quantity == Z and level.value == Z,
+                    f"{item.track_inventory}, {level.quantity} / {level.value}")
+        self.expect_flash(client, resp, "count what is", "and says to count the stock on afresh")
+        self.stock_agrees("after re-tracking")
+
+        # A service received on an order and not billed cannot become stock:
+        # nothing was accrued for it, and the bill would clear 2110 anyway.
+        svc = self.make_product(client, "SVC-R4", "600", track=False)
+        po = self.order(client, "PO-R4-2S", [(svc, 10, "600", False)])
+        self.receive(client, po, [(po.lines.first(), 10)])
+        resp = client.post(reverse("inventory:product_edit", args=[svc.pk]),
+                           self.product_data(svc, track_inventory="on"))
+        svc.refresh_from_db()
+        self.expect("a service with unbilled receipts cannot turn tracked",
+                    resp.status_code == 200 and not svc.track_inventory
+                    and "PO-R4-2S" in resp.content.decode(), f"HTTP {resp.status_code}")
+        bill = self.bill_order(client, po)
+        self.expect("so its bill accrues nothing and charges the service",
+                    bill is not None and bill.accrual_to_clear == Z,
+                    str(bill and bill.accrual_to_clear))
+        self.accrual_agrees("after billing the service")
+
+    # ── R4-3 ──
+    def check_future_stock_dates(self, client):
+        from apps.inventory.models import StockMovement
+        from apps.organizations.models import Warehouse
+
+        tomorrow = self.today + datetime.timedelta(days=1)
+        moves = StockMovement.objects.filter(product__company=self.company).count()
+        resp = client.post(reverse("inventory:adjustment_create"), {
+            "product": self.raw.pk, "warehouse": self.warehouse.pk,
+            "movement_type": "ADJUSTMENT_PLUS", "quantity": "1", "unit_cost": "50",
+            "movement_date": str(tomorrow), "reference": "R4-3", "notes": ""})
+        self.expect("an adjustment dated tomorrow is refused",
+                    resp.status_code == 200 and "future" in resp.content.decode(),
+                    f"HTTP {resp.status_code}")
+        level = self.shelf(self.raw)
+        resp = client.post(reverse("inventory:inventory_count", args=[self.warehouse.pk]), {
+            "movement_date": str(tomorrow), f"count_{level.pk}": str(level.quantity + 1)})
+        self.expect_flash(client, resp, "future", "a count dated tomorrow is refused")
+        second, _ = Warehouse.objects.get_or_create(
+            company=self.company, code=f"R4B{self.stamp[-4:]}",
+            defaults={"name": "Second Store R4", "is_active": True})
+        self.second = second
+        resp = client.post(reverse("inventory:stock_transfer"), {
+            "from_warehouse": self.warehouse.pk, "to_warehouse": second.pk,
+            "product": self.raw.pk, "quantity": "1", "movement_date": str(tomorrow)})
+        self.expect_flash(client, resp, "future", "a transfer dated tomorrow is refused")
+        period, day = self.closed_month()
+        resp = client.post(reverse("inventory:stock_transfer"), {
+            "from_warehouse": self.warehouse.pk, "to_warehouse": second.pk,
+            "product": self.raw.pk, "quantity": "1", "movement_date": str(day)})
+        self.expect_flash(client, resp, "closed", "a transfer dated in a closed month is refused")
+        resp = client.post(reverse("inventory:adjustment_create"), {
+            "product": self.raw.pk, "warehouse": self.warehouse.pk,
+            "movement_type": "ADJUSTMENT_PLUS", "quantity": "1", "unit_cost": "50",
+            "movement_date": str(day), "reference": "R4-3", "notes": ""})
+        self.expect("an adjustment dated in a closed month is refused",
+                    resp.status_code == 200 and "closed" in resp.content.decode(),
+                    f"HTTP {resp.status_code}")
+
+        part = self.make_product(client, "PART-R4", "10")
+        made = self.make_product(client, "MADE-R4", "0")
+        self.adjust(client, "ADJUSTMENT_PLUS", "5", cost="10", product=part)
+        bom = self.recipe(client, f"R4 recipe {self.stamp}", made, [(part, 1)])
+        wo = self.work_order(client, bom, f"WO-R4-3-{self.stamp}", 1)
+        resp = client.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
+                           {"actual_quantity": "1", "actual_end": str(tomorrow)})
+        wo.refresh_from_db()
+        self.expect("a work order cannot be completed tomorrow", wo.status == "DRAFT",
+                    wo.status)
+        self.expect_flash(client, resp, "future", "and the refusal says why")
+        # R4-11: the closed-period message reads properly and advises the
+        # right thing — not "receive the missing materials".
+        resp = client.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
+                           {"actual_quantity": "1", "actual_end": str(day)})
+        wo.refresh_from_db()
+        said = self.said(client, resp)
+        self.expect("a work order dated in a closed month is not completed",
+                    wo.status == "DRAFT", wo.status)
+        self.expect("its message has one full stop and the closed-period advice",
+                    ".." not in said and "reopen" in said.lower()
+                    and "receive the missing" not in said.lower(), said)
+        self.reopen(period)
+        self.expect("nothing above moved any stock",
+                    StockMovement.objects.filter(product__company=self.company,
+                                                 movement_date__gt=self.today).count() == 0
+                    and StockMovement.objects.filter(
+                        product__company=self.company).count() == moves + 1,
+                    "")
+        self.post(client, "complete it today", reverse("manufacturing:work_order_complete",
+                                                       args=[wo.pk]),
+                  {"actual_quantity": "1", "actual_end": str(self.today)})
+        wo.refresh_from_db()
+        self.expect("dated today it completes", wo.status == "COMPLETED", wo.status)
+        self.wo_part, self.wo_bom = part, bom
+
+    # ── R4-4 ──
+    def check_units_in_use(self, client):
+        from apps.inventory.models import UnitOfMeasure
+
+        self.post(client, "a box of twelve", reverse("inventory:unit_create"), {
+            "name": "Box of 12", "abbreviation": "BX12", "kind": "COUNT",
+            "base_factor": "12", "is_base": ""})
+        box = UnitOfMeasure.objects.get(company=self.company, abbreviation="BX12")
+        recipe_line = self.wo_bom.lines.first()
+        recipe_line.unit_of_measure = box
+        recipe_line.save()
+        resp = client.post(reverse("inventory:unit_edit", args=[box.pk]), {
+            "name": "Box of 12", "abbreviation": "BX12", "kind": "COUNT",
+            "base_factor": "24", "is_base": ""})
+        box.refresh_from_db()
+        self.expect("a unit a recipe uses keeps its factor",
+                    resp.status_code == 200 and box.base_factor == D("12"), str(box.base_factor))
+        resp = client.post(reverse("inventory:unit_edit", args=[box.pk]), {
+            "name": "Box of 12", "abbreviation": "BX12", "kind": "WEIGHT",
+            "base_factor": "12", "is_base": ""})
+        box.refresh_from_db()
+        self.expect("and its kind", box.kind == "COUNT", box.kind)
+        resp = client.post(reverse("inventory:unit_set_base", args=[box.pk]), {})
+        box.refresh_from_db()
+        self.expect("and cannot become the base of a kind in use",
+                    not box.is_base and box.base_factor == D("12"), str(box.is_base))
+        self.expect_flash(client, resp, "rescaled", "and the refusal says why")
+        resp = client.post(reverse("inventory:unit_edit", args=[box.pk]), {
+            "name": "Box of a dozen", "abbreviation": "BX12", "kind": "COUNT",
+            "base_factor": "12", "is_base": ""})
+        box.refresh_from_db()
+        self.expect("its name can still change", box.name == "Box of a dozen", box.name)
+
+        resp = client.post(reverse("inventory:product_edit", args=[self.raw.pk]),
+                           self.product_data(self.raw, unit_of_measure=box.pk))
+        self.raw.refresh_from_db()
+        self.expect("a product with stock keeps its unit",
+                    resp.status_code == 200 and self.raw.unit_of_measure_id == self.uom.pk,
+                    f"HTTP {resp.status_code}")
+
+    # ── R4-5 ──
+    def check_scrap(self, client):
+        from django.core.exceptions import ValidationError
+        from apps.manufacturing.models import BillOfMaterials, BOMLine
+
+        for scrap in ("-50", "100", "250"):
+            name = f"Scrap {scrap} {self.stamp}"
+            client.post(reverse("manufacturing:bom_create"), merge({
+                "name": name, "product": self.wo_bom.product_id, "version": "1",
+                "status": "ACTIVE", "production_quantity": "1", "notes": "",
+            }, formset("lines", [
+                {"component": self.wo_part.pk, "quantity": "1", "unit_of_measure": "",
+                 "scrap_percent": scrap}],
+                blank={"component": "", "quantity": "", "unit_of_measure": "",
+                       "scrap_percent": "0"})))
+            self.expect(f"a recipe line with {scrap}% scrap is refused",
+                        not BillOfMaterials.objects.filter(company=self.company,
+                                                           name=name).exists())
+        try:
+            with transaction.atomic():
+                BOMLine.objects.create(bom=self.wo_bom, component=self.wo_part,
+                                       quantity=D("1"), scrap_percent=D("-10"))
+            refused = False
+        except ValidationError:
+            refused = True
+        self.expect("and the model refuses it too", refused)
+
+    # ── R4-6 / R4-8 ──
+    def check_reserved_accounts(self, client):
+        from apps.inventory.forms import ProductForm
+        from apps.procurement.forms import chargeable_accounts
+        from apps.procurement.models import Bill
+
+        offered = set(ProductForm(company=self.company).fields["inventory_account"]
+                      .queryset.values_list("code", flat=True))
+        self.expect("1400 is offered as a product's inventory account", "1400" in offered,
+                    str(sorted(offered)))
+        self.expect("but not WIP, revaluation, depreciation or a header",
+                    not offered & {"1450", "1350", "1690", "1000", "1600", "1200", "1300"},
+                    str(sorted(offered)))
+        resp = client.post(reverse("inventory:product_edit", args=[self.service.pk]),
+                           self.product_data(self.service,
+                                             inventory_account=self.account("1450").pk))
+        self.service.refresh_from_db()
+        self.expect("a product cannot be put on 1450",
+                    resp.status_code == 200
+                    and self.service.inventory_account_id != self.account("1450").pk,
+                    f"HTTP {resp.status_code}")
+        chargeable = set(chargeable_accounts(self.company).values_list("code", flat=True))
+        self.expect("a typed bill cannot reach 1690, 1000, 1600 or 1350",
+                    not chargeable & {"1690", "1000", "1600", "1350", "1450", "1400"},
+                    str(sorted(chargeable)))
+        self.expect("but still reaches 6000 and 1610", {"6000", "1610"} <= chargeable,
+                    str(sorted(chargeable)))
+        for code in ("1690", "1000", "1350"):
+            resp = client.post(reverse("procurement:bill_create"), self.bill_form(
+                f"BILL-R4-8-{code}", supplier_reference=f"R4-8-{code}",
+                charge_account=self.account(code).pk))
+            self.expect(f"a typed bill charged to {code} is refused",
+                        resp.status_code == 200 and not Bill.objects.filter(
+                            company=self.company, reference=f"BILL-R4-8-{code}").exists(),
+                        f"HTTP {resp.status_code}")
+
+    # ── R4-7 ──
+    def check_negative_shelf_empties(self, client):
+        item = self.make_product(client, "NEG-R4", "100")
+        item.allow_negative_stock = True
+        item.save(update_fields=["allow_negative_stock"])
+        variance0 = self.net("5400")
+        po = self.order(client, "PO-R4-7A", [(item, 2, "100", False)])
+        self.receive(client, po, [(po.lines.first(), 2)])
+        self.bill_order(client, po)
+        self.post(client, "issue five of two", reverse("inventory:adjustment_create"), {
+            "product": item.pk, "warehouse": self.warehouse.pk,
+            "movement_type": "ADJUSTMENT_MINUS", "quantity": "5", "unit_cost": "",
+            "movement_date": str(self.today), "reference": "R4-7", "notes": ""})
+        level = self.shelf(item)
+        self.expect("the shelf runs to -3 worth -300",
+                    level.quantity == D("-3") and level.value == D("-300"),
+                    f"{level.quantity} / {level.value}")
+        po = self.order(client, "PO-R4-7B", [(item, 3, "120", False)])
+        self.receive(client, po, [(po.lines.first(), 3)])
+        level.refresh_from_db()
+        self.expect("three in at 120 leave the shelf at nothing, worth nothing",
+                    level.quantity == Z and level.value == Z,
+                    f"{level.quantity} / {level.value}")
+        self.expect("and the 60 difference is a price variance",
+                    self.net("5400") - variance0 == D("60.00"),
+                    str(self.net("5400") - variance0))
+        self.stock_agrees("after a negative shelf is answered")
+        self.bill_order(client, po)
+        self.accrual_agrees("after a negative shelf is answered and billed")
+
+    # ── R4-9 ──
+    def check_plain_digits(self, client):
+        from apps.inventory.models import StockMovement
+        from apps.procurement.models import Bill
+
+        self.post(client, "a bill to pay", reverse("procurement:bill_create"),
+                  self.bill_form("BILL-R4-9", supplier_reference="R4-9"))
+        bill = Bill.objects.get(company=self.company, reference="BILL-R4-9")
+        for amount in ("1_0", "１００", "+-5", "1.2.3", "٣"):
+            client.post(reverse("procurement:bill_pay", args=[bill.pk]), {"amount": amount})
+            bill.refresh_from_db()
+            self.expect(f"a payment of '{amount}' is refused", bill.paid_amount == Z,
+                        str(bill.paid_amount))
+        moves = StockMovement.objects.filter(product=self.raw).count()
+        for qty in ("1_0", "１"):
+            resp = self.adjust(client, "ADJUSTMENT_PLUS", qty, cost="50")
+            self.expect(f"an adjustment of '{qty}' is refused",
+                        resp.status_code == 200
+                        and StockMovement.objects.filter(product=self.raw).count() == moves,
+                        f"HTTP {resp.status_code}")
+        resp = self.adjust(client, "ADJUSTMENT_PLUS", "1", cost="5_0")
+        self.expect("and so is a unit cost of '5_0'",
+                    resp.status_code == 200
+                    and StockMovement.objects.filter(product=self.raw).count() == moves,
+                    f"HTTP {resp.status_code}")
+
+    # ── R4-10 ──
+    def check_inactive_warehouse(self, client):
+        from apps.inventory.models import StockMovement
+        from apps.organizations.models import Warehouse
+
+        shut, _ = Warehouse.objects.get_or_create(
+            company=self.company, code=f"R4X{self.stamp[-4:]}",
+            defaults={"name": "Closed Store R4"})
+        shut.is_active = False
+        shut.save(update_fields=["is_active"])
+        po = self.order(client, "PO-R4-10", [(self.raw, 2, "50", False)])
+        moves = StockMovement.objects.filter(product__company=self.company).count()
+        resp = client.post(reverse("procurement:grn_record", args=[po.pk]), {
+            "warehouse": shut.pk, f"receive_qty_{po.lines.first().pk}": "2"})
+        po.refresh_from_db()
+        self.expect("goods cannot be received into an inactive warehouse",
+                    po.lines.first().received_quantity == Z
+                    and StockMovement.objects.filter(
+                        product__company=self.company).count() == moves,
+                    str(po.lines.first().received_quantity))
+        self.expect_flash(client, resp, "inactive", "and the refusal says why")
+        resp = client.post(reverse("inventory:stock_transfer"), {
+            "from_warehouse": self.warehouse.pk, "to_warehouse": shut.pk,
+            "product": self.raw.pk, "quantity": "1", "movement_date": str(self.today)})
+        self.expect_flash(client, resp, "inactive", "nor transferred into one")
+        resp = client.post(reverse("inventory:adjustment_create"), {
+            "product": self.raw.pk, "warehouse": shut.pk,
+            "movement_type": "ADJUSTMENT_PLUS", "quantity": "1", "unit_cost": "50",
+            "movement_date": str(self.today), "reference": "R4-10", "notes": ""})
+        self.expect("nor adjusted into one", resp.status_code == 200
+                    and StockMovement.objects.filter(warehouse=shut).count() == 0,
+                    f"HTTP {resp.status_code}")
+        self.adjust(client, "ADJUSTMENT_PLUS", "1", cost="10", product=self.wo_part)
+        wo = self.work_order(client, self.wo_bom, f"WO-R4-10-{self.stamp}", 1)
+        wo.warehouse = shut
+        wo.save(update_fields=["warehouse"])
+        resp = client.post(reverse("manufacturing:work_order_complete", args=[wo.pk]),
+                           {"actual_quantity": "1", "actual_end": str(self.today)})
+        wo.refresh_from_db()
+        self.expect("nor made into one", wo.status == "DRAFT"
+                    and StockMovement.objects.filter(warehouse=shut).count() == 0, wo.status)
+        self.expect_flash(client, resp, "inactive", "and the work order says why")
+        self.receive(client, po, [(po.lines.first(), 2)])
+        self.bill_order(client, po)

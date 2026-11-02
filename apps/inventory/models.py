@@ -175,6 +175,60 @@ def cents(amount):
     return Decimal(str(amount or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
+def stock_date_refusal(company, day, what="A stock movement"):
+    """Why a stock document cannot be dated ``day``, or "" when it can.
+
+    A stock document records goods that have already moved: an adjustment is
+    what a count found, a transfer is a lorry that has left, a work order's
+    end date is the day the goods came off the line. None of them can have
+    happened tomorrow, and dating one ahead would put stock on the shelf (and
+    in the ledger) before it exists — every report run in the meantime would
+    show goods nobody has yet.
+
+    Nor can one be dated inside a closed accounting period. Most stock
+    movements post a journal entry, and the ledger refuses those on its own;
+    a transfer between two of the company's shelves posts nothing, so it is
+    refused here, in the same words, so a closed month's stock report cannot
+    change behind the back of whoever signed it off.
+    """
+    import datetime
+    from apps.accounting.models import closed_period_refusal, period_for
+
+    if day is None:
+        return ""
+    today = datetime.date.today()
+    if day > today:
+        return (f"{what} cannot be dated {day:%d %b %Y}: that is in the future. Date it "
+                f"the day the goods actually moved — today ({today:%d %b %Y}) or earlier.")
+    return closed_period_refusal(period_for(company, day), day)
+
+
+def unit_in_use(unit):
+    """Whether anything already counts in ``unit``: a product kept in it, a
+    recipe line written in it, an order line bought in it, or stock that has
+    moved for a product counted in it.
+
+    A unit in use is a promise about quantities already on record. Changing
+    what it is worth would silently rescale every one of them — a recipe that
+    drew 2 kg would draw 2 tonnes — so its factor and kind are fixed from then on.
+    """
+    from apps.manufacturing.models import BOMLine
+    from apps.procurement.models import PurchaseOrderLine
+
+    if Product.objects.filter(unit_of_measure=unit).exists():
+        return True
+    if BOMLine.objects.filter(unit_of_measure=unit).exists():
+        return True
+    if PurchaseOrderLine.objects.filter(product__unit_of_measure=unit).exists():
+        return True
+    return StockMovement.objects.filter(product__unit_of_measure=unit).exists()
+
+
+def kind_in_use(company, kind):
+    """Whether any unit of this kind, in this company, is in use."""
+    return any(unit_in_use(u) for u in UnitOfMeasure.objects.filter(company=company, kind=kind))
+
+
 class StockLevel(models.Model):
     """Current stock quantity per product per warehouse — and what it is worth.
 
@@ -284,6 +338,11 @@ class StockMovement(BaseModel, NotesMixin):
     # carries what went into work in progress. Recomputing either from a unit
     # cost held to four places could miss the figure that left by a cent.
     carried_value = None
+    # Set by _update_stock_level on a movement in that brings a below-zero
+    # shelf back to exactly nothing: the value that would otherwise have been
+    # left on the empty shelf (positive or negative). It is taken off the shelf
+    # and _post_gl books it to the purchase price variance instead.
+    shelf_residue = None
 
     def save(self, *args, **kwargs):
         if self.quantity is not None and self.unit_cost is not None:
@@ -320,6 +379,23 @@ class StockMovement(BaseModel, NotesMixin):
         if self.quantity is None or self.quantity <= 0:
             raise ValidationError(
                 "A stock movement has to move something: the quantity must be more than zero.")
+        if not self.product.track_inventory:
+            # A product that is not stock-tracked posts nothing to the ledger
+            # when it moves (see _post_gl), so a shelf it moved would carry
+            # quantity and value the inventory account never saw. Turn the
+            # tracking back on later and that phantom stock lands in the
+            # valuation with nothing in 1400 behind it. So it has no shelf.
+            raise ValidationError(
+                f"{self.product.name} is not stock-tracked, so it has no shelf to move "
+                "stock on or off. Turn on stock tracking on the product first if it is "
+                "goods the warehouse holds.")
+        if self.movement_type in self.INCOMING and not self.warehouse.is_active:
+            # A retired warehouse is one nobody counts or picks from any more;
+            # goods put there would sit outside every stock take.
+            raise ValidationError(
+                f"{self.warehouse.name} is inactive, so no stock can be put into it. "
+                "Choose an active warehouse, or reactivate this one under Organization "
+                "→ Warehouses first.")
         if self.unit_cost is not None and self.unit_cost < 0:
             # A negative price would take value off the book while putting
             # goods on the shelf (or the reverse); the posting refuses to book a
@@ -360,6 +436,20 @@ class StockMovement(BaseModel, NotesMixin):
                 if self.carried_value is not None:
                     self._value_it_at(self.carried_value)
                 level.value = before + self.total_cost
+                if level.quantity + self.quantity == 0 and level.value != 0:
+                    # A product allowed to run below nothing carried its
+                    # shortfall at the average it left at; the goods that
+                    # answer it arrive at their own price. When they bring the
+                    # shelf back to exactly nothing, an empty shelf must be
+                    # worth nothing, so the gap between the two prices is not
+                    # left behind as value with no goods. It is taken off the
+                    # shelf here and booked by _post_gl to the purchase price
+                    # variance (5400): a cost (or a saving) of buying the goods
+                    # dearer (or cheaper) than they had already been issued at.
+                    # Receive 2 @ 100, issue 5 (shelf -3, worth -300), receive
+                    # 3 @ 120: the shelf ends at 0 worth 0, and 60 is a variance.
+                    self.shelf_residue = level.value
+                    level.value = Decimal("0")
                 # The new average is the shelf's price per unit — what it held
                 # them at and what arrived, weighted by quantity — including
                 # goods that came in at no cost, which dilute the average rather
@@ -419,3 +509,5 @@ class StockMovement(BaseModel, NotesMixin):
             gl_service.post_stock_receipt(self)
         elif self.movement_type in gl_service.STOCK_OUT:
             gl_service.post_stock_delivery(self)
+        if self.shelf_residue:
+            gl_service.post_shelf_residue(self, self.shelf_residue)

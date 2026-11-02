@@ -11,6 +11,7 @@ The limits mirror the columns the figure lands in: a quantity is held to four
 places with eight digits before the point, money to two places with thirteen.
 A figure the column cannot hold is refused here rather than by the database.
 """
+import re
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
@@ -19,6 +20,13 @@ from django.core.exceptions import ValidationError
 QUANTITY = (8, 4)      # DecimalField(max_digits=12, decimal_places=4)
 UNIT_COST = (11, 4)    # DecimalField(max_digits=15, decimal_places=4)
 MONEY = (13, 2)        # DecimalField(max_digits=15, decimal_places=2)
+
+# What a typed number may look like: an optional sign, plain ASCII digits and
+# at most one decimal point. Python's Decimal is far more generous — it reads
+# "1_0" as ten (underscores are digit separators in Python source) and "１００"
+# as a hundred (any Unicode digit) — and neither is something a bookkeeper
+# meant to type into a money or quantity box.
+PLAIN_NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
 
 
 def typed_number(raw, label, shape=MONEY, *, allow_zero=False, allow_negative=False,
@@ -46,6 +54,10 @@ def typed_number(raw, label, shape=MONEY, *, allow_zero=False, allow_negative=Fa
         raise ValidationError(
             f"{label} '{text}' is written as a power of ten. Type the number out in "
             "full, for example 100 or 12.5.")
+    if not PLAIN_NUMBER.fullmatch(text):
+        raise ValidationError(
+            f"{label} '{text}' is not a number. Type it with the digits 0-9 and at most "
+            "one decimal point, for example 1250 or 12.5.")
     try:
         value = Decimal(text)
     except (InvalidOperation, ValueError):
@@ -110,3 +122,29 @@ def pick(queryset, raw):
         return queryset.filter(pk=raw).first()
     except (ValueError, TypeError, ValidationError):
         return None
+
+
+class PlainNumbersMixin:
+    """Hold a form's number boxes to the rule typed_number() keeps.
+
+    Django's DecimalField hands what was typed straight to Decimal, so "1_0"
+    is saved as ten and "１００" (full-width digits) as a hundred. A form that
+    mixes this in refuses any number box whose text is not plain ASCII digits
+    with an optional sign and at most one decimal point, in the same words
+    typed_number() uses, before the figure goes anywhere.
+    """
+
+    def _clean_fields(self):
+        from django import forms
+
+        super()._clean_fields()
+        for name, field in self.fields.items():
+            if field.disabled or not isinstance(field, (forms.DecimalField, forms.FloatField)):
+                continue
+            raw = self[name].data
+            text = "" if raw is None else str(raw).strip()
+            if text and not PLAIN_NUMBER.fullmatch(text) and name not in self._errors:
+                self.add_error(
+                    name,
+                    f"'{text}' is not a number. Type it with the digits 0-9 and at most "
+                    "one decimal point, for example 1250 or 12.5.")

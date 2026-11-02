@@ -15,7 +15,10 @@ from apps.core.mixins import CompanyRequiredMixin
 
 from .numbers import money, qty
 from .forms import ProductForm, StockMovementForm, UnitOfMeasureForm
-from .models import Product, StockLevel, StockMovement, UnitOfMeasure, stock_valuation
+from .models import (
+    Product, StockLevel, StockMovement, UnitOfMeasure, kind_in_use, stock_date_refusal,
+    stock_valuation,
+)
 
 
 class ProductListView(LoginRequiredMixin, ListView):
@@ -94,8 +97,29 @@ class ProductUpdateView(LoginRequiredMixin, UpdateView):
         return kwargs
 
     def form_valid(self, form):
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if form.retracking:
+                # Whatever an untracked product's shelves still show never
+                # reached the inventory account, so it is not stock the ledger
+                # knows about. Tracking starts from empty shelves; the goods
+                # actually there are then counted on with an adjustment, which
+                # books them to 1400 like any other stock found.
+                stale = StockLevel.objects.filter(product=self.object).exclude(
+                    quantity=0, value=0)
+                emptied = [f"{qty(l.quantity)} in {l.warehouse.name}"
+                           for l in stale.select_related("warehouse")]
+                StockLevel.objects.filter(product=self.object).update(
+                    quantity=Decimal("0"), value=Decimal("0"), avg_cost=Decimal("0"))
+                if emptied:
+                    messages.warning(
+                        self.request,
+                        f"{self.object.name} is stock-tracked again. Its shelves ("
+                        + ", ".join(emptied) + ") were set to nothing, because stock kept "
+                        "while it was untracked was never in the ledger. Count what is "
+                        "really there and record it as an adjustment increase.")
         messages.success(self.request, f"Product '{form.instance.name}' updated.")
-        return super().form_valid(form)
+        return response
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -289,6 +313,15 @@ class StockTransferView(LoginRequiredMixin, TemplateView):
         warehouses = Warehouse.objects.filter(company=company)
         from_w = pick(warehouses, from_pk)
         to_w = pick(warehouses, to_pk)
+        if to_w and not to_w.is_active:
+            # Goods can still be moved out of a retired warehouse to empty it,
+            # but nothing is put into one: nobody counts or picks there.
+            messages.error(
+                request,
+                f"{to_w.name} is inactive, so no stock can be transferred into it. Choose "
+                "an active warehouse, or reactivate this one under Organization → "
+                "Warehouses first.")
+            return redirect("inventory:stock_transfer")
         if not from_w or not to_w:
             messages.error(
                 request,
@@ -324,6 +357,12 @@ class StockTransferView(LoginRequiredMixin, TemplateView):
             except ValueError:
                 messages.error(request, f"'{raw_date}' is not a date. Use the date picker (YYYY-MM-DD).")
                 return redirect("inventory:stock_transfer")
+        # A transfer posts no journal entry, so the ledger's own closed-period
+        # check never sees it; the date is checked here instead.
+        refusal = stock_date_refusal(company, movement_date, "A transfer")
+        if refusal:
+            messages.error(request, f"Transfer not recorded. {refusal}")
+            return redirect("inventory:stock_transfer")
 
         try:
             with transaction.atomic():
@@ -371,7 +410,12 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
         company = self.request.active_company
         warehouse = get_object_or_404(Warehouse, pk=kwargs["pk"], company=company)
         ctx["warehouse"] = warehouse
-        ctx["stock_levels"] = StockLevel.objects.filter(warehouse=warehouse).select_related("product").order_by("product__name")
+        # Only stock-tracked products have a shelf to count: an untracked
+        # product's movements post nothing to the ledger, so a count of one
+        # would put stock in the valuation that the inventory account never saw.
+        ctx["stock_levels"] = StockLevel.objects.filter(
+            warehouse=warehouse, product__track_inventory=True,
+        ).select_related("product").order_by("product__name")
         return ctx
 
     def post(self, request, *args, **kwargs):
@@ -387,7 +431,14 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
             except ValueError:
                 messages.error(request, f"Count not posted: '{raw_date}' is not a date (YYYY-MM-DD).")
                 return redirect("inventory:inventory_count", pk=warehouse.pk)
-        levels = list(StockLevel.objects.filter(warehouse=warehouse).select_related("product"))
+        refusal = stock_date_refusal(company, movement_date, "A count")
+        if refusal:
+            messages.error(request, f"Count not posted. {refusal}")
+            return redirect("inventory:inventory_count", pk=warehouse.pk)
+        # Untracked products are left off the sheet (see get_context_data), and
+        # a box posted for one anyway is ignored rather than counted.
+        levels = list(StockLevel.objects.filter(
+            warehouse=warehouse, product__track_inventory=True).select_related("product"))
         # Every box is read before anything is posted. A count is one event: a
         # sheet with one unreadable figure on it is handed back whole, rather
         # than half posted with the bad line quietly left out.
@@ -594,6 +645,18 @@ def unit_set_base(request, pk):
     unit = get_object_or_404(UnitOfMeasure, pk=pk, company=request.active_company)
     if not unit.is_active:
         messages.error(request, f"{unit.abbreviation} is retired — restore it before making it base.")
+        return redirect("inventory:unit_list")
+    if not unit.is_base and kind_in_use(unit.company, unit.kind):
+        # Every other unit of the kind is worth so many of the old base. Making
+        # this one the base (worth 1) re-anchors them all, so every recipe,
+        # order and stock record written in this kind would silently mean a
+        # different quantity.
+        messages.error(
+            request,
+            f"{unit.get_kind_display()} units are already used by products, recipes, orders "
+            f"or stock movements, so its base unit cannot change: every quantity on record "
+            f"in those units would silently be rescaled. Add a new unit with its factor "
+            f"instead.")
         return redirect("inventory:unit_list")
     with transaction.atomic():
         UnitOfMeasure.objects.filter(

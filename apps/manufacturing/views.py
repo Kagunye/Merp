@@ -282,6 +282,24 @@ def work_order_complete(request, pk):
     if not wo.warehouse:
         messages.error(request, "Work order must have a warehouse assigned.")
         return redirect("manufacturing:work_order_detail", pk=pk)
+    if not wo.warehouse.is_active:
+        messages.error(
+            request,
+            f"Work order {wo.reference} was not completed: its warehouse, "
+            f"{wo.warehouse.name}, is inactive, so the finished goods cannot be put "
+            "there. Reactivate the warehouse under Organization → Warehouses, or cancel "
+            "this order and raise it again for an active warehouse.")
+        return redirect("manufacturing:work_order_detail", pk=pk)
+    # The completion date is the day the goods came off the line, and the
+    # materials leave the shelf on it: it cannot be tomorrow, nor fall in a
+    # month that has been closed. The ledger refuses a closed month for the
+    # stock it books, but an order made only of untracked inputs and output
+    # posts through other entries, so it is checked here for every order.
+    from apps.inventory.models import stock_date_refusal
+    refusal = stock_date_refusal(wo.company, actual_end, "A work order's completion")
+    if refusal:
+        messages.error(request, f"Work order {wo.reference} was not completed. {refusal}")
+        return redirect("manufacturing:work_order_detail", pk=pk)
 
     product = wo.bom.product
     current = None
@@ -363,11 +381,20 @@ def work_order_complete(request, pk):
             wo.save(update_fields=["actual_quantity", "actual_end", "cost", "status", "updated_at"])
     except ValidationError as exc:
         what = f" ({current.name})" if current else ""
+        reason = exc.messages[0].rstrip()
+        if not reason.endswith((".", "!", "?")):
+            reason += "."
+        # The advice has to fit the refusal: a shelf that ran short needs the
+        # materials received (or a smaller run), but a closed period or a
+        # posting the ledger refused says its own way forward, and telling
+        # that bookkeeper to receive materials would send them the wrong way.
+        short = "Insufficient stock" in reason
+        advice = (" Receive the missing materials, or lower the quantity, and complete "
+                  "it again." if short else "")
         messages.error(
             request,
-            f"Work order {wo.reference} was not completed{what}: {exc.messages[0]}. "
-            "Nothing was drawn from stock — receive the missing materials, or lower "
-            "the quantity, and complete it again.")
+            f"Work order {wo.reference} was not completed{what}: {reason} Nothing was "
+            f"drawn from stock and nothing was posted.{advice}")
         return redirect("manufacturing:work_order_detail", pk=pk)
 
     messages.success(
