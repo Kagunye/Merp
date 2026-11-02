@@ -1285,8 +1285,11 @@ class Command(BaseCommand):
 
         start = self.today.replace(day=1)
         self.journal([("1100", 36000, 0), ("1200", 0, 36000)], start)          # bank to till
-        self.journal([("6200", 7000, 0), ("1110", 0, 7000)], start)            # petty cash
+        # The top-up is entered before the spend: a petty-cash box cannot pay
+        # out notes it does not hold yet (the cash floor, checked as each entry
+        # posts), even when both are dated the same day.
         self.journal([("1110", 7000, 0), ("1100", 0, 7000)], start)            # till tops it up
+        self.journal([("6200", 7000, 0), ("1110", 0, 7000)], start)            # petty cash
         self.journal([("1200", 20000, 0), ("4100", 0, 20000)], start)          # a receipt
         url = (reverse("reporting:cash_flow")
                + f"?date_from={start:%Y-%m-%d}&date_to={self.today:%Y-%m-%d}")
