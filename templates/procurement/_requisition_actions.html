@@ -1,0 +1,7 @@
+{% load ui_extras %}{% can_do "procurement:requisition_cancel" "POST" as may_cancel %}
+{% if may_cancel %}{% if requisition.status == 'DRAFT' or requisition.status == 'PENDING_APPROVAL' or requisition.status == 'APPROVED' %}
+<form method="post" action="{% url 'procurement:requisition_cancel' requisition.pk %}" onsubmit="return confirm('Cancel this requisition? It will no longer be approved or ordered.');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">Cancel requisition</button>
+</form>
+{% endif %}{% endif %}

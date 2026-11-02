@@ -1,15 +1,24 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Warehouse Management" launcher_subtitle="Manage picking, shipping, and warehouse operations" %}
+
+<section aria-label="At a glance" class="mb-2">
+<div class="stat-grid mb-6">
+  {% include "_includes/stat.html" with label="Warehouses" value=warehouse_count|default:0 meta="Active stock locations" icon="building" tone="info" only %}
+  {% include "_includes/stat.html" with label="SKUs on hand" value=skus_on_hand|default:0 meta="Products with stock" icon="box" tone="success" only %}
+  {% include "_includes/stat.html" with label="Recent movements" value=recent_movement_count|default:0 meta="Latest stock in and out" icon="refresh" tone="neutral" only %}
+</div>
+</section>
 
 <div class="launcher-section-label">
   Picking
   <span class="launcher-section-count">3 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-amber">🎫</div><span class="label">Pick Tickets</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🖨️</div><span class="label">Print Pick Tickets</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-peach">📦</div><span class="label">Stock Pick</span></a>
+  {% can_do "sales:order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Pick Tickets</span></a>{% endif %}
+  {% can_do "sales:order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" only %}</div><span class="label">Print Pick Tickets</span></a>{% endif %}
+  {% can_do "inventory:stock_transfer" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" only %}</div><span class="label">Stock Pick</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -17,11 +26,11 @@
   <span class="launcher-section-count">5 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🔎</div><span class="label">Shipment Enquiries</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🚚</div><span class="label">Shipments</span></a>
-  <a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">🖨️</div><span class="label">Print Packing Slips</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Shipment Containers</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-sky">🖨️</div><span class="label">Print Container Manifest</span></a>
+  {% can_do "sales:order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="search" cls="h-7 w-7" only %}</div><span class="label">Shipment Enquiries</span></a>{% endif %}
+  {% can_do "sales:order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" only %}</div><span class="label">Shipments</span></a>{% endif %}
+  {% can_do "sales:order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'sales:order_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" only %}</div><span class="label">Print Packing Slips</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" only %}</div><span class="label">Shipment Containers</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" only %}</div><span class="label">Print Container Manifest</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -29,16 +38,10 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Delivery Drivers</span></a>
-  <a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">🚐</div><span class="label">Delivery Vehicles</span></a>
-  <a href="{% url 'organizations:branch_list' %}" class="launcher-tile"><div class="ico ico-amber">🗺️</div><span class="label">Delivery Routes</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">📦</div><span class="label">Delivery Methods</span></a>
+  {% can_do "hr:employee_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" only %}</div><span class="label">Delivery Drivers</span></a>{% endif %}
+  {% can_do "fixed_assets:asset_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'fixed_assets:asset_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cart" cls="h-7 w-7" only %}</div><span class="label">Delivery Vehicles</span></a>{% endif %}
+  {% can_do "organizations:branch_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'organizations:branch_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" only %}</div><span class="label">Delivery Routes</span></a>{% endif %}
+  {% can_do "organizations:home" as tile_ok %}{% if tile_ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="inbox" cls="h-7 w-7" only %}</div><span class="label">Delivery Methods</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Warehouses</div><div class="text-2xl font-bold">{{ warehouse_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">SKUs on hand</div><div class="text-2xl font-bold">{{ skus_on_hand|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Recent movements</div><div class="text-2xl font-bold">{{ recent_movement_count|default:0 }}</div></div>
-</div>
 {% endblock %}

@@ -1,26 +1,30 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'procurement:po_list' as back_url %}
-{% include "_includes/page_header.html" with title=page_title back_url=back_url %}
-<div class="bg-white rounded-xl border border-gray-200 p-6">
-  <form method="post" class="space-y-4">
-    {% csrf_token %}
-    {% if form.non_field_errors %}
-      <div class="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-lg">{{ form.non_field_errors }}</div>
-    {% endif %}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {% for field in form %}
-      <div class="{% if field.name == 'notes' %}md:col-span-2{% endif %}">
-        <label class="block text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">{{ field.label }}</label>
-        {{ field }}
-        {% if field.errors %}<p class="text-xs text-red-600 mt-1">{{ field.errors.0 }}</p>{% endif %}
-      </div>
-      {% endfor %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Lines are added on the order once it is saved" back_url=back_url back_label="Purchase Orders" hide_print=True %}
+<form method="post" class="card card-body max-w-4xl" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+  <div class="alert alert-danger mb-4" role="alert">
+    {% include "_includes/icon.html" with name="warning" %}
+    <div class="alert-body">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+  </div>
+  {% endif %}
+  {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+  <p class="form-section">Purchase order</p>
+  <div class="form-grid">
+    {% for field in form.visible_fields %}
+    <div class="form-field{% if field.name == 'notes' %} form-field-full{% endif %}">
+      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="form-required" aria-hidden="true">*</span>{% endif %}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+      {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
     </div>
-    <div class="flex gap-3 pt-2">
-      <button type="submit" class="px-4 py-2 text-sm font-medium text-white rounded-lg" style="background:var(--primary)">Save Purchase Order</button>
-      <a href="{% url 'procurement:po_list' %}" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</a>
-    </div>
-  </form>
-</div>
+    {% endfor %}
+  </div>
+  <div class="form-actions">
+    <a href="{{ back_url }}" class="btn btn-ghost">Cancel</a>
+    <button type="submit" class="btn btn-primary">Save Purchase Order</button>
+  </div>
+</form>
 {% endblock %}

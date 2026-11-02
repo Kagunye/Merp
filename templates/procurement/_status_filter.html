@@ -1,0 +1,8 @@
+{# Status select for the filter bar. Reads status_choices / status_filter from the list view; the GET name stays "status". #}
+<div class="form-field">
+  <label class="form-label" for="fb-status">Status</label>
+  <select id="fb-status" name="status" class="select">
+    <option value="">All statuses</option>
+    {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+</div>

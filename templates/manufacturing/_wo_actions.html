@@ -1,0 +1,25 @@
+{% load ui_extras %}{% can_do "manufacturing:work_order_release" "POST" as may_release %}{% can_do "manufacturing:work_order_start" "POST" as may_start %}{% can_do "manufacturing:work_order_complete" "POST" as may_complete %}{% can_do "manufacturing:work_order_cancel" "POST" as may_cancel %}
+<div class="btn-group">
+  {% if wo.status == 'DRAFT' and may_release %}
+  <form method="post" action="{% url 'manufacturing:work_order_release' wo.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="upload" stroke="2" only %}Release</button>
+  </form>
+  {% endif %}
+  {% if wo.status == 'RELEASED' and may_start %}
+  <form method="post" action="{% url 'manufacturing:work_order_start' wo.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="arrow-right" stroke="2" only %}Start Production</button>
+  </form>
+  {% endif %}
+  {% if may_complete and wo.status == 'RELEASED' or may_complete and wo.status == 'IN_PROGRESS' or may_complete and wo.status == 'DRAFT' %}
+  <a href="#complete" class="btn btn-secondary">{% include "_includes/icon.html" with name="check-circle" only %}Complete</a>
+  {% endif %}
+</div>
+{% if wo.status != 'COMPLETED' and wo.status != 'CANCELLED' and may_cancel %}
+<span class="mx-1 hidden h-8 w-px bg-line sm:inline-block" aria-hidden="true"></span>
+<form method="post" action="{% url 'manufacturing:work_order_cancel' wo.pk %}" onsubmit="return confirm('Cancel this work order?');">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger-ghost">{% include "_includes/icon.html" with name="x-circle" only %}Cancel</button>
+</form>
+{% endif %}

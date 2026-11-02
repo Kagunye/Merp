@@ -2,59 +2,28 @@
 {% load ui_extras %}
 {% block title %}Work Orders — Mofisi{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-2xl font-bold text-gray-900">Work Orders</h1>
-    <p class="text-sm text-gray-500 mt-1">Manage production runs</p>
-  </div>
-  <div class="flex flex-wrap gap-2">
-    <a href="{% url 'manufacturing:bom_list' %}" class="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Bills of Materials</a>
-    <a href="{% url 'manufacturing:work_order_create' %}" class="px-4 py-2 rounded-lg text-sm font-semibold text-white" style="background:var(--primary)">+ New Work Order</a>
-  </div>
-</div>
+{% can_do "manufacturing:work_order_create" "POST" as may_create %}{% if may_create %}{% url 'manufacturing:work_order_create' as new_url %}{% endif %}
+{% url 'manufacturing:bom_list' as bom_url %}
+{% include "_includes/page_header.html" with title="Work Orders" subtitle="Manage production runs" action_label="New Work Order" action_url=new_url secondary_label="Bills of Materials" secondary_url=bom_url %}
 
-<div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-  <form method="get" class="flex gap-3 flex-wrap">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search reference or BOM..."
-           class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2" style="--tw-ring-color:var(--primary)">
-    <select name="status" class="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-      <option value="">All Statuses</option>
-      {% for val, label in status_choices %}<option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">Filter</button>
-  </form>
-</div>
+{% include "_includes/filter_bar.html" with search_placeholder="Reference or BOM" search_value=q extra_template="procurement/_status_filter.html" %}
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 border-b border-gray-200">
-      <tr>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Reference</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Product</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">BOM</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Planned Qty</th>
-        <th class="px-4 py-3 text-right font-semibold text-gray-700">Actual Qty</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-        <th class="px-4 py-3 text-left font-semibold text-gray-700">Planned Start</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100">
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Reference</th><th>Product</th><th>BOM</th><th>Status</th><th class="num">Planned qty</th><th class="num">Actual qty</th><th>Planned start</th></tr></thead>
+    <tbody>
       {% for wo in work_orders %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3"><a href="{% url 'manufacturing:work_order_detail' wo.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ wo.reference }}</a></td>
-        <td class="px-4 py-3 text-gray-900">{{ wo.bom.product.name }}</td>
-        <td class="px-4 py-3 text-gray-600">{{ wo.bom.name }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-900">{{ wo.planned_quantity|trim_qty }}</td>
-        <td class="px-4 py-3 text-right font-mono text-gray-600">{{ wo.actual_quantity|trim_qty }}</td>
-        <td class="px-4 py-3">
-          <span class="badge {% if wo.status == 'COMPLETED' %}bg-green-50 text-green-700{% elif wo.status == 'DRAFT' %}bg-gray-100 text-gray-600{% elif wo.status == 'IN_PROGRESS' %}bg-blue-50 text-blue-700{% elif wo.status == 'CANCELLED' %}bg-red-50 text-red-700{% else %}bg-amber-50 text-amber-700{% endif %}">
-            {{ wo.get_status_display }}
-          </span>
-        </td>
-        <td class="px-4 py-3 text-gray-600">{{ wo.planned_start }}</td>
+      <tr>
+        <td class="mono whitespace-nowrap"><a href="{% url 'manufacturing:work_order_detail' wo.pk %}" class="row-link">{{ wo.reference }}</a></td>
+        <td>{{ wo.bom.product.name }}</td>
+        <td class="text-ink-2">{{ wo.bom.name }}</td>
+        <td>{% status_badge wo.status wo.get_status_display %}</td>
+        <td class="num">{{ wo.planned_quantity|trim_qty }}</td>
+        <td class="num text-ink-2">{{ wo.actual_quantity|trim_qty }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ wo.planned_start|date:"d M Y" }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="7" class="px-4 py-12 text-center text-gray-400">No work orders. <a href="{% url 'manufacturing:work_order_create' %}" style="color:var(--primary)" class="font-medium">Create first work order</a></td></tr>
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="cog" title="No work orders" text="Production runs you plan appear here." action_label="Create first work order" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

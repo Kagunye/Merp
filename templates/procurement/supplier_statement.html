@@ -1,82 +1,88 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-{% url 'procurement:bill_list' as back %}
-{% include "_includes/page_header.html" with title=supplier.name subtitle="Supplier statement" back_url=back %}
+{% can_do "procurement:bill_detail" as may_bills %}{% if may_bills %}{% url 'procurement:bill_list' as back %}{% endif %}
+{% include "_includes/page_header.html" with title=supplier.name eyebrow="Supplier statement" subtitle="Bills, debit notes and payments, valued in "|add:book back_url=back back_label="Bills" %}
 
-<form method="get" class="no-print inline-form flex flex-wrap gap-3 mb-5 items-end">
-  <div><label for="id_from" class="text-xs text-gray-500">From</label><input id="id_from" type="date" name="from" value="{{ from_date }}"></div>
-  <div><label for="id_to" class="text-xs text-gray-500">To</label><input id="id_to" type="date" name="to" value="{{ to_date }}"></div>
-  <div>
-    <label for="id_currency" class="text-xs text-gray-500">Currency</label>
-    <select id="id_currency" name="currency" class="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+<form method="get" class="filter-bar no-print" role="search">
+  <div class="form-field"><label for="id_from" class="form-label">From</label><input id="id_from" type="date" name="from" value="{{ from_date }}" class="input"></div>
+  <div class="form-field"><label for="id_to" class="form-label">To</label><input id="id_to" type="date" name="to" value="{{ to_date }}" class="input"></div>
+  <div class="form-field">
+    <label for="id_currency" class="form-label">Currency</label>
+    <select id="id_currency" name="currency" class="select">
       <option value="">Every currency</option>
       {% for code in currencies %}
       <option value="{{ code }}" {% if code == currency %}selected{% endif %}>{{ code }}</option>
       {% endfor %}
     </select>
   </div>
-  <button type="submit">Apply</button>
+  <div class="filter-bar-actions">
+    <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="filter" only %}Apply</button>
+    {% if request.GET %}<a href="{{ request.path }}" class="btn btn-ghost">Clear</a>{% endif %}
+  </div>
 </form>
 
-<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Brought forward</div><div class="font-bold text-lg">{{ opening_balance|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Billed</div><div class="font-bold text-lg">{{ total_billed|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Paid</div><div class="font-bold text-lg text-green-700">{{ total_paid|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
-  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Owed at {{ end_on|date:"d M Y"|default:"today" }}</div><div class="font-bold text-lg" style="color: var(--primary);">{{ closing_balance|floatformat:2 }} <span class="text-xs font-normal text-gray-500">{{ book }}</span></div></div>
+<div class="mb-6 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
+  {% include "_includes/stat.html" with label="Brought forward" value=opening_balance money=True currency=book icon="arrow-right" tone="neutral" only %}
+  {% include "_includes/stat.html" with label="Billed" value=total_billed money=True currency=book icon="receipt" tone="info" only %}
+  {% include "_includes/stat.html" with label="Paid" value=total_paid money=True currency=book icon="cash" tone="success" only %}
+  <div class="stat">
+    <p class="stat-label"><span class="stat-icon tone-brand">{% include "_includes/icon.html" with name="bank" only %}</span><span class="truncate">Owed at {{ end_on|date:"d M Y"|default:"today" }}</span></p>
+    <p class="stat-value">{{ closing_balance|money }}<span class="stat-unit">{{ book }}</span></p>
+  </div>
 </div>
 
-<div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr>
-      <th class="px-4 py-3 text-left">Bill date</th>
-      <th class="px-4 py-3 text-left">Document</th>
-      <th class="px-4 py-3 text-left">Due</th>
-      <th class="px-4 py-3 text-right">Paper</th>
-      <th class="px-4 py-3 text-right">Rate</th>
-      <th class="px-4 py-3 text-right">Billed</th>
-      <th class="px-4 py-3 text-right">Debited</th>
-      <th class="px-4 py-3 text-right">Paid</th>
-      <th class="px-4 py-3 text-right">Outstanding</th>
-      <th class="px-4 py-3 text-right">{{ book }} balance</th>
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr>
+      <th>Bill date</th>
+      <th>Document</th>
+      <th>Due</th>
+      <th class="num">Paper</th>
+      <th class="num">Rate</th>
+      <th class="num">Billed</th>
+      <th class="num">Debited</th>
+      <th class="num">Paid</th>
+      <th class="num">Outstanding</th>
+      <th class="num">{{ book }} balance</th>
     </tr></thead>
-    <tbody class="divide-y divide-gray-100">
+    <tbody>
       {% if start_on %}
-      <tr class="bg-gray-50 text-gray-600">
-        <td class="px-4 py-2">{{ start_on|date:"d M Y" }}</td>
-        <td class="px-4 py-2" colspan="5">Balance brought forward</td>
-        <td class="px-4 py-2 text-right font-mono" colspan="4">{{ opening_balance|floatformat:2 }}</td>
+      <tr>
+        <td class="whitespace-nowrap bg-surface-2 text-ink-2">{{ start_on|date:"d M Y" }}</td>
+        <td class="bg-surface-2 text-ink-2" colspan="5">Balance brought forward</td>
+        <td class="num bg-surface-2 text-ink-2" colspan="4">{{ opening_balance|money }}</td>
       </tr>
       {% endif %}
       {% for r in rows %}
       <tr>
-        <td class="px-4 py-2">{{ r.date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 font-mono text-xs">
-          <a href="{{ r.url }}" class="text-blue-600 hover:underline">{{ r.reference }}</a>
-          <span class="text-gray-400"> · {{ r.type }} · {{ r.detail }}</span>
+        <td class="whitespace-nowrap">{{ r.date|date:"d M Y" }}</td>
+        <td class="whitespace-nowrap">
+          {% if may_bills %}<a href="{{ r.url }}" class="row-link mono">{{ r.reference }}</a>{% else %}<span class="mono font-medium">{{ r.reference }}</span>{% endif %}
+          <span class="text-xs text-ink-muted"> · {{ r.type }} · {{ r.detail }}</span>
         </td>
-        <td class="px-4 py-2 text-xs text-gray-600">{{ r.due_date|date:"d M Y" }}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ r.paper|floatformat:2 }} <span class="text-xs text-gray-500">{{ r.currency }}</span></td>
-        <td class="px-4 py-2 text-right font-mono text-xs text-gray-500">{% if r.rate %}{{ r.rate|trim_qty }}{% else %}—{% endif %}</td>
-        <td class="px-4 py-2 text-right font-mono">{{ r.owed|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono text-green-700">{{ r.debited|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono text-green-700">{{ r.paid|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono font-semibold">{{ r.outstanding|floatformat:2 }}</td>
-        <td class="px-4 py-2 text-right font-mono font-semibold">{{ r.balance|floatformat:2 }}</td>
+        <td class="whitespace-nowrap text-xs text-ink-2">{{ r.due_date|date:"d M Y" }}</td>
+        <td class="num">{{ r.paper|money }} <span class="text-xs text-ink-muted">{{ r.currency }}</span></td>
+        <td class="num text-xs text-ink-muted">{% if r.rate %}{{ r.rate|trim_qty }}{% else %}—{% endif %}</td>
+        <td class="num">{{ r.owed|money }}</td>
+        <td class="num text-success">{{ r.debited|money }}</td>
+        <td class="num text-success">{{ r.paid|money }}</td>
+        <td class="num font-semibold">{{ r.outstanding|money }}</td>
+        <td class="num font-semibold">{{ r.balance|money }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">Nothing on this account in the period.</td></tr>
+      <tr><td colspan="10" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="Nothing on this account in the period" compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
-<p class="text-xs text-gray-500 mt-3">
+<p class="mt-3 text-xs text-ink-muted">
   {% if mixed %}
   This account runs in more than one currency. “Paper” is what the supplier's document says; every other column is the value that entered the ledger, in {{ book }} — a dollar bill and a shilling bill are not added together.
   {% else %}
   Every column but “Paper” is in {{ book }}, the currency the ledger keeps.
   {% endif %}
-  {% if not currency %}Still owed on open bills today: <span class="font-semibold">{{ still_owed|floatformat:2 }} {{ book }}</span> — the unpaid part of this supplier's paper, one slice of the payables control account.{% endif %}
+  {% if not currency %}Still owed on open bills today: <span class="font-semibold text-ink">{{ still_owed|money }} {{ book }}</span> — the unpaid part of this supplier's paper, one slice of the payables control account.{% endif %}
 </p>
 {% endblock %}

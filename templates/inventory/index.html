@@ -1,30 +1,43 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Inventory" launcher_subtitle="Products, stock movements, assemblies and master data" %}
+
+<section aria-label="At a glance" class="mb-2">
+<div class="stat-grid mb-6">
+  {% can_do "inventory:product_list" as may_products %}{% if may_products %}{% url 'inventory:product_list' as products_url %}{% endif %}
+  {% can_do "inventory:stock_levels" as may_levels %}{% if may_levels %}{% url 'inventory:stock_levels' as levels_url %}{% endif %}
+  {% can_do "inventory:movement_list" as may_moves %}{% if may_moves %}{% url 'inventory:movement_list' as moves_url %}{% endif %}
+  {% include "_includes/stat.html" with label="Total products" value=product_count|default:0 meta="Active products and services" icon="box" tone="info" url=products_url only %}
+  {% include "_includes/stat.html" with label="Low stock items" value=low_stock_count|default:0 meta="At or below reorder level" icon="warning" tone="warning" url=levels_url only %}
+  {% if may_levels %}{% include "_includes/stat.html" with label="Stock value" value=inventory_value|default:0 money=True meta="What the shelves carry it at" icon="cash" tone="success" url=levels_url only %}{% endif %}
+  {% include "_includes/stat.html" with label="Recent movements" value=recent_movements|length meta="Latest stock in and out" icon="refresh" tone="neutral" url=moves_url only %}
+</div>
+</section>
 
 <div class="launcher-section-label">
   Processing
   <span class="launcher-section-count">17 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Product Inquiry</span></a>
-  <a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-amber">📝</div><span class="label">Stock Adjustments</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-rose">📦</div><span class="label">Stock Transfers</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Cycle Counting</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">📊</div><span class="label">Reorder Points</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-rose">🗂️</div><span class="label">Products</span></a>
-  <a href="{% url 'inventory:unit_list' %}" class="launcher-tile"><div class="ico ico-slate">📏</div><span class="label">Units of Measure</span></a>
-  <a href="{% url 'procurement:requisition_create' %}" class="launcher-tile"><div class="ico ico-amber">📝</div><span class="label">Issue Requisition</span></a>
-  <a href="{% url 'procurement:requisition_list' %}" class="launcher-tile"><div class="ico ico-rose">📝</div><span class="label">Internal Requisition</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">📥</div><span class="label">Branch Transfer Receipt</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">🔁</div><span class="label">Branch Transfer</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">📤</div><span class="label">Branch Transfer Order</span></a>
-  <a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-slate">🗃️</div><span class="label">Bin Transfer</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-slate">📱</div><span class="label">Stock Count PDT</span></a>
-  <a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">🔮</div><span class="label">Inventory Forecasting</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📶</div><span class="label">Barcode Loader</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Item Cost Updater</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">🏷️</div><span class="label">Bulk Label Printing</span></a>
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="search" cls="h-7 w-7" only %}</div><span class="label">Product Inquiry</span></a>{% endif %}
+  {% can_do "inventory:adjustment_create" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:adjustment_create' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" only %}</div><span class="label">Stock Adjustments</span></a>{% endif %}
+  {% can_do "inventory:stock_transfer" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" only %}</div><span class="label">Stock Transfers</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" only %}</div><span class="label">Cycle Counting</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" only %}</div><span class="label">Reorder Points</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" only %}</div><span class="label">Products</span></a>{% endif %}
+  {% can_do "inventory:unit_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:unit_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" only %}</div><span class="label">Units of Measure</span></a>{% endif %}
+  {% can_do "procurement:requisition_create" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:requisition_create' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" only %}</div><span class="label">Issue Requisition</span></a>{% endif %}
+  {% can_do "procurement:requisition_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'procurement:requisition_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Internal Requisition</span></a>{% endif %}
+  {% can_do "inventory:stock_transfer" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="download" cls="h-7 w-7" only %}</div><span class="label">Branch Transfer Receipt</span></a>{% endif %}
+  {% can_do "inventory:stock_transfer" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" only %}</div><span class="label">Branch Transfer</span></a>{% endif %}
+  {% can_do "inventory:stock_transfer" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="upload" cls="h-7 w-7" only %}</div><span class="label">Branch Transfer Order</span></a>{% endif %}
+  {% can_do "inventory:stock_transfer" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_transfer' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="inbox" cls="h-7 w-7" only %}</div><span class="label">Bin Transfer</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Stock Count PDT</span></a>{% endif %}
+  {% can_do "inventory:stock_levels" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:stock_levels' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" only %}</div><span class="label">Inventory Forecasting</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="menu" cls="h-7 w-7" only %}</div><span class="label">Barcode Loader</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" only %}</div><span class="label">Item Cost Updater</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" only %}</div><span class="label">Bulk Label Printing</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -32,7 +45,7 @@
   <span class="launcher-section-count">1 module</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-amber">📦</div><span class="label">Repackaging</span></a>
+  {% can_do "manufacturing:bom_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'manufacturing:bom_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="box" cls="h-7 w-7" only %}</div><span class="label">Repackaging</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -40,10 +53,10 @@
   <span class="launcher-section-count">4 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'manufacturing:bom_create' %}" class="launcher-tile"><div class="ico ico-amber">👤</div><span class="label">Assembly</span></a>
-  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-slate">📄</div><span class="label">Works Order</span></a>
-  <a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-amber">📅</div><span class="label">Production Schedule</span></a>
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-amber">🏭</div><span class="label">Work Centres</span></a>
+  {% can_do "manufacturing:bom_create" as tile_ok %}{% if tile_ok %}<a href="{% url 'manufacturing:bom_create' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" only %}</div><span class="label">Assembly</span></a>{% endif %}
+  {% can_do "manufacturing:work_order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" only %}</div><span class="label">Works Order</span></a>{% endif %}
+  {% can_do "manufacturing:work_order_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'manufacturing:work_order_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" only %}</div><span class="label">Production Schedule</span></a>{% endif %}
+  {% can_do "organizations:department_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" only %}</div><span class="label">Work Centres</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">
@@ -51,27 +64,20 @@
   <span class="launcher-section-count">14 modules</span>
 </div>
 <div class="launcher-grid">
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">📄</div><span class="label">Inventory &amp; Services</span></a>
-  <a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-rose">📍</div><span class="label">Locations</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">🗂️</div><span class="label">Categories</span></a>
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-sky">👤</div><span class="label">Employees</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">📋</div><span class="label">Pricelists</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">💼</div><span class="label">Contract Pricing</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">％</div><span class="label">Price Discount Matrix</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">Serial / Lot Types</span></a>
-  <a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-amber">⏱️</div><span class="label">Lot Number Expiry Dates</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-sky">🔢</div><span class="label">Item Renumbering</span></a>
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-amber">🛒</div><span class="label">Webstore Setup</span></a>
-  <a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">📐</div><span class="label">Dimension Profile</span></a>
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-rose">👷</div><span class="label">Emp. Materials Issue Profile</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">⚙️</div><span class="label">GL Integration</span></a>
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" only %}</div><span class="label">Inventory &amp; Services</span></a>{% endif %}
+  {% can_do "organizations:warehouse_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" only %}</div><span class="label">Locations</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" only %}</div><span class="label">Categories</span></a>{% endif %}
+  {% can_do "hr:employee_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" only %}</div><span class="label">Employees</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Pricelists</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" only %}</div><span class="label">Contract Pricing</span></a>{% endif %}
+  {% can_do "accounting:account_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" only %}</div><span class="label">Price Discount Matrix</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" only %}</div><span class="label">Serial / Lot Types</span></a>{% endif %}
+  {% can_do "inventory:movement_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:movement_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" only %}</div><span class="label">Lot Number Expiry Dates</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" only %}</div><span class="label">Item Renumbering</span></a>{% endif %}
+  {% can_do "organizations:home" as tile_ok %}{% if tile_ok %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cart" cls="h-7 w-7" only %}</div><span class="label">Webstore Setup</span></a>{% endif %}
+  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" only %}</div><span class="label">Dimension Profile</span></a>{% endif %}
+  {% can_do "hr:employee_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" only %}</div><span class="label">Emp. Materials Issue Profile</span></a>{% endif %}
+  {% can_do "accounting:account_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" only %}</div><span class="label">GL Integration</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Total products</div><div class="text-2xl font-bold">{{ total_products|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Low stock items</div><div class="text-2xl font-bold text-amber-600">{{ low_stock_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Warehouses</div><div class="text-2xl font-bold">{{ warehouse_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Recent movements</div><div class="text-2xl font-bold">{{ recent_movement_count|default:0 }}</div></div>
-</div>
 {% endblock %}

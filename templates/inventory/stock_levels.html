@@ -1,25 +1,23 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
 {% block content %}
-{% url 'inventory:adjustment_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Stock Levels" subtitle="Quantity on hand per warehouse" action_label="New Adjustment" action_url=pa_url %}
-<div class="mb-4 flex items-center gap-2">
-  <a href="{% url 'inventory:stock_transfer' %}" class="px-3 py-2 text-sm font-semibold text-white rounded-lg" style="background:var(--primary)">Transfer Stock</a>
-</div>
-<div class="bg-white rounded-xl border overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Warehouse</th><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-left">SKU</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3 text-right">Reorder</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+{% can_do "inventory:adjustment_create" "POST" as may_adjust %}{% if may_adjust %}{% url 'inventory:adjustment_create' as pa_url %}{% endif %}
+{% can_do "inventory:stock_transfer" "POST" as may_transfer %}{% if may_transfer %}{% url 'inventory:stock_transfer' as transfer_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Stock Levels" subtitle="Quantity on hand per warehouse" action_label="New Adjustment" action_url=pa_url secondary_label="Transfer Stock" secondary_url=transfer_url %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Warehouse</th><th>Product</th><th>SKU</th><th class="num">Qty</th><th class="num">Reorder</th></tr></thead>
+    <tbody>
       {% for s in stock_levels %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-2 font-medium"><a href="{% url 'inventory:warehouse_detail' s.warehouse.pk %}" style="color:var(--primary)">{{ s.warehouse.name }}</a></td>
-        <td class="px-4 py-2"><a href="{% url 'inventory:product_detail' s.product.pk %}" style="color: var(--primary);">{{ s.product.name }}</a></td>
-        <td class="px-4 py-2 text-xs font-mono">{{ s.product.sku }}</td>
-        <td class="px-4 py-2 text-right font-semibold {% if s.quantity <= s.product.reorder_level %}text-red-600{% endif %}">{{ s.quantity|with_unit:s.product.unit_of_measure }}</td>
-        <td class="px-4 py-2 text-right text-xs text-gray-500">{{ s.product.reorder_level|trim_qty }}</td>
+      <tr>
+        <td class="whitespace-nowrap"><a href="{% url 'inventory:warehouse_detail' s.warehouse.pk %}" class="row-link">{{ s.warehouse.name }}</a></td>
+        <td><a href="{% url 'inventory:product_detail' s.product.pk %}" class="link">{{ s.product.name }}</a></td>
+        <td class="mono text-xs text-ink-2">{{ s.product.sku }}</td>
+        <td class="num font-semibold{% if s.quantity <= s.product.reorder_level %} text-danger{% endif %}">{{ s.quantity|with_unit:s.product.unit_of_measure }}{% if s.quantity <= s.product.reorder_level %}<span class="sr-only"> (at or below reorder level)</span>{% endif %}</td>
+        <td class="num text-xs text-ink-muted">{{ s.product.reorder_level|trim_qty }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="5" class="px-4 py-10 text-center text-gray-500">No stock recorded yet.</td></tr>
+      <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="box" title="No stock recorded yet" text="Receive goods or post an opening adjustment to put stock on the shelf." action_label="New Adjustment" action_url=pa_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
