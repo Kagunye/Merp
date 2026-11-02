@@ -2778,6 +2778,31 @@ def close_period(company, period, user=None):
             f"{period.name} runs to {period.end_date:%d %b %Y}, which is still to "
             f"come. A period is closed once it has ended; close it on or after "
             f"{period.end_date:%d %b %Y}.")
+    earlier = list(period.fiscal_year.periods.filter(
+        status="OPEN", start_date__lt=period.start_date).order_by("start_date"))
+    if not live and earlier:
+        # Months close in order. February closed over an open January would
+        # report February's figures as final while January -- whose late
+        # postings, accruals and corrections feed the same year-to-date
+        # reports and the same current year profit -- can still change
+        # underneath them, and its profit would reach 3300 after February's.
+        # An earlier month with no income or expense in it and no draft
+        # waiting has nothing to carry: closing it by hand would only flip
+        # its status, so it is closed along with this one (the order holds,
+        # and a book that starts trading in October need not click through
+        # nine empty months). A month with profit or loss to carry, or a
+        # draft still to post, has to be closed first.
+        for month in earlier:
+            has_draft = JournalEntry.objects.filter(
+                company=company, status="DRAFT", posting_date__gte=month.start_date,
+                posting_date__lte=month.end_date).exists()
+            if has_draft or period_activity(company, month.start_date, month.end_date):
+                raise ValidationError(
+                    f"{month.name} is still open. Periods are closed in order, so close "
+                    f"{month.name} before {period.name}.")
+        for month in earlier:
+            month.status = "CLOSED"
+            month.save(update_fields=["status", "updated_at"])
     if live:
         if period.status != "CLOSED":
             period.status = "CLOSED"

@@ -1,4 +1,6 @@
 """Accounting forms."""
+import calendar
+import datetime
 import re
 from decimal import Decimal
 
@@ -221,7 +223,22 @@ class FiscalYearForm(forms.ModelForm):
     same months would give a date two periods, and close the same months twice
     into retained earnings. A year that ends before it starts has no months to
     cut into periods, and used to be saved with none.
+
+    A year is twelve months. Only a first year, or a transition year when the
+    year end moves, may be shorter or longer, and only when the person says
+    so with the box below: then anything from one month to eighteen (the
+    longest a first accounting period may run under the Companies Act) is
+    accepted. Without the rule a "year" of six calendar years or of two days
+    was saved, and every close, budget and comparison built on it was wrong.
     """
+
+    MAX_TRANSITION_MONTHS = 18
+
+    transition_year = forms.BooleanField(
+        required=False, label="First or transition year",
+        help_text="Tick only for a company's first year, or the one year in which the "
+                  "year end moves. It may then run from 1 to 18 months; every other "
+                  "fiscal year runs exactly 12 months.")
 
     class Meta:
         model = FiscalYear
@@ -258,6 +275,39 @@ class FiscalYearForm(forms.ModelForm):
                 f"The year ends on {end:%d %b %Y}, which is not after it starts on "
                 f"{start:%d %b %Y}. Check the two dates — a fiscal year runs forward.")
             return cleaned
+        from .models import EARLIEST_BOOK_DATE, latest_book_date
+        if start < EARLIEST_BOOK_DATE:
+            self.add_error(
+                "start_date",
+                f"{start:%d %b %Y} is before {EARLIEST_BOOK_DATE:%Y}. Check the year.")
+            return cleaned
+        latest = latest_book_date()
+        if end > latest:
+            self.add_error(
+                "end_date",
+                f"{end:%d %b %Y} is more than five years ahead (the latest year end "
+                f"accepted is {latest:%d %b %Y}). Create years as they come.")
+            return cleaned
+        next_day = end + datetime.timedelta(days=1)
+        if next_day != _add_months(start, 12):
+            shortest = _add_months(start, 1)
+            longest = _add_months(start, self.MAX_TRANSITION_MONTHS)
+            if not cleaned.get("transition_year"):
+                self.add_error(
+                    "end_date",
+                    f"A fiscal year runs 12 months: starting {start:%d %b %Y}, it ends "
+                    f"{_add_months(start, 12) - datetime.timedelta(days=1):%d %b %Y}. "
+                    "If this is the company's first year, or the year its year end "
+                    "moves, tick 'First or transition year'.")
+                return cleaned
+            if next_day < shortest or next_day > longest:
+                self.add_error(
+                    "end_date",
+                    f"A first or transition year runs from one month to "
+                    f"{self.MAX_TRANSITION_MONTHS}: starting {start:%d %b %Y}, it ends "
+                    f"between {shortest - datetime.timedelta(days=1):%d %b %Y} and "
+                    f"{longest - datetime.timedelta(days=1):%d %b %Y}.")
+                return cleaned
         if self.company:
             overlap = FiscalYear.objects.filter(
                 company=self.company, start_date__lte=end, end_date__gte=start)
@@ -289,6 +339,14 @@ class FiscalYearForm(forms.ModelForm):
                     f"be added under a closed one. Reopen {closed_later.name} first if "
                     "the earlier year really has to be kept in this book.")
         return cleaned
+
+
+def _add_months(day, months):
+    """The same day `months` later, or the month's last day if it is shorter."""
+    month_index = day.month - 1 + months
+    year, month = day.year + month_index // 12, month_index % 12 + 1
+    last = calendar.monthrange(year, month)[1]
+    return datetime.date(year, month, min(day.day, last))
 
 
 class CurrencyForm(forms.ModelForm):
@@ -377,4 +435,40 @@ class ExchangeRateForm(forms.ModelForm):
                     "effective_date",
                     f"{currency} already has a rate filed for {on_date:%d %b %Y}. "
                     f"Edit that one — a day can only have one rate.")
+                return cleaned
+            self._refuse_backdating(company, currency, on_date, cleaned.get("rate"))
         return cleaned
+
+    def _refuse_backdating(self, company, currency, on_date, rate):
+        """Refuse a rate that would change what a booked document was worth.
+
+        A rate governs every day from its own date until the next rate. Filed
+        on a day before documents already posted in that currency, it would
+        take over their days: the history would then say a dollar invoice
+        booked at 130 was raised at 1.0, and the next document on that day
+        would convert differently from the first. A correction is filed on or
+        after the day of the last document that used the old rate (a rate for
+        a document's own day is that day's rate moving, which the document,
+        carrying its own stamped rate, is not changed by). Filing the same
+        figure that already applies changes nothing and is allowed.
+        """
+        from .currency import window_in_use
+
+        if rate is None:
+            return
+        exclude = self.instance.pk
+        current = ExchangeRate.objects.filter(
+            company=company, currency=currency, effective_date__lte=on_date)
+        if exclude:
+            current = current.exclude(pk=exclude)
+        current = current.order_by("-effective_date").values_list("rate", flat=True).first()
+        if current is not None and current == rate:
+            return
+        used = window_in_use(company, currency, on_date, exclude_pk=exclude, later_only=True)
+        if used:
+            self.add_error(
+                "effective_date",
+                f"{used} was already booked in {currency} on the rate that applies from "
+                f"{on_date:%d %b %Y}, so a different rate cannot be filed for that day. "
+                f"Date the new rate after the last {currency} document it should not "
+                "change.")

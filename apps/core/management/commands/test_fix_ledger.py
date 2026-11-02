@@ -80,6 +80,18 @@ Everything happens inside one transaction that is rolled back at the end.
    18. roles                        -> purchase orders, aged creditors,
                                        timesheets, tills, downloads, /media/,
                                        and the business launcher's tiles
+   19. round four                   -> nothing posts behind a closed year or
+                                       outside 1950 to five years ahead; no
+                                       future revaluation reversal; system and
+                                       default accounts cannot be retired; a
+                                       draft cannot post to a retired account;
+                                       fiscal years run 12 months unless marked
+                                       first or transition, and are named by
+                                       the calendar year they cover; months
+                                       close in order; no rate slipped under a
+                                       booked document; AR/AP totals carry the
+                                       opening balances; an FX release skips a
+                                       closed month
 """
 import datetime
 import re
@@ -323,6 +335,8 @@ class Command(BaseCommand):
         self.check_round_three_figures()
         self.section("18. The role table, the raw file route and the business launcher")
         self.check_round_three_roles()
+        self.section("19. Closed years, retired accounts, year lengths, rates, AR/AP openings")
+        self.check_round_four_ledger()
 
     # ────────────────────────── 1. generic reverse ───────────────────────────
 
@@ -376,7 +390,11 @@ class Command(BaseCommand):
         june = datetime.date(self.year - 1, 6, 15)
         self.journal([("6200", 400, 0), ("1200", 0, 400)], june)
         period = period_for(company, june)
-        client.post(reverse("accounting:period_close", args=[period.pk]), {})
+        # CHANGED (fix4/ledger): months close in order, so January to May are
+        # closed (empty) before June.
+        for earlier in period.fiscal_year.periods.filter(
+                start_date__lte=period.start_date).order_by("start_date"):
+            client.post(reverse("accounting:period_close", args=[earlier.pk]), {})
         closing = gl_service.closing_entry_for(company, gl_service.PERIOD_CLOSE, period.pk)
         if self.expect("the month closed with a closing entry", closing is not None):
             resp = client.post(reverse_url(closing), {})
@@ -1513,7 +1531,10 @@ class Command(BaseCommand):
         manual, _ = self.journal([("6200", 300, 0), ("1200", 0, 300)], june)
         invoice = self.invoice("INV-CLOSED-1", june, "2500")
         jun = period_for(company, june)
-        client.post(reverse("accounting:period_close", args=[jun.pk]), {})
+        # CHANGED (fix4/ledger): months close in order, so January to May go first.
+        for earlier in jun.fiscal_year.periods.filter(
+                start_date__lte=jun.start_date).order_by("start_date"):
+            client.post(reverse("accounting:period_close", args=[earlier.pk]), {})
         jun.refresh_from_db()
         draft, _ = self.draft([("6200", 100, 0), ("1200", 0, 100)], june)
         self.expect("a draft dated in a closed month is told so before Post",
@@ -1773,3 +1794,306 @@ class Command(BaseCommand):
                     if status != 200:
                         dead.append(f"{tile['label']} {status}")
             self.expect(f"{role}: every tile on the business launcher opens", not dead, str(dead))
+
+    # ─────────────────────── 19. round four: the ledger ──────────────────────
+
+    def _post_draft(self, lines, on_date):
+        """Draft a journal and press Post; (entry or None, messages)."""
+        entry, resp = self.draft(lines, on_date)
+        if entry is None:
+            return None, [f"draft refused HTTP {resp.status_code}"]
+        resp = self.client.post(reverse("accounting:journal_entry_post", args=[entry.pk]), {})
+        entry.refresh_from_db()
+        return entry, self.flashes(self.client, resp)
+
+    def check_round_four_ledger(self):
+        self._round_four_closed_year()
+        self._round_four_accounts()
+        self._round_four_fiscal_years()
+        self._round_four_rates_and_revaluation()
+        self._round_four_opening_receivables()
+        self._round_four_release_in_closed_month()
+
+    def _round_four_closed_year(self):
+        from apps.organizations.models import FiscalYear
+
+        company, client, user = self.book("r4closed")
+        fy = self.past_year(self.year - 1)
+        self.journal([("1200", 50000, 0), ("4100", 0, 50000)], datetime.date(self.year - 1, 4, 15))
+        client.post(reverse("accounting:fiscal_year_close", args=[fy.pk]), {})
+        fy.refresh_from_db()
+        self.expect("the year closed", fy.is_closed)
+        cash = self.bal("1200", upto=fy.end_date)
+        entry, said = self._post_draft([("6200", 33333, 0), ("1200", 0, 33333)],
+                                       datetime.date(self.year - 2, 12, 31))
+        self.expect("a journal dated before the first (closed) year is refused at Post",
+                    entry is not None and entry.status == "DRAFT"
+                    and self.bal("1200", upto=fy.end_date) == cash,
+                    f"{entry and entry.status}; cash {cash} -> {self.bal('1200', upto=fy.end_date)}")
+        self.expect("and says the closed year would change",
+                    any("closed" in m and fy.name in m for m in said), str(said[-1:]))
+        for odd in ("0001-01-01", "9999-12-31", "1949-12-31"):
+            entry, said = self._post_draft([("6200", 1, 0), ("1200", 0, 1)], odd)
+            self.expect(f"a journal dated {odd} is not posted",
+                        entry is None or entry.status == "DRAFT",
+                        f"{entry and entry.status} {said[-1:]}")
+        later = datetime.date(self.year + 2, 3, 15)
+        if not FiscalYear.objects.filter(company=company, start_date__lte=later,
+                                         end_date__gte=later).exists():
+            entry, said = self._post_draft([("6200", 5, 0), ("1200", 0, 5)], later)
+            self.expect("a date after the closed year with no fiscal year still posts",
+                        entry is not None and entry.status == "POSTED" and entry.period_id is None,
+                        f"{entry and entry.status} {said[-1:]}")
+
+    def _round_four_accounts(self):
+        from apps.accounting.models import TaxRate
+
+        company, client, user = self.book("r4chart")
+        kept = []
+        for code in ("3300", "3200", "1300", "1350", "1690", "2100", "2150", "4310", "7300"):
+            resp = client.post(reverse("accounting:account_deactivate",
+                                       args=[self.account(code).pk]), {})
+            if self.account(code).is_active and self.said(client, resp, "cannot be retired"):
+                kept.append(code)
+        self.expect("the accounts the closes and documents post to cannot be retired",
+                    len(kept) == 9, f"kept {kept}")
+        self.expect("they are flagged as system accounts when the chart is seeded",
+                    self.account("3300").is_system and self.account("1300").is_system
+                    and not self.account("6600").is_system)
+
+        TaxRate.objects.create(company=company, name="Withholding", code="WHT5",
+                               rate=D("5"), account=self.account("6800"),
+                               effective_from=self.today)
+        resp = client.post(reverse("accounting:account_deactivate",
+                                   args=[self.account("6800").pk]), {})
+        self.expect("an account a tax rate posts to cannot be retired",
+                    self.account("6800").is_active and self.said(client, resp, "tax rate"),
+                    str(self.heard[-1:]))
+        resp = client.post(reverse("accounting:account_deactivate",
+                                   args=[self.account("2400").pk]), {})
+        self.expect("nor one a statutory deduction posts to",
+                    self.account("2400").is_active
+                    and self.said(client, resp, "statutory deduction"), str(self.heard[-1:]))
+
+        entry, resp = self.draft([("6600", 100, 0), ("1200", 0, 100)], self.today)
+        resp = client.post(reverse("accounting:account_deactivate",
+                                   args=[self.account("6600").pk]), {})
+        self.expect("an ordinary empty account can still be retired",
+                    not self.account("6600").is_active, str(self.flashes(client, resp)[-1:]))
+        resp = client.post(reverse("accounting:journal_entry_post", args=[entry.pk]), {})
+        entry.refresh_from_db()
+        self.expect("a draft cannot be posted to an account retired after it was drafted",
+                    entry.status == "DRAFT" and self.bal("6600") == Z
+                    and self.said(client, resp, "retired"), str(self.heard[-1:]))
+
+    def _round_four_fiscal_years(self):
+        from apps.accounting import gl_service
+        from apps.accounting.models import JournalEntry
+        from apps.organizations.models import FiscalYear
+
+        company, client, user = self.book("r4years")
+        own = FiscalYear.objects.filter(company=company).first()
+        self.expect("a January-to-December year is named after its calendar year",
+                    own is not None and own.name == f"FY {own.start_date.year}"
+                    and own.start_date.month == 1, str(own and own.name))
+        url = reverse("accounting:fiscal_year_create")
+        for label, data in (
+            ("ending 9999-12-31", {"name": "FY 9999", "start_date": "9999-01-01",
+                                  "end_date": "9999-12-31"}),
+            ("six years long", {"name": "Long", "start_date": f"{self.year + 1}-01-01",
+                                "end_date": f"{self.year + 4}-12-31"}),
+            ("two days long", {"name": "Tiny", "start_date": f"{self.year + 1}-03-03",
+                               "end_date": f"{self.year + 1}-03-04"}),
+            ("two days long, even marked transition", {
+                "name": "Tiny2", "start_date": f"{self.year + 1}-03-03",
+                "end_date": f"{self.year + 1}-03-04", "transition_year": "on"}),
+            ("six months long, not marked transition", {
+                "name": "Half", "start_date": f"{self.year + 1}-01-01",
+                "end_date": f"{self.year + 1}-06-30"}),
+            ("starting in 1900", {"name": "Old", "start_date": "1900-01-01",
+                                  "end_date": "1900-12-31"}),
+        ):
+            resp = client.post(url, data)
+            self.expect(f"a fiscal year {label} is refused on the form, without a 500",
+                        resp.status_code == 200
+                        and not FiscalYear.objects.filter(company=company, name=data["name"]).exists(),
+                        f"HTTP {resp.status_code}")
+        client.post(url, {"name": "Transition", "start_date": f"{self.year + 1}-01-01",
+                          "end_date": f"{self.year + 1}-06-30", "transition_year": "on"})
+        short = FiscalYear.objects.filter(company=company, name="Transition").first()
+        self.expect("a six-month year marked as a transition year is accepted",
+                    short is not None and short.periods.count() == 6,
+                    str(short and short.periods.count()))
+
+        resp = client.post(reverse("accounting:opening_balances"), {
+            "posting_date": "9999-12-31", f"dr_{self.account('1200').pk}": "5",
+            f"cr_{self.account('3100').pk}": "5"})
+        self.expect("opening balances dated 9999-12-31 are refused",
+                    not JournalEntry.objects.filter(company=company, entry_type="OPENING").exists()
+                    and self.said(client, resp, "years ahead"), str(self.heard[-1:]))
+
+        past = self.past_year(self.year - 1)
+        jan, feb, mar = list(past.periods.order_by("start_date")[:3])
+        self.journal([("1200", 900, 0), ("4100", 0, 900)], jan.start_date + datetime.timedelta(days=9))
+        resp = client.post(reverse("accounting:period_close", args=[feb.pk]), {})
+        feb.refresh_from_db()
+        self.expect("February cannot be closed while January is open",
+                    feb.status == "OPEN" and self.said(client, resp, "closed in order"),
+                    f"{feb.status} {self.heard[-1:]}")
+        client.post(reverse("accounting:period_close", args=[jan.pk]), {})
+        client.post(reverse("accounting:period_close", args=[feb.pk]), {})
+        jan.refresh_from_db()
+        feb.refresh_from_db()
+        self.expect("closed in order, both close", jan.status == feb.status == "CLOSED",
+                    f"{jan.status} {feb.status}")
+        self.journal([("1200", 500, 0), ("4100", 0, 500)], mar.end_date)
+        late = past.periods.order_by("start_date")[5]
+        client.post(reverse("accounting:period_close", args=[late.pk]), {})
+        statuses = list(past.periods.order_by("start_date")[2:6].values_list("status", flat=True))
+        self.expect("June cannot close over an open March that holds entries, and nothing moves",
+                    statuses == ["OPEN", "OPEN", "OPEN", "OPEN"], str(statuses))
+        mar_close = client.post(reverse("accounting:period_close", args=[mar.pk]), {})
+        client.post(reverse("accounting:period_close", args=[late.pk]), {})
+        statuses = list(past.periods.order_by("start_date")[2:6].values_list("status", flat=True))
+        self.expect("so once March is closed, June takes the empty months with it",
+                    statuses == ["CLOSED"] * 4, f"{statuses} {self.flashes(client, mar_close)[-1:]}")
+        try:
+            gl_service.close_fiscal_year(company, past, user=user)
+        except Exception as exc:  # noqa: BLE001 -- reported below
+            self.expect("the rest of the year still closes in one go", False, str(exc))
+        else:
+            past.refresh_from_db()
+            self.expect("the rest of the year still closes in one go", past.is_closed)
+
+    def _usd(self):
+        from apps.accounting.models import Currency
+        return Currency.objects.filter(code="USD").first() or Currency.objects.create(
+            code="USD", name="US Dollar", symbol="$")
+
+    def _round_four_rates_and_revaluation(self):
+        from apps.accounting import revaluation
+        from apps.accounting.models import ExchangeRate, JournalEntry
+
+        company, client, user = self.book("r4rates")
+        usd = self._usd()
+        # The first day of the month before last: every date below has passed.
+        start = (self.today.replace(day=1) - datetime.timedelta(days=40)).replace(day=1)
+        rates = reverse("accounting:exchange_rate_create")
+        client.post(rates, {"currency": usd.pk, "effective_date": str(start), "rate": "130",
+                            "source": "MANUAL", "note": ""})
+        invoice = self.invoice("R4-USD-1", start + datetime.timedelta(days=10), "1000", "USD",
+                               D("130"))
+        slip = start + datetime.timedelta(days=5)
+        resp = client.post(rates, {"currency": usd.pk, "effective_date": str(slip), "rate": "1",
+                                   "source": "MANUAL", "note": ""})
+        self.expect("a different rate cannot be filed under a document already booked",
+                    not ExchangeRate.objects.filter(company=company, effective_date=slip).exists()
+                    and resp.status_code == 200,
+                    f"HTTP {resp.status_code}; rate on {invoice.invoice_date} now "
+                    f"{ExchangeRate.rate_for(company, 'USD', invoice.invoice_date)}")
+        client.post(rates, {"currency": usd.pk, "effective_date": str(slip), "rate": "130",
+                            "source": "MANUAL", "note": ""})
+        self.expect("the same rate that already applies may still be filed for that day",
+                    ExchangeRate.objects.filter(company=company, effective_date=slip).exists())
+        after = start + datetime.timedelta(days=20)
+        client.post(rates, {"currency": usd.pk, "effective_date": str(after), "rate": "135",
+                            "source": "MANUAL", "note": ""})
+        self.expect("a new rate after the booked document is accepted",
+                    ExchangeRate.objects.filter(company=company, effective_date=after).exists())
+
+        client.post(reverse("accounting:revaluation_post"), {"date": str(after)})
+        live = revaluation.live_revaluation(company)
+        self.expect("the revaluation books 5,000 on 1350",
+                    live is not None and self.bal("1350") == D("5000.00"), str(self.bal("1350")))
+        far = self.today + datetime.timedelta(days=90)
+        resp = client.post(reverse("accounting:revaluation_reverse"), {"date": str(far)})
+        self.expect("a revaluation cannot be taken off on a day still to come",
+                    revaluation.live_revaluation(company) == live
+                    and not JournalEntry.objects.filter(company=company, posting_date=far).exists()
+                    and self.said(client, resp, "still to come"), str(self.heard[-1:]))
+        client.post(reverse("accounting:revaluation_post"), {"date": str(self.today)})
+        self.expect("so revaluing today does not double 1350",
+                    self.bal("1350", upto=self.today) == D("5000.00"),
+                    str(self.bal("1350", upto=self.today)))
+
+    def _round_four_opening_receivables(self):
+        company, client, user = self.book("r4open")
+        client.post(reverse("accounting:opening_balances"), {
+            "posting_date": f"{self.year}-01-01", f"dr_{self.account('1300').pk}": "75000",
+            f"cr_{self.account('2100').pk}": "25000", f"cr_{self.account('3100').pk}": "50000"})
+        self.expect("the opening balances posted", self.bal("1300") == D("75000"),
+                    str(self.bal("1300")))
+        self.invoice("R4-AR-1", self.today, "1000")
+        dash = client.get(reverse("dashboard:index")).context
+        self.expect("the dashboard's receivables tile equals 1300",
+                    dash.get("accounts_receivable") == self.bal("1300") == D("76000"),
+                    f"{dash.get('accounts_receivable')} vs {self.bal('1300')}")
+        self.expect("the dashboard's payables tile equals 2100",
+                    dash.get("accounts_payable") == -self.bal("2100") == D("25000"),
+                    f"{dash.get('accounts_payable')} vs {-self.bal('2100')}")
+        aged = client.get(reverse("reporting:aged_debtors")).context
+        self.expect("aged debtors nets to 1300, the opening balance on its own line",
+                    aged["net_total"] == self.bal("1300")
+                    and aged["opening_unallocated"] == D("75000")
+                    and aged["grand_total"] == D("1000"),
+                    f"net {aged['net_total']} opening {aged['opening_unallocated']}")
+        aged = client.get(reverse("reporting:aged_creditors")).context
+        self.expect("aged creditors totals 2100, the opening balance on its own line",
+                    aged["grand_total"] == -self.bal("2100")
+                    and aged["opening_unallocated"] == D("25000"),
+                    f"total {aged['grand_total']} opening {aged['opening_unallocated']}")
+
+    def _round_four_release_in_closed_month(self):
+        from apps.accounting import revaluation
+        from apps.accounting.models import JournalEntry, period_for
+        from apps.sales.models import CustomerPayment
+
+        if self.today.month < 4:
+            self.expect("the release check needs a run date from April on", True,
+                        "skipped: it works inside the current calendar year")
+            return
+        company, client, user = self.book("r4release")
+        usd = self._usd()
+        # Invoice three months back, revalued at the end of the month before
+        # last, both inside this calendar year and both already over.
+        this_month = self.today.replace(day=1)
+        reval_day = (this_month - datetime.timedelta(days=1)).replace(day=1) \
+            - datetime.timedelta(days=1)
+        raised = (reval_day.replace(day=1) - datetime.timedelta(days=1)).replace(day=10)
+        rates = reverse("accounting:exchange_rate_create")
+        for on_date, rate in ((raised.replace(day=1), "130"), (reval_day, "135")):
+            client.post(rates, {"currency": usd.pk, "effective_date": str(on_date),
+                                "rate": rate, "source": "MANUAL", "note": ""})
+        invoice = self.invoice("R4-REL-1", raised, "1000", "USD", D("130"))
+        client.post(reverse("accounting:revaluation_post"), {"date": str(reval_day)})
+        self.expect("the revaluation carries 5,000", self.bal("1350") == D("5000.00"),
+                    str(self.bal("1350")))
+        fy = period_for(company, reval_day).fiscal_year
+        for period in fy.periods.filter(end_date__lte=reval_day).order_by("start_date"):
+            client.post(reverse("accounting:period_close", args=[period.pk]), {})
+        raised_month = period_for(company, raised)
+        client.post(reverse("accounting:period_reopen", args=[raised_month.pk]), {})
+        raised_month.refresh_from_db()
+        closed = period_for(company, reval_day)
+        self.expect("the invoice's month is open again and the revaluation's month closed",
+                    raised_month.status == "OPEN" and closed.status == "CLOSED",
+                    f"{raised_month.status} {closed.status}")
+        client.post(reverse("sales:payment_create"), {
+            "reference": "R4-REL-P", "customer": invoice.customer.pk,
+            "payment_date": str(raised + datetime.timedelta(days=5)), "amount": "400",
+            "currency": "USD", "payment_method": "BANK_TRANSFER", "bank_account": "",
+            "transaction_reference": "R4-REL-P", "notes": "", f"allocate_{invoice.pk}": "400"})
+        payment = CustomerPayment.objects.filter(company=company, reference="R4-REL-P").first()
+        release = JournalEntry.objects.filter(
+            company=company, source_document_type=revaluation.RELEASE, status="POSTED").first()
+        self.expect("the receipt is booked with its journal",
+                    payment is not None and payment.journal_entry_id is not None,
+                    str(payment and payment.journal_entry_id))
+        self.expect("its slice of the revaluation is released in the first open month",
+                    release is not None
+                    and release.posting_date == reval_day + datetime.timedelta(days=1)
+                    and self.bal("1350") == D("3000.00"),
+                    f"{release and release.posting_date}; 1350 {self.bal('1350')}")
+        self.expect("and the closed month's own figure is untouched",
+                    self.bal("1350", upto=reval_day) == D("5000.00"),
+                    str(self.bal("1350", upto=reval_day)))

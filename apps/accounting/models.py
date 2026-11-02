@@ -1,4 +1,5 @@
 """Double-entry accounting models."""
+import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
@@ -85,6 +86,119 @@ def closed_period_refusal(period, posting_date, entry_type=""):
     return ""
 
 
+# The window a posting date has to fall in. Nothing this book will ever hold
+# happened before 1950, and nothing is booked more than five years ahead: a
+# date outside it is a slip of the keyboard (0001-01-01, 9999-12-31), and
+# posted it would sit outside every report anyone runs, or before every year
+# the book will ever close.
+EARLIEST_BOOK_DATE = datetime.date(1950, 1, 1)
+YEARS_AHEAD = 5
+
+
+def latest_book_date(today=None):
+    """The last day a posting or a fiscal year may reach: today plus five years."""
+    today = today or timezone.localdate()
+    try:
+        return today.replace(year=today.year + YEARS_AHEAD)
+    except ValueError:  # 29 February, five years on, is 28 February
+        return today.replace(year=today.year + YEARS_AHEAD, day=28)
+
+
+def book_date_refusal(on_date, what="An entry"):
+    """Why `on_date` cannot be a date in this book at all, or ""."""
+    if on_date is None:
+        return ""
+    if on_date < EARLIEST_BOOK_DATE:
+        return (f"{what} dated {on_date:%d %b %Y}: that is before {EARLIEST_BOOK_DATE:%Y}, "
+                "which no book kept here reaches back to. Check the year and enter "
+                "the real date.")
+    latest = latest_book_date()
+    if on_date > latest:
+        return (f"{what} dated {on_date:%d %b %Y}: that is more than {YEARS_AHEAD} years "
+                f"ahead (the latest date accepted is {latest:%d %b %Y}). Check the "
+                "year and enter the real date.")
+    return ""
+
+
+def uncovered_date_refusal(company, posting_date):
+    """Why a date no accounting period covers still may not be posted to, or "".
+
+    A date outside every fiscal year is normally posted with a calendar
+    warning: a new book whose bookkeeper has not yet created this year must
+    still be able to invoice and pay. But a date on or before the end of the
+    latest *closed* year is different. That year's close has already carried
+    everything before it into retained earnings and its balance sheet has been
+    reported; a journal dated the day before the first fiscal year (or in a
+    gap between years) would change that closing balance sheet without
+    touching the year, and since no year can be created under a closed one,
+    it could never be closed itself. So such a date is refused outright.
+    """
+    from apps.organizations.models import FiscalYear
+
+    closed = (FiscalYear.objects.filter(company=company, is_closed=True)
+              .order_by("-end_date").first())
+    if closed and posting_date <= closed.end_date:
+        return (f"{posting_date:%d %b %Y} is on or before the end of {closed.name} "
+                f"({closed.end_date:%d %b %Y}), which is closed, and no open period "
+                "covers it. Posting it would change the balance sheet that year end "
+                f"has already carried forward. Date the entry after "
+                f"{closed.end_date:%d %b %Y}, or have a finance manager reopen "
+                f"{closed.name} and create a fiscal year around the date first.")
+    return ""
+
+
+def posting_refusal(entry, period):
+    """The calendar and chart rules every posting meets, as one message, or "".
+
+    Kept apart from JournalEntry.post so the rules can grow without the
+    posting method itself changing: the date has to be a real book date, a
+    date outside every fiscal year may not reach behind a closed year, and
+    every line has to name an account that is still in use. A draft keeps the
+    account it was typed against, so an account retired after the draft was
+    saved would otherwise be posted to without anyone choosing it again.
+    Closing machinery is exempt from the last rule: a period close only
+    empties accounts, and a retired account has to be empty anyway.
+    """
+    refusal = book_date_refusal(entry.posting_date)
+    if refusal:
+        return refusal
+    if period is None:
+        refusal = uncovered_date_refusal(entry.company, entry.posting_date)
+        if refusal:
+            return refusal
+    if entry.entry_type != "CLOSING":
+        retired = sorted({
+            f"{line.account.code} {line.account.name}"
+            for line in entry.lines.select_related("account").filter(account__is_active=False)
+        })
+        if retired:
+            return (f"{', '.join(retired)} {'is' if len(retired) == 1 else 'are'} retired, "
+                    "so nothing more may be posted to it. Change the line to an account "
+                    "in use, or bring the account back from the chart's Retired filter.")
+    return ""
+
+
+# Accounts the ledger's own machinery finds by code: the closes, the receivable
+# and payable control accounts, the exchange, revaluation, stock, VAT,
+# depreciation and disposal accounts. Retiring one does not stop the
+# machinery: it silently falls back on "the first account of that type", so a
+# month's profit lands in 3000 instead of current year profit, or an invoice
+# finds no receivable at all and is left as a draft. They are marked
+# is_system when the chart is seeded, and the codes are kept here as well so
+# books seeded before the flag existed are protected the same way. Cash and
+# bank (1100, 1200) are not on the list: a bank's ledger account is already
+# held by the bank account mapped to it, and an emptied till may be retired.
+SYSTEM_ACCOUNT_CODES = frozenset({
+    "1300", "1350", "1400", "1450", "1690",
+    "2100", "2110", "2150", "2200", "2210",
+    "3100", "3200", "3300",
+    "4100", "4310", "4320", "4350",
+    "5000", "5300",
+    "6900", "6950",
+    "7300", "7310",
+})
+
+
 class Account(BaseModel):
     """Chart of Accounts entry."""
     company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="accounts")
@@ -98,6 +212,10 @@ class Account(BaseModel):
     department = models.ForeignKey(
         "organizations.Department", on_delete=models.SET_NULL, null=True, blank=True
     )
+    # Set by the chart seeder on the accounts the ledger posts to by itself
+    # (see SYSTEM_ACCOUNT_CODES). Such an account can be renamed but never
+    # retired.
+    is_system = models.BooleanField(default=False)
 
     class Meta:
         unique_together = [("company", "code")]
@@ -105,6 +223,71 @@ class Account(BaseModel):
 
     def __str__(self):
         return f"{self.code} — {self.name}"
+
+    @property
+    def is_protected(self):
+        return self.is_system or self.code in SYSTEM_ACCOUNT_CODES
+
+    def default_uses(self):
+        """Where this account is set up as the account something posts to.
+
+        Not the history (a retired account keeps that), but live settings: a
+        tax rate, a product, a statutory deduction, an asset or expense
+        category, a salary component, a customer's or supplier's own control
+        account. Each would go on posting to the account after it was retired,
+        or fall back on some other account nobody chose.
+        """
+        from django.apps import apps as registry
+
+        found = []
+        checks = (
+            ("accounting.TaxRate", ("account",), "tax rate"),
+            ("inventory.Product", ("income_account", "cogs_account", "inventory_account"),
+             "product"),
+            ("payroll.StatutoryRule", ("payable_account", "expense_account"),
+             "statutory deduction"),
+            ("payroll.SalaryComponent", ("gl_account",), "salary component"),
+            ("fixed_assets.AssetCategory",
+             ("gl_asset_account", "gl_depreciation_account", "gl_accumulated_account"),
+             "asset category"),
+            ("expenses.ExpenseCategory", ("gl_account",), "expense category"),
+            ("crm.Customer", ("receivable_account",), "customer"),
+            ("crm.Supplier", ("payable_account",), "supplier"),
+        )
+        for label, fields, noun in checks:
+            try:
+                model = registry.get_model(label)
+            except LookupError:
+                continue
+            query = models.Q()
+            for field in fields:
+                query |= models.Q(**{field: self})
+            rows = model._default_manager.filter(query)
+            if any(f.name == "is_active" for f in model._meta.fields):
+                rows = rows.filter(is_active=True)
+            if label == "accounting.TaxRate":
+                rows = rows.filter(models.Q(effective_to__isnull=True)
+                                   | models.Q(effective_to__gte=timezone.localdate()))
+            names = [str(row) for row in rows[:3]]
+            if names:
+                found.append(f"{noun} {', '.join(names)}"
+                             + (" and others" if rows.count() > 3 else ""))
+        return found
+
+    def retire_refusal(self):
+        """Why this account cannot be retired, or ""."""
+        if self.is_protected:
+            return (f"{self.code} {self.name} is one of the accounts the ledger posts to "
+                    "by itself (closes, receivables and payables, exchange, stock, tax "
+                    "or depreciation), so it cannot be retired. Rename it if the name "
+                    "does not suit; post to another account by choosing it on the "
+                    "document instead.")
+        uses = self.default_uses()
+        if uses:
+            return (f"{self.code} is still set up as the account for "
+                    f"{'; '.join(uses)}. Point those at another account first, then "
+                    "retire it.")
+        return ""
 
     @property
     def current_balance(self):
@@ -309,8 +492,11 @@ class JournalEntry(BaseModel, NotesMixin):
         # A date no fiscal year covers is still posted, with the calendar warning
         # the caller shows: refusing it would stop every invoice, till and payroll
         # in a book whose bookkeeper has not yet opened this year. The year close
-        # sweeps it once the year is created around it.
-        refusal = closed_period_refusal(period, self.posting_date, self.entry_type)
+        # sweeps it once the year is created around it. Not so a date on or
+        # before the end of a closed year, an impossible date, or a line on a
+        # retired account: see posting_refusal.
+        refusal = (posting_refusal(self, period)
+                   or closed_period_refusal(period, self.posting_date, self.entry_type))
         if refusal:
             raise ValidationError(refusal)
         with transaction.atomic():

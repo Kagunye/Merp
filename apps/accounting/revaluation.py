@@ -326,7 +326,14 @@ def take_off(entry, user=None, posting_date=None):
     `posting_date=None` reverses each entry on its own date (a redraw of the
     same day). Otherwise each is reversed on that date, or on its own date if
     it is later — a reversal is never dated before the entry it answers.
+    Nor after today: a revaluation "taken off" next quarter would still stand
+    on every balance sheet until then, while the next revaluation, finding
+    none live, booked the whole difference again on top of it.
     """
+    if posting_date is not None and posting_date > _today():
+        raise ValidationError(
+            f"{posting_date:%d %b %Y} is still to come. {entry.reference} can be taken "
+            f"off on any day from {entry.posting_date:%d %b %Y} to today.")
     for release in live_releases(entry.company):
         release.reverse(
             user=user,
@@ -526,7 +533,26 @@ def _still_owed(share, document):
 
 def _release_date(live, document):
     """The day a release is dated: when the document was settled or cancelled,
-    never before the revaluation whose share it takes back."""
+    never before the revaluation whose share it takes back, and never inside
+    a closed month.
+
+    The first two rules can put the release in a month that is already
+    closed even though the settlement's own month is open: a receipt dated
+    in July against a revaluation drawn on 31 August, after August was
+    closed, would release on 31 August. Posting there is refused, and the
+    receipt that triggered the release was left saved with no journal. So
+    the release moves forward to the first day of the first open period
+    after the closed one -- what a bookkeeper would do by hand with a late
+    adjustment. The unrealised share is then carried a little longer than
+    the settlement, in a month nobody has signed off yet, rather than the
+    closed month changing under its report. If the date runs past every
+    period the book has, the release is dated there and posted with the
+    usual calendar warning (which needs it to fall after the latest closed
+    year; inside a closed year the posting is still refused, with the
+    reason, before the receipt is saved).
+    """
+    from apps.accounting.models import closed_period_refusal
+
     on_date = None
     if document.status == "CANCELLED":
         undone = getattr(document.journal_entry, "reversed_by", None) \
@@ -534,7 +560,12 @@ def _release_date(live, document):
         on_date = undone.posting_date if undone else datetime.date.today()
     else:
         on_date = settled_on(document) or datetime.date.today()
-    return max(on_date, live.posting_date)
+    on_date = max(on_date, live.posting_date)
+    period = period_for(live.company, on_date)
+    while period is not None and closed_period_refusal(period, on_date, "REVALUATION"):
+        on_date = period.end_date + datetime.timedelta(days=1)
+        period = period_for(live.company, on_date)
+    return on_date
 
 
 def _post_release(company, live, document, side, amount, on_date, user=None, why="settled"):
