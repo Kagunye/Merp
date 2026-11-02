@@ -5,7 +5,7 @@
 {% url 'payroll:rule_detail' rule.pk as cancel_url %}
 {% include "_includes/model_form.html" with title=page_title subtitle=rule.name section_label="This step of the table" back_url=back_url cancel_url=cancel_url submit_label=action|default:"Add band" %}
 
-<div class="max-w-[720px] mx-auto mt-4 text-xs text-gray-500">
+<div class="mx-auto mt-4 max-w-3xl text-xs text-ink-muted">
   <p>A band charges its rate only on the pay that falls inside it — the slice from <em>pay from</em> up to <em>pay to</em>. Leave <em>pay to</em> blank on the top step, which has no ceiling. Bands may not overlap or leave a gap: a slice of pay with no rate on it would quietly go untaxed.</p>
 </div>
 {% endblock %}

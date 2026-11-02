@@ -1,0 +1,28 @@
+{% load ui_extras %}{% comment %}
+One section of a payslip: `lines` (PayslipLine rows), `total_label`, `total`,
+`empty_text`, `kind` ("earning" | "deduction" | "employer").
+Each line shows the table it came from, the basis and the rate.
+{% endcomment %}
+<div class="table-wrap rounded-none border-0 shadow-none">
+  <table class="table table-compact">
+    <thead><tr><th>Item</th><th class="num">Basis</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>
+          <span class="text-ink">{{ line.description }}</span>
+          {% if line.rule %}<div class="text-xs text-ink-muted"><span class="mono">{{ line.rule.code }}</span> table in force from {{ line.rule.effective_from|date:"d M Y" }}</div>{% endif %}
+          {% if kind == "earning" and not line.is_taxable %}<div class="text-xs text-ink-muted">not taxable</div>{% endif %}
+          {% if line.reduces_tax %}<div class="text-xs text-ink-muted">allowable against tax{% if line.tax_relief != line.amount %} — {{ line.tax_relief|money }} relieved{% endif %}</div>{% endif %}
+        </td>
+        <td class="num text-ink-2">{% if line.basis %}{{ line.basis|money }}{% else %}—{% endif %}</td>
+        <td class="num text-ink-2">{% if line.percent %}{{ line.percent|pct:2 }}{% elif line.rule.method == 'BANDS' %}tiered{% elif line.rule.method == 'FLAT' %}flat{% else %}—{% endif %}</td>
+        <td class="num">{{ line.amount|money }}</td>
+      </tr>
+      {% empty %}
+      <tr class="empty-row"><td colspan="4">{{ empty_text }}</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="3">{{ total_label }}</td><td class="num">{{ total|money }}</td></tr></tfoot>
+  </table>
+</div>

@@ -77,6 +77,7 @@ class EntryListView(LoginRequiredMixin, ListView):
         ctx["subtitle"] = ("All time logged in the organisation"
                            if sees_all_hours(self.request.user, company)
                            else "The time you have logged")
+        ctx["ts_statuses"] = TimesheetEntry.STATUS_CHOICES  # display only: filter choices
         return ctx
 
 

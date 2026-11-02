@@ -1,5 +1,21 @@
 {% extends "base/base.html" %}
 {% block content %}
 {% url 'hr:employee_detail' employee.pk as back_url %}
-{% include "_includes/model_form.html" with title=page_title subtitle="The last day this person works. Their contract ends that day; payroll pays them up to it, pro-rated for the month, and stops after it." section_label="Leaving" back_url=back_url cancel_url=back_url submit_label="Terminate employment" %}
+{% include "_includes/page_header.html" with title=page_title subtitle="The last day this person works. Their contract ends that day; payroll pays them up to it, pro-rated for the month, and stops after it." back_url=back_url back_label=employee.full_name hide_print=True %}
+
+<div class="mx-auto max-w-3xl space-y-5">
+  <div class="alert alert-danger" role="status">
+    {% include "_includes/icon.html" with name="warning" %}
+    <div class="alert-body"><p class="alert-title">This ends {{ employee.full_name }}'s employment</p>Their current contract stops on the day you enter, and they drop off every payroll run after it.</div>
+  </div>
+  <form method="post" class="card card-body" novalidate>
+    {% csrf_token %}
+    <h2 class="form-section">Leaving</h2>
+    {% include "hr/_form_fields.html" %}
+    <div class="form-actions">
+      <a href="{{ back_url }}" class="btn btn-ghost">Cancel</a>
+      <button type="submit" class="btn btn-danger">Terminate employment</button>
+    </div>
+  </form>
+</div>
 {% endblock %}

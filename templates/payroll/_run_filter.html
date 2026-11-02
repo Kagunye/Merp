@@ -1,0 +1,7 @@
+<div class="form-field">
+  <label class="form-label" for="fb-run">Payroll run</label>
+  <select id="fb-run" name="run" class="select">
+    <option value="">All runs</option>
+    {% for r in runs %}<option value="{{ r.pk }}"{% if selected_run == r.pk|stringformat:'s' %} selected{% endif %}>{{ r.reference }} · {{ r.period_end|date:"M Y" }}</option>{% endfor %}
+  </select>
+</div>

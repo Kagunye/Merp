@@ -3,38 +3,45 @@
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Expenses" launcher_subtitle="Employee expense claims, approvals and reimbursements" %}
 
-<div class="launcher-section-label">
-  Processing
-  <span class="launcher-section-count">6 modules</span>
-</div>
+{% can_do "expenses:claim_create" as g_new %}{% can_do "expenses:claim_list" as g_claims %}
+{% can_do "expenses:claim_approve" "POST" as g_approve %}{% can_do "expenses:claim_pay" "POST" as g_pay %}
+{% can_do "expenses:category_create" as g_cat_new %}{% can_do "expenses:category_list" as g_cats %}
+{% can_do "procurement:bill_create" as g_bill %}{% can_do "hr:employee_list" as may_see_staff %}
+{% can_do "reporting:profit_loss" as g_pl %}{% can_do "reporting:cash_flow" as g_cf %}{% can_do "accounting:journal_entry_list" as g_journals %}
+
+<div class="launcher-section-label">Processing</div>
 <div class="launcher-grid">
-  <a href="{% url 'expenses:claim_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">New Claim</span></a>
-  <a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="launcher-tile"><div class="ico ico-amber">✅</div><span class="label">Approve Claims</span></a>
-  <a href="{% url 'expenses:claim_list' %}?status=APPROVED" class="launcher-tile"><div class="ico ico-sky">💵</div><span class="label">Reimburse Claims</span></a>
-  <a href="{% url 'expenses:claim_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-slate">📝</div><span class="label">My Draft Claims</span></a>
-  <a href="{% url 'expenses:category_create' %}" class="launcher-tile"><div class="ico ico-rose">🏷️</div><span class="label">New Category</span></a>
-  <a href="{% url 'procurement:bill_create' %}" class="launcher-tile"><div class="ico ico-peach">🧾</div><span class="label">Convert to Bill</span></a>
+  {% if g_new %}<a href="{% url 'expenses:claim_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Claim</span></a>{% endif %}
+  {% if g_claims and g_approve %}<a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Approve Claims</span></a>{% endif %}
+  {% if g_claims and g_pay %}<a href="{% url 'expenses:claim_list' %}?status=APPROVED" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Reimburse Claims</span></a>{% endif %}
+  {% if g_claims %}<a href="{% url 'expenses:claim_list' %}?status=DRAFT" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="edit" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">My Draft Claims</span></a>{% endif %}
+  {% if g_cat_new %}<a href="{% url 'expenses:category_create' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Category</span></a>{% endif %}
+  {% if g_bill %}<a href="{% url 'procurement:bill_create' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Convert to Bill</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Lists
-  <span class="launcher-section-count">3 modules</span>
-</div>
+<div class="launcher-section-label">Lists</div>
 <div class="launcher-grid">
-  <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-sky">📄</div><span class="label">All Claims</span></a>
-  <a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Categories</span></a>
-  {% can_do "hr:employee_list" as may_see_staff %}{% if may_see_staff %}
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">👤</div><span class="label">Claimants</span></a>
-  {% endif %}
+  {% if g_claims %}<a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">All Claims</span></a>{% endif %}
+  {% if g_cats %}<a href="{% url 'expenses:category_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Categories</span></a>{% endif %}
+  {% if may_see_staff %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Claimants</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Reports
-  <span class="launcher-section-count">3 modules</span>
-</div>
+{% if g_pl or g_cf or g_journals %}
+<div class="launcher-section-label">Reports</div>
 <div class="launcher-grid">
-  <a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Expenses by Category</span></a>
-  <a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-sky">💧</div><span class="label">Reimbursement Flow</span></a>
-  <a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-peach">📚</div><span class="label">Posted Entries</span></a>
+  {% if g_pl %}<a href="{% url 'reporting:profit_loss' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Expenses by Category</span></a>{% endif %}
+  {% if g_cf %}<a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="trending-down" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Reimbursement Flow</span></a>{% endif %}
+  {% if g_journals %}<a href="{% url 'accounting:journal_entry_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="bank" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Posted Entries</span></a>{% endif %}
 </div>
+{% endif %}
+
+{% if g_claims %}
+<div class="launcher-section-label">At a glance</div>
+<div class="stat-grid mb-6">
+  {% url 'expenses:claim_list' as claims_url %}
+  {% include "_includes/stat.html" with label="Waiting for approval" value=pending_count|default:0 icon="clock" tone="warning" meta="Submitted claims" url=claims_url only %}
+  {% include "_includes/stat.html" with label="Approved, not paid" value=approved_count|default:0 icon="check-circle" tone="info" meta="Ready to reimburse" url=claims_url only %}
+  {% include "_includes/stat.html" with label="Paid" value=paid_count|default:0 icon="cash" tone="success" meta="Reimbursed and posted" url=claims_url only %}
+</div>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,6 @@
+{% if may_seed %}
+<form method="post" action="{% url 'payroll:rules_seed' %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="download" cls="h-4 w-4" %}Load standard table</button>
+</form>
+{% endif %}

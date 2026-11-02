@@ -1,77 +1,75 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Human Resources Management" launcher_subtitle="Manage employees, payroll, time & attendance, and performance" %}
 
-<div class="launcher-section-label">
-  Employee Management
-  <span class="launcher-section-count">6 modules</span>
-</div>
+{% can_do "hr:employee_list" as g_staff %}{% can_do "hr:employee_create" as g_new_staff %}
+{% can_do "hr:leave_list" as g_leave %}{% can_do "hr:leavetype_list" as g_leavetypes %}
+{% can_do "payroll:index" as g_payroll %}{% can_do "payroll:run_create" as g_run_new %}{% can_do "payroll:run_list" as g_runs %}
+{% can_do "payroll:payslip_list" as g_slips %}{% can_do "payroll:rule_list" as g_rules %}{% can_do "payroll:component_list" as g_components %}
+{% can_do "accounts:user_list" as g_users %}{% can_do "recruitment:opening_list" as g_openings %}{% can_do "recruitment:candidate_list" as g_candidates %}
+{% can_do "organizations:department_list" as g_depts %}{% can_do "organizations:home" as g_orgs %}
+{% can_do "timesheets:entry_create" as g_ts_new %}{% can_do "timesheets:entry_list" as g_ts %}{% can_do "timesheets:home" as g_ts_home %}
+{% can_do "projects:task_list" as g_tasks %}{% can_do "projects:project_list" as g_projects %}
+{% can_do "helpdesk:ticket_list" as g_tickets %}{% can_do "documents:document_list" as g_docs %}{% can_do "expenses:claim_list" as g_claims %}
+
+<div class="launcher-section-label">Employee Management</div>
 <div class="launcher-grid">
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-slate">👤</div><span class="label">Employee Records</span></a>
-  <a href="{% url 'hr:employee_create' %}" class="launcher-tile"><div class="ico ico-mint">➕</div><span class="label">Employee Onboarding</span></a>
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">📒</div><span class="label">Employee Directory</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">🪪</div><span class="label">Employee Profiles</span></a>
-  <a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-amber">💼</div><span class="label">Job Positions</span></a>
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">🏢</div><span class="label">Departments</span></a>
+  {% if g_staff %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Employee Records</span></a>{% endif %}
+  {% if g_new_staff %}<a href="{% url 'hr:employee_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Employee Onboarding</span></a>{% endif %}
+  {% if g_staff %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Employee Directory</span></a>{% endif %}
+  {% if g_users %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Employee Profiles</span></a>{% endif %}
+  {% if g_openings %}<a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Job Positions</span></a>{% endif %}
+  {% if g_depts %}<a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Departments</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Payroll Processing
-  <span class="launcher-section-count">6 modules</span>
-</div>
+<div class="launcher-section-label">Payroll Processing</div>
 <div class="launcher-grid">
-  <a href="{% url 'payroll:run_create' %}" class="launcher-tile"><div class="ico ico-mint">▶️</div><span class="label">Process Payroll</span></a>
-  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-sky">📊</div><span class="label">Payroll Reports</span></a>
-  <a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Salary Management</span></a>
-  <a href="{% url 'accounting:account_list' %}" class="launcher-tile"><div class="ico ico-slate">🧮</div><span class="label">Tax Calculations</span></a>
-  <a href="{% url 'payroll:index' %}" class="launcher-tile"><div class="ico ico-rose">🛡️</div><span class="label">Benefits Administration</span></a>
-  <a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-amber">📜</div><span class="label">Payroll History</span></a>
+  {% if g_run_new %}<a href="{% url 'payroll:run_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="refresh" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Process Payroll</span></a>{% endif %}
+  {% if g_runs %}<a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Payroll Reports</span></a>{% endif %}
+  {% if g_slips %}<a href="{% url 'payroll:payslip_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Salary Management</span></a>{% endif %}
+  {% if g_rules %}<a href="{% url 'payroll:rule_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="receipt" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Tax Calculations</span></a>{% endif %}
+  {% if g_components %}<a href="{% url 'payroll:component_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Benefits Administration</span></a>{% endif %}
+  {% if g_runs %}<a href="{% url 'payroll:run_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Payroll History</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Time &amp; Attendance
-  <span class="launcher-section-count">6 modules</span>
-</div>
+<div class="launcher-section-label">Time &amp; Attendance</div>
 <div class="launcher-grid">
-  <a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-rose">⏰</div><span class="label">Time Clock</span></a>
-  <a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Attendance Tracking</span></a>
-  <a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-amber">🌴</div><span class="label">Leave Management</span></a>
-  <a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-slate">⏱️</div><span class="label">Overtime Tracking</span></a>
-  <a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-sky">📅</div><span class="label">Schedule Management</span></a>
-  <a href="{% url 'timesheets:home' %}" class="launcher-tile"><div class="ico ico-mint">📊</div><span class="label">Time Reports</span></a>
+  {% if g_ts_new %}<a href="{% url 'timesheets:entry_create' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Time Clock</span></a>{% endif %}
+  {% if g_ts %}<a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Attendance Tracking</span></a>{% endif %}
+  {% if g_leave %}<a href="{% url 'hr:leave_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Leave Management</span></a>{% endif %}
+  {% if g_ts %}<a href="{% url 'timesheets:entry_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Overtime Tracking</span></a>{% endif %}
+  {% if g_tasks %}<a href="{% url 'projects:task_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Schedule Management</span></a>{% endif %}
+  {% if g_ts_home %}<a href="{% url 'timesheets:home' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Time Reports</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Performance &amp; Development
-  <span class="launcher-section-count">6 modules</span>
-</div>
+<div class="launcher-section-label">Performance &amp; Development</div>
 <div class="launcher-grid">
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">⭐</div><span class="label">Performance Reviews</span></a>
-  <a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-rose">🎯</div><span class="label">Goal Management</span></a>
-  <a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-sky">📚</div><span class="label">Training Programs</span></a>
-  <a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-amber">🏆</div><span class="label">Skill Assessment</span></a>
-  <a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">📈</div><span class="label">Career Development</span></a>
-  <a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-violet">💬</div><span class="label">Employee Feedback</span></a>
+  {% if g_staff %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Performance Reviews</span></a>{% endif %}
+  {% if g_projects %}<a href="{% url 'projects:project_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Goal Management</span></a>{% endif %}
+  {% if g_openings %}<a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Training Programs</span></a>{% endif %}
+  {% if g_candidates %}<a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Skill Assessment</span></a>{% endif %}
+  {% if g_staff %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="trending-up" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Career Development</span></a>{% endif %}
+  {% if g_tickets %}<a href="{% url 'helpdesk:ticket_list' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="bell" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Employee Feedback</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Maintenance
-  <span class="launcher-section-count">6 modules</span>
-</div>
+<div class="launcher-section-label">Maintenance</div>
 <div class="launcher-grid">
-  <a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">⚙️</div><span class="label">HR Settings</span></a>
-  <a href="{% url 'payroll:index' %}" class="launcher-tile"><div class="ico ico-amber">💰</div><span class="label">Payroll Configuration</span></a>
-  <a href="{% url 'hr:leavetype_list' %}" class="launcher-tile"><div class="ico ico-rose">📅</div><span class="label">Leave Types</span></a>
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📄</div><span class="label">Document Templates</span></a>
-  <a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-mint">✅</div><span class="label">Approval Workflows</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">🛡️</div><span class="label">Security Roles</span></a>
+  {% if g_orgs %}<a href="{% url 'organizations:home' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">HR Settings</span></a>{% endif %}
+  {% if g_payroll %}<a href="{% url 'payroll:index' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Payroll Configuration</span></a>{% endif %}
+  {% if g_leavetypes %}<a href="{% url 'hr:leavetype_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Leave Types</span></a>{% endif %}
+  {% if g_docs %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Document Templates</span></a>{% endif %}
+  {% if g_claims %}<a href="{% url 'expenses:claim_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Approval Workflows</span></a>{% endif %}
+  {% if g_users %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="lock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Security Roles</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label" style="margin-top:36px">At a glance</div>
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Active employees</div><div class="text-2xl font-bold">{{ active_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Pending leaves</div><div class="text-2xl font-bold text-amber-600">{{ pending_leave_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">Departments</div><div class="text-2xl font-bold">{{ dept_count|default:0 }}</div></div>
-  <div class="bg-white rounded-xl border p-5"><div class="text-xs text-gray-500 mb-1">On probation</div><div class="text-2xl font-bold">{{ probation_count|default:0 }}</div></div>
+<div class="launcher-section-label">At a glance</div>
+<div class="stat-grid mb-6">
+  {% if g_staff %}{% url 'hr:employee_list' as staff_url %}{% endif %}
+  {% if g_leave %}{% url 'hr:leave_list' as leave_url %}{% endif %}
+  {% include "_includes/stat.html" with label="Active employees" value=employee_count|default:0 icon="users" tone="success" meta="On the payroll today" url=staff_url only %}
+  {% include "_includes/stat.html" with label="Headcount" value=total_headcount|default:0 icon="user" tone="neutral" meta="Every record, any status" url=staff_url only %}
+  {% include "_includes/stat.html" with label="Pending leave" value=leaves_pending|default:0 icon="calendar" tone="warning" meta="Waiting for a decision" url=leave_url only %}
+  {% include "_includes/stat.html" with label="Approved leave" value=leaves_approved|default:0 icon="check-circle" tone="info" meta="Granted requests" url=leave_url only %}
 </div>
 {% endblock %}

@@ -1,38 +1,48 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/launcher.html" with launcher_title="Recruitment" launcher_subtitle="Vacancies, applicants, interviews and onboarding" %}
 
-<div class="launcher-section-label">
-  Processing
-  <span class="launcher-section-count">6 modules</span>
-</div>
-<div class="launcher-grid">
-  <a href="{% url 'recruitment:opening_create' %}" class="launcher-tile"><div class="ico ico-mint">💼</div><span class="label">New Vacancy</span></a>
-  <a href="{% url 'recruitment:candidate_create' %}" class="launcher-tile"><div class="ico ico-sky">🧾</div><span class="label">New Candidate</span></a>
-  <a href="{% url 'recruitment:interview_create' %}" class="launcher-tile"><div class="ico ico-amber">🎤</div><span class="label">Schedule Interview</span></a>
-  <a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-peach">⭐</div><span class="label">Shortlist Candidates</span></a>
-  <a href="{% url 'hr:employee_create' %}" class="launcher-tile"><div class="ico ico-rose">🎉</div><span class="label">Hire &amp; Onboard</span></a>
-  <a href="{% url 'recruitment:opening_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-mint">📄</div><span class="label">Open Positions</span></a>
+{% can_do "recruitment:opening_create" as g_open_new %}{% can_do "recruitment:candidate_create" as g_cand_new %}{% can_do "recruitment:interview_create" as g_int_new %}
+{% can_do "recruitment:candidate_list" as g_cands %}{% can_do "recruitment:opening_list" as g_openings %}{% can_do "recruitment:interview_list" as g_ints %}
+{% can_do "hr:employee_create" as g_hire %}{% can_do "organizations:department_list" as g_depts %}{% can_do "accounts:user_list" as g_users %}
+{% can_do "documents:document_list" as g_docs %}{% can_do "documents:category_list" as g_doccats %}
+
+<div class="stat-grid mb-2">
+  {% if g_openings %}{% url 'recruitment:opening_list' as open_url %}{% endif %}
+  {% if g_cands %}{% url 'recruitment:candidate_list' as cand_url %}{% endif %}
+  {% if g_ints %}{% url 'recruitment:interview_list' as int_url %}{% endif %}
+  {% with all_openings|default:0|stringformat:"s" as n %}{% with "of "|add:n|add:" openings" as m %}
+  {% include "_includes/stat.html" with label="Open vacancies" value=open_openings|default:0 icon="briefcase" tone="brand" meta=m url=open_url only %}
+  {% endwith %}{% endwith %}
+  {% include "_includes/stat.html" with label="Candidates in play" value=candidates_active|default:0 icon="users" tone="info" meta="Not hired or rejected" url=cand_url only %}
+  {% include "_includes/stat.html" with label="Upcoming interviews" value=interviews_upcoming|default:0 icon="calendar" tone="warning" meta="Scheduled" url=int_url only %}
 </div>
 
-<div class="launcher-section-label">
-  Lists
-  <span class="launcher-section-count">3 modules</span>
-</div>
+<div class="launcher-section-label">Processing</div>
 <div class="launcher-grid">
-  <a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-sky">📋</div><span class="label">Vacancies</span></a>
-  <a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-mint">🧑‍💼</div><span class="label">Candidates</span></a>
-  <a href="{% url 'recruitment:interview_list' %}" class="launcher-tile"><div class="ico ico-amber">📅</div><span class="label">Interviews</span></a>
+  {% if g_open_new %}<a href="{% url 'recruitment:opening_create' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Vacancy</span></a>{% endif %}
+  {% if g_cand_new %}<a href="{% url 'recruitment:candidate_create' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">New Candidate</span></a>{% endif %}
+  {% if g_int_new %}<a href="{% url 'recruitment:interview_create' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Schedule Interview</span></a>{% endif %}
+  {% if g_cands %}<a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Shortlist Candidates</span></a>{% endif %}
+  {% if g_hire %}<a href="{% url 'hr:employee_create' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="plus" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Hire &amp; Onboard</span></a>{% endif %}
+  {% if g_openings %}<a href="{% url 'recruitment:opening_list' %}?status=OPEN" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Open Positions</span></a>{% endif %}
 </div>
 
-<div class="launcher-section-label">
-  Maintenance
-  <span class="launcher-section-count">4 modules</span>
-</div>
+<div class="launcher-section-label">Lists</div>
 <div class="launcher-grid">
-  <a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-slate">🏢</div><span class="label">Departments</span></a>
-  <a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">👔</div><span class="label">Hiring Managers</span></a>
-  <a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">📄</div><span class="label">Offer Templates</span></a>
-  <a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">🗂️</div><span class="label">Job Categories</span></a>
+  {% if g_openings %}<a href="{% url 'recruitment:opening_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Vacancies</span></a>{% endif %}
+  {% if g_cands %}<a href="{% url 'recruitment:candidate_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Candidates</span></a>{% endif %}
+  {% if g_ints %}<a href="{% url 'recruitment:interview_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Interviews</span></a>{% endif %}
 </div>
+
+{% if g_depts or g_users or g_docs or g_doccats %}
+<div class="launcher-section-label">Maintenance</div>
+<div class="launcher-grid">
+  {% if g_depts %}<a href="{% url 'organizations:department_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Departments</span></a>{% endif %}
+  {% if g_users %}<a href="{% url 'accounts:user_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="key" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Hiring Managers</span></a>{% endif %}
+  {% if g_docs %}<a href="{% url 'documents:document_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Offer Templates</span></a>{% endif %}
+  {% if g_doccats %}<a href="{% url 'documents:category_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Job Categories</span></a>{% endif %}
+</div>
+{% endif %}
 {% endblock %}

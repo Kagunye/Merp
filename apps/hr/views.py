@@ -160,7 +160,24 @@ class EmployeeDetailView(LoginRequiredMixin, DetailView):
         ctx["contracts"] = self.object.contracts.order_by("-start_date")[:5]
         ctx["leave_requests"] = self.object.leave_requests.order_by("-created_at")[:10]
         ctx["payslips"] = self.object.payslips.select_related("payroll_run").order_by("-created_at")[:10]
+        ctx["leave_year"], ctx["leave_balances"] = leave_balances(self.object)
         return ctx
+
+
+def leave_balances(employee, year=None):
+    """Display only: this year's allowance, days granted or waiting, and days
+    left, per leave type in use — worked out with the same rules a request is
+    checked against (LeaveRequest.entitlement / days_already_taken)."""
+    year = year or timezone.localdate().year
+    day = datetime.date(year, 1, 1)
+    rows = []
+    for kind in LeaveType.objects.filter(company=employee.company, is_active=True).order_by("name"):
+        probe = LeaveRequest(employee=employee, leave_type=kind, start_date=day, end_date=day)
+        entitled = probe.entitlement(year)
+        used = probe.days_already_taken(year)
+        rows.append({"leave_type": kind, "entitled": entitled, "used": used,
+                     "left": entitled - used})
+    return year, rows
 
 
 class EmployeeUpdateView(LoginRequiredMixin, CompanyRequiredMixin, UpdateView):
@@ -671,5 +688,14 @@ class LeaveRequestDetailView(LoginRequiredMixin, DetailView):
                              and self.object.employee.user_id != self.request.user.pk
                              and self.object.created_by_id != self.request.user.pk)
         ctx["can_cancel"] = not leave_cancel_refusal(self.request, self.object)
+        # Display only: where this request leaves the year's allowance.
+        leave = self.object
+        year = leave.start_date.year
+        entitled = leave.entitlement(year)
+        others = leave.days_already_taken(year)
+        this = leave.days_in_year(year)
+        counted = this if leave.status in LeaveRequest.COUNTED_STATUSES else 0
+        ctx["balance"] = {"year": year, "entitled": entitled, "others": others,
+                          "this": this, "left": entitled - others - counted}
         return ctx
 

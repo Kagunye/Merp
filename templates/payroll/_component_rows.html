@@ -1,50 +1,42 @@
-{% comment %}
+{% load ui_extras %}{% comment %}
 Pay elements table.
 
 Context expected:
   rows — salary component rows (possibly empty)
+  may_edit, may_staff, may_ledger — can_do flags from component_list.html
 {% endcomment %}
-<table class="w-full text-sm" style="min-width: 820px">
+<table class="table">
   <thead>
-    <tr class="border-b border-gray-100 bg-gray-50/50">
-      <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Name</th>
-      <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Who</th>
-      <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Effect</th>
-      <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">How it is worked out</th>
-      <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Account</th>
-      <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider no-print"></th>
-    </tr>
+    <tr><th>Name</th><th>Who</th><th>Effect</th><th>How it is worked out</th><th>Account</th><th class="no-print"><span class="sr-only">Actions</span></th></tr>
   </thead>
-  <tbody class="divide-y divide-gray-50">
+  <tbody>
     {% for c in rows %}
-    <tr class="hover:bg-gray-50/50 {% if not c.is_active %}bg-gray-50/60{% endif %}">
-      <td class="px-4 py-3 align-top font-medium text-gray-900 {% if not c.is_active %}text-gray-400 line-through font-normal{% endif %}">{{ c.name }}</td>
-      <td class="px-4 py-3 align-top text-gray-600">
-        {% if c.employee %}<a href="{% url 'hr:employee_detail' c.employee.pk %}" class="hover:underline">{{ c.employee.full_name }}</a>{% else %}<span class="text-gray-400">everyone</span>{% endif %}
+    <tr{% if not c.is_active %} class="text-ink-muted"{% endif %}>
+      <td class="font-medium{% if not c.is_active %} line-through font-normal{% else %} text-ink{% endif %}">{{ c.name }}</td>
+      <td class="text-ink-2">
+        {% if c.employee %}{% if may_staff %}<a href="{% url 'hr:employee_detail' c.employee.pk %}" class="link">{{ c.employee.full_name }}</a>{% else %}{{ c.employee.full_name }}{% endif %}{% else %}<span class="text-ink-muted">everyone</span>{% endif %}
       </td>
-      <td class="px-4 py-3 align-top">
-        {% if c.is_earning %}<span class="badge bg-green-50 text-green-700">adds to pay</span>{% else %}<span class="badge bg-red-50 text-red-700">taken off</span>{% endif %}
-        {% if c.is_earning and not c.is_taxable %}<div class="text-xs text-gray-400 mt-1">not taxable</div>{% endif %}
-        {% if c.is_earning and not c.counts_as_statutory_pay %}<div class="text-xs text-gray-400 mt-1">not pay for NSSF, SHIF or housing levy</div>{% endif %}
-        {% if not c.is_earning and c.reduces_taxable_pay %}<div class="text-xs text-sky-600 mt-1">taken off before PAYE</div>{% endif %}
+      <td>
+        {% if c.is_earning %}<span class="badge badge-success">adds to pay</span>{% else %}<span class="badge badge-danger">taken off</span>{% endif %}
+        {% if c.is_earning and not c.is_taxable %}<div class="mt-1 text-xs text-ink-muted">not taxable</div>{% endif %}
+        {% if c.is_earning and not c.counts_as_statutory_pay %}<div class="mt-1 text-xs text-ink-muted">not pay for NSSF, SHIF or housing levy</div>{% endif %}
+        {% if not c.is_earning and c.reduces_taxable_pay %}<div class="mt-1 text-xs text-info">taken off before PAYE</div>{% endif %}
       </td>
-      <td class="px-4 py-3 align-top font-mono text-gray-700">
-        {% if c.calculation == 'FIXED' %}{{ c.amount|floatformat:2 }}
-        {% elif c.calculation == 'PERCENT_OF_BASIC' %}{{ c.percent|floatformat:2 }}% of basic
-        {% else %}{{ c.percent|floatformat:2 }}% of gross{% endif %}
+      <td class="whitespace-nowrap">
+        {% if c.calculation == 'FIXED' %}<span class="tabular-nums">{{ c.amount|money }}</span>
+        {% elif c.calculation == 'PERCENT_OF_BASIC' %}{{ c.percent|pct:2 }} of basic
+        {% else %}{{ c.percent|pct:2 }} of gross{% endif %}
       </td>
-      <td class="px-4 py-3 align-top text-gray-600">
+      <td class="text-ink-2">
         {% if c.gl_account %}
-          <a href="{% url 'accounting:account_ledger' c.gl_account.pk %}" class="font-mono text-xs underline" style="color:var(--primary)">{{ c.gl_account.code }}</a>
-          <span class="text-xs text-gray-400">{{ c.gl_account.name }}</span>
-        {% elif c.is_earning %}<span class="text-xs text-gray-400">6100 salaries &amp; wages</span>{% else %}<span class="text-xs text-amber-600">no account</span>{% endif %}
+          {% if may_ledger %}<a href="{% url 'accounting:account_ledger' c.gl_account.pk %}" class="mono text-xs link">{{ c.gl_account.code }}</a>{% else %}<span class="mono text-xs">{{ c.gl_account.code }}</span>{% endif %}
+          <span class="text-xs text-ink-muted">{{ c.gl_account.name }}</span>
+        {% elif c.is_earning %}<span class="text-xs text-ink-muted">6100 salaries &amp; wages</span>{% else %}<span class="text-xs text-warning">no account</span>{% endif %}
       </td>
-      <td class="px-4 py-3 align-top text-right no-print">
-        <a href="{% url 'payroll:component_update' c.pk %}" class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50">Edit</a>
-      </td>
+      <td class="actions no-print">{% if may_edit %}<a href="{% url 'payroll:component_update' c.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}</td>
     </tr>
     {% empty %}
-    <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Nothing here yet.</td></tr>
+    <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="Nothing here yet" compact=True only %}</td></tr>
     {% endfor %}
   </tbody>
 </table>

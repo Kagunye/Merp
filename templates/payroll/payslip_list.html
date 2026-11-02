@@ -1,61 +1,44 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Payslips — Payroll — Mofisi{% endblock %}
 {% block content %}
-<div class="space-y-5">
-  <div class="flex items-center justify-between flex-wrap gap-3">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5">Every figure here was produced by a table, not typed.</p>
-    </div>
-    <a href="{% url 'payroll:run_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Payroll runs</a>
-  </div>
+{% can_do "payroll:run_list" as may_runs %}{% can_do "payroll:run_detail" as may_run %}{% can_do "payroll:run_create" "POST" as may_create %}
+{% if may_runs %}{% url 'payroll:run_list' as runs_url %}{% endif %}
+{% if may_create %}{% url 'payroll:run_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Every figure here was produced by a table, not typed." secondary_label="Payroll runs" secondary_url=runs_url %}
 
-  <div class="flex flex-wrap items-center gap-2">
-    <a href="{% url 'payroll:payslip_list' %}" class="px-3 py-1.5 text-sm rounded-lg border {% if not selected_run %}text-white{% else %}text-gray-600 bg-white border-gray-200 hover:bg-gray-50{% endif %}" {% if not selected_run %}style="background:var(--primary);border-color:var(--primary)"{% endif %}>All runs</a>
-    {% for run in runs|slice:":8" %}
-      <a href="{% url 'payroll:payslip_list' %}?run={{ run.pk }}" class="px-3 py-1.5 text-sm rounded-lg border {% if selected_run == run.pk|stringformat:'s' %}text-white{% else %}text-gray-600 bg-white border-gray-200 hover:bg-gray-50{% endif %}" {% if selected_run == run.pk|stringformat:'s' %}style="background:var(--primary);border-color:var(--primary)"{% endif %}>{{ run.reference }}</a>
-    {% endfor %}
-  </div>
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="payroll/_run_filter.html" %}
 
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <table class="w-full text-sm" style="min-width: 820px">
-      <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50">
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employee</th>
-          <th class="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Run</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Gross</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Taxable</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Deductions</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Net</th>
-          <th class="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Employer</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-50">
-        {% for ps in payslips %}
-        <tr class="hover:bg-gray-50/50">
-          <td class="px-4 py-3 align-top">
-            <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="font-medium hover:underline" style="color:var(--primary)">{{ ps.employee.full_name }}</a>
-            <div class="text-xs text-gray-400">{{ ps.employee.employee_number }}</div>
-          </td>
-          <td class="px-4 py-3 align-top">
-            <a href="{% url 'payroll:run_detail' ps.payroll_run.pk %}" class="font-mono text-gray-700 hover:underline">{{ ps.payroll_run.reference }}</a>
-            <div class="text-xs text-gray-400">{{ ps.payroll_run.period_end|date:"d M Y" }} · {{ ps.payroll_run.status }}</div>
-          </td>
-          <td class="px-4 py-3 align-top text-right font-mono text-gray-900">{{ ps.gross_salary|floatformat:2 }}</td>
-          <td class="px-4 py-3 align-top text-right font-mono text-gray-500">{{ ps.taxable_pay|floatformat:2 }}</td>
-          <td class="px-4 py-3 align-top text-right font-mono text-red-600">{{ ps.total_deductions|floatformat:2 }}</td>
-          <td class="px-4 py-3 align-top text-right font-mono font-semibold text-gray-900">{{ ps.net_salary|floatformat:2 }}</td>
-          <td class="px-4 py-3 align-top text-right font-mono text-gray-600">{{ ps.employer_cost|floatformat:2 }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="7" class="px-4 py-10 text-center text-gray-400">
-          No payslips yet — <a href="{% url 'payroll:run_create' %}" class="underline" style="color:var(--primary)">raise a run</a> and the tables will work them out.
-        </td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% include "_includes/pagination.html" %}
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Employee</th><th>Run</th><th class="num">Gross</th><th class="num">Taxable</th><th class="num">Deductions</th><th class="num">Net</th><th class="num">Employer</th></tr>
+    </thead>
+    <tbody>
+      {% for ps in payslips %}
+      <tr>
+        <td class="whitespace-nowrap">
+          <a href="{% url 'payroll:payslip_detail' ps.pk %}" class="row-link">{{ ps.employee.full_name }}</a>
+          <div class="mono text-xs text-ink-muted">{{ ps.employee.employee_number }}</div>
+        </td>
+        <td class="whitespace-nowrap">
+          {% if may_run %}<a href="{% url 'payroll:run_detail' ps.payroll_run.pk %}" class="mono link">{{ ps.payroll_run.reference }}</a>{% else %}<span class="mono">{{ ps.payroll_run.reference }}</span>{% endif %}
+          <div class="mt-0.5 flex items-center gap-2 text-xs text-ink-muted">{{ ps.payroll_run.period_end|date:"d M Y" }} {% status_badge ps.payroll_run.status ps.payroll_run.get_status_display %}</div>
+        </td>
+        <td class="num">{{ ps.gross_salary|money }}</td>
+        <td class="num text-ink-2">{{ ps.taxable_pay|money }}</td>
+        <td class="num">{{ ps.total_deductions|money }}</td>
+        <td class="num font-semibold">{{ ps.net_salary|money }}</td>
+        <td class="num text-ink-2">{{ ps.employer_cost|money }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="p-0">
+        {% include "_includes/empty_state.html" with icon="cash" title="No payslips yet" text="Raise a run and the tables will work them out." action_label="Raise a run" action_url=new_url compact=True only %}
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
+
+{% include "_includes/pagination.html" %}
 {% endblock %}

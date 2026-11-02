@@ -1,0 +1,15 @@
+{% if may_toggle %}
+<form method="post" action="{% url 'payroll:rule_toggle' rule.pk %}">
+  {% csrf_token %}
+  {% if rule.is_active %}
+  <button type="submit" class="btn btn-danger-ghost">Retire this table</button>
+  {% else %}
+  <button type="submit" class="btn btn-secondary">Bring it back</button>
+  {% endif %}
+</form>
+{% endif %}
+{% if may_change and can_edit %}
+<a href="{% url 'payroll:rule_update' rule.pk %}" class="btn btn-primary">{% include "_includes/icon.html" with name="edit" cls="h-4 w-4" stroke="2" %}Edit rates</a>
+{% elif may_change and may_create %}
+<a href="{% url 'payroll:rule_create' %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" %}New version</a>
+{% endif %}

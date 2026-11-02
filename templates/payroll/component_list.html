@@ -1,31 +1,16 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block title %}Pay Elements — Payroll — Mofisi{% endblock %}
 {% block content %}
+{% can_do "payroll:component_create" "POST" as may_create %}{% can_do "payroll:component_update" "POST" as may_edit %}
+{% can_do "payroll:rule_list" as may_rules %}{% can_do "hr:employee_detail" as may_staff %}{% can_do "accounting:account_ledger" as may_ledger %}
+{% if may_create %}{% url 'payroll:component_create' as new_url %}{% endif %}
+{% if may_rules %}{% url 'payroll:rule_list' as rules_url %}{% endif %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Everything that moves a payslip which is not the law: a house allowance, overtime, a loan or union due. Basic pay always comes from the employee's contract, never from here." action_label="New pay element" action_url=new_url secondary_label="Statutory tables" secondary_url=rules_url %}
+
 <div class="space-y-5">
-  <div class="flex items-center justify-between flex-wrap gap-3">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
-      <p class="text-sm text-gray-500 mt-0.5 max-w-2xl">Everything that moves a payslip which is not the law: a house allowance, overtime, a loan or union due. Basic pay always comes from the employee's contract, never from here.</p>
-    </div>
-    <div class="flex flex-wrap gap-2 no-print">
-      <a href="{% url 'payroll:rule_list' %}" class="px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Statutory tables</a>
-      <a href="{% url 'payroll:component_create' %}" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:var(--primary)">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-        New pay element
-      </a>
-    </div>
-  </div>
-
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">Paid to everyone ({{ company_rows|length }})</h2></div>
-    {% include "payroll/_component_rows.html" with rows=company_rows %}
-  </div>
-
-  <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-    <div class="px-6 py-4 border-b border-gray-200"><h2 class="text-base font-semibold text-gray-900">One person only ({{ people_rows|length }})</h2></div>
-    {% include "payroll/_component_rows.html" with rows=people_rows %}
-  </div>
-
-  <p class="text-xs text-gray-500">An allowance scaled off gross is measured on the pay before these deductions, so the same table applied twice gives the same run. A deduction is credited straight to the account named on it — it is money held for somebody else, not a cost.</p>
+  {% include "_includes/data_table.html" with title="Paid to everyone" count=company_rows|length table_template="payroll/_component_rows.html" rows=company_rows %}
+  {% include "_includes/data_table.html" with title="One person only" count=people_rows|length table_template="payroll/_component_rows.html" rows=people_rows %}
+  <p class="text-xs text-ink-muted">An allowance scaled off gross is measured on the pay before these deductions, so the same table applied twice gives the same run. A deduction is credited straight to the account named on it — it is money held for somebody else, not a cost.</p>
 </div>
 {% endblock %}

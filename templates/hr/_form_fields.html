@@ -1,0 +1,28 @@
+{% comment %}
+The fields of `form` in a form-grid, errors inline (used by the People modules'
+hand-built forms: terminate, expense lines). The <form>, csrf and buttons are
+the caller's.
+{% endcomment %}
+{% if form.non_field_errors %}
+<div class="alert alert-danger mb-4" role="alert">
+  {% include "_includes/icon.html" with name="warning" %}
+  <div class="alert-body">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+</div>
+{% endif %}
+{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+<div class="form-grid">
+  {% for field in form.visible_fields %}
+  {% with wt=field.field.widget.input_type %}
+  <div class="form-field{% if wt == 'textarea' or wt == 'file' or wt == 'checkbox' or field.field.widget.attrs.rows %} form-field-full{% endif %}">
+    {% if wt == 'checkbox' %}
+    <label class="check" for="{{ field.id_for_label }}">{{ field }} {{ field.label }}</label>
+    {% else %}
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="form-required" aria-hidden="true">*</span>{% endif %}</label>
+    {{ field }}
+    {% endif %}
+    {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+    {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+  </div>
+  {% endwith %}
+  {% endfor %}
+</div>

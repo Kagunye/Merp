@@ -1,24 +1,27 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'recruitment:opening_create' as pa_url %}
+{% can_do "recruitment:opening_create" "POST" as may_create %}
+{% if may_create %}{% url 'recruitment:opening_create' as pa_url %}{% endif %}
 {% include "_includes/page_header.html" with title="Job Openings" subtitle="All open and historical roles" action_label="New Opening" action_url=pa_url %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Title</th><th class="px-4 py-3 text-left">Department</th><th class="px-4 py-3 text-left">Type</th><th class="px-4 py-3 text-right">Headcount</th><th class="px-4 py-3 text-left">Posted</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Title</th><th>Department</th><th>Type</th><th class="num">Headcount</th><th>Posted</th><th>Status</th></tr></thead>
+    <tbody>
       {% for o in openings %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-medium"><a href="{% url 'recruitment:opening_detail' o.pk %}" style="color: var(--primary);">{{ o.title }}</a></td>
-        <td class="px-4 py-3">{{ o.department|default:"—" }}</td>
-        <td class="px-4 py-3">{{ o.get_employment_type_display }}</td>
-        <td class="px-4 py-3 text-right">{{ o.headcount }}</td>
-        <td class="px-4 py-3">{{ o.posted_date|date:"d M Y"|default:"—" }}</td>
-        <td class="px-4 py-3"><span class="badge bg-gray-100 text-gray-700">{{ o.get_status_display }}</span></td>
+      <tr>
+        <td class="font-medium"><a href="{% url 'recruitment:opening_detail' o.pk %}" class="row-link">{{ o.title }}</a></td>
+        <td class="text-ink-2">{{ o.department|default:"—" }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ o.get_employment_type_display }}</td>
+        <td class="num">{{ o.headcount }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ o.posted_date|date:"d M Y"|default:"—" }}</td>
+        <td>{% status_badge o.status o.get_status_display %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No openings yet.</td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="briefcase" title="No openings yet" text="Roles you are hiring for appear here." action_label="New Opening" action_url=pa_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% include "_includes/pagination.html" %}
 {% endblock %}
