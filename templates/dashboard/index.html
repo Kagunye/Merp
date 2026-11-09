@@ -1,6 +1,6 @@
 {% extends "base/base.html" %}
 {% load ui_extras %}
-{% block title %}Dashboard — Mofisi{% endblock %}
+{% block title %}My Performance — Mofisi{% endblock %}
 {% block content %}
 
 {% if not request.active_company %}
@@ -13,20 +13,19 @@
 </div>
 {% else %}
 
-{# ── Hero: company, tagline, cash on hand (only for a role that may open the bank accounts), quick actions ── #}
-<section class="hero hero-sheets mb-6" aria-label="Overview">
-  <div class="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
-    <div class="min-w-0 flex-[1_1_20rem]">
-      <p class="hero-eyebrow">{{ request.active_company.name }}</p>
-      <h1 class="hero-title">Welcome back, {{ request.user.first_name|default:request.user.email }}</h1>
-      <p class="hero-tagline">Twaimarisha Biashara</p>
-      <p class="hero-text">{% now "l, j F Y" %} · here's what's happening across your business today.</p>
+{# ── Slim hero: whose workspace, which period, cash on hand (only for a role that may open the bank accounts), quick actions ── #}
+<section class="hero hero-sheets mb-4 !py-5 sm:!py-6" aria-label="Overview">
+  <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+    <div class="min-w-0 flex-[1_1_18rem]">
+      <p class="hero-eyebrow">{{ request.active_company.name }} · {{ request.user.first_name|default:request.user.email }}</p>
+      <h1 class="hero-title">My Performance</h1>
+      <p class="hero-text">{{ period.label }} · {{ period.start|date:"j M Y" }} to {{ period.end|date:"j M Y" }}</p>
     </div>
     {% if show.cash %}
     {% url 'banking:account_list' as cash_url %}
     <div class="flex min-w-0 flex-[0_1_auto] flex-col sm:items-end sm:text-right">
       <p class="hero-label">Cash on hand</p>
-      <p class="hero-value">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>
+      <p class="hero-value !text-3xl sm:!text-4xl">{{ total_cash|money }}<span class="hero-unit">{{ book }}</span></p>
       <p class="hero-meta">All bank and cash accounts · <a href="{{ cash_url }}">View accounts</a></p>
     </div>
     {% endif %}
@@ -42,7 +41,6 @@
     {% endif %}
     {% endfor %}
     {% if quick_actions|length > 1 %}
-    {# Everything after the primary action, so phones (and the 4th+ action) are covered too. #}
     <div class="relative">
       <button type="button" class="btn btn-ghost btn-sm" data-menu="menu-quick" aria-haspopup="true" aria-expanded="false">
         More {% include "_includes/icon.html" with name="chevron-down" cls="h-4 w-4" stroke="2" %}
@@ -58,209 +56,437 @@
   {% endif %}
 </section>
 
-{# ── KPI tiles: each one only for a role that may open the page it summarises (`show`) ── #}
-{% if show.receivables or show.payables or show.trading %}
-<section aria-label="Key figures" class="stat-grid mb-6 2xl:grid-cols-5">
-  {% if show.receivables %}{% url 'sales:ar_aging' as u %}
-    {% include "_includes/stat.html" with label="Receivables" value=accounts_receivable money=True currency=book meta="Owed to you · see aging" icon="receipt" tone="brand" url=u only %}{% endif %}
-  {% if show.payables %}{% url 'procurement:ap_aging' as u %}
-    {% include "_includes/stat.html" with label="Payables" value=accounts_payable money=True currency=book meta="You owe suppliers" icon="document" tone="warning" url=u only %}{% endif %}
-  {% if show.trading %}{% url 'reporting:profit_loss' as u %}
-    {% include "_includes/stat.html" with label="Revenue (MTD)" value=monthly_revenue money=True currency=book meta="Month to date" icon="trending-up" tone="success" url=u only %}
-    {% include "_includes/stat.html" with label="Expenses (MTD)" value=monthly_expenses money=True currency=book meta="Incl. cost of sales" icon="trending-down" tone="danger" url=u only %}
-    {% if net_profit_mtd < 0 %}
-    {% include "_includes/stat.html" with label="Net profit (MTD)" value=net_profit_mtd money=True currency=book meta="Revenue − expenses" icon="chart" tone="danger" trend="down" url=u only %}
-    {% else %}
-    {% include "_includes/stat.html" with label="Net profit (MTD)" value=net_profit_mtd money=True currency=book meta="Revenue − expenses" icon="chart" tone="success" trend="up" url=u only %}
-    {% endif %}
-  {% endif %}
+{# ── Period control: presets, quarter chips under their years, custom range. Every figure below follows it. ── #}
+<section class="card mb-6 p-4 sm:p-5" aria-label="Period">
+  <div class="flex flex-wrap items-end gap-x-8 gap-y-4">
+    <div class="min-w-0">
+      <p class="section-title mb-2">Period</p>
+      <div class="-mx-1 max-w-full overflow-x-auto px-1 [scrollbar-width:none]">
+        <div class="seg whitespace-nowrap" role="group" aria-label="Period presets">
+          {% for p in period_controls.presets %}
+          <a href="?{{ p.qs }}" class="{% if p.active %}is-active{% endif %}"{% if p.active %} aria-current="true"{% endif %}>{{ p.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="flex min-w-0 flex-wrap gap-x-5 gap-y-3" aria-label="Quarters">
+      {% for y in period_controls.years %}
+      <div class="min-w-0">
+        <p class="mb-1.5 text-xs font-semibold text-ink-muted">{{ y.year }}</p>
+        <div class="flex gap-1.5">
+          {% for c in y.chips %}
+          {% if c.future %}
+          <span class="inline-flex h-9 min-w-[2.75rem] items-center justify-center rounded-full border border-dashed border-line px-3 text-xs font-semibold text-ink-faint" title="Q{{ forloop.counter }} {{ y.year }} has not started">{{ c.label }}</span>
+          {% else %}
+          <a href="?{{ c.qs }}" class="inline-flex h-9 min-w-[2.75rem] items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors {% if c.active %}border-brand bg-brand text-white{% elif c.current %}border-brand/40 bg-brand-50 text-brand-ink hover:bg-brand-100{% else %}border-line bg-surface text-ink-2 hover:bg-surface-2{% endif %}"{% if c.active %} aria-current="true"{% endif %} title="Q{{ forloop.counter }} {{ y.year }}">{{ c.label }}</a>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <form method="get" class="no-card flex min-w-0 flex-wrap items-end gap-2" aria-label="Custom period">
+      <input type="hidden" name="period" value="custom">
+      <div class="min-w-0">
+        <label for="period-from" class="mb-1.5 block text-xs font-semibold text-ink-muted">From</label>
+        <input id="period-from" type="date" name="from" value="{{ period.start|date:'Y-m-d' }}" class="input input-sm w-[9.5rem]">
+      </div>
+      <div class="min-w-0">
+        <label for="period-to" class="mb-1.5 block text-xs font-semibold text-ink-muted">To</label>
+        <input id="period-to" type="date" name="to" value="{{ period.end|date:'Y-m-d' }}" class="input input-sm w-[9.5rem]">
+      </div>
+      <button type="submit" class="btn btn-secondary btn-sm">Apply</button>
+    </form>
+  </div>
 </section>
-{% endif %}
 
-{# ── Charts (each follows its data endpoint's own rule in access.py) ────── #}
-{% can_do "dashboard:sales_chart" as may_sales_chart %}{% can_do "dashboard:cashflow_chart" as may_cash_chart %}
-{% if may_sales_chart or may_cash_chart %}
-<div class="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-  {% if may_sales_chart %}
-  <section class="card {% if may_cash_chart %}xl:col-span-2{% else %}xl:col-span-3{% endif %}">
-    <div class="card-header">
-      <div><h2 class="card-title">Revenue and expenses</h2><p class="card-subtitle">Last 12 months · {{ book }}</p></div>
+{# ── Workspace: main grid, and the quick-access column (right on ≥1280px, a row on top on tablets, last on phones) ── #}
+<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_15rem]">
+
+  {% if quick_access %}
+  <nav aria-label="Quick access" class="order-last md:order-first xl:order-last">
+    <p class="section-title mb-3 xl:mb-3">Quick access</p>
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-5 xl:grid-cols-1">
+      {% for q in quick_access %}
+      <a href="{{ q.url }}" class="group flex min-h-[6.5rem] flex-col justify-between gap-3 rounded-card border border-line bg-surface p-4 transition-colors hover:border-brand/40 hover:bg-brand-50 xl:min-h-[7rem]">
+        <span class="icon-tile group-hover:bg-surface">{% include "_includes/icon.html" with name=q.icon cls="h-5 w-5" %}</span>
+        <span class="text-sm font-bold leading-snug text-ink">{{ q.label }}</span>
+      </a>
+      {% endfor %}
     </div>
-    <div class="card-body"><div class="relative h-64"><canvas id="chart-sales" aria-label="Monthly revenue and expenses chart" role="img"></canvas></div></div>
-  </section>
+  </nav>
   {% endif %}
-  {% if may_cash_chart %}
-  <section class="card {% if not may_sales_chart %}xl:col-span-3{% endif %}">
-    <div class="card-header">
-      <div><h2 class="card-title">Cash position</h2><p class="card-subtitle">Bank and cash, last 7 days</p></div>
-    </div>
-    <div class="card-body"><div class="relative h-64"><canvas id="chart-cash" aria-label="Daily cash balance chart" role="img"></canvas></div></div>
-  </section>
-  {% endif %}
-</div>
-{% endif %}
 
-<div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
-
-  {# ── Main column: open documents ── #}
-  <div class="min-w-0 space-y-6 xl:col-span-2">
-    {% if show.open_invoices %}
-    <section class="card overflow-hidden">
-      <div class="card-header">
-        <h2 class="card-title">Unpaid invoices</h2>
-        <a href="{% url 'sales:invoice_list' %}?status=SENT" class="card-link">View all →</a>
-      </div>
-      {% if open_invoices %}
-      <div class="table-wrap rounded-none border-0 shadow-none">
-        <table class="table">
-          <thead><tr><th>Customer</th><th>Reference</th><th>Due</th><th>Status</th><th class="num">Outstanding</th></tr></thead>
-          <tbody>
-            {% for inv in open_invoices %}
-            <tr>
-              <td class="max-w-[14rem] truncate">{{ inv.customer.name }}</td>
-              <td class="mono"><a href="{% url 'sales:invoice_detail' inv.pk %}" class="row-link">{{ inv.reference }}</a></td>
-              <td class="whitespace-nowrap text-ink-2">{{ inv.due_date|date:"d M Y" }}</td>
-              <td>{% status_badge inv.status inv.get_status_display %}</td>
-              <td class="num font-semibold">{{ inv.outstanding_amount|money }} <span class="text-xs font-normal text-ink-muted">{{ inv.currency }}</span></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      {% include "_includes/empty_state.html" with icon="check-circle" title="No unpaid invoices" text="Every invoice has been settled." compact=True only %}
-      {% endif %}
-    </section>
-    {% endif %}
-
-    {% if show.open_bills %}
-    <section class="card overflow-hidden">
-      <div class="card-header">
-        <h2 class="card-title">Open bills</h2>
-        <a href="{% url 'procurement:bill_list' %}?status=RECEIVED" class="card-link">View all →</a>
-      </div>
-      {% if open_bills %}
-      <div class="table-wrap rounded-none border-0 shadow-none">
-        <table class="table">
-          <thead><tr><th>Supplier</th><th>Reference</th><th>Due</th><th>Status</th><th class="num">Outstanding</th></tr></thead>
-          <tbody>
-            {% for bill in open_bills %}
-            <tr>
-              <td class="max-w-[14rem] truncate">{{ bill.supplier.name }}</td>
-              <td class="mono"><a href="{% url 'procurement:bill_detail' bill.pk %}" class="row-link">{{ bill.reference }}</a></td>
-              <td class="whitespace-nowrap text-ink-2">{{ bill.due_date|date:"d M Y" }}</td>
-              <td>{% status_badge bill.status bill.get_status_display %}</td>
-              <td class="num font-semibold">{{ bill.outstanding_amount|money }} <span class="text-xs font-normal text-ink-muted">{{ bill.currency }}</span></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      {% include "_includes/empty_state.html" with icon="check-circle" title="No open bills" text="Nothing is waiting to be paid." compact=True only %}
-      {% endif %}
-    </section>
-    {% endif %}
-
-    {% if shortcuts %}
-    <section class="card">
-      <div class="card-header"><h2 class="card-title">Go to</h2></div>
-      <div class="grid grid-cols-2 gap-1 p-3 sm:grid-cols-3">
-        {% for href, label, path in shortcuts %}
-        <a href="{{ href }}" class="flex items-center gap-3 rounded-[14px] px-3 py-2.5 text-sm font-semibold text-ink hover:bg-surface-2">
-          <span class="icon-tile icon-tile-sm"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ path }}"/></svg></span>
-          <span class="truncate">{{ label }}</span>
-        </a>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
-  </div>
-
-  {# ── Side column ── #}
   <div class="min-w-0 space-y-6">
-    {% if show.approvals %}
-    <section class="card">
-      <div class="card-header"><h2 class="card-title">Waiting for your approval</h2></div>
-      <div class="list">
-        {% if show.requisitions %}
-        <a href="{% url 'procurement:requisition_list' %}?status=PENDING_APPROVAL" class="list-row list-row-link items-center">
-          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="cart" cls="h-4 w-4" %}</span>
-          <span class="flex-1 text-sm text-ink">Purchase requisitions</span>
-          <span class="badge {% if pending_requisitions %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_requisitions|default:0 }}</span>
+
+    {# ── Six document tiles: mine (large), the company's total, my share as a bar ── #}
+    {% if tiles %}
+    <section aria-label="My documents">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {% for row in tile_rows %}{% for t in row %}
+        <a href="{{ t.url }}" class="group flex min-w-0 flex-col rounded-card border border-line bg-surface p-5 transition-colors hover:border-line-strong hover:bg-surface-2" data-tile="{{ t.key }}">
+          <div class="flex items-start justify-between gap-3">
+            <h2 class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink">
+              <span class="min-w-0 leading-snug">{{ t.title }}</span>
+              <span class="shrink-0 text-ink-faint" title="{{ t.mine_note }}" aria-label="How mine is counted: {{ t.mine_note }}">{% include "_includes/icon.html" with name="info" cls="h-3.5 w-3.5" %}</span>
+            </h2>
+            <span class="icon-tile icon-tile-sm shrink-0">{% include "_includes/icon.html" with name=t.icon cls="h-4 w-4" %}</span>
+          </div>
+          <p class="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2 text-2xl font-extrabold tracking-tight text-ink sm:text-[1.65rem]">
+            {% if t.money_shown %}<span class="num">{{ t.my_amount|money }}</span>{% endif %}
+            <span class="{% if t.money_shown %}text-base font-semibold text-ink-muted{% endif %}">({{ t.my_count }})</span>
+          </p>
+          <p class="mt-1 text-xs text-ink-muted">Total: {% if t.money_shown %}<span class="num font-semibold text-ink-2">{{ t.total_amount|money }}</span> {% endif %}({{ t.total_count }}){% if t.money_shown %} <span class="text-ink-faint">{{ book }}</span>{% endif %}</p>
+          <div class="mt-4 flex items-center gap-3">
+            <div class="h-2 flex-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuenow="{{ t.share_css }}" aria-valuemin="0" aria-valuemax="100" aria-label="My share of {{ t.title|cut:'My ' }}">
+              <div class="h-full rounded-full {{ t.bar }}" style="width: {{ t.share_css }}%"></div>
+            </div>
+            <span class="w-12 text-right text-xs font-semibold tabular-nums text-ink-2">{{ t.share|floatformat:0 }}%</span>
+          </div>
         </a>
-        {% endif %}
-        {% if show.expense_claims %}
-        <a href="{% url 'expenses:claim_list' %}?status=SUBMITTED" class="list-row list-row-link items-center">
-          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="receipt" cls="h-4 w-4" %}</span>
-          <span class="flex-1 text-sm text-ink">Expense claims</span>
-          <span class="badge {% if pending_expense_claims %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_expense_claims|default:0 }}</span>
-        </a>
-        {% endif %}
-        {% if show.leave %}
-        <a href="{% url 'hr:leave_list' %}?status=PENDING" class="list-row list-row-link items-center">
-          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="calendar" cls="h-4 w-4" %}</span>
-          <span class="flex-1 text-sm text-ink">Leave requests</span>
-          <span class="badge {% if pending_leave_requests %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_leave_requests|default:0 }}</span>
-        </a>
-        {% endif %}
-        {% if show.timesheets %}
-        <a href="{% url 'timesheets:entry_list' %}?status=SUBMITTED" class="list-row list-row-link items-center">
-          <span class="list-row-icon tone-warning">{% include "_includes/icon.html" with name="clock" cls="h-4 w-4" %}</span>
-          <span class="flex-1 text-sm text-ink">Timesheets</span>
-          <span class="badge {% if pending_timesheets %}badge-warning{% else %}badge-neutral{% endif %}">{{ pending_timesheets|default:0 }}</span>
-        </a>
-        {% endif %}
+        {% endfor %}{% endfor %}
       </div>
+      <p class="mt-2 text-xs text-ink-muted">Figures for {{ period.label|lower }} in {{ book }}{% if tiles.0.money_shown %}{% else %}; amounts are not shown for your role{% endif %}. The bar is your share of the company total.</p>
     </section>
     {% endif %}
 
-    {% can_do "hr:employee_list" as may_staff %}
-    {% if show.inventory or show.sales_orders or show.purchase_orders or may_staff %}
-    <section class="card">
-      <div class="card-header"><h2 class="card-title">Operations</h2></div>
-      <dl class="dl-rows px-5 py-1 sm:px-6">
-        {% if show.inventory %}
-        <div><dt><a href="{% url 'inventory:product_list' %}" class="hover:underline">Stock value</a></dt><dd>{{ inventory_value|money }} <span class="text-xs font-normal text-ink-muted">{{ book }}</span></dd></div>
-        <div><dt>Products tracked</dt><dd>{{ total_products|default:0 }}</dd></div>
-        <div><dt>Low on stock</dt><dd>{% if low_stock_count %}<span class="badge badge-warning">{{ low_stock_count }}</span>{% else %}0{% endif %}</dd></div>
-        {% endif %}
-        {% if show.sales_orders %}
-        <div><dt><a href="{% url 'sales:order_list' %}" class="hover:underline">Open sales orders</a></dt><dd>{{ open_sales_orders|default:0 }}</dd></div>
-        {% endif %}
-        {% if show.purchase_orders %}
-        <div><dt><a href="{% url 'procurement:po_list' %}" class="hover:underline">Open purchase orders</a></dt><dd>{{ open_purchase_orders|default:0 }}</dd></div>
-        {% endif %}
-        {% if may_staff %}
-        <div><dt><a href="{% url 'hr:employee_list' %}" class="hover:underline">Active staff</a></dt><dd>{{ headcount|default:0 }}</dd></div>
-        {% endif %}
-      </dl>
-    </section>
-    {% endif %}
-
-    {% if show.journals %}
-    <section class="card">
-      <div class="card-header"><h2 class="card-title">Recent journal entries</h2></div>
-      {% if recent_journal_entries %}
-      <div class="list">
-        {% for e in recent_journal_entries %}
-        <a href="{% url 'accounting:journal_entry_detail' e.pk %}" class="list-row list-row-link">
-          <span class="list-row-icon tone-neutral">{% include "_includes/icon.html" with name="document" cls="h-4 w-4" %}</span>
-          <span class="min-w-0 flex-1">
-            <span class="mono block truncate font-medium text-ink">{{ e.reference }}</span>
-            <span class="block truncate text-xs text-ink-muted">{{ e.notes|truncatechars:48|default:"—" }}</span>
-          </span>
-          <span class="shrink-0 text-xs text-ink-muted">{{ e.posting_date|date:"d M" }}</span>
-        </a>
-        {% endfor %}
-      </div>
-      {% else %}
-      {% include "_includes/empty_state.html" with icon="document" title="No entries yet" text="Posted journal entries show up here." compact=True only %}
+    {# ── Gauge and efficiency ── #}
+    {% if gauge or efficiency %}
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-5">
+      {% if gauge %}
+      <section class="card flex flex-col {% if efficiency %}lg:col-span-2{% else %}lg:col-span-5{% endif %}" aria-labelledby="gauge-title">
+        <div class="card-header">
+          <div><h2 id="gauge-title" class="card-title">My Performance</h2><p class="card-subtitle">Collection rate of my invoices</p></div>
+        </div>
+        <div class="card-body flex flex-1 flex-col items-center justify-center">
+          {% with g=gauge.geometry %}
+          <svg viewBox="-12 0 244 132" class="w-full max-w-[17rem]" role="img" aria-label="{% if gauge.rate is not None %}Collection rate {{ gauge.rate }} percent, {{ g.band }}{% else %}No invoices of yours in this period{% endif %}">
+            {% for s in g.segments %}<path d="{{ s.d }}" fill="none" class="{{ s.cls }}" stroke-width="16" stroke-linecap="butt"><title>{{ s.label }}</title></path>{% endfor %}
+            {% for t in g.ticks %}<text x="{{ t.x }}" y="{{ t.y }}" text-anchor="middle" class="fill-ink-muted text-[9px] font-semibold">{{ t.v }}%</text>{% endfor %}
+            {% if g.angle is not None %}
+            <g transform="rotate({{ g.angle }} {{ g.cx }} {{ g.cy }})">
+              <line x1="{{ g.cx }}" y1="{{ g.cy }}" x2="{{ g.cx }}" y2="{{ g.cy|add:'-70' }}" class="stroke-ink" stroke-width="3" stroke-linecap="round"/>
+            </g>
+            {% endif %}
+            <circle cx="{{ g.cx }}" cy="{{ g.cy }}" r="7" class="fill-ink"/>
+          </svg>
+          <div class="-mt-1 flex w-full max-w-[17rem] justify-between text-[11px] font-semibold uppercase tracking-wide text-ink-muted"><span>Poor</span><span>Excellent</span></div>
+          {% if gauge.rate is not None %}
+          <p class="mt-3 text-3xl font-extrabold tracking-tight text-ink">{{ gauge.rate|pct:1 }}</p>
+          <p class="text-sm font-semibold text-ink-2">{{ g.band }}</p>
+          <p class="mt-2 text-center text-xs text-ink-muted"><span class="num">{{ gauge.paid|money }}</span> paid of <span class="num">{{ gauge.invoiced|money }}</span> {{ book }} on {{ gauge.count }} invoice{{ gauge.count|pluralize }}</p>
+          {% else %}
+          <p class="mt-3 text-center text-sm font-semibold text-ink-2">No invoices of yours in this period</p>
+          <p class="mt-1 text-center text-xs text-ink-muted">Become the sales rep on orders, or the account manager on customers, to see your rate.</p>
+          {% endif %}
+          {% if gauge.conversion is not None %}<p class="mt-2 text-xs text-ink-muted">Quote-to-order conversion: <span class="font-semibold text-ink-2">{{ gauge.conversion|pct:1 }}</span></p>{% endif %}
+          {% endwith %}
+        </div>
+      </section>
       {% endif %}
+      {% if efficiency %}
+      <section class="card {% if gauge %}lg:col-span-3{% else %}lg:col-span-5{% endif %}" aria-labelledby="eff-title">
+        <div class="card-header flex-wrap gap-2">
+          <div><h2 id="eff-title" class="card-title">Efficiency</h2><p class="card-subtitle">Sales vs lost sales by month · {{ book }}</p></div>
+          <div class="seg" role="group" aria-label="Whose figures">
+            <button type="button" class="is-active" data-eff-scope="mine" aria-pressed="true">Mine</button>
+            <button type="button" data-eff-scope="company" aria-pressed="false">Company</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="relative h-60 {% if efficiency.mine.empty %}hidden{% endif %}" data-eff-chart><canvas id="chart-efficiency" aria-label="Sales and lost sales by month" role="img"></canvas></div>
+          <div class="{% if not efficiency.mine.empty %}hidden{% endif %}" data-eff-empty>
+            {% include "_includes/empty_state.html" with icon="chart" title="No efficiency data available" text="No sales or lost sales in this period." compact=True only %}
+          </div>
+          <p class="mt-2 text-xs text-ink-muted">Sales are issued invoices. Lost sales are quotes that expired or were cancelled, plus cancelled orders.</p>
+        </div>
+        {{ efficiency_chart|json_script:"efficiency-data" }}
+      </section>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── Task list and approvals (tinted panels) ── #}
+    {% if tasks or approvals %}
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {% if tasks %}
+      <section class="rounded-card border border-info-line bg-info-bg p-5" aria-labelledby="tasks-title">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <h2 id="tasks-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="clipboard" cls="h-4 w-4 text-info" %}My Task List</h2>
+          <span class="text-xs text-ink-muted">Assigned to me, open</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 2xl:grid-cols-4">
+          {% for c in tasks %}
+          <a href="{{ c.url }}" class="flex min-w-0 flex-col rounded-[14px] border border-line bg-surface px-3 py-3 transition-colors hover:border-line-strong" data-task="{{ c.key }}">
+            <span class="text-2xl font-extrabold tabular-nums {% if c.count and c.tone == 'danger' %}text-danger{% elif c.count and c.tone == 'warning' %}text-warning{% else %}text-ink{% endif %}">{{ c.count }}</span>
+            <span class="text-xs font-semibold leading-snug text-ink-muted">{{ c.label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      {% if approvals %}
+      <section class="rounded-card border border-warning-line bg-warning-bg p-5" aria-labelledby="approvals-title">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <h2 id="approvals-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4 text-warning" %}My Approvals</h2>
+          <span class="text-xs text-ink-muted">Waiting on you</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {% for a in approvals %}
+          <a href="{{ a.url }}" class="flex min-w-0 flex-col rounded-[14px] border border-line bg-surface px-3 py-3 transition-colors hover:border-line-strong" data-approval="{{ a.key }}">
+            <span class="flex items-center justify-between gap-2">
+              <span class="text-2xl font-extrabold tabular-nums {% if a.count %}text-warning{% else %}text-ink{% endif %}">{{ a.count }}</span>
+              <span class="text-ink-faint">{% include "_includes/icon.html" with name=a.icon cls="h-4 w-4" %}</span>
+            </span>
+            <span class="text-xs font-semibold leading-snug text-ink-muted">{{ a.label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── CRM calendar, and the two stats tiles ── #}
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      {% if calendar %}
+      <section class="rounded-card border border-success-line bg-success-bg p-4 sm:p-5 lg:col-span-2" aria-labelledby="cal-title" id="crm-calendar">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 id="cal-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="calendar" cls="h-4 w-4 text-success" %}Calendar</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="seg" role="group" aria-label="Calendar view">
+              <button type="button" data-cal-view="day" aria-pressed="false">Day</button>
+              <button type="button" data-cal-view="week" aria-pressed="false">Week</button>
+              <button type="button" class="is-active" data-cal-view="month" aria-pressed="true">Month</button>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-[16px] border border-line bg-surface p-3 sm:p-4">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" data-cal-nav="-1" aria-label="Previous">{% include "_includes/icon.html" with name="chevron-left" cls="h-5 w-5" %}</button>
+            <p class="text-sm font-bold text-ink" data-cal-label aria-live="polite">{{ calendar.label }}</p>
+            <button type="button" class="btn btn-ghost btn-sm btn-icon" data-cal-nav="1" aria-label="Next">{% include "_includes/icon.html" with name="chevron-right" cls="h-5 w-5" %}</button>
+          </div>
+          <div data-cal-grid class="grid grid-cols-7 gap-1 text-center text-xs" role="grid" aria-label="Month">
+            {# drawn by the script below from the events data #}
+          </div>
+          <div data-cal-list class="mt-3 border-t border-divider pt-3" aria-live="polite">
+            <p class="text-xs text-ink-muted">Choose a day to see what falls on it.</p>
+          </div>
+        </div>
+        <ul class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted" aria-label="Legend">
+          {% for k in calendar_kinds %}<li class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full {{ k.tone }}"></span>{{ k.label }}</li>{% endfor %}
+        </ul>
+        {{ calendar|json_script:"calendar-data" }}
+      </section>
+      {% endif %}
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-1 {% if not calendar %}lg:col-span-3 lg:grid-cols-2{% endif %}">
+        {% if efficiency %}
+        <a href="#my-stats" data-open="my-stats" class="group flex flex-col justify-between gap-4 rounded-card border border-line bg-surface p-5 transition-colors hover:border-brand/40 hover:bg-brand-50">
+          <span class="icon-tile">{% include "_includes/icon.html" with name="chart" cls="h-5 w-5" %}</span>
+          <span><span class="block text-base font-bold text-ink">My Statistics</span><span class="block text-xs text-ink-muted">My quotes, orders, invoices and lost sales by month</span></span>
+        </a>
+        {% endif %}
+        {% if show.receivables or show.payables or show.trading or show.open_invoices or show.open_bills or show.journals %}
+        <a href="#company-performance" data-open="company-performance" class="group flex flex-col justify-between gap-4 rounded-card border border-line bg-surface p-5 transition-colors hover:border-brand/40 hover:bg-brand-50">
+          <span class="icon-tile">{% include "_includes/icon.html" with name="trending-up" cls="h-5 w-5" %}</span>
+          <span><span class="block text-base font-bold text-ink">Company Performance</span><span class="block text-xs text-ink-muted">Receivables, payables, trading and open documents</span></span>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Top 20: vendors, customers, inventory in the period ── #}
+    {% if top20 %}
+    <section class="rounded-card border border-brand-100 bg-brand-50 p-4 sm:p-5" aria-labelledby="top-title">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="top-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="trending-up" cls="h-4 w-4 text-brand" %}Top 20</h2>
+        <div class="seg" role="tablist" aria-label="Top 20 lists">
+          {% for t in top20 %}<button type="button" role="tab" id="tab-top-{{ t.key }}" aria-controls="panel-top-{{ t.key }}" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" class="{% if forloop.first %}is-active{% endif %}" data-top-tab="{{ t.key }}">{{ t.label }}</button>{% endfor %}
+        </div>
+      </div>
+      {% for t in top20 %}
+      <div id="panel-top-{{ t.key }}" role="tabpanel" aria-labelledby="tab-top-{{ t.key }}" data-top-panel="{{ t.key }}" class="overflow-hidden rounded-[16px] border border-line bg-surface {% if not forloop.first %}hidden{% endif %}">
+        {% if t.rows %}
+        <div class="table-wrap rounded-none border-0 shadow-none">
+          <table class="table table-compact">
+            <thead><tr><th class="w-10">#</th><th>{% if t.key == 'vendors' %}Supplier{% elif t.key == 'customers' %}Customer{% else %}Product{% endif %}</th><th class="num">{% if t.key == 'inventory' %}Qty{% else %}Docs{% endif %}</th><th class="num">{{ t.what }}</th></tr></thead>
+            <tbody>
+              {% for r in t.rows %}
+              <tr>
+                <td class="text-ink-muted tabular-nums">{{ forloop.counter }}</td>
+                <td class="max-w-[16rem] truncate">{% if r.url %}<a href="{{ r.url }}" class="row-link">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
+                <td class="num text-ink-muted">{% if t.key == 'inventory' %}{{ r.qty|qty }}{% else %}{{ r.count }}{% endif %}</td>
+                <td class="num font-semibold">{{ r.amount|money }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        {% include "_includes/empty_state.html" with icon="inbox" title="Nothing in this period" text="Nothing was bought or sold in the period you chose." compact=True only %}
+        {% endif %}
+      </div>
+      {% endfor %}
+      <p class="mt-2 text-xs text-ink-muted">{{ period.label }} · {{ book }} · by value, largest first.</p>
     </section>
     {% endif %}
+
+    {# ── My statistics (opens from its tile) ── #}
+    {% if efficiency %}
+    <details id="my-stats" class="card group overflow-hidden" data-section>
+      <summary class="card-header cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+        <div><h2 class="card-title">My Statistics</h2><p class="card-subtitle">{{ period.label }} · mine, by month · {{ book }}</p></div>
+        <span class="text-ink-muted transition-transform group-open:rotate-180">{% include "_includes/icon.html" with name="chevron-down" cls="h-5 w-5" %}</span>
+      </summary>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table table-compact">
+          <thead><tr><th>Month</th><th class="num">Quotes</th><th class="num">Orders</th><th class="num">Invoiced</th><th class="num">Lost</th></tr></thead>
+          <tbody>
+            {% for r in efficiency.my_stats %}
+            <tr>
+              <td class="whitespace-nowrap">{{ r.month|date:"M Y" }}</td>
+              <td class="num">{{ r.quotes.0|money }} <span class="text-xs text-ink-muted">({{ r.quotes.1 }})</span></td>
+              <td class="num">{{ r.orders.0|money }} <span class="text-xs text-ink-muted">({{ r.orders.1 }})</span></td>
+              <td class="num">{{ r.invoiced.0|money }} <span class="text-xs text-ink-muted">({{ r.invoiced.1 }})</span></td>
+              <td class="num">{{ r.lost|money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot><tr><td>Total</td><td class="num">{{ efficiency.my_totals.quotes|money }}</td><td class="num">{{ efficiency.my_totals.orders|money }}</td><td class="num">{{ efficiency.my_totals.invoiced|money }}</td><td class="num">{{ efficiency.my_totals.lost|money }}</td></tr></tfoot>
+        </table>
+      </div>
+    </details>
+    {% endif %}
+
+    {# ── Company performance (opens from its tile): the KPIs, revenue chart and open documents, each gated as before ── #}
+    {% if show.receivables or show.payables or show.trading or show.open_invoices or show.open_bills or show.journals %}
+    <details id="company-performance" class="group space-y-0 rounded-card border border-line bg-surface-2" data-section>
+      <summary class="flex cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden justify-between gap-3 px-5 py-4 sm:px-6">
+        <div><h2 class="card-title">Company Performance</h2><p class="card-subtitle">Month to date and open documents · {{ book }}</p></div>
+        <span class="text-ink-muted transition-transform group-open:rotate-180">{% include "_includes/icon.html" with name="chevron-down" cls="h-5 w-5" %}</span>
+      </summary>
+      <div class="space-y-6 px-4 pb-5 sm:px-5">
+        {% if show.receivables or show.payables or show.trading %}
+        <div class="stat-grid 2xl:grid-cols-5">
+          {% if show.receivables %}{% url 'sales:ar_aging' as u %}
+            {% include "_includes/stat.html" with label="Receivables" value=accounts_receivable money=True currency=book meta="Owed to you · see aging" icon="receipt" tone="brand" url=u only %}{% endif %}
+          {% if show.payables %}{% url 'procurement:ap_aging' as u %}
+            {% include "_includes/stat.html" with label="Payables" value=accounts_payable money=True currency=book meta="You owe suppliers · see aging" icon="document" tone="warning" url=u only %}{% endif %}
+          {% if show.trading %}{% url 'reporting:profit_loss' as u %}
+            {% include "_includes/stat.html" with label="Revenue (MTD)" value=monthly_revenue money=True currency=book meta="Month to date" icon="trending-up" tone="success" url=u only %}
+            {% include "_includes/stat.html" with label="Expenses (MTD)" value=monthly_expenses money=True currency=book meta="Incl. cost of sales" icon="trending-down" tone="danger" url=u only %}
+            {% if net_profit_mtd < 0 %}
+            {% include "_includes/stat.html" with label="Net profit (MTD)" value=net_profit_mtd money=True currency=book meta="Revenue − expenses" icon="chart" tone="danger" trend="down" url=u only %}
+            {% else %}
+            {% include "_includes/stat.html" with label="Net profit (MTD)" value=net_profit_mtd money=True currency=book meta="Revenue − expenses" icon="chart" tone="success" trend="up" url=u only %}
+            {% endif %}
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% can_do "dashboard:sales_chart" as may_sales_chart %}
+        {% if may_sales_chart %}
+        <section class="card">
+          <div class="card-header"><div><h3 class="card-title">Revenue and expenses</h3><p class="card-subtitle">Last 12 months · {{ book }}</p></div></div>
+          <div class="card-body"><div class="relative h-60"><canvas id="chart-sales" aria-label="Monthly revenue and expenses chart" role="img"></canvas></div></div>
+        </section>
+        {% endif %}
+
+        <div class="grid grid-cols-1 gap-6 2xl:grid-cols-2">
+          {% if show.open_invoices %}
+          <section class="card overflow-hidden">
+            <div class="card-header">
+              <h3 class="card-title">Unpaid invoices</h3>
+              <a href="{% url 'sales:invoice_list' %}?status=SENT" class="card-link">View all →</a>
+            </div>
+            {% if open_invoices %}
+            <div class="table-wrap rounded-none border-0 shadow-none">
+              <table class="table table-compact">
+                <thead><tr><th>Customer</th><th>Reference</th><th>Due</th>{% if show.receivables %}<th class="num">Outstanding</th>{% else %}<th>Status</th>{% endif %}</tr></thead>
+                <tbody>
+                  {% for inv in open_invoices %}
+                  <tr>
+                    <td class="max-w-[12rem] truncate">{{ inv.customer.name }}</td>
+                    <td class="mono"><a href="{% url 'sales:invoice_detail' inv.pk %}" class="row-link">{{ inv.reference }}</a></td>
+                    <td class="whitespace-nowrap text-ink-2">{{ inv.due_date|date:"d M Y" }}</td>
+                    {% if show.receivables %}<td class="num font-semibold">{{ inv.outstanding_amount|money }} <span class="text-xs font-normal text-ink-muted">{{ inv.currency }}</span></td>{% else %}<td>{% status_badge inv.status inv.get_status_display %}</td>{% endif %}
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            {% include "_includes/empty_state.html" with icon="check-circle" title="No unpaid invoices" text="Every invoice has been settled." compact=True only %}
+            {% endif %}
+          </section>
+          {% endif %}
+
+          {% if show.open_bills %}
+          <section class="card overflow-hidden">
+            <div class="card-header">
+              <h3 class="card-title">Open bills</h3>
+              <a href="{% url 'procurement:bill_list' %}?status=RECEIVED" class="card-link">View all →</a>
+            </div>
+            {% if open_bills %}
+            <div class="table-wrap rounded-none border-0 shadow-none">
+              <table class="table table-compact">
+                <thead><tr><th>Supplier</th><th>Reference</th><th>Due</th>{% if show.payables %}<th class="num">Outstanding</th>{% else %}<th>Status</th>{% endif %}</tr></thead>
+                <tbody>
+                  {% for bill in open_bills %}
+                  <tr>
+                    <td class="max-w-[12rem] truncate">{{ bill.supplier.name }}</td>
+                    <td class="mono"><a href="{% url 'procurement:bill_detail' bill.pk %}" class="row-link">{{ bill.reference }}</a></td>
+                    <td class="whitespace-nowrap text-ink-2">{{ bill.due_date|date:"d M Y" }}</td>
+                    {% if show.payables %}<td class="num font-semibold">{{ bill.outstanding_amount|money }} <span class="text-xs font-normal text-ink-muted">{{ bill.currency }}</span></td>{% else %}<td>{% status_badge bill.status bill.get_status_display %}</td>{% endif %}
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            {% include "_includes/empty_state.html" with icon="check-circle" title="No open bills" text="Nothing is waiting to be paid." compact=True only %}
+            {% endif %}
+          </section>
+          {% endif %}
+        </div>
+
+        {% if show.journals %}
+        <section class="card">
+          <div class="card-header"><h3 class="card-title">Recent journal entries</h3></div>
+          {% if recent_journal_entries %}
+          <div class="list">
+            {% for e in recent_journal_entries %}
+            <a href="{% url 'accounting:journal_entry_detail' e.pk %}" class="list-row list-row-link">
+              <span class="list-row-icon tone-neutral">{% include "_includes/icon.html" with name="document" cls="h-4 w-4" %}</span>
+              <span class="min-w-0 flex-1">
+                <span class="mono block truncate font-medium text-ink">{{ e.reference }}</span>
+                <span class="block truncate text-xs text-ink-muted">{{ e.notes|truncatechars:48|default:"—" }}</span>
+              </span>
+              <span class="shrink-0 text-xs text-ink-muted">{{ e.posting_date|date:"d M" }}</span>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          {% include "_includes/empty_state.html" with icon="document" title="No entries yet" text="Posted journal entries show up here." compact=True only %}
+          {% endif %}
+        </section>
+        {% endif %}
+      </div>
+    </details>
+    {% endif %}
+
   </div>
 </div>
+
+{# ── Status strip ── #}
+<footer class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-ctl border border-line bg-surface px-4 py-2.5 text-xs text-ink-muted" aria-label="Status">
+  <span class="flex items-center gap-1.5">{% include "_includes/icon.html" with name="building" cls="h-3.5 w-3.5" %}<span class="font-semibold text-ink-2">{{ request.active_company.name }}</span></span>
+  <span class="flex items-center gap-1.5">{% include "_includes/icon.html" with name="user" cls="h-3.5 w-3.5" %}{{ request.user.full_name|default:request.user.email }}{% if company_role_label %} · {{ company_role_label }}{% endif %}</span>
+  <span class="flex items-center gap-1.5">{% include "_includes/icon.html" with name="calendar" cls="h-3.5 w-3.5" %}{{ period.label }}</span>
+  <span class="sm:ml-auto">{{ book }} · {{ request.active_company.timezone }}</span>
+</footer>
 
 {% endif %}
 {% endblock %}
@@ -269,49 +495,140 @@
 {% if request.active_company %}
 <script>
 (function () {
-  if (!window.Chart) return;
   const css = getComputedStyle(document.documentElement);
   const c = (name, a) => `rgb(${css.getPropertyValue('--c-' + name).trim()}${a !== undefined ? ' / ' + a : ''})`;
   const fmt = new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 });
   const fmt2 = new Intl.NumberFormat('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
-  Chart.defaults.font.size = 12;
-  Chart.defaults.color = c('ink-muted');
-  Chart.defaults.borderColor = c('divider');
+  const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const press = (group, btn) => group.forEach((b) => { const on = b === btn; b.classList.toggle('is-active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+
+  // Stats tiles open their section on this page.
+  document.querySelectorAll('[data-open]').forEach((a) => a.addEventListener('click', () => {
+    const d = document.getElementById(a.dataset.open); if (d) d.open = true;
+  }));
+  if (location.hash) { const d = document.querySelector(location.hash + '[data-section]'); if (d) d.open = true; }
+
+  // Top 20 tabs.
+  const tabs = Array.from(document.querySelectorAll('[data-top-tab]'));
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    tabs.forEach((x) => { const on = x === t; x.classList.toggle('is-active', on); x.setAttribute('aria-selected', on ? 'true' : 'false'); });
+    document.querySelectorAll('[data-top-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.topPanel !== t.dataset.topTab));
+  }));
+
+  if (window.Chart) {
+    Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = c('ink-muted');
+    Chart.defaults.borderColor = c('divider');
+  }
   const tooltip = { backgroundColor: c('hero'), titleColor: '#fff', bodyColor: c('on-hero-muted'), padding: 10, cornerRadius: 10, boxPadding: 4, callbacks: { label: (ctx) => `${ctx.dataset.label || 'Balance'}: ${fmt2.format(ctx.parsed.y)}` } };
   const yAxis = { beginAtZero: true, ticks: { callback: (v) => fmt.format(v) }, grid: { color: c('divider') }, border: { display: false } };
   const xAxis = { grid: { display: false }, border: { display: false } };
 
+  // Efficiency: sales vs lost sales, mine or the company's.
+  const effEl = document.getElementById('efficiency-data');
+  if (effEl && window.Chart) {
+    const eff = JSON.parse(effEl.textContent);
+    const box = document.querySelector('[data-eff-chart]'), empty = document.querySelector('[data-eff-empty]');
+    let chart = null;
+    const draw = (scope) => {
+      const s = eff[scope];
+      box.classList.toggle('hidden', s.empty); empty.classList.toggle('hidden', !s.empty);
+      if (s.empty) return;
+      const data = { labels: eff.labels, datasets: [
+        { label: 'Sales', data: s.sales, backgroundColor: c('success'), borderRadius: 6, maxBarThickness: 18 },
+        { label: 'Lost sales', data: s.lost, backgroundColor: c('danger'), borderRadius: 6, maxBarThickness: 18 }] };
+      if (chart) { chart.data = data; chart.update(); return; }
+      chart = new Chart(document.getElementById('chart-efficiency'), { type: 'bar', data,
+        options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } }, tooltip },
+          scales: { x: xAxis, y: yAxis } } });
+    };
+    const btns = Array.from(document.querySelectorAll('[data-eff-scope]'));
+    btns.forEach((b) => b.addEventListener('click', () => { press(btns, b); draw(b.dataset.effScope); }));
+    draw('mine');
+  }
+
+  // Revenue and expenses (company performance).
   const sales = document.getElementById('chart-sales');
-  if (sales) {
+  if (sales && window.Chart) {
     fetch("{% url 'dashboard:sales_chart' %}", { headers: { Accept: 'application/json' } })
       .then(r => r.ok ? r.json() : null).then(d => {
         if (!d) return;
-        // Brand palette: revenue red, expenses warm neutral.
         const tones = [c('brand'), c('line-strong')];
-        new Chart(sales, {
-          type: 'bar',
-          data: { labels: d.labels, datasets: d.datasets.map((s, i) => ({
-            label: s.label, data: s.data, backgroundColor: tones[i % 2], borderRadius: 6, maxBarThickness: 16 })) },
+        new Chart(sales, { type: 'bar',
+          data: { labels: d.labels, datasets: d.datasets.map((s, i) => ({ label: s.label, data: s.data, backgroundColor: tones[i % 2], borderRadius: 6, maxBarThickness: 16 })) },
           options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } }, tooltip },
-            scales: { x: xAxis, y: yAxis } },
-        });
+            scales: { x: xAxis, y: yAxis } } });
       }).catch(() => {});
   }
-  const cash = document.getElementById('chart-cash');
-  if (cash) {
-    fetch("{% url 'dashboard:cashflow_chart' %}", { headers: { Accept: 'application/json' } })
-      .then(r => r.ok ? r.json() : null).then(d => {
-        if (!d) return;
-        new Chart(cash, {
-          type: 'line',
-          data: { labels: d.labels, datasets: [{ label: 'Cash', data: d.data, borderColor: c('credit'), backgroundColor: c('credit', 0.10),
-            fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: c('credit') }] },
-          options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip },
-            scales: { x: xAxis, y: Object.assign({}, yAxis, { beginAtZero: false }) } },
-        });
-      }).catch(() => {});
+
+  // Calendar: month grid (required), week and day lists.
+  const calEl = document.getElementById('calendar-data');
+  if (calEl) {
+    const first = JSON.parse(calEl.textContent);
+    const cache = { [first.month]: first.events };
+    const today = first.today;
+    const grid = document.querySelector('[data-cal-grid]'), list = document.querySelector('[data-cal-list]'), label = document.querySelector('[data-cal-label]');
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d || 1); };
+    const mkey = (d) => iso(d).slice(0, 7);
+    let view = 'month', cursor = parse(today), selected = today;
+    const load = (key) => cache[key] ? Promise.resolve(cache[key]) :
+      fetch("{% url 'dashboard:calendar' %}?month=" + key, { headers: { Accept: 'application/json' } })
+        .then(r => r.ok ? r.json() : { events: [] }).then(d => (cache[key] = d.events || []));
+    const eventsOn = (day) => (cache[day.slice(0, 7)] || []).filter((e) => e.date === day);
+    const item = (e) => `<li class="flex items-start gap-2 py-1.5"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full ${e.tone}"></span><span class="min-w-0 flex-1"><span class="block truncate text-sm font-semibold text-ink">${e.url ? `<a class="hover:underline" href="${esc(e.url)}">${esc(e.title)}</a>` : esc(e.title)}</span><span class="block truncate text-xs text-ink-muted">${esc(e.label)} · ${esc(e.meta || '')}</span></span></li>`;
+    const dayList = (day) => {
+      const evs = eventsOn(day);
+      const head = `<p class="mb-1 text-xs font-semibold text-ink-muted">${parse(day).toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>`;
+      return head + (evs.length ? `<ul class="divide-y divide-divider">${evs.map(item).join('')}</ul>` : '<p class="text-xs text-ink-muted">Nothing on this day.</p>');
+    };
+    const weekStart = (d) => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+    const draw = () => {
+      const days = [];
+      if (view === 'month') {
+        label.textContent = cursor.toLocaleDateString('en-KE', { month: 'long', year: 'numeric' });
+        const start = weekStart(new Date(cursor.getFullYear(), cursor.getMonth(), 1));
+        for (let i = 0; i < 42; i++) { const d = new Date(start); d.setDate(start.getDate() + i); days.push(d); }
+        const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        grid.className = 'grid grid-cols-7 gap-1 text-center text-xs';
+        grid.innerHTML = names.map((n) => `<div class="py-1 font-semibold text-ink-muted" role="columnheader">${n}</div>`).join('') + days.map((d) => {
+          const k = iso(d), evs = eventsOn(k), inMonth = d.getMonth() === cursor.getMonth();
+          const tones = [...new Set(evs.map((e) => e.tone))].slice(0, 4);
+          const cls = k === selected ? 'bg-brand text-white' : (k === today ? 'bg-brand-50 text-brand-ink font-bold' : (inMonth ? 'text-ink hover:bg-surface-2' : 'text-ink-faint hover:bg-surface-2'));
+          return `<button type="button" role="gridcell" data-day="${k}" aria-label="${d.toDateString()}${evs.length ? ', ' + evs.length + ' item' + (evs.length > 1 ? 's' : '') : ''}" class="flex h-11 flex-col items-center justify-center gap-0.5 rounded-[10px] text-xs font-semibold transition-colors sm:h-12 ${cls}"><span>${d.getDate()}</span><span class="flex h-1.5 gap-0.5">${tones.map((t) => `<span class="h-1.5 w-1.5 rounded-full ${t} ${k === selected ? 'ring-1 ring-white' : ''}"></span>`).join('')}</span></button>`;
+        }).join('');
+        list.innerHTML = dayList(selected);
+      } else if (view === 'week') {
+        const start = weekStart(parse(selected));
+        for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(start.getDate() + i); days.push(iso(d)); }
+        label.textContent = 'Week of ' + parse(days[0]).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
+        grid.className = 'space-y-2 text-left';
+        grid.innerHTML = days.map((k) => `<div class="rounded-[12px] border border-divider p-2${k === today ? ' bg-brand-50' : ''}">${dayList(k)}</div>`).join('');
+        list.innerHTML = '';
+      } else {
+        label.textContent = parse(selected).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' });
+        grid.className = 'text-left'; grid.innerHTML = dayList(selected); list.innerHTML = '';
+      }
+    };
+    const needed = () => {
+      if (view === 'month') return [mkey(cursor)];
+      if (view === 'week') { const s = weekStart(parse(selected)); const e = new Date(s); e.setDate(s.getDate() + 6); return [...new Set([mkey(s), mkey(e)])]; }
+      return [selected.slice(0, 7)];
+    };
+    const refresh = () => Promise.all(needed().map(load)).then(draw);
+    grid.addEventListener('click', (ev) => { const b = ev.target.closest('[data-day]'); if (!b) return; selected = b.dataset.day; draw(); });
+    document.querySelectorAll('[data-cal-nav]').forEach((b) => b.addEventListener('click', () => {
+      const step = Number(b.dataset.calNav);
+      if (view === 'month') { cursor = new Date(cursor.getFullYear(), cursor.getMonth() + step, 1); }
+      else { const d = parse(selected); d.setDate(d.getDate() + step * (view === 'week' ? 7 : 1)); selected = iso(d); cursor = new Date(d.getFullYear(), d.getMonth(), 1); }
+      refresh();
+    }));
+    const vbtns = Array.from(document.querySelectorAll('[data-cal-view]'));
+    vbtns.forEach((b) => b.addEventListener('click', () => { press(vbtns, b); view = b.dataset.calView; if (view === 'month') cursor = parse(selected.slice(0, 7) + '-01'); refresh(); }));
+    draw();
   }
 })();
 </script>

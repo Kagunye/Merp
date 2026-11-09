@@ -138,6 +138,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ctx.update(self._get_dashboard_widgets(company, show))
         if show["trading"]:
             ctx["net_profit_mtd"] = ctx.get("monthly_revenue", 0) - ctx.get("monthly_expenses", 0)
+        # The "My Performance" workspace: period, tiles, gauge, efficiency,
+        # tasks, approvals, calendar and top 20 (apps/core/performance.py).
+        from . import performance
+        ctx.update(performance.build(self.request, may))
+        ctx["page_title"] = "My Performance"
         return ctx
 
     def _get_dashboard_widgets(self, company, show=None):
@@ -557,6 +562,26 @@ def cashflow_chart_widget(request):
         cash_data.append(balance)
 
     return JsonResponse({"labels": labels, "data": cash_data})
+
+
+@login_required
+def calendar_widget(request):
+    """JSON: one month of the dashboard calendar (?month=YYYY-MM).
+
+    Each kind of item is listed only for a role that may open its list, and
+    each link only where the role may open the record, as on the page.
+    """
+    from . import performance
+    company = request.active_company
+    if not company:
+        return JsonResponse({"month": "", "label": "", "events": []})
+    may = page_rights(request)
+    today = performance.company_today(company)
+    month = performance.parse_month(request.GET.get("month"), today)
+    data = performance.calendar_events(
+        company, request.user, month, may, money=may("sales:ar_aging"))
+    data["today"] = today.isoformat()
+    return JsonResponse(data)
 
 
 @login_required

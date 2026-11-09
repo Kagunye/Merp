@@ -210,6 +210,9 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("dashboard", "recent_transactions", FINANCE | AUDIT, NOBODY),
     ("dashboard", "cashflow_chart", FINANCE | AUDIT, NOBODY),
     ("dashboard", "sales_chart", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
+    # The workspace calendar is everybody's; the view lists each kind of item
+    # only for a role that may open its list.
+    ("dashboard", "calendar", EVERYONE, NOBODY),
     # The living UI style guide is for platform administrators (who bypass the
     # table); the view also refuses company ADMINs, who bypass it too.
     ("dashboard", "style_guide", NOBODY, NOBODY),
