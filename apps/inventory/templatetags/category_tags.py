@@ -12,7 +12,9 @@ def category_nodes(context, company=None):
     The company is the one passed, or else the request's active company.
     """
     from apps.inventory.models import ProductCategory
-    if company is None:
+    from apps.organizations.models import Company
+    if not isinstance(company, Company):
+        # Unset (or unresolved, which a template hands over as "").
         request = context.get("request")
         company = getattr(request, "active_company", None)
     if company is None:
