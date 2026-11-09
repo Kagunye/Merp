@@ -82,6 +82,16 @@ two cashiers at two branches of one company:
                                      opening back with it; a card refund goes
                                      back through the account the sale was
                                      banked in; the till list is ordered
+   25. the full-screen till       -> the old ticket post still rings, with a
+                                     salesperson and a reference
+   26. line discounts             -> supervisors only; revenue and VAT at the
+                                     discounted figure, cost of sales at cost
+   27. payouts and pay-ins        -> Dr expense / Cr till and back; the drawer
+                                     and the cash-up count them; once per form
+   28. the item lookup            -> this company's active goods, 25 a page,
+                                     a category and everything under it
+   29. lock station               -> unlock with the cashier's password, with
+                                     the sign-in lockout
 """
 import datetime
 import re
@@ -361,6 +371,7 @@ class Command(BaseCommand):
         self.check_takings_accounts()
         self.check_cross_branch_refund_cost()
         self.check_central_cash_floor()
+        self.check_till_terminal()
 
         self.section("11. The book after it all")
         dr, cr = self.book_balances()
@@ -1917,3 +1928,332 @@ class Command(BaseCommand):
                     response.status_code == 200 and ctx["paginator"].object_list.ordered
                     and listed == sorted(listed, key=lambda s: s.opened_at, reverse=True),
                     f"HTTP {response.status_code}")
+
+    # ──────────────────────── 25-29. the full-screen till ────────────────────
+
+    def entry_lines(self, entry):
+        """{account code: debit - credit} on one journal entry."""
+        out = {}
+        if entry is None:
+            return out
+        for line in entry.lines.select_related("account"):
+            out[line.account.code] = (out.get(line.account.code, Z)
+                                      + line.debit_amount - line.credit_amount)
+        return out
+
+    def till_client(self, user, ip):
+        client = Client(raise_request_exception=False, REMOTE_ADDR=ip)
+        client.force_login(user, backend="django.contrib.auth.backends.ModelBackend")
+        return client
+
+    def check_till_terminal(self):
+        from apps.inventory.models import StockLevel
+        from apps.pos.models import POSCashMovement
+
+        self.section("25. The full-screen till still rings the old post, with a salesperson")
+        self.till_cashier = self.make_user("cash.till", "POS_CASHIER", self.hq)
+        self.till_sup = self.make_user("sup.till", "SALES_MANAGER", self.hq)
+        cashier = self.till_client(self.till_cashier, "10.25.0.1")
+        sup = self.till_client(self.till_sup, "10.25.0.2")
+        self.c_till, self.c_sup = cashier, sup
+        till = self.open_till(cashier, self.till_cashier, float_="1000")
+        sup_till = self.open_till(sup, self.till_sup, float_="1000")
+        if not self.expect("a cashier and a supervisor each open a till", till and sup_till):
+            return
+        page = cashier.get(reverse("pos:terminal"))
+        body = page.content.decode("utf-8", "replace")
+        self.expect("the terminal renders the till screen with its function keys",
+                    page.status_code == 200 and 'data-fn="tender"' in body
+                    and 'id="pos-products"' in body and "F12" in body, f"HTTP {page.status_code}")
+        self.expect("a cashier sees Apply Discount disabled with the reason",
+                    'data-fn="discount" aria-disabled="true"' in body)
+        sup_body = sup.get(reverse("pos:terminal")).content.decode("utf-8", "replace")
+        self.expect("a supervisor's Apply Discount is live",
+                    'data-fn="discount" aria-disabled' not in sup_body)
+
+        response, sale = self.ring(cashier, {self.milk: "2"}, payment_method="CASH",
+                                   amount_tendered="200", salesperson=str(self.till_sup.pk),
+                                   customer_reference="LPO-77", notes="till check")
+        self.expect("the ticket post (qty_<pk>, ticket_token, tendered) still rings",
+                    sale is not None and sale.total_amount == D("139.20")
+                    and sale.change_given == D("60.80"), f"HTTP {response.status_code}")
+        if sale:
+            self.expect("and keeps the salesperson and the reference on the ticket",
+                        sale.salesperson_id == self.till_sup.pk
+                        and sale.customer_reference == "LPO-77")
+            lines = self.entry_lines(sale.journal_entry)
+            self.expect("and books Dr till 139.20 / Cr revenue 120 / Cr VAT 19.20",
+                        lines.get("1100") == D("139.20") and lines.get("4200") == D("-120.00")
+                        and lines.get("2200") == D("-19.20"), str(lines))
+        outsider = self.make_user("not.staff")
+        response, stranger = self.ring(cashier, {self.milk: "1"},
+                                       salesperson=str(outsider.pk))
+        self.expect("a salesperson from outside the company is refused, not rung",
+                    stranger is None and response.status_code == 200
+                    and any("salesperson" in m for m in self.flash(response)),
+                    str(self.flash(response)))
+
+        self.section("26. A line discount: supervisors only, booked at the discounted figure")
+        response, refused = self.ring(cashier, {self.sugar: "2"}, **{f"disc_{self.sugar.pk}": "10"})
+        self.expect("a cashier's discount is refused and nothing is rung",
+                    refused is None and any("supervisor" in m.lower() for m in self.flash(response)),
+                    str(self.flash(response)))
+        response, zero = self.ring(cashier, {self.milk: "1"}, **{f"disc_{self.milk.pk}": "0"})
+        self.expect("a zero discount from a cashier is no discount, and rings",
+                    zero is not None and zero.discount_amount == Z)
+        for bad in ("150", "-5", "abc", "100"):
+            response, odd = self.ring(sup, {self.sugar: "1"}, **{f"disc_{self.sugar.pk}": bad})
+            self.expect(f"a discount of {bad!r} is refused with a message",
+                        odd is None and response.status_code == 200 and self.flash(response),
+                        str(self.flash(response)))
+        level = StockLevel.objects.get(product=self.sugar, warehouse=self.wh_hq)
+        avg = level.avg_cost
+        cogs0, inv0 = self.balance("5000"), self.balance("1400")
+        response, disc = self.ring(sup, {self.sugar: "2", self.milk: "1"},
+                                   **{f"disc_{self.sugar.pk}": "10"})
+        if not self.expect("a supervisor rings 2 sugar at 10% off with a milk",
+                           disc is not None, str(self.flash(response))):
+            return
+        line = disc.lines.get(product=self.sugar)
+        self.expect("the line keeps 10% and 40.00 off 400.00; VAT on the 360.00",
+                    line.discount_percent == D("10") and line.discount_amount == D("40.00")
+                    and line.tax_amount == D("57.60") and line.line_total == D("417.60"),
+                    f"{line.discount_percent}% {line.discount_amount} tax {line.tax_amount} "
+                    f"total {line.line_total}")
+        self.expect("the ticket totals: subtotal 420.00, discount 40.00, VAT 67.20, total 487.20",
+                    disc.subtotal == D("420.00") and disc.discount_amount == D("40.00")
+                    and disc.tax_amount == D("67.20") and disc.total_amount == D("487.20"),
+                    f"{disc.subtotal} / {disc.discount_amount} / {disc.tax_amount} / "
+                    f"{disc.total_amount}")
+        lines = self.entry_lines(disc.journal_entry)
+        self.expect("revenue and VAT are credited at the discounted amounts",
+                    lines.get("1100") == D("487.20") and lines.get("4200") == D("-420.00")
+                    and lines.get("2200") == D("-67.20") and sum(lines.values()) == Z,
+                    str(lines))
+        cost = (avg * 2).quantize(D("0.01")) + D("40.00")
+        self.expect("cost of sales stays at cost — the discount never reaches it",
+                    self.balance("5000") - cogs0 == cost and inv0 - self.balance("1400") == cost,
+                    f"COGS +{self.balance('5000') - cogs0}, inventory "
+                    f"-{inv0 - self.balance('1400')}, expected {cost}")
+        response, back = self.refund(sup, disc, {self.sugar: "1"})
+        self.expect("a refund of a discounted line pays back what was paid (208.80)",
+                    back is not None and back.total_amount == D("208.80"),
+                    str(back.total_amount if back else self.flashes(sup, response)))
+
+        self.section("27. Payouts and pay-ins move the drawer and the ledger")
+        till.refresh_from_db()
+        drawer0, cash0, exp0 = till.expected_cash, self.balance("1100"), self.balance("6000")
+
+        def move(client, session, direction, amount, reason="Delivery fare", account=None,
+                 token=None, **extra):
+            data = {"direction": direction, "amount": amount, "reason": reason,
+                    "movement_token": token if token is not None else self.form_token(
+                        client, reverse("pos:terminal"), "movement_token")}
+            if account is not None:
+                data["account"] = account
+            data.update(extra)
+            return client.post(reverse("pos:cash_movement", args=[session.pk]), data)
+
+        import uuid
+        token = uuid.uuid4().hex
+        first = move(cashier, till, "OUT", "300", token=token)
+        move(cashier, till, "OUT", "300", token=token)
+        payouts = POSCashMovement.objects.filter(session=till, direction="OUT")
+        out = payouts.first()
+        self.expect("a payout is recorded once, however often the form is sent",
+                    first.status_code == 302 and payouts.count() == 1, str(payouts.count()))
+        if out:
+            lines = self.entry_lines(out.journal_entry)
+            self.expect("the payout books Dr expense (6000) 300 / Cr till (1100) 300",
+                        lines == {"6000": D("300.00"), "1100": D("-300.00")}
+                        and out.journal_entry.status == "POSTED"
+                        and out.journal_entry.posting_date == timezone.localdate(), str(lines))
+        till.refresh_from_db()
+        self.expect("and the drawer is expected to hold 300 less",
+                    till.expected_cash == drawer0 - D("300"),
+                    f"{drawer0} -> {till.expected_cash}")
+        self.expect("the ledger's till and expense accounts moved by the same 300",
+                    cash0 - self.balance("1100") == D("300") and self.balance("6000") - exp0 == D("300"))
+        before = POSCashMovement.objects.filter(session=till).count()
+        response = move(cashier, till, "OUT", str(till.expected_cash + 1))
+        self.expect("a payout larger than the drawer holds is refused",
+                    POSCashMovement.objects.filter(session=till).count() == before
+                    and any("cannot pay out" in m for m in self.flashes(cashier, response)))
+        for label, amount, reason in [("a zero amount", "0", "x"), ("words", "lots", "x"),
+                                      ("no reason", "10", "")]:
+            response = move(cashier, till, "OUT", amount, reason=reason)
+            self.expect(f"a payout with {label} is refused, not a server error",
+                        response.status_code == 302
+                        and POSCashMovement.objects.filter(session=till).count() == before)
+        revenue = self.account("4200")
+        response = move(cashier, till, "OUT", "10", account=str(revenue.pk))
+        self.expect("a payout cannot be booked against a revenue account",
+                    POSCashMovement.objects.filter(session=till).count() == before)
+        response = move(cashier, till, "OUT", "10", token="")
+        self.expect("a payout without its one-time token is refused",
+                    POSCashMovement.objects.filter(session=till).count() == before)
+        equity = self.account("3100")
+        cap0 = self.balance("3100")
+        move(cashier, till, "IN", "1000", reason="Float top-up from the owner",
+             account=str(equity.pk))
+        pay_in = POSCashMovement.objects.filter(session=till, direction="IN").first()
+        lines = self.entry_lines(pay_in.journal_entry if pay_in else None)
+        self.expect("a pay-in books Dr till (1100) 1000 / Cr float equity (3100) 1000",
+                    lines == {"1100": D("1000.00"), "3100": D("-1000.00")}
+                    and cap0 - self.balance("3100") == D("1000"), str(lines))
+        till.refresh_from_db()
+        self.expect("and the drawer is expected to hold 1000 more",
+                    till.expected_cash == drawer0 - D("300") + D("1000"), str(till.expected_cash))
+        report = self.c_till.get(reverse("pos:cash_up", args=[till.pk])).context["report"]
+        self.expect("the cash-up shows float + cash sales - cash refunds - payouts + pay-ins",
+                    report["paid_out"] == D("300.00") and report["paid_in"] == D("1000.00")
+                    and report["expected_cash"] == report["opening_cash"] + report["cash_taken"]
+                    - report["cash_given"] - D("300") + D("1000")
+                    and report["expected_cash"] == till.expected_cash, str(report["expected_cash"]))
+        page = cashier.get(reverse("pos:session_detail", args=[till.pk]))
+        self.expect("the session page lists the payout and the pay-in",
+                    out is not None and pay_in is not None
+                    and out.reference in page.content.decode()
+                    and pay_in.reference in page.content.decode())
+        n = POSCashMovement.objects.filter(session=till).count()
+        move(self.c_msa, till, "OUT", "5", token=uuid.uuid4().hex)
+        self.expect("another cashier cannot pay money out of this drawer",
+                    POSCashMovement.objects.filter(session=till).count() == n)
+        response = move(self.c_acct, till, "OUT", "5", token=uuid.uuid4().hex)
+        self.expect("an accountant is stopped at the door",
+                    response.status_code == 403
+                    and POSCashMovement.objects.filter(session=till).count() == n,
+                    f"HTTP {response.status_code}")
+        move(sup, till, "OUT", "20", reason="Milk for the office", token=uuid.uuid4().hex,
+             next="session")
+        self.expect("a supervisor can pay out of the cashier's drawer on their behalf",
+                    POSCashMovement.objects.filter(session=till).count() == n + 1)
+        till.refresh_from_db()
+        counted = till.expected_cash
+        cashier.post(reverse("pos:session_close", args=[till.pk]),
+                     {"closing_cash": str(counted), "then": "cash_up"})
+        till.refresh_from_db()
+        self.expect("a drawer counted at float + sales - payouts + pay-ins closes with no variance",
+                    till.status == "CLOSED" and till.variance == Z and not till.variance_entry_id,
+                    f"variance {till.variance}")
+        response = move(sup, till, "OUT", "5", token=uuid.uuid4().hex)
+        self.expect("a closed drawer takes no payout",
+                    POSCashMovement.objects.filter(session=till).count() == n + 1)
+
+        self.section("28. The item lookup: this company's active goods, 25 a page")
+        self.check_item_lookup(sup)
+
+        self.section("29. Lock Station: unlock with the cashier's password, with the lockout")
+        self.check_unlock()
+
+        dr, cr = self.book_balances()
+        self.expect("the book balances after the till checks", dr == cr, f"Dr {dr} / Cr {cr}")
+
+    def check_item_lookup(self, client):
+        from apps.inventory.models import Product, ProductCategory, UnitOfMeasure
+        from apps.organizations.models import Company
+
+        uom = UnitOfMeasure.objects.filter(company=self.company).first()
+        drinks = ProductCategory.objects.create(company=self.company, name="DRINKS")
+        carb = ProductCategory.objects.create(company=self.company, name="Carbonated", parent=drinks)
+        sugar = ProductCategory.objects.create(company=self.company, name="Sugar", parent=carb)
+        food = ProductCategory.objects.create(company=self.company, name="FOOD")
+        made = []
+        for i in range(30):
+            cat = (drinks, carb, sugar)[i % 3]
+            made.append(Product.objects.create(
+                company=self.company, sku=f"LKP-{i:02d}", barcode=f"6001{i:04d}",
+                name=f"Lookup soda {i:02d}", category=cat, unit_of_measure=uom,
+                selling_price=D("16.50"), cost_price=D("10")))
+        Product.objects.create(company=self.company, sku="LKP-FOOD", name="Lookup bread",
+                               category=food, unit_of_measure=uom, selling_price=D("60"))
+        Product.objects.create(company=self.company, sku="LKP-OLD", name="Lookup soda retired",
+                               category=sugar, unit_of_measure=uom, selling_price=D("10"),
+                               is_active=False)
+        other = Company.objects.exclude(pk=self.company.pk).first()
+        if other is not None:
+            other_uom = (UnitOfMeasure.objects.filter(company=other).first()
+                         or UnitOfMeasure.objects.create(company=other, name="Pieces",
+                                                         abbreviation="PCS", is_base=True))
+            Product.objects.create(company=other, sku="LKP-ELSEWHERE", name="Lookup soda abroad",
+                                   unit_of_measure=other_uom, selling_price=D("1"))
+
+        url = reverse("pos:item_lookup")
+        data = client.get(url, {"q": "lookup soda"}).json()
+        skus = {r["sku"] for r in data["results"]}
+        self.expect("30 matches, 25 on the first page, two pages",
+                    data["count"] == 30 and len(data["results"]) == 25 and data["num_pages"] == 2,
+                    f"{data['count']} / {len(data['results'])} / {data['num_pages']}")
+        self.expect("another company's product and a retired one are never listed",
+                    "LKP-ELSEWHERE" not in skus and "LKP-OLD" not in skus)
+        page2 = client.get(url, {"q": "lookup soda", "page": "2"}).json()
+        self.expect("the second page holds the last 5",
+                    page2["page"] == 2 and len(page2["results"]) == 5
+                    and not ({r["sku"] for r in page2["results"]} & skus))
+        junk = client.get(url, {"q": "lookup soda", "page": "abc"}).json()
+        self.expect("a page that is not a number answers page 1", junk["page"] == 1)
+        row = data["results"][0]
+        self.expect("each row carries sku, barcode, name, unit, price, tax rate, on hand, image",
+                    all(k in row for k in ("sku", "barcode", "name", "unit", "price", "tax_rate",
+                                           "on_hand", "image")))
+        top = client.get(url, {"category": str(drinks.pk)}).json()
+        mid = client.get(url, {"category": str(carb.pk)}).json()
+        leaf = client.get(url, {"category": str(sugar.pk)}).json()
+        self.expect("a category takes in everything under it (30 / 20 / 10)",
+                    top["count"] == 30 and mid["count"] == 20 and leaf["count"] == 10,
+                    f"{top['count']} / {mid['count']} / {leaf['count']}")
+        exact = client.get(url, {"q": "60010007", "exact": "1"}).json()
+        self.expect("a scanned barcode finds exactly its product",
+                    exact["count"] == 1 and exact["results"][0]["sku"] == "LKP-07")
+        shelf = client.get(url, {"q": "Sugar 1kg", "warehouse": str(self.wh_msa.pk),
+                                 "stock": "all"}).json()
+        self.expect("a Head Office till cannot count on another branch's shelf, but the price "
+                    "check sees stock everywhere",
+                    shelf["warehouse"] and shelf["warehouse"]["id"] == str(self.wh_hq.pk)
+                    and len(shelf["results"][0]["stock"]) >= 2, str(shelf.get("warehouse")))
+        response = self.c_acct.get(url, {"q": "lookup"})
+        self.expect("an accountant cannot use the till's lookup",
+                    response.status_code == 403, f"HTTP {response.status_code}")
+        response = self.c_till.get(url, {"q": "lookup"})
+        self.expect("a cashier can", response.status_code == 200, f"HTTP {response.status_code}")
+
+    def check_unlock(self):
+        from apps.pos.models import POSSale
+
+        user = self.make_user("cash.lock", "POS_CASHIER", self.hq)
+        client = self.till_client(user, "10.29.0.9")
+        till = self.open_till(client, user, float_="100")
+        if not self.expect("a cashier opens a till to lock", till is not None):
+            return
+        response = client.post(reverse("pos:lock"))
+        self.expect("F7 locks the station", response.status_code == 200 and response.json()["ok"])
+        page = client.get(reverse("pos:terminal"))
+        self.expect("a reload still shows the lock screen",
+                    page.context and page.context["locked"] is True)
+        before = POSSale.objects.filter(session=till).count()
+        self.ring(client, {self.milk: "1"})
+        self.expect("a locked till rings nothing",
+                    POSSale.objects.filter(session=till).count() == before)
+        wrong = client.post(reverse("pos:unlock"), {"password": "not-it"})
+        self.expect("a wrong password is refused and the till stays locked",
+                    wrong.status_code == 403 and client.get(reverse("pos:terminal")).context["locked"])
+        right = client.post(reverse("pos:unlock"), {"password": "fix-pos-pw"})
+        self.expect("the cashier's own password unlocks it",
+                    right.status_code == 200 and right.json()["ok"]
+                    and client.get(reverse("pos:terminal")).context["locked"] is False)
+        response, sale = self.ring(client, {self.milk: "1"})
+        self.expect("and the till rings again", sale is not None)
+        client.post(reverse("pos:lock"))
+        for _ in range(5):
+            client.post(reverse("pos:unlock"), {"password": "guess"})
+        locked = client.post(reverse("pos:unlock"), {"password": "fix-pos-pw"})
+        self.expect("five wrong passwords lock unlocking out, even with the right one next",
+                    locked.status_code == 429 and locked.json().get("locked_out"),
+                    f"HTTP {locked.status_code}")
+        from apps.accounts.views import login_locked_out
+        self.expect("through the same lockout the sign-in page uses",
+                    login_locked_out(user.email, "10.29.0.9"))
+        other = self.till_client(self.till_cashier, "10.29.0.10")
+        self.expect("a colleague's unlock does not lift this lock (it is per session)",
+                    other.post(reverse("pos:unlock"), {"password": "fix-pos-pw"}).status_code == 200
+                    and client.get(reverse("pos:terminal")).context["locked"] is True)
