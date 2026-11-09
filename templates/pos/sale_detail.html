@@ -22,6 +22,8 @@
           <div><dt>Cashier</dt><dd>{{ sale.session.cashier.get_full_name|default:sale.session.cashier.username }}</dd></div>
           <div><dt>Customer</dt><dd>{{ sale.customer.name|default:"Counter sale" }}</dd></div>
           <div><dt>Paid by</dt><dd>{{ sale.get_payment_method_display }}</dd></div>
+          {% if sale.salesperson %}<div><dt>Served by</dt><dd>{{ sale.salesperson.get_full_name|default:sale.salesperson.username }}</dd></div>{% endif %}
+          {% if sale.customer_reference %}<div><dt>Reference</dt><dd class="mono">{{ sale.customer_reference }}</dd></div>{% endif %}
         </dl>
       </div>
       <div class="table-wrap border-t border-line">
@@ -32,7 +34,7 @@
             <tr>
               <td><p class="font-medium">{{ l.product.name }}</p><p class="mono text-xs text-ink-muted">{{ l.product.sku }}{% if l.tax_rate %} · VAT {{ l.tax_rate.rate|trim_qty }}%{% endif %}</p></td>
               <td class="num">{{ l.quantity|with_unit:l.product.unit_of_measure }}</td>
-              <td class="num">{{ l.unit_price|money }}</td>
+              <td class="num">{{ l.unit_price|money }}{% if l.discount_percent %}<p class="text-xs text-success">less {{ l.discount_percent|pct:2 }} (−{{ l.discount_amount|money }})</p>{% endif %}</td>
               <td class="num text-ink-muted">{{ l.tax_amount|money }}</td>
               <td class="num font-semibold">{{ l.line_total|money }}</td>
             </tr>
@@ -44,8 +46,8 @@
       </div>
       <div class="flex justify-end border-t border-line px-5 py-3">
         <dl class="dl-rows w-full sm:max-w-xs">
-          <div><dt>Subtotal</dt><dd>{{ sale.subtotal|money }}</dd></div>
-          {% if sale.discount_amount %}<div><dt>Discount</dt><dd class="text-success">- {{ sale.discount_amount|money }}</dd></div>{% endif %}
+          {% if sale.discount_amount %}<div><dt>Discount given</dt><dd class="text-success">- {{ sale.discount_amount|money }}</dd></div>{% endif %}
+          <div><dt>Subtotal{% if sale.discount_amount %} after discount{% endif %}</dt><dd>{{ sale.subtotal|money }}</dd></div>
           <div><dt>VAT</dt><dd>{{ sale.tax_amount|money }}</dd></div>
           <div><dt class="font-semibold text-ink">Total</dt><dd class="text-xl font-bold{% if sale.refund_of %} text-danger{% endif %}">{{ sale.total_amount|money }}</dd></div>
         </dl>

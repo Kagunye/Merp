@@ -233,6 +233,10 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
     def get(self, request, *args, **kwargs):
         company = request.active_company
         cashier_session = services.active_session(company, request.user)
+        if not cashier_session:
+            # No drawer, no till: the ordinary page shell with the way to open one.
+            return render(request, "pos/terminal_closed.html",
+                          {"page_title": "Till", "session": None})
         return render(request, self.template_name,
                       self.get_context_data(cashier_session, company))
 

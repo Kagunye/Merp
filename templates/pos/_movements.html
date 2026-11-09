@@ -1,0 +1,23 @@
+{% load ui_extras %}
+<section class="card overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Payouts and pay-ins</h2><span class="text-xs text-ink-muted">Out {{ report.paid_out|money }} · in {{ report.paid_in|money }}</span></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Ref</th><th>When</th><th>What for</th><th>Booked against</th><th>Entry</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        {% for m in report.movements %}
+        <tr>
+          <td class="mono">{{ m.reference }} <span class="badge {% if m.direction == 'OUT' %}badge-danger{% else %}badge-success{% endif %} ml-1">{{ m.get_direction_display }}</span></td>
+          <td class="whitespace-nowrap text-xs text-ink-muted">{{ m.created_at|date:"d M, H:i" }} · {{ m.performed_by.get_full_name|default:m.performed_by.username }}</td>
+          <td>{{ m.reason }}</td>
+          <td class="text-xs text-ink-2">{{ m.account.code }} {{ m.account.name }}</td>
+          <td class="mono text-xs">{{ m.journal_entry.reference|default:"—" }}</td>
+          <td class="num font-semibold{% if m.direction == 'OUT' %} text-danger{% endif %}">{% if m.direction == 'OUT' %}−{% endif %}{{ m.amount|money }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="cash" title="No money was paid into or out of this drawer." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

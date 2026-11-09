@@ -1,0 +1,10 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'pos:home' as back %}
+{% include "_includes/page_header.html" with title="Till" subtitle="Ring up a counter sale — priced off the product card" back_url=back back_label="Point of Sale" hide_print=True %}
+<section class="card max-w-2xl">
+  {% can_do "pos:session_open" "POST" as may_open %}{% if may_open %}{% url 'pos:session_open' as open_url %}{% endif %}
+  {% include "_includes/empty_state.html" with icon="lock" title="This till is not open." text="Money taken at a counter has to be traced to the person and the shift that took it, so a session with its opening float comes first." action_label="Open the till" action_url=open_url only %}
+</section>
+{% endblock %}
