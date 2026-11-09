@@ -1121,13 +1121,20 @@ class Command(BaseCommand):
                     f"HTTP {page.status_code}, {len(offered)} offered")
         self.expect("an employee cannot open the edit screen",
                     self.c["EMP"].get(url).status_code == 403)
+        # A complete record: main made these HR fields mandatory (KRA, NSSF, SHIF,
+        # bank and contact details are needed before anybody is paid or filed).
+        from apps.organizations.models import Branch, Department
+        dept = Department.objects.filter(company=other.company, is_active=True).first()             or Department.objects.create(company=other.company, name="Operations")
+        branch = Branch.objects.filter(company=other.company, is_active=True).first()
         base = {"employee_number": other.employee_number, "first_name": other.first_name,
-                "last_name": other.last_name, "other_names": "", "gender": "",
-                "date_of_birth": "", "date_hired": f"{other.date_hired:{ISO}}",
-                "status": "ACTIVE", "department": "", "branch": "", "job_title": "Staff",
-                "reports_to": "", "user": "", "national_id": "", "kra_pin": "",
-                "nssf_number": "", "nhif_number": "", "phone": "", "email": "",
-                "bank_name": "", "bank_account_number": "", "notes": ""}
+                "last_name": other.last_name, "other_names": "Wanjiku", "gender": "F",
+                "date_of_birth": "1990-05-17", "date_hired": f"{other.date_hired:{ISO}}",
+                "status": "ACTIVE", "department": str(dept.pk),
+                "branch": str(branch.pk) if branch else "", "job_title": "Staff",
+                "reports_to": "", "user": "", "national_id": "23456789",
+                "kra_pin": "A123456789Z", "nssf_number": "NS123456", "nhif_number": "SH123456",
+                "phone": "0712345678", "email": "staff.member@example.com",
+                "bank_name": "Equity Bank", "bank_account_number": "0123456789", "notes": ""}
         self.refused("a login from outside the company is refused",
                      hr.post(url, dict(base, user=str(outsider.pk))))
         self.refused("leaving is not a status the edit screen sets",

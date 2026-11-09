@@ -1954,8 +1954,9 @@ class Command(BaseCommand):
         period.status = "CLOSED"
         period.save(update_fields=["status"])
         try:
-            response = self.apply(client, payment, owed, "500",
-                                  on_date=day + datetime.timedelta(days=1))
+            # Same day as the receipt and the invoice: "the day after" falls in
+            # the next (open) month whenever `day` is a month's last day.
+            response = self.apply(client, payment, owed, "500", on_date=day)
             owed.refresh_from_db()
             error = response.context.get("error") if response is not None and response.context else ""
             self.expect("credit applied on a date in a closed month is refused",

@@ -582,10 +582,16 @@ class Command(BaseCommand):
                     profit == -sum(activity.values(), Z), f"profit {profit} from {len(activity)} accounts")
 
         before = {code: self.account(code).current_balance for code in activity}
-        self.expect("the window holds each of those accounts whole",
-                    all(abs(before[code]) == abs(net) for code, net in activity.items()),
-                    str({code: (before[code], activity[code]) for code in activity
-                         if abs(before[code]) != abs(activity[code])}))
+        # CHANGED (date-proof): an account can also carry earlier months of the
+        # year (early in a month, some of this run's entries fall in last month),
+        # so the window is compared with the movement since the period began.
+        day_before = period.start_date - datetime.timedelta(days=1)
+        opening = {code: self.account(code).balance_as_at(day_before) for code in activity}
+        moved = {code: before[code] - opening[code] for code in activity}
+        self.expect("the window holds each of those accounts' movement in the period",
+                    all(abs(moved[code]) == abs(net) for code, net in activity.items()),
+                    str({code: (moved[code], activity[code]) for code in activity
+                         if abs(moved[code]) != abs(activity[code])}))
         retained_before = self.account("3200").current_balance
 
         # The year's profit to date: equal to this period's own profit unless an
@@ -712,9 +718,11 @@ class Command(BaseCommand):
         self.expect("the reversal of the closing entry balances on its own",
                     closing.reversed_by.is_balanced() and closing.reversed_by.status == "POSTED",
                     str(closing.reversed_by.reference))
+        # Earlier months were closed above and stay closed, so after reopening
+        # this period each account holds this period's movement again.
         for code, net in activity.items():
-            self.expect(f"{code} came back to {before[code]}",
-                        self.account(code).current_balance == before[code],
+            self.expect(f"{code} came back to {moved[code]}",
+                        self.account(code).current_balance == moved[code],
                         str(self.account(code).current_balance))
         # Only this period was reopened: earlier months closed above keep theirs.
         self.expect("current year profit is back to the earlier months' result",
