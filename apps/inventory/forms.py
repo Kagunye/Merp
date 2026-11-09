@@ -457,7 +457,9 @@ class CategoryPickerWidget(forms.Select):
     """
 
     def __init__(self, company=None, empty_label="— No category", attrs=None):
-        super().__init__(attrs)
+        # model_form.html gives a field the full row when its widget has
+        # `rows`; three selects side by side need it. Not rendered.
+        super().__init__({"rows": 1, **(attrs or {})})
         self.company = company
         self.empty_label = empty_label
 
