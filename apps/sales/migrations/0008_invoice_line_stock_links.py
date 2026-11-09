@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('inventory', '0004_stocklevel_value'),
-        ('sales', '0006_invoice_links_stock_issue_credit_tokens'),
+        ('sales', '0007_invoice_links_stock_issue_credit_tokens'),
     ]
 
     operations = [

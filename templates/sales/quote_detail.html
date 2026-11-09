@@ -1,0 +1,57 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'sales:quote_list' as back %}
+{% include "_includes/page_header.html" with title=quote.reference subtitle=quote.customer.name back_url=back %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Customer</div><div class="font-semibold text-sm">{{ quote.customer.name }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Quote date</div><div class="font-semibold text-sm">{{ quote.quote_date|date:"d M Y" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Valid until</div><div class="font-semibold text-sm">{{ quote.valid_until|date:"d M Y"|default:"—" }}</div></div>
+  <div class="bg-white rounded-xl border p-4"><div class="text-xs text-gray-500">Status</div>
+    <div class="font-semibold text-sm">{{ quote.get_status_display }}</div>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+  <div class="px-4 py-3 border-b border-gray-100"><h2 class="text-sm font-semibold text-gray-700">Line Items</h2></div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+      <tr><th class="px-4 py-3 text-left">Product</th><th class="px-4 py-3 text-left">Description</th><th class="px-4 py-3 text-right">Qty</th><th class="px-4 py-3 text-right">Unit Price</th><th class="px-4 py-3 text-right">Disc %</th><th class="px-4 py-3 text-left">Tax</th><th class="px-4 py-3 text-right">Line Total</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for l in lines %}
+      <tr>
+        <td class="px-4 py-2">{{ l.product.name }}</td>
+        <td class="px-4 py-2 text-gray-500">{{ l.description|default:"—" }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ l.quantity|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ l.unit_price|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-right font-mono">{{ l.discount_percent|floatformat:2 }}</td>
+        <td class="px-4 py-2 text-xs">{% if l.tax_rate %}{{ l.tax_rate.name }} ({{ l.tax_rate.rate }}%){% else %}—{% endif %}</td>
+        <td class="px-4 py-2 text-right font-mono font-semibold">{{ l.line_total|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">No line items.</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot class="border-t">
+      <tr><td colspan="6" class="px-4 py-2 text-right font-medium text-gray-600">Subtotal</td><td class="px-4 py-2 text-right font-mono">{{ quote.subtotal|floatformat:2 }}</td></tr>
+      {% if quote.discount_percent %}<tr><td colspan="6" class="px-4 py-2 text-right text-gray-500">Discount ({{ quote.discount_percent }}%)</td><td class="px-4 py-2 text-right font-mono text-red-600">-{{ quote.subtotal|floatformat:2 }}</td></tr>{% endif %}
+      <tr><td colspan="6" class="px-4 py-2 text-right text-gray-600">Tax</td><td class="px-4 py-2 text-right font-mono">{{ quote.tax_amount|floatformat:2 }}</td></tr>
+      <tr class="font-bold"><td colspan="6" class="px-4 py-2 text-right">Total</td><td class="px-4 py-2 text-right font-mono" style="color: var(--primary);">{{ quote.total_amount|floatformat:2 }}</td></tr>
+    </tfoot>
+  </table>
+</div>
+
+<div class="flex items-center gap-3">
+  {% if quote.status != 'CONVERTED' and quote.status != 'CANCELLED' %}
+  <form method="post" action="{% url 'sales:quote_convert' quote.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="px-5 py-2 text-sm font-semibold text-white rounded-lg" style="background: var(--primary);">Convert to Sales Order</button>
+  </form>
+  {% endif %}
+  {% if quote.sales_order %}
+  <a href="{% url 'sales:order_detail' quote.sales_order.pk %}" class="px-4 py-2 text-sm font-semibold rounded-lg border text-gray-600 hover:text-gray-900">View Order {{ quote.sales_order.reference }}</a>
+  {% endif %}
+  <a href="{% url 'sales:quote_list' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-800">Back to quotes</a>
+</div>
+{% endblock %}

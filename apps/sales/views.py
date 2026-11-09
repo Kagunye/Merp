@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
@@ -20,8 +21,9 @@ from apps.core.mixins import CompanyRequiredMixin
 from apps.core.models import SequenceCounter
 
 from . import receivables, tokens
-from .forms import InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm, SalesOrderForm, SalesOrderLineFormSet
-from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, cents
+from .forms import (InvoiceForm, InvoiceLineFormSet, CustomerPaymentForm, SalesOrderForm,
+                    SalesOrderLineFormSet, SalesQuoteForm, SalesQuoteLineFormSet)
+from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesQuote, cents
 
 
 # Larger than anything the columns can hold: quantities are stored with 8
@@ -1240,6 +1242,71 @@ class SalesOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
         return reverse("sales:order_detail", args=[self.object.pk])
 
 
+class SalesOrderUpdateView(LoginRequiredMixin, CompanyRequiredMixin, UpdateView):
+    model = SalesOrder
+    form_class = SalesOrderForm
+    template_name = "sales/order_form.html"
+
+    def get_queryset(self):
+        return SalesOrder.objects.filter(company=self.request.active_company)
+
+    def dispatch(self, request, *args, **kwargs):
+        """Only a draft order can be rewritten.
+
+        Once an order is confirmed its lines are what deliveries and invoices
+        are measured against: changing a quantity under a delivery or an
+        invoice would leave the order saying it is billed or delivered for
+        goods it no longer lists. A confirmed order is cancelled and re-raised.
+        """
+        order = self.get_queryset().filter(pk=kwargs.get("pk")).first()
+        if order is not None and order.status != "DRAFT":
+            messages.error(
+                request,
+                f"Order {order.reference} is {order.get_status_display().lower()}, so it can "
+                "no longer be edited. Only a draft order can be changed — cancel this one "
+                "and raise a new order if it is wrong.")
+            return redirect("sales:order_detail", pk=order.pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return SalesOrderLineFormSet(self.request.POST, instance=self.object, prefix="lines", form_kwargs=form_kwargs)
+        return SalesOrderLineFormSet(instance=self.object, prefix="lines", form_kwargs=form_kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        ctx["page_title"] = f"Edit {self.object.reference}"
+        return ctx
+
+    def form_valid(self, form):
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        with transaction.atomic():
+            self.object = form.save()
+            formset.save()
+            self.object.calculate_totals()
+        messages.success(
+            self.request,
+            f"Sales order '{self.object.reference}' updated.",
+        )
+        return redirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        return self.render_to_response(self.get_context_data(form=form))
+
+    def get_success_url(self):
+        from django.urls import reverse
+        return reverse("sales:order_detail", args=[self.object.pk])
+
+
 class SalesOrderDetailView(LoginRequiredMixin, DetailView):
     model = SalesOrder
     template_name = "sales/order_detail.html"
@@ -1279,6 +1346,129 @@ class SalesDeliveryView(LoginRequiredMixin, DetailView):
         # the goods off the shelf twice and charge their cost twice.
         ctx["form_token"] = tokens.issue(self.request, "order_deliver")
         return ctx
+
+
+class SalesQuoteListView(LoginRequiredMixin, ListView):
+    model = SalesQuote
+    template_name = "sales/quote_list.html"
+    context_object_name = "quotes"
+    paginate_by = 25
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return self.model.objects.none()
+        return self.model.objects.filter(company=company).select_related("customer")
+
+
+class SalesQuoteCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
+    model = SalesQuote
+    form_class = SalesQuoteForm
+    template_name = "sales/quote_form.html"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+    def get_line_formset(self):
+        form_kwargs = {"company": self.request.active_company}
+        if self.request.POST:
+            return SalesQuoteLineFormSet(self.request.POST, prefix="lines", form_kwargs=form_kwargs)
+        return SalesQuoteLineFormSet(prefix="lines", form_kwargs=form_kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["line_formset"] = kwargs.pop("line_formset", None) or self.get_line_formset()
+        ctx["page_title"] = "New Sales Quote"
+        return ctx
+
+    def form_valid(self, form):
+        company = self.request.active_company
+        form.instance.company = company
+        # Taken at save time and checked against quotes already on file, so two
+        # quotes can never share a number.
+        form.instance.reference = _claim_reference(
+            SalesQuote, company, "SQ-", form.instance.reference)
+        formset = self.get_line_formset()
+        if not formset.is_valid():
+            return self.render_to_response(self.get_context_data(form=form, line_formset=formset))
+        with transaction.atomic():
+            self.object = form.save()
+            formset.instance = self.object
+            formset.save()
+            self.object.calculate_totals()
+        messages.success(self.request, f"Quote '{self.object.reference}' created.")
+        return redirect(self.get_success_url())
+
+    def get_success_url(self):
+        return reverse("sales:quote_detail", kwargs={"pk": self.object.pk})
+
+    def form_invalid(self, form):
+        return self.render_to_response(self.get_context_data(form=form))
+
+
+class SalesQuoteDetailView(LoginRequiredMixin, DetailView):
+    model = SalesQuote
+    template_name = "sales/quote_detail.html"
+    context_object_name = "quote"
+
+    def get_queryset(self):
+        company = self.request.active_company
+        if not company:
+            return SalesQuote.objects.none()
+        return SalesQuote.objects.filter(company=company)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["lines"] = self.object.lines.select_related("product", "tax_rate")
+        ctx["book"] = book_currency(self.object.company)
+        return ctx
+
+
+@login_required
+@require_POST
+def quote_convert_to_order(request, pk):
+    company = request.active_company
+    quote = get_object_or_404(SalesQuote, pk=pk, company=company)
+    with transaction.atomic():
+        # Locked and re-read: a double click converts the quote once, and the
+        # second request finds it already converted.
+        quote = SalesQuote.objects.select_for_update().get(pk=quote.pk)
+        if quote.status == "CONVERTED":
+            messages.warning(request, "This quote has already been converted.")
+            return redirect("sales:quote_detail", pk=quote.pk)
+        order = SalesOrder.objects.create(
+            company=company,
+            reference=_claim_reference(SalesOrder, company, "SO-", ""),
+            customer=quote.customer,
+            order_date=datetime.date.today(),
+            delivery_date=quote.valid_until,
+            warehouse=quote.warehouse,
+            sales_rep=quote.sales_rep,
+            currency=quote.currency,
+            exchange_rate=quote.exchange_rate,
+            discount_percent=quote.discount_percent,
+            branch=quote.branch,
+            notes=quote.notes,
+        )
+        from .models import SalesOrderLine
+        for ql in quote.lines.all():
+            SalesOrderLine.objects.create(
+                order=order,
+                product=ql.product,
+                description=ql.description,
+                quantity=ql.quantity,
+                unit_price=ql.unit_price,
+                discount_percent=ql.discount_percent,
+                tax_rate=ql.tax_rate,
+            )
+        order.calculate_totals()
+        quote.status = "CONVERTED"
+        quote.sales_order = order
+        quote.save(update_fields=["status", "sales_order", "updated_at"])
+    messages.success(request, f"Quote converted to order '{order.reference}'.")
+    return redirect("sales:order_detail", pk=order.pk)
 
 
 class SalesIndexView(LoginRequiredMixin, TemplateView):

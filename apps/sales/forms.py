@@ -4,7 +4,7 @@ from decimal import Decimal
 from django import forms
 from apps.core.forms import date_input, is_new, pick_currency
 from django.forms import BaseInlineFormSet, inlineformset_factory
-from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine
+from .models import Invoice, InvoiceLine, CustomerPayment, SalesOrder, SalesOrderLine, SalesQuote, SalesQuoteLine
 
 
 # The largest figure a money column holds: fifteen digits, two of them after
@@ -350,6 +350,99 @@ class CustomerPaymentForm(forms.ModelForm):
         return cleaned
 
 
+class SalesQuoteForm(forms.ModelForm):
+    class Meta:
+        model = SalesQuote
+        fields = ["reference", "customer", "quote_date", "valid_until", "warehouse",
+                  "sales_rep", "currency", "discount_percent", "branch", "notes"]
+        widgets = {
+            "quote_date": date_input(),
+            "valid_until": date_input(),
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        self.fields["reference"].required = False
+        if company:
+            from apps.crm.models import Customer
+            from apps.organizations.models import Warehouse, Branch
+            from apps.accounts.models import User
+            self.fields["customer"].queryset = Customer.objects.filter(company=company, is_active=True)
+            self.fields["warehouse"].queryset = Warehouse.objects.filter(company=company)
+            self.fields["branch"].queryset = Branch.objects.filter(company=company)
+            self.fields["sales_rep"].queryset = User.objects.filter(
+                memberships__company=company, is_active=True
+            ).distinct()
+            default_wh = self.fields["warehouse"].queryset.filter(is_default=True).first()
+            if default_wh:
+                self.fields["warehouse"].initial = default_wh.pk
+            pick_currency(self, company)
+        if is_new(self):
+            self.fields["quote_date"].initial = datetime.date.today()
+            self.fields["valid_until"].initial = datetime.date.today() + datetime.timedelta(days=30)
+
+
+class OptionalLineMixin:
+    """Lines are optional: a row with no product, description or price is skipped."""
+
+    def has_changed(self):
+        if self.instance.pk is None:
+            filled = any(
+                (self.data.get(self.add_prefix(f)) or "").strip() not in ("", "0", "0.00")
+                for f in ("product", "description", "unit_price")
+            )
+            if not filled:
+                return False
+        return super().has_changed()
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.cleaned_data.get("DELETE"):
+            return cleaned
+        if not cleaned.get("product"):
+            self.add_error("product", "Choose a product, or remove this line.")
+        if cleaned.get("quantity") in (None, ""):
+            self.add_error("quantity", "Enter a quantity.")
+        if cleaned.get("unit_price") is None:
+            cleaned["unit_price"] = Decimal("0")
+        if cleaned.get("discount_percent") is None:
+            cleaned["discount_percent"] = Decimal("0")
+        return cleaned
+
+
+class SalesQuoteLineForm(OptionalLineMixin, LineFiguresMixin, forms.ModelForm):
+    class Meta:
+        model = SalesQuoteLine
+        fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        self.fields["product"].required = False
+        self.fields["quantity"].required = False
+        self.fields["unit_price"].required = False
+        self.fields["discount_percent"].required = False
+        if company:
+            from apps.inventory.models import Product
+            from apps.accounting.models import TaxRate
+            self.fields["product"].queryset = Product.objects.filter(company=company, is_active=True)
+            self.fields["tax_rate"].queryset = TaxRate.objects.filter(company=company, is_active=True)
+            self.fields["tax_rate"].empty_label = "— No tax"
+
+
+SalesQuoteLineFormSet = inlineformset_factory(
+    SalesQuote,
+    SalesQuoteLine,
+    form=SalesQuoteLineForm,
+    extra=3,
+    min_num=0,
+    validate_min=False,
+    can_delete=True,
+)
+
+
 class SalesOrderForm(forms.ModelForm):
     class Meta:
         model = SalesOrder
@@ -408,7 +501,7 @@ class SalesOrderForm(forms.ModelForm):
         return reference
 
 
-class SalesOrderLineForm(LineFiguresMixin, forms.ModelForm):
+class SalesOrderLineForm(OptionalLineMixin, LineFiguresMixin, forms.ModelForm):
     class Meta:
         model = SalesOrderLine
         fields = ["product", "description", "quantity", "unit_price", "discount_percent", "tax_rate"]
@@ -416,6 +509,10 @@ class SalesOrderLineForm(LineFiguresMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
+        self.fields["product"].required = False
+        self.fields["quantity"].required = False
+        self.fields["unit_price"].required = False
+        self.fields["discount_percent"].required = False
         if company:
             from apps.inventory.models import Product
             from apps.accounting.models import TaxRate
@@ -430,7 +527,7 @@ SalesOrderLineFormSet = inlineformset_factory(
     form=SalesOrderLineForm,
     formset=LinesTotalFormSet,
     extra=3,
-    min_num=1,
-    validate_min=True,
+    min_num=0,
+    validate_min=False,
     can_delete=True,
 )

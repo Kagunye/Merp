@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ('accounting', '0011_revaluation_share_and_minor_units'),
         ('organizations', '0001_initial'),
-        ('sales', '0005_backfill_exchange_rates'),
+        ('sales', '0006_add_sales_quote'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

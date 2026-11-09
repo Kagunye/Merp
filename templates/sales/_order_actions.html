@@ -3,6 +3,8 @@
 {% can_do "sales:order_deliver_record" "POST" as may_deliver %}
 {% can_do "sales:order_invoice" "POST" as may_invoice %}
 {% can_do "sales:order_cancel" "POST" as may_cancel %}
+{% can_do "sales:order_edit" "POST" as may_edit %}
+{% if may_edit and order.status == 'DRAFT' %}<a href="{% url 'sales:order_edit' order.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="edit" cls="h-4 w-4" only %}Edit Order</a>{% endif %}
 {% if may_cancel and can_cancel %}
 <form method="post" action="{% url 'sales:order_cancel' order.pk %}"
       onsubmit="return confirm('Cancel this order? It stays on file as cancelled and can no longer be delivered or invoiced.');">

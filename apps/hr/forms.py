@@ -4,6 +4,8 @@ A contract is the only place an employee's basic pay is recorded, and payroll
 reads that figure every month — so the dates and the money are validated here
 rather than left to whoever types them.
 """
+import re
+
 from django import forms
 
 from apps.core.forms import date_input
@@ -11,6 +13,14 @@ from .access import manages_people, own_employee
 from .models import Contract, Employee, LeaveRequest, LeaveType
 
 FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+
+MANDATORY_EMPLOYEE_FIELDS = [
+    "employee_number", "first_name", "last_name", "other_names",
+    "gender", "date_of_birth", "date_hired", "status",
+    "department", "branch", "job_title",
+    "national_id", "kra_pin", "nssf_number", "nhif_number",
+    "phone", "email", "bank_name", "bank_account_number",
+]
 
 
 class ContractForm(forms.ModelForm):
@@ -129,6 +139,11 @@ class EmployeeForm(forms.ModelForm):
             self.fields["user"].queryset = User.objects.filter(
                 memberships__company=company, memberships__is_active=True,
             ).exclude(pk__in=taken).distinct().order_by("first_name", "last_name")
+        # The record HR needs before anybody is paid or filed with KRA, NSSF
+        # and SHIF: these may not be left blank.
+        for fname in MANDATORY_EMPLOYEE_FIELDS:
+            if fname in self.fields:
+                self.fields[fname].required = True
         self.fields["user"].required = False
         self.fields["user"].empty_label = "— No login linked"
         if self.instance.status not in LEAVER_STATUSES:
@@ -144,6 +159,10 @@ class EmployeeForm(forms.ModelForm):
 
     def clean_employee_number(self):
         number = (self.cleaned_data.get("employee_number") or "").strip()
+        if self.instance._state.adding and re.fullmatch(r"EMP-\d+", number, flags=re.I):
+            # The create screen's own preview: if a colleague saved under it
+            # meanwhile, the view's claim_number issues the next free number.
+            return number
         holder = employee_number_clash(self.company, number, exclude_pk=self.instance.pk)
         if holder:
             raise forms.ValidationError(duplicate_number_message(holder))
