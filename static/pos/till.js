@@ -48,7 +48,7 @@
     return e;
   }
   function initials(name) {
-    var parts = String(name || '?').trim().split(/\s+/);
+    var parts = String(name || '?').replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/);
     return ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : (parts[0][1] || ''))).toUpperCase();
   }
   function toast(message, kind) {
@@ -513,7 +513,7 @@
         head.appendChild(el('span', 'ml-auto text-xl font-extrabold text-ink', cfg.currency + ' ' + fmt(num(p.price))));
         card.appendChild(head);
         card.appendChild(el('p', 'mt-1 text-sm text-ink-muted',
-          (num(p.tax_rate) ? 'VAT ' + num(p.tax_rate) + '% (' + p.tax_label + ') · ' + fmt(cents(num(p.price) * (1 + num(p.tax_rate) / 100))) + ' with VAT' : 'No VAT') + ' · per ' + (p.unit || 'unit')));
+          (num(p.tax_rate) ? p.tax_label + (p.tax_label.indexOf('%') < 0 ? ' (' + num(p.tax_rate) + '%)' : '') + ' · ' + fmt(cents(num(p.price) * (1 + num(p.tax_rate) / 100))) + ' with VAT' : 'No VAT') + ' · per ' + (p.unit || 'unit')));
         if (p.stock === null || p.stock === undefined) {
           card.appendChild(el('p', 'mt-2 text-sm text-ink-muted', 'Not a stocked item.'));
         } else if (!p.stock.length) {
@@ -789,6 +789,11 @@
     }
     if (locked || anyOpen()) return;
     var inCode = e.target === code;
+    // Some keyboards (and remote desktops) report the number-pad keys by code only.
+    if (!e.key || e.key === 'Unidentified') {
+      var byCode = { NumpadAdd: '+', NumpadSubtract: '-' }[e.code];
+      if (byCode) e = { key: byCode, target: e.target, preventDefault: e.preventDefault.bind(e) };
+    }
     if (typing(e.target) && !(inCode && (e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
         ((e.key === '+' || e.key === '-') && code.value === '')))) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -822,6 +827,9 @@
   }
   window.addEventListener('online', online);
   window.addEventListener('offline', online);
+
+  // Server messages step aside after a while so they never hide the code box.
+  $$('.pos-flash .alert').forEach(function (a) { setTimeout(function () { a.remove(); }, 6000); });
 
   // ── start ─────────────────────────────────────────────────────────────
   restore();

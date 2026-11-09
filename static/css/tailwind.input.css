@@ -951,7 +951,8 @@ select.pos-top-input { @apply appearance-none pr-8; }
 .pos-line-name { @apply block max-w-[11rem] truncate text-[12px] text-ink-muted; }
 .pos-empty { @apply px-4 py-10 text-center text-sm text-ink-muted; }
 .pos-nav { @apply flex shrink-0 items-center gap-1.5 border-t border-divider px-2.5 py-2; }
-.pos-nav .btn { @apply h-10 w-10 px-0; }
+.pos-nav .btn:not(.btn-sm) { @apply h-10 w-10 px-0; }
+.pos-nav .btn-sm { @apply h-10; }
 .pos-total { @apply flex shrink-0 items-center gap-3 bg-hero px-4 py-3 text-white; }
 .pos-total-label { @apply text-[15px] font-semibold text-hero-muted; }
 .pos-total-value { @apply ml-auto text-right text-[1.625rem] font-extrabold leading-none tracking-tight; font-variant-numeric: tabular-nums; }
