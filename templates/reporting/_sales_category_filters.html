@@ -1,0 +1,7 @@
+{% include "reporting/_date_range.html" %}
+<div class="form-field">
+  <label for="id_source" class="form-label">Sales from</label>
+  <select id="id_source" name="source" class="select">
+    {% for val, label in sources %}<option value="{{ val }}"{% if source == val %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+</div>

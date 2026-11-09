@@ -1,0 +1,60 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block title %}Sales by Category — Mofisi{% endblock %}
+{% block content %}
+{% url 'reporting:index' as reports_url %}
+{% can_do "reporting:index" as may_reports %}{% if not may_reports %}{% url 'inventory:index' as reports_url %}{% endif %}
+{% with f=date_from|date:"d M Y" t=date_to|date:"d M Y" cur=active_company.currency|default:"" %}{% with sub=f|add:" — "|add:t|add:" · in "|add:cur %}
+{% include "_includes/page_header.html" with title="Sales by Category" subtitle=sub secondary_label="All Reports" secondary_url=reports_url %}
+{% endwith %}{% endwith %}
+
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="reporting/_sales_category_filters.html" submit_label="Run" %}
+
+{% if error %}
+<div class="alert alert-danger mb-5" role="alert">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">{{ error }}</div>
+</div>
+{% else %}
+{% with t=report.totals %}
+<div class="stat-grid mb-5">
+  {% include "_includes/stat.html" with label="Revenue" value=t.revenue money=True meta="Before VAT" icon="trending-up" tone="success" only %}
+  {% include "_includes/stat.html" with label="Cost of sales" value=t.cost money=True meta="From the stock movements" icon="box" tone="neutral" only %}
+  {% include "_includes/stat.html" with label="Gross margin" value=t.margin money=True icon="chart" tone="info" only %}
+</div>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>Category</th><th class="num">Quantity</th><th class="num">Revenue</th><th class="num">Share</th><th class="num">Cost of sales</th><th class="num">Margin</th><th class="num">Margin %</th></tr>
+    </thead>
+    <tbody>
+      {% for r in report.rows %}
+      <tr{% if r.level == 1 %} class="bg-surface-2"{% endif %}>
+        <td>
+          <div class="{% if r.level == 2 %}pl-6{% elif r.level == 3 %}pl-12{% elif r.level > 3 %}pl-16{% endif %} {% if r.level == 1 %}font-bold text-ink{% elif r.kind == 'direct' %}italic text-ink-muted{% elif r.level == 2 %}font-semibold text-ink-2{% else %}text-ink-2{% endif %}">
+            {% if r.level > 1 %}<span class="text-ink-faint" aria-hidden="true">&#8627; </span>{% endif %}{{ r.label }}
+          </div>
+        </td>
+        <td class="num">{{ r.qty|qty }}</td>
+        <td class="num{% if r.level == 1 %} font-semibold{% endif %}">{{ r.revenue|money }}</td>
+        <td class="num text-ink-muted">{% if r.share_pct is not None %}{{ r.share_pct|pct:1 }}{% else %}—{% endif %}</td>
+        <td class="num">{{ r.cost|money }}</td>
+        <td class="num{% if r.level == 1 %} font-semibold{% endif %}">{{ r.margin|money }}</td>
+        <td class="num text-ink-muted">{% if r.margin_pct is not None %}{{ r.margin_pct|pct:1 }}{% else %}—{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="chart" title="No sales in this window" text="Posted invoices, credit notes and till tickets dated in the range appear here, grouped by category." compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+    {% if report.rows %}
+    <tfoot>
+      <tr class="font-bold"><td>Total</td><td class="num">{{ t.qty|qty }}</td><td class="num">{{ t.revenue|money }}</td><td class="num">{% if t.revenue %}100%{% else %}—{% endif %}</td><td class="num">{{ t.cost|money }}</td><td class="num">{{ t.margin|money }}</td><td class="num">{% if t.margin_pct is not None %}{{ t.margin_pct|pct:1 }}{% else %}—{% endif %}</td></tr>
+    </tfoot>
+    {% endif %}
+  </table>
+</div>
+{% endwith %}
+<p class="mt-4 text-xs text-ink-muted">Each level-1 row is the total of everything beneath it; level-1 rows plus Uncategorised add up to the total. Revenue is net of VAT, in the book's currency, as each document's journal entry credited it. Credit notes and refunds count against the sale. Cost of sales is what the stock movements those documents made were booked at; an order's invoice takes its share, by quantity, of what the order's deliveries cost. Quantities add up across units, so compare them within one category.</p>
+{% endif %}
+{% endblock %}

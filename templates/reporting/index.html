@@ -4,6 +4,7 @@
 {% include "_includes/launcher.html" with launcher_title="Reports" launcher_subtitle="Financial statements and aged balances" %}
 {% can_do "reporting:profit_loss" as g_pl %}{% can_do "reporting:balance_sheet" as g_bs %}{% can_do "reporting:trial_balance" as g_tb %}{% can_do "reporting:cash_flow" as g_cf %}
 {% can_do "reporting:aged_debtors" as g_ad %}{% can_do "reporting:aged_creditors" as g_ac %}{% can_do "sales:ar_aging" as g_ar %}{% can_do "procurement:ap_aging" as g_ap %}
+{% can_do "reporting:sales_by_category" as g_sbc %}
 {% can_do "accounting:general_ledger" as g_gl %}{% can_do "accounting:journal_entry_list" as g_je %}{% can_do "accounting:account_list" as g_coa %}
 
 {% if g_pl or g_bs or g_tb or g_cf %}
@@ -13,6 +14,13 @@
   {% if g_bs %}<a href="{% url 'reporting:balance_sheet' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Balance Sheet</span></a>{% endif %}
   {% if g_tb %}<a href="{% url 'reporting:trial_balance' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="check-circle" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Trial Balance</span></a>{% endif %}
   {% if g_cf %}<a href="{% url 'reporting:cash_flow' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cash Flow</span></a>{% endif %}
+</div>
+{% endif %}
+
+{% if g_sbc %}
+<div class="launcher-section-label">Sales Analysis</div>
+<div class="launcher-grid">
+  <a href="{% url 'reporting:sales_by_category' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Sales by Category</span></a>
 </div>
 {% endif %}
 

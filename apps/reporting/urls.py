@@ -11,4 +11,5 @@ urlpatterns = [
     path("aged-debtors/", views.AgedDebtorsView.as_view(), name="aged_debtors"),
     path("aged-creditors/", views.AgedCreditorsView.as_view(), name="aged_creditors"),
     path("cash-flow/", views.CashFlowView.as_view(), name="cash_flow"),
+    path("sales-by-category/", views.SalesByCategoryView.as_view(), name="sales_by_category"),
 ]

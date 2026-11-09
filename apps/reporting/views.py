@@ -511,3 +511,36 @@ class CashFlowView(LoginRequiredMixin, TemplateView):
             "net_cash_flow": total_in - total_out,
         })
         return ctx
+
+
+class SalesByCategoryView(LoginRequiredMixin, TemplateView):
+    """Sales mix by product category for a date range: quantity, revenue and
+    cost of sales per category, level-1 totals with levels 2 and 3 beneath.
+
+    Drawn from posted invoices and credit notes (by invoice date) and till
+    tickets and refunds (by the day they were rung). Revenue is what each
+    line's journal entry credited, in the book's currency; cost of sales is
+    what the stock movements those documents made were booked at.
+    """
+    template_name = "reporting/sales_by_category.html"
+    SOURCES = (("all", "Invoices and till"), ("invoices", "Invoices only"), ("pos", "Till only"))
+
+    def get_context_data(self, **kwargs):
+        from .services import sales_by_category
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        date_from, date_to = _parse_dates(self.request)
+        source = self.request.GET.get("source") or "all"
+        if source not in dict(self.SOURCES):
+            source = "all"
+        ctx.update({"page_title": "Sales by Category", "date_from": date_from,
+                    "date_to": date_to, "source": source, "sources": self.SOURCES})
+        ctx["error"] = _window_error(date_from, date_to)
+        if company is None or ctx["error"]:
+            ctx["report"] = {"rows": [], "totals": None}
+            return ctx
+        ctx["report"] = sales_by_category(
+            company, date_from, date_to,
+            include_invoices=source in ("all", "invoices"),
+            include_pos=source in ("all", "pos"))
+        return ctx
