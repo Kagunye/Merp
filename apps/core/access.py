@@ -107,6 +107,15 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # every refund they tried failed half way; they are left out rather than
     # offered a button that cannot work.
     ("pos", "sale_refund", NOBODY, TILL),
+    # The till's own helpers. The item lookup and the lock screen are part of
+    # standing at a till; a payout or pay-in moves a drawer's money, so it is
+    # for the till roles and the finance manager -- the service then lets
+    # only the drawer's own cashier or a supervisor (services.may_handle) do it.
+    ("pos", "item_lookup", TILL, NOBODY),
+    ("pos", "lock", NOBODY, TILL),
+    ("pos", "unlock", NOBODY, TILL),
+    ("pos", "sale_find", TILL, NOBODY),
+    ("pos", "cash_movement", NOBODY, TILL | FM),
     ("payroll", "run_approve", NOBODY, FM),
     ("payroll", "run_post", NOBODY, FM),
     ("payroll", "run_cancel", NOBODY, FM),

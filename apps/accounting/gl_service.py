@@ -1222,6 +1222,53 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
     return je
 
 
+@transaction.atomic
+def post_pos_cash_movement(movement, user=None) -> JournalEntry:
+    """Book notes paid out of a drawer, or put into it, that are not a ticket.
+
+    A payout                                 A pay-in (float top-up)
+    DR  the counter account (expense,        DR  the till (1100)
+        or the bank / safe it went to)       CR  the counter account (the
+    CR  the till (1100)                          owner's float, the bank / safe)
+
+    Dated the day in Nairobi it happened, like every till event. The drawer's
+    own account is exempt from the cash floor as on a ticket (the float in it
+    was never booked); any other cash account on the entry -- a petty-cash box
+    a pay-in came out of -- is held to it as it posts.
+    """
+    if movement.journal_entry_id:
+        return movement.journal_entry
+    session = movement.session
+    company = session.company
+    drawer = _get_account_safe(company, "1100") or _get_account_by_type(company, "CASH")
+    if not drawer:
+        raise ValueError("GL posting failed: no till account (1100) for the drawer.")
+    counter = movement.account
+    amount = Decimal(movement.amount).quantize(Decimal("0.01"))
+    if amount <= 0:
+        raise ValidationError("A drawer movement has to move more than nothing.")
+    who = session.cashier.get_full_name() or session.cashier.username
+    out = movement.direction == "OUT"
+    je = _new_je(
+        company, "JE-TILL-", "PAYMENT" if out else "RECEIPT", _pos_day(movement.created_at),
+        f"Till {'payout' if out else 'pay-in'} {movement.reference} — {who}, "
+        f"{session.branch.name}: {movement.reason}",
+    )
+    if out:
+        _dr(je, counter, amount, f"Paid out of the drawer: {movement.reason}")
+        _cr(je, drawer, amount, f"Payout {movement.reference}")
+    else:
+        _dr(je, drawer, amount, f"Pay-in {movement.reference}")
+        _cr(je, counter, amount, f"Paid into the drawer: {movement.reason}")
+    je.till_drawer_account_id = drawer.pk
+    je.post(user=user)
+
+    from apps.pos.models import POSCashMovement
+    POSCashMovement.objects.filter(pk=movement.pk).update(journal_entry=je)
+    movement.journal_entry = je
+    return je
+
+
 # Which bank-account flag says where a till payment method is banked.
 POS_TAKINGS_FLAGS = {"CARD": "receives_pos_card", "MPESA": "receives_pos_mpesa"}
 

@@ -3,18 +3,36 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
+from django.http import JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.urls import reverse
+from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import DetailView, ListView, TemplateView, View
 
 from apps.accounting.currency import book_currency
 from apps.core.mixins import CompanyRequiredMixin
 
 from . import services
-from .models import POSSale, POSSaleLine, POSSession
+from .models import POSCashMovement, POSSale, POSSaleLine, POSSession
+
+# The server-side half of F7 Lock Station: while this session key names the
+# till, the terminal renders behind the lock screen (a reload does not lift it)
+# and refuses to ring a ticket or move the drawer's money until the cashier's
+# password is given at pos:unlock.
+LOCK_KEY = "pos_locked_session"
+
+# How many products the till ships to the browser for its picture grid. A
+# larger catalogue is still sold in full: the code box and the item modal
+# search the server (pos:item_lookup).
+GRID_LIMIT = 600
+
+
+def is_locked(request, cashier_session):
+    return bool(cashier_session) and request.session.get(LOCK_KEY) == str(cashier_session.pk)
 
 
 class ModuleHomeView(LoginRequiredMixin, TemplateView):
@@ -116,43 +134,65 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
     """
     template_name = "pos/terminal.html"
 
-    def get_context_data(self, cashier_session, company, quantities=None):
+    def get_context_data(self, cashier_session, company, quantities=None, discounts=None):
         from apps.crm.models import Customer
-        from apps.inventory.models import Product, StockLevel
+        from apps.inventory.models import StockLevel
 
         q = (self.request.GET.get("q") or self.request.POST.get("q") or "").strip()
-        products = Product.objects.filter(
-            company=company, is_active=True).select_related(
-            "tax_rate", "unit_of_measure").order_by("name")
-        if q:
-            from django.db.models import Q
-            products = products.filter(
-                Q(name__icontains=q) | Q(sku__icontains=q) | Q(barcode__icontains=q))
+        products = services.search_products(company, q)
         shelf = (services.issue_warehouse(company, cashier_session)
                  if cashier_session else None)
         on_hand = {}
         if shelf:
             on_hand = {row["product_id"]: row["quantity"] for row in StockLevel.objects.filter(
                 warehouse=shelf).values("product_id", "quantity")}
-        rows = []
-        for product in products[:200]:
-            rows.append({
-                "product": product,
-                "quantity": (quantities or {}).get(str(product.pk), ""),
-                "on_hand": on_hand.get(product.pk, Decimal("0")) if product.track_inventory else None,
-            })
+        tree = services.category_tree(company) if company else {}
+        cards = []
+        for product in products[:GRID_LIMIT]:
+            card = services.product_card(product, on_hand.get(product.pk, Decimal("0")))
+            top = services.top_category(tree, product.category_id) if product.category_id else None
+            card["screen"] = str(top) if top else ""
+            cards.append(card)
+        # The ticket a failed post came back with, so the cashier does not have
+        # to scan it all again: {product id: [quantity, discount]}.
+        ticket = {pk: [str(qty), str((discounts or {}).get(pk, "") or "")]
+                  for pk, qty in (quantities or {}).items() if str(qty or "").strip()}
         customers = Customer.objects.filter(company=company, is_active=True).order_by("name")
         methods = [(value, label) for value, label in POSSale.PAYMENT_METHODS if value != "SPLIT"]
         report = services.till_report(cashier_session) if cashier_session else None
+        user = self.request.user
+        categories = [{"id": str(pk), "name": name, "parent": str(parent) if parent else ""}
+                      for pk, (name, parent) in sorted(tree.items(), key=lambda kv: kv[1][0])]
+        screens = [c for c in categories if not c["parent"]
+                   and any(card["screen"] == c["id"] for card in cards)]
+        movement_accounts = {
+            direction: [{"id": str(a.pk), "label": f"{a.code} {a.name}"}
+                        for a in services.movement_accounts(company, direction)]
+            for direction in ("OUT", "IN")} if company else {}
+        defaults = {}
+        for direction in ("OUT", "IN"):
+            found = services.default_movement_account(company, direction) if company else None
+            defaults[direction] = str(found.pk) if found else ""
         return {
             "page_title": "Till",
             "session": cashier_session,
             "company": company,
             "book": book_currency(company),
-            "rows": rows,
+            "products_json": cards,
+            "categories_json": categories,
+            "screens": screens,
+            "ticket_json": ticket,
+            "boms_json": self.boms(company) if cashier_session else [],
             "q": q,
             "customers": customers,
+            "salespeople": services.company_people(company) if company else [],
             "methods": methods,
+            "is_supervisor": services.is_supervisor(company, user) if company else False,
+            "locked": is_locked(self.request, cashier_session),
+            "movement_token": services.new_token(),
+            "movement_accounts": movement_accounts,
+            "movement_defaults": defaults,
+            "posted": self.request.POST if self.request.method == "POST" else {},
             # Only the shelves this till may sell from: its own branch's and
             # any shared store, never another branch's stock.
             "warehouses": (list(services.till_warehouses(company, cashier_session))
@@ -167,6 +207,28 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
                              .select_related("customer").order_by("-created_at")[:10]
                              if cashier_session else POSSale.objects.none()),
         }
+
+    @staticmethod
+    def boms(company):
+        """The active bills of materials, for Load BOM: each one's
+        components per one finished unit, as ticket lines. Read only -- the
+        till never changes a BOM, and each component is sold (and priced)
+        as itself."""
+        from apps.manufacturing.models import BillOfMaterials
+
+        found = []
+        for bom in (BillOfMaterials.objects.filter(company=company, status="ACTIVE")
+                    .select_related("product").prefetch_related("lines__component")
+                    .order_by("name")[:100]):
+            per = bom.production_quantity or Decimal("1")
+            lines = [{"id": str(line.component_id), "sku": line.component.sku,
+                      "name": line.component.name,
+                      "qty": str((line.quantity / per).quantize(Decimal("0.0001")))}
+                     for line in bom.lines.all() if line.component.is_active]
+            if lines:
+                found.append({"id": str(bom.pk), "name": bom.name, "version": bom.version,
+                              "product": bom.product.name, "lines": lines})
+        return found
 
     def get(self, request, *args, **kwargs):
         company = request.active_company
@@ -183,6 +245,12 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             return redirect("pos:session_open")
         quantities = {key[4:]: value for key, value in request.POST.items()
                       if key.startswith("qty_")}
+        discounts = {key[5:]: value for key, value in request.POST.items()
+                     if key.startswith("disc_")}
+        if is_locked(request, cashier_session):
+            messages.error(request, "This till is locked — unlock it with your password first. "
+                                    "Nothing was rung.")
+            return redirect("pos:terminal")
         token = services.clean_token(request.POST.get("ticket_token"))
         if not token:
             # The token is what makes a double click or a reloaded POST hand back
@@ -196,7 +264,8 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
                 "against being rung twice. Nothing was taken — check the lines below and "
                 "ring the ticket again from this screen.")
             return render(request, self.template_name,
-                          self.get_context_data(cashier_session, company, quantities), status=200)
+                          self.get_context_data(cashier_session, company, quantities, discounts),
+                          status=200)
         already = services.submitted_ticket(cashier_session, token)
         if already:
             return self.answer_spent_token(request, already, cashier_session, company,
@@ -211,6 +280,12 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
                     raise ValidationError(
                         "That customer is not on this company's list — pick one from the "
                         "box or leave it as a counter sale.")
+            salesperson = None
+            if (request.POST.get("salesperson") or "").strip():
+                salesperson = services.by_pk(services.company_people(company),
+                                             request.POST.get("salesperson"))
+                if salesperson is None:
+                    raise ValidationError("That salesperson does not work in this company.")
             with transaction.atomic():
                 sale = services.checkout(
                     company, request.user, quantities,
@@ -220,7 +295,10 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
                     customer=customer,
                     warehouse=request.POST.get("warehouse") or None,
                     notes=request.POST.get("notes") or "",
-                    token=token)
+                    token=token,
+                    discounts=discounts,
+                    salesperson=salesperson,
+                    customer_reference=request.POST.get("customer_reference") or "")
         except IntegrityError:
             # Two copies of the same form raced each other; the database let
             # one through and refused the other. Hand back the one that won.
@@ -232,7 +310,8 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
         except ValidationError as exc:
             messages.error(request, f"Could not ring that ticket: {exc.messages[0]}")
             return render(request, self.template_name,
-                          self.get_context_data(cashier_session, company, quantities), status=200)
+                          self.get_context_data(cashier_session, company, quantities, discounts),
+                          status=200)
         messages.success(
             request,
             f"{sale.reference}: {sale.total_amount} taken, {sale.change_given} change given.")
@@ -306,6 +385,9 @@ def session_close(request, pk):
             f"{report['expected_cash']}, variance {report['variance']}"
             + (f" — written off to cash over and short in {session.variance_entry.reference}."
                if session.variance_entry_id else "."))
+    if request.POST.get("then") == "cash_up":
+        # F9 Cash Out / Close Day lands on the cash-up sheet it just counted.
+        return redirect("pos:cash_up", pk=session.pk)
     return redirect("pos:session_detail", pk=session.pk)
 
 
@@ -481,3 +563,167 @@ class CashUpView(LoginRequiredMixin, DetailView):
             + (f" — written off to cash over and short in {session.variance_entry.reference}."
                if session.variance_entry_id else "."))
         return redirect("pos:cash_up", pk=session.pk)
+
+
+# ─────────────────────────── the till's helpers ─────────────────────────────
+
+@login_required
+@require_GET
+def item_lookup(request):
+    """Products for the till's item modal, code box and price check (JSON).
+
+    GET q (code or name; exact=1 matches a scanned SKU or barcode exactly),
+    category (that category and everything under it), warehouse (one of the
+    till's own shelves, for the on-hand figure), page (25 a page), and
+    stock=all for the on-hand at every warehouse the company runs (the price
+    check). Only this company's active products; read only.
+    """
+    from apps.inventory.models import StockLevel
+    from apps.organizations.models import Warehouse
+
+    company = request.active_company
+    if not company:
+        return JsonResponse({"error": "No company selected."}, status=400)
+    cashier_session = services.active_session(company, request.user)
+    shelves = services.till_warehouses(company, cashier_session)
+    wanted = (request.GET.get("warehouse") or "").strip()
+    shelf = services.by_pk(shelves, wanted) if wanted else None
+    if shelf is None:
+        shelf = (services.issue_warehouse(company, cashier_session)
+                 if cashier_session else shelves.first())
+    products = services.search_products(
+        company, request.GET.get("q") or "", request.GET.get("category") or None,
+        exact=request.GET.get("exact") == "1")
+    paginator = Paginator(products, services.LOOKUP_PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page") or 1)
+    items = list(page.object_list)
+    ids = [p.pk for p in items]
+    on_hand = {}
+    if shelf is not None and ids:
+        on_hand = {row["product_id"]: row["quantity"] for row in StockLevel.objects.filter(
+            warehouse=shelf, product_id__in=ids).values("product_id", "quantity")}
+    every = {}
+    if request.GET.get("stock") == "all" and ids:
+        names = {w.pk: w.name for w in Warehouse.objects.filter(company=company, is_active=True)}
+        for row in StockLevel.objects.filter(product_id__in=ids, warehouse_id__in=names).values(
+                "product_id", "warehouse_id", "quantity").order_by("warehouse__name"):
+            every.setdefault(row["product_id"], []).append(
+                {"warehouse": names[row["warehouse_id"]], "qty": str(row["quantity"])})
+    results = []
+    for product in items:
+        card = services.product_card(product, on_hand.get(product.pk, Decimal("0")))
+        card["tax_label"] = (f"{product.tax_rate.name}" if product.tax_rate_id else "No VAT")
+        if request.GET.get("stock") == "all":
+            card["stock"] = every.get(product.pk, []) if product.track_inventory else None
+        results.append(card)
+    return JsonResponse({
+        "results": results,
+        "page": page.number,
+        "num_pages": paginator.num_pages,
+        "count": paginator.count,
+        "page_size": services.LOOKUP_PAGE_SIZE,
+        "warehouse": {"id": str(shelf.pk), "name": shelf.name} if shelf else None,
+    })
+
+
+@login_required
+@require_POST
+def lock(request):
+    """F7 Lock Station: put the open till behind the lock screen."""
+    company = request.active_company
+    cashier_session = services.active_session(company, request.user)
+    if not cashier_session:
+        return JsonResponse({"ok": False, "error": "There is no open till to lock."}, status=400)
+    request.session[LOCK_KEY] = str(cashier_session.pk)
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def unlock(request):
+    """Lift the lock screen with the signed-in cashier's own password.
+
+    Checked with Django's password hashers and counted against the same
+    five-failures-in-fifteen-minutes lockout as the sign-in page: a locked till
+    left on a counter is a password prompt anyone can walk up to.
+    """
+    from apps.accounts.models import LoginAttempt
+    from apps.accounts.views import (LOCKED_OUT_REASON, LOGIN_LOCKOUT_WINDOW,
+                                     _get_client_ip, login_locked_out)
+
+    user = request.user
+    email = user.email or user.username
+    ip = _get_client_ip(request)
+    agent = request.META.get("HTTP_USER_AGENT", "")
+    if login_locked_out(email, ip):
+        LoginAttempt.objects.create(user=user, email=email, ip_address=ip, user_agent=agent,
+                                    success=False, failure_reason=LOCKED_OUT_REASON)
+        minutes = int(LOGIN_LOCKOUT_WINDOW.total_seconds() // 60)
+        return JsonResponse({"ok": False, "locked_out": True, "error": (
+            f"Too many wrong passwords. The till stays locked for {minutes} minutes — "
+            "wait, or ask an administrator.")}, status=429)
+    password = request.POST.get("password") or ""
+    if not password or not user.check_password(password):
+        LoginAttempt.objects.create(user=None, email=email, ip_address=ip, user_agent=agent,
+                                    success=False, failure_reason="Invalid password (till unlock)")
+        return JsonResponse({"ok": False, "error": "That is not your password."}, status=403)
+    LoginAttempt.objects.create(user=user, email=email, ip_address=ip, user_agent=agent,
+                                success=True, failure_reason="")
+    request.session.pop(LOCK_KEY, None)
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def cash_movement(request, pk):
+    """F2 Payout / Pay-in: notes out of or into an open drawer, booked at once."""
+    company = request.active_company
+    session = get_object_or_404(POSSession, pk=pk, company=company)
+
+    def back():
+        if request.POST.get("next") == "session":
+            return redirect("pos:session_detail", pk=session.pk)
+        return redirect("pos:terminal")
+
+    if is_locked(request, services.active_session(company, request.user)):
+        messages.error(request, "This till is locked — unlock it first. Nothing was moved.")
+        return redirect("pos:terminal")
+    try:
+        with transaction.atomic():
+            movement = services.record_cash_movement(
+                session, request.user, request.POST.get("direction"),
+                request.POST.get("amount"), request.POST.get("reason"),
+                request.POST.get("account") or None,
+                token=request.POST.get("movement_token"))
+    except IntegrityError:
+        movement = services.submitted_movement(session, request.POST.get("movement_token"))
+        if movement is None:
+            raise
+    except (ValidationError, ValueError) as exc:
+        text = exc.messages[0] if hasattr(exc, "messages") else str(exc)
+        messages.error(request, f"Nothing was moved: {text}")
+        return back()
+    messages.success(
+        request,
+        f"{movement.reference}: {movement.amount} {movement.get_direction_display().lower()} "
+        f"({movement.reason}) — the drawer should now hold "
+        f"{POSSession.objects.get(pk=session.pk).expected_cash}.")
+    return back()
+
+
+@login_required
+@require_GET
+def sale_find(request):
+    """F3/F6: open a past ticket by its number (typed or scanned) to refund it."""
+    company = request.active_company
+    text = (request.GET.get("ref") or "").strip().upper()
+    tickets = POSSale.objects.filter(session__company=company, refund_of__isnull=True)
+    sale = tickets.filter(reference__iexact=text).first() if text else None
+    if sale is None and text.isdigit():
+        found = list(tickets.filter(reference__endswith=text.zfill(5))[:2])
+        sale = found[0] if len(found) == 1 else None
+    if sale is None:
+        messages.error(request, f"No till ticket numbered “{text}” on this company's book."
+                       if text else "Type or scan the ticket number to return.")
+        return redirect("pos:terminal")
+    return redirect(f"{reverse('pos:sale_detail', args=[sale.pk])}#refund")
