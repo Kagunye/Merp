@@ -11,6 +11,7 @@ module.exports = {
     './templates/**/*.html',
     './apps/**/templates/**/*.html',
     './apps/**/*.py',
+    './static/pos/**/*.js',
   ],
   // Component variants that are often picked at runtime (`badge-{{ x }}`).
   safelist: [

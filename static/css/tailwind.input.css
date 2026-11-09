@@ -864,6 +864,162 @@
 /* Checkbox on dark: red when ticked. */
 .auth-panel .checkbox { accent-color: #c6272b; }
 
+/* --------------------------------------------------------------------------
+   POS till (templates/pos/terminal.html) — full-screen, four zones.
+   Palladium's layout and density in Mofisi's colours: hero top bar and total
+   bar, white function cards with icon tiles, one red pay action. Unlayered
+   on purpose: the till's script toggles these classes at runtime, so they
+   must be emitted whether or not a template spells them out.
+   -------------------------------------------------------------------------- */
+.pos-body { height: 100%; overflow: hidden; background: rgb(var(--c-canvas)); }
+.pos-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+/* Top bar */
+.pos-top { @apply flex shrink-0 items-center gap-2 bg-hero px-3 text-hero-ink; min-height: 56px; }
+.pos-brand { @apply text-xl font-extrabold tracking-tight text-white; }
+.pos-online { @apply inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-hero-credit; }
+.pos-online::before { content: ""; @apply h-2 w-2 rounded-full; background: currentColor; }
+.pos-online.is-offline { color: #ffb4ae; }
+.pos-doc-title { @apply mx-auto whitespace-nowrap px-2 text-base font-extrabold uppercase tracking-[0.12em] text-white; }
+.pos-top-field { @apply relative flex min-w-0 items-center; }
+.pos-top-field > svg { @apply pointer-events-none absolute right-2.5 h-4 w-4 text-hero-muted; }
+.pos-top-input { @apply h-10 w-full min-w-0 rounded-ctl border border-white/15 bg-white/10 px-3 text-sm text-white placeholder:text-hero-muted focus:border-white/40 focus:outline-none; }
+.pos-top-input option { color: #151515; background: #fff; }
+select.pos-top-input { @apply appearance-none pr-8; }
+.pos-top-icon { @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-ctl text-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white; }
+.pos-top-icon svg { @apply h-5 w-5; }
+.pos-avatar { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white; }
+.pos-customer-chip { @apply flex min-w-0 items-center gap-2 pl-1; }
+.pos-customer-chip .pos-chip-label { @apply block text-[11px] leading-tight text-hero-muted; }
+.pos-customer-chip .pos-chip-name { @apply block max-w-[9rem] truncate text-[13px] font-bold leading-tight text-white; }
+
+/* The three working zones */
+.pos-main { flex: 1 1 auto; min-height: 0; display: grid; gap: 10px; padding: 10px;
+  grid-template-columns: 220px minmax(0, 1fr) minmax(340px, 31%); }
+.pos-zone { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+/* Left: function keys */
+.pos-keys { @apply overflow-y-auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  grid-auto-rows: minmax(74px, 1fr); align-content: stretch; }
+.pos-fkey { @apply relative flex flex-col items-center justify-center gap-1 rounded-[16px] border border-line bg-surface px-1.5 pb-1.5 pt-4 text-center text-[12px] font-semibold leading-tight text-ink-2;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.pos-fkey:hover:not(:disabled):not([aria-disabled="true"]) { @apply border-line-strong bg-surface-2; }
+.pos-fkey:active:not(:disabled) { transform: scale(.97); }
+.pos-fkey:focus-visible { @apply outline outline-2 outline-offset-2 outline-ink; }
+.pos-fkey:disabled, .pos-fkey[aria-disabled="true"] { @apply cursor-not-allowed opacity-50; }
+.pos-fkey-key { @apply absolute left-2 top-1.5 text-[11px] font-bold text-ink-muted; }
+.pos-fkey .icon-tile { @apply h-9 w-9 rounded-[10px]; }
+.pos-fkey .icon-tile svg { @apply h-5 w-5; }
+.pos-fkey-pay { @apply border-brand bg-brand text-white; }
+.pos-fkey-pay .pos-fkey-key { @apply text-white/80; }
+.pos-fkey-pay .icon-tile { @apply bg-white/15 text-white; }
+.pos-fkey-pay:hover:not(:disabled) { @apply border-brand-hover bg-brand-hover; }
+
+/* Middle: product pictures */
+.pos-panel { @apply flex min-h-0 flex-col overflow-hidden rounded-card border border-line bg-surface; }
+.pos-panel-head { @apply flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2; }
+.pos-screens { @apply flex min-w-0 flex-1 gap-1.5 overflow-x-auto; scrollbar-width: thin; }
+.pos-screen-tab { @apply h-9 shrink-0 whitespace-nowrap rounded-full border border-line px-3.5 text-[13px] font-semibold text-ink-2 hover:bg-surface-2; }
+.pos-screen-tab.is-active { @apply border-hero bg-hero text-white; }
+.pos-tiles { @apply min-h-0 flex-1 overflow-y-auto p-3; display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); align-content: start; }
+.pos-tile { @apply flex min-w-0 flex-col overflow-hidden rounded-[16px] border border-line bg-surface text-left;
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.pos-tile:hover { @apply border-line-strong; }
+.pos-tile:active { transform: scale(.97); }
+.pos-tile:focus-visible { @apply outline outline-2 outline-offset-2 outline-ink; }
+.pos-tile-pic { @apply flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-icon-bg; }
+.pos-tile-pic img { @apply h-full w-full object-cover; }
+.pos-tile-initials { @apply text-2xl font-extrabold tracking-tight text-brand-ink; }
+.pos-tile-body { @apply flex flex-1 flex-col gap-0.5 px-2.5 py-2; }
+.pos-tile-name { @apply line-clamp-2 text-[13px] font-semibold leading-snug text-ink; }
+.pos-tile-price { @apply mt-auto text-[13px] font-bold text-ink; font-variant-numeric: tabular-nums; }
+.pos-tile-count { @apply ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-white; }
+.pos-panel-foot { @apply flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-divider px-3 py-2 text-[12px] text-ink-muted; }
+.pos-kbd { @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded-[6px] border border-line-strong bg-surface-2 px-1 text-[11px] font-bold text-ink-2; }
+
+/* Right: the ticket */
+.pos-code { @apply flex shrink-0 items-center gap-2 border-b border-divider p-2.5; }
+.pos-lines { @apply min-h-0 flex-1 overflow-y-auto; }
+.pos-lines table { @apply w-full border-collapse text-[13px]; font-variant-numeric: tabular-nums; }
+.pos-lines th { @apply sticky top-0 z-[1] border-b border-line bg-surface-2 px-2 py-2 text-left text-[11px] font-bold uppercase tracking-[0.06em] text-ink-muted; }
+.pos-lines th.num, .pos-lines td.num { @apply text-right; }
+.pos-lines td { @apply cursor-pointer border-b border-divider px-2 py-2 align-top text-ink; }
+.pos-lines tr.is-selected td { @apply bg-brand-50; }
+.pos-lines tr.is-selected td:first-child { box-shadow: inset 3px 0 0 rgb(var(--c-brand)); }
+.pos-line-code { @apply block text-[12px] font-bold text-ink; }
+.pos-line-name { @apply block max-w-[11rem] truncate text-[12px] text-ink-muted; }
+.pos-empty { @apply px-4 py-10 text-center text-sm text-ink-muted; }
+.pos-nav { @apply flex shrink-0 items-center gap-1.5 border-t border-divider px-2.5 py-2; }
+.pos-nav .btn:not(.btn-sm) { @apply h-10 w-10 px-0; }
+.pos-nav .btn-sm { @apply h-10; }
+.pos-total { @apply flex shrink-0 items-center gap-3 bg-hero px-4 py-3 text-white; }
+.pos-total-label { @apply text-[15px] font-semibold text-hero-muted; }
+.pos-total-value { @apply ml-auto text-right text-[1.625rem] font-extrabold leading-none tracking-tight; font-variant-numeric: tabular-nums; }
+.pos-total-meta { @apply block text-[12px] font-medium text-hero-muted; }
+
+/* Dialogs (native <dialog>: Esc closes them) */
+.pos-dialog { @apply m-auto w-[min(34rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-hidden rounded-card border border-line bg-surface p-0 text-ink shadow-pop; }
+.pos-dialog-wide { width: min(60rem, calc(100vw - 2rem)); }
+.pos-dialog::backdrop { background: rgb(26 20 22 / .55); }
+.pos-dialog[open] { display: flex; flex-direction: column; }
+.pos-dialog-head { @apply flex shrink-0 items-center gap-3 bg-hero px-5 py-3 text-white; }
+.pos-dialog-head h2 { @apply flex-1 text-base font-bold; }
+.pos-dialog-head .pos-top-icon { @apply h-9 w-9; }
+.pos-dialog-body { @apply min-h-0 flex-1 overflow-y-auto p-5; }
+.pos-dialog-foot { @apply flex shrink-0 flex-wrap items-center justify-end gap-2.5 border-t border-divider px-5 py-3; }
+.pos-error { @apply mt-2 text-sm font-semibold text-danger; }
+
+/* Keypad */
+.pos-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pos-keypad button { @apply h-14 rounded-ctl border border-line-strong bg-surface text-xl font-bold text-ink hover:bg-surface-2 active:scale-[.97]; }
+.pos-keypad .pos-key-wide { grid-column: span 2; }
+.pos-readout { @apply mb-3 w-full rounded-ctl border border-line-strong bg-surface-2 px-4 py-3 text-right text-3xl font-extrabold tracking-tight text-ink; font-variant-numeric: tabular-nums; }
+.pos-methods { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pos-method { @apply flex h-16 flex-col items-center justify-center gap-1 rounded-ctl border border-line-strong bg-surface text-sm font-bold text-ink-2 hover:bg-surface-2; }
+.pos-method.is-active { @apply border-hero bg-hero text-white; }
+.pos-change { @apply mt-3 flex items-baseline justify-between rounded-ctl bg-success-bg px-4 py-3 text-success; }
+.pos-change strong { @apply text-2xl font-extrabold; font-variant-numeric: tabular-nums; }
+.pos-change.is-short { @apply bg-danger-bg text-danger; }
+
+/* Item modal */
+.pos-filter { @apply inline-flex items-center gap-1.5 rounded-ctl border-2 border-brand px-3 py-1.5 text-[13px] font-semibold text-ink; }
+.pos-filter b { @apply text-brand-ink; }
+.pos-pick tr { @apply cursor-pointer; }
+.pos-pick tr.is-selected td { @apply bg-brand-50; }
+.pos-cascade { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.pos-cascade ul { @apply max-h-[50vh] min-h-[10rem] overflow-y-auto rounded-ctl border border-line; }
+.pos-cascade li button { @apply flex w-full items-center justify-between gap-2 border-b border-divider px-3 py-2.5 text-left text-sm text-ink hover:bg-surface-2; }
+.pos-cascade li button.is-active { @apply bg-brand-50 font-semibold text-brand-ink; }
+.pos-choice { @apply flex w-full items-center justify-between gap-3 rounded-ctl border border-line px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-surface-2; }
+.pos-choice.is-active { @apply border-hero bg-hero text-white; }
+.pos-choice:disabled { @apply cursor-not-allowed opacity-50; }
+
+/* Lock screen */
+.pos-lock { @apply fixed inset-0 z-[60] flex items-center justify-center bg-hero p-4 text-white; }
+.pos-lock[hidden] { display: none; }
+.pos-lock-card { @apply w-full max-w-sm text-center; }
+.pos-lock-error { @apply mt-3 min-h-[1.25rem] text-sm font-semibold; color: #ffb4ae; }
+
+/* Flash messages float over the till */
+.pos-flash { @apply fixed right-4 top-[64px] z-50 flex max-w-md flex-col gap-2; }
+
+/* Under 900px the zones stack and the page scrolls instead. */
+@media (max-width: 899px) {
+  .pos-body { height: auto; overflow: auto; }
+  .pos-shell { height: auto; min-height: 100vh; }
+  .pos-top { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+  .pos-main { grid-template-columns: minmax(0, 1fr); }
+  .pos-keys { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); grid-auto-rows: 84px; overflow: visible; }
+  .pos-tiles { max-height: 60vh; }
+  .pos-lines { max-height: 50vh; }
+  .pos-cascade { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 900px) and (max-width: 1100px) {
+  .pos-main { grid-template-columns: 196px minmax(0, 1fr) minmax(300px, 34%); }
+  .pos-top-wide { display: none; }
+}
+
 /* Legacy dark-mode fixes for older templates that hard-code bg-white etc. */
 [data-theme="dark"] main .bg-white { background-color: rgb(var(--c-surface)); }
 [data-theme="dark"] main .bg-gray-50 { background-color: rgb(var(--c-surface-2)); }

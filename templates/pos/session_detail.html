@@ -28,12 +28,17 @@
         <div><dt>Float at open</dt><dd>{{ report.opening_cash|money }}</dd></div>
         <div><dt>Sales taken ({{ report.ticket_count }} ticket{{ report.ticket_count|pluralize }})</dt><dd class="text-success">{{ report.total_sales|money }}</dd></div>
         <div><dt>Refunds paid ({{ report.refund_count }} ticket{{ report.refund_count|pluralize }})</dt><dd class="text-danger">{{ report.total_refunds|money }}</dd></div>
+        <div><dt>Cash in the drawer from sales / back out in refunds</dt><dd>{{ report.cash_taken|money }} / {{ report.cash_given|money }}</dd></div>
+        <div><dt>Payouts</dt><dd class="text-danger">{{ report.paid_out|money }}</dd></div>
+        <div><dt>Pay-ins</dt><dd class="text-success">{{ report.paid_in|money }}</dd></div>
         <div><dt class="font-semibold text-ink">Expected in the drawer</dt><dd class="font-bold">{{ report.expected_cash|money }}</dd></div>
         <div><dt class="font-semibold text-ink">Counted at close</dt><dd>{% if report.counted_cash is None %}<span class="text-ink-muted">not counted</span>{% else %}{{ report.counted_cash|money }}{% endif %}</dd></div>
         <div><dt class="font-semibold text-ink">Variance</dt><dd class="font-semibold{% if report.variance is None %} text-ink-muted{% elif report.variance < 0 %} text-danger{% elif report.variance > 0 %} text-warning{% else %} text-success{% endif %}">{% if report.variance is None %}—{% else %}{{ report.variance|money }}{% endif %}</dd></div>
       </dl>
       <p class="border-t border-line px-5 py-3 text-xs text-ink-muted">Only notes belong in this figure: card, M-Pesa and transfer tickets are counted here too, but they settle into the bank rather than the drawer, so the cash-up below keeps them apart.</p>
     </section>
+
+    {% include "pos/_movements.html" %}
 
     <section class="card overflow-hidden">
       <div class="card-header">

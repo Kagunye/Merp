@@ -20,7 +20,7 @@ from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from .models import POSSale, POSSaleLine, POSSession
+from .models import POSCashMovement, POSSale, POSSaleLine, POSSession
 
 D = Decimal
 Z = D("0")
@@ -271,17 +271,41 @@ def retotal(session):
     session.total_refunds = money(refunds.aggregate(v=Sum("total_amount"))["v"] or Z)
     taken = money(tickets.filter(payment_method="CASH").aggregate(v=Sum("total_amount"))["v"] or Z)
     given = money(refunds.filter(payment_method="CASH").aggregate(v=Sum("total_amount"))["v"] or Z)
-    session.expected_cash = money((session.opening_cash or Z) + taken - given)
+    # Payouts and pay-ins move the notes too: a float top-up is in the drawer
+    # and a delivery fare paid over the counter is not.
+    paid_out, paid_in = drawer_movements(session)
+    session.expected_cash = money((session.opening_cash or Z) + taken - given
+                                  - paid_out + paid_in)
     session.save(update_fields=["total_sales", "total_refunds", "expected_cash", "updated_at"])
     return session
 
 
-def ticket_row(product, quantity):
+def drawer_movements(session):
+    """(paid out, paid in): the drawer's payouts and pay-ins this session."""
+    rows = POSCashMovement.objects.filter(session=session)
+    out = rows.filter(direction="OUT").aggregate(v=Sum("amount"))["v"] or Z
+    into = rows.filter(direction="IN").aggregate(v=Sum("amount"))["v"] or Z
+    return money(out), money(into)
+
+
+def discount_percent(value, label="Discount"):
+    """A line discount as typed: a percentage from 0 to 100, to two places."""
+    pct = number(value, label, limit=D("1000"))
+    pct = pct.quantize(D("0.01"), rounding=ROUND_HALF_UP)
+    if pct < 0 or pct > 100:
+        raise ValidationError(f"{label} has to be between 0 and 100 per cent.")
+    return pct
+
+
+def ticket_row(product, quantity, discount=Z):
     """One line as the till sees it: the shelf price, and the tax the product carries.
 
-    A counter sale is charged the selling price on the card. There is no price
-    list and no negotiated discount at a till, and a cashier typing a cheaper
-    figure would be a loss the book could never explain.
+    A counter sale is charged the selling price on the card; a cashier never
+    types a price. The one way below it is a line discount, a percentage off
+    the shelf price, which only a supervisor may give (checkout enforces who).
+    The line's net is the shelf price less the discount, and the VAT is worked
+    out on that discounted net -- VAT is due on what the customer paid. Cost of
+    sales is untouched: the goods leave the shelf at what they cost.
     """
     quantity = number(quantity, "quantity", limit=QUANTITY_LIMIT)
     if quantity <= 0:
@@ -289,8 +313,16 @@ def ticket_row(product, quantity):
     if not product.selling_price:
         raise ValidationError(
             "has no selling price on file — the till cannot sell it until one is set.")
+    text = "" if discount is None else str(discount).strip()
+    pct = discount_percent(text) if text else Z
+    if pct >= 100:
+        raise ValidationError(
+            "a 100% discount gives the goods away — the till sells, it does not give. "
+            "Issue them from stock instead.")
     unit = D(str(product.selling_price))
-    net = money(unit * quantity)
+    gross = money(unit * quantity)
+    off = money(gross * pct / D("100")) if pct else Z
+    net = money(gross - off)
     tax = money(net * (product.tax_rate.rate / D("100"))) if product.tax_rate_id else Z
     if net + tax <= 0:
         # A sliver of a cheap item rounds to nothing at the cent. Ringing it
@@ -302,12 +334,17 @@ def ticket_row(product, quantity):
     return {
         "product": product, "tax_rate": product.tax_rate if product.tax_rate_id else None,
         "quantity": quantity, "unit_price": unit,
+        "discount_percent": pct, "discount": off,
         "net": net, "tax": tax, "total": net + tax,
     }
 
 
-def build_ticket(company, quantities):
-    """Price the quantities a cashier typed, skipping the boxes left empty."""
+def build_ticket(company, quantities, discounts=None):
+    """Price the quantities a cashier typed, skipping the boxes left empty.
+
+    `discounts` ({product id: percent}) carries the line discounts; one
+    against a product with no quantity goes with its empty line.
+    """
     from apps.inventory.models import Product
 
     products = Product.objects.filter(
@@ -324,7 +361,7 @@ def build_ticket(company, quantities):
             # Someone posted a line for a product this company does not trade in.
             raise ValidationError("That product is not on this company's list.")
         try:
-            rows.append(ticket_row(product, text))
+            rows.append(ticket_row(product, text, (discounts or {}).get(str(pk))))
         except ValidationError as exc:
             raise ValidationError(f"{product.name}: {exc.messages[0]}")
     if not rows:
@@ -502,9 +539,32 @@ def token_refusal(found, *, refund_of=None):
             "and refund it from its page.")
 
 
+def has_discount(discounts):
+    """Did the post ask for any line discount at all (a non-zero figure)?"""
+    for raw in (discounts or {}).values():
+        text = "" if raw is None else str(raw).strip()
+        if not text:
+            continue
+        try:
+            if number(text, "Discount", limit=D("1000")) != 0:
+                return True
+        except ValidationError:
+            return True
+    return False
+
+
+def company_people(company):
+    """The users who work in this company: the salespeople a ticket may name."""
+    from apps.accounts.models import User
+    return User.objects.filter(
+        memberships__company=company, memberships__is_active=True,
+        is_active=True).distinct().order_by("first_name", "last_name", "username")
+
+
 @transaction.atomic
 def checkout(company, user, quantities, *, session=None, payment_method="CASH",
-             tendered=Z, customer=None, warehouse=None, notes="", token=""):
+             tendered=Z, customer=None, warehouse=None, notes="", token="",
+             discounts=None, salesperson=None, customer_reference=""):
     """Ring up a ticket: count the money, move the goods, book the entry.
 
     Returns the sale, with the change already worked out on its own row.
@@ -530,7 +590,18 @@ def checkout(company, user, quantities, *, session=None, payment_method="CASH",
         raise ValidationError(
             "A split tender is not taken here yet — ring each part as its own ticket.")
 
-    rows, subtotal, tax, total = build_ticket(company, quantities)
+    if has_discount(discounts) and not is_supervisor(company, user):
+        # A discount is money the shop decides not to take; the person who
+        # answers for the takings decides it, not the cashier ringing it.
+        raise ValidationError(
+            "Only a supervisor (an administrator, finance or sales manager) can give a "
+            "discount at the till — nothing was rung. Ask one to apply it.")
+    if salesperson is not None and not company_people(company).filter(
+            pk=salesperson.pk).exists():
+        raise ValidationError("That salesperson does not work in this company.")
+
+    rows, subtotal, tax, total = build_ticket(company, quantities, discounts)
+    discount_total = money(sum((r["discount"] for r in rows), Z))
     handed_text = "" if tendered is None else str(tendered).strip()
     if payment_method != "CASH":
         # A card slip or an M-Pesa message pays the bill it was quoted for: there
@@ -553,16 +624,19 @@ def checkout(company, user, quantities, *, session=None, payment_method="CASH",
         session=session,
         reference=SequenceCounter.next_number(company, "POS-"),
         customer=customer, warehouse=shelf,
-        subtotal=subtotal, discount_amount=Z, tax_amount=tax, total_amount=total,
+        subtotal=subtotal, discount_amount=discount_total, tax_amount=tax, total_amount=total,
         payment_method=payment_method,
         amount_tendered=handed, change_given=change,
         status="COMPLETED", notes=notes, submission_token=clean_token(token),
+        salesperson=salesperson,
+        customer_reference=(customer_reference or "").strip()[:100],
     )
     for row in rows:
         POSSaleLine.objects.create(
             sale=sale, product=row["product"], tax_rate=row["tax_rate"],
             quantity=row["quantity"], unit_price=row["unit_price"],
-            discount_amount=Z, tax_amount=row["tax"], line_total=money(row["net"] + row["tax"]),
+            discount_percent=row["discount_percent"], discount_amount=row["discount"],
+            tax_amount=row["tax"], line_total=money(row["net"] + row["tax"]),
         )
     issue_stock(sale, rows, shelf, "DELIVERY", "Sold at the till", user=user)
 
@@ -745,7 +819,9 @@ def till_report(session):
         return money(taken), money(given)
 
     counted = session.closing_cash
-    drawer = money((session.opening_cash or Z) + totals("CASH")[0] - totals("CASH")[1])
+    paid_out, paid_in = drawer_movements(session)
+    drawer = money((session.opening_cash or Z) + totals("CASH")[0] - totals("CASH")[1]
+                   - paid_out + paid_in)
     methods = []
     for value, label in POSSale.PAYMENT_METHODS:
         taken, given = totals(value)
@@ -756,6 +832,13 @@ def till_report(session):
     return {
         "methods": methods,
         "opening_cash": money(session.opening_cash or Z),
+        "cash_taken": totals("CASH")[0],
+        "cash_given": totals("CASH")[1],
+        "paid_out": paid_out,
+        "paid_in": paid_in,
+        "movements": list(POSCashMovement.objects.filter(session=session)
+                          .select_related("account", "performed_by", "journal_entry")
+                          .order_by("created_at")),
         "expected_cash": drawer,
         "counted_cash": money(counted) if counted is not None else None,
         "variance": money(counted - drawer) if counted is not None else None,
@@ -763,4 +846,194 @@ def till_report(session):
         "total_refunds": money(session.total_refunds),
         "ticket_count": POSSale.objects.filter(session=session, refund_of__isnull=True).count(),
         "refund_count": POSSale.objects.filter(session=session).exclude(refund_of=None).count(),
+    }
+
+
+# ─────────────────────────── payouts and pay-ins ────────────────────────────
+
+# The kinds of ledger account a payout or a pay-in may name as its other side.
+# A payout is an expense paid over the counter (fare, airtime, cleaning) or
+# notes taken to the safe or the bank; a pay-in is a float top-up, from the
+# owner (equity) or from the safe or the bank. Receivables and payables are
+# left out: a customer's or supplier's money is allocated on its own screen.
+MOVEMENT_ACCOUNT_TYPES = {
+    "OUT": ("EXPENSE", "BANK", "CASH"),
+    "IN": ("EQUITY", "BANK", "CASH"),
+}
+# The default other side: general operating expenses for a payout, the
+# owner's float (opening equity) for a pay-in.
+MOVEMENT_DEFAULT_CODES = {"OUT": ("6000",), "IN": ("3100", "3000")}
+
+
+def till_cash_account(company):
+    """The ledger account a cash ticket debits: the drawer (1100)."""
+    from apps.accounting.models import Account
+    return (Account.objects.filter(company=company, code="1100", is_active=True).first()
+            or Account.objects.filter(company=company, account_type="CASH",
+                                      is_active=True).order_by("code").first())
+
+
+def movement_accounts(company, direction):
+    """The accounts a payout (OUT) or pay-in (IN) may be booked against."""
+    from apps.accounting.models import Account
+    types = MOVEMENT_ACCOUNT_TYPES.get(direction, ())
+    accounts = Account.objects.filter(company=company, is_active=True, account_type__in=types)
+    drawer = till_cash_account(company)
+    if drawer is not None:
+        # The drawer against itself would move nothing.
+        accounts = accounts.exclude(pk=drawer.pk)
+    return accounts.order_by("code")
+
+
+def default_movement_account(company, direction):
+    allowed = movement_accounts(company, direction)
+    for code in MOVEMENT_DEFAULT_CODES.get(direction, ()):
+        found = allowed.filter(code=code).first()
+        if found:
+            return found
+    kind = "EXPENSE" if direction == "OUT" else "EQUITY"
+    return allowed.filter(account_type=kind).first() or allowed.first()
+
+
+def submitted_movement(session, token):
+    token = clean_token(token)
+    if not token or session is None:
+        return None
+    return POSCashMovement.objects.filter(session=session, submission_token=token).first()
+
+
+@transaction.atomic
+def record_cash_movement(session, user, direction, amount, reason, account=None, *, token=""):
+    """Take notes out of the drawer (OUT) or put them in (IN), and book it.
+
+    Only the till's cashier, or a supervisor standing in for them, may move
+    the drawer's money, and only while the till is open: a counted, closed
+    drawer is evidence. A payout can never take out more than the drawer is
+    expected to hold -- the same rule a cash refund keeps. The form's one-time
+    token makes a double click hand back the movement it already made.
+    """
+    from apps.core.models import SequenceCounter
+    from apps.accounting import gl_service
+
+    session = POSSession.objects.select_for_update().select_related(
+        "company", "cashier", "branch").get(pk=session.pk)
+    company = session.company
+    _refuse_stranger(session, user, "pay money in or out of")
+    if session.status != "OPEN":
+        raise ValidationError(
+            f"This till is {session.get_status_display()} — money can only be paid in or out "
+            "of an open drawer.")
+    direction = (direction or "").strip().upper()
+    if direction not in dict(POSCashMovement.DIRECTIONS):
+        raise ValidationError("Choose whether the money is paid out of the drawer or into it.")
+    token = clean_token(token)
+    if not token:
+        raise ValidationError(
+            "That form had no one-time token, so it could not be protected against being "
+            "sent twice. Nothing was moved — open the payout form again.")
+    already = submitted_movement(session, token)
+    if already:
+        return already
+    amount = money(amount, "Amount")
+    if amount <= 0:
+        raise ValidationError("The amount has to be more than nothing.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("Say what the money is for — the cash-up has to explain it.")
+    allowed = movement_accounts(company, direction)
+    if account is None or account == "":
+        account = default_movement_account(company, direction)
+    elif not hasattr(account, "pk"):
+        account = by_pk(allowed, account)
+        if account is None:
+            raise ValidationError("That account cannot be the other side of a drawer movement.")
+    if account is None or not allowed.filter(pk=account.pk).exists():
+        raise ValidationError("That account cannot be the other side of a drawer movement.")
+    retotal(session)
+    if direction == "OUT" and money(session.expected_cash) < amount:
+        raise ValidationError(
+            f"The drawer should hold {money(session.expected_cash)} and cannot pay out {amount}.")
+    movement = POSCashMovement.objects.create(
+        session=session, direction=direction, amount=amount, reason=reason[:255],
+        account=account, performed_by=user, submission_token=token,
+        reference=SequenceCounter.next_number(company, "POS-M"),
+    )
+    gl_service.post_pos_cash_movement(movement, user=user)
+    retotal(session)
+    movement.refresh_from_db()
+    return movement
+
+
+# ─────────────────────────── item lookup ────────────────────────────────────
+
+LOOKUP_PAGE_SIZE = 25
+
+
+def category_tree(company):
+    """{id: (name, parent id)} for the company's product categories."""
+    from apps.inventory.models import ProductCategory
+    return {c["pk"]: (c["name"], c["parent_id"]) for c in ProductCategory.objects.filter(
+        company=company).values("pk", "name", "parent_id")}
+
+
+def category_with_descendants(company, category_id):
+    """The category and every category under it, as a set of ids (empty if unknown)."""
+    tree = category_tree(company)
+    wanted = next((pk for pk in tree if str(pk) == str(category_id).strip()), None)
+    if wanted is None:
+        return set()
+    found, frontier = {wanted}, {wanted}
+    while frontier:
+        nxt = {pk for pk, (_, parent) in tree.items() if parent in frontier and pk not in found}
+        found |= nxt
+        frontier = nxt
+    return found
+
+
+def top_category(tree, category_id):
+    """The level-1 ancestor of a category (itself when it has no parent)."""
+    seen = set()
+    current = category_id
+    while current in tree and tree[current][1] and current not in seen:
+        seen.add(current)
+        current = tree[current][1]
+    return current
+
+
+def search_products(company, q="", category=None, exact=False):
+    """The company's active products matching a code or name, optionally in a category."""
+    from apps.inventory.models import Product
+
+    products = Product.objects.filter(company=company, is_active=True).select_related(
+        "tax_rate", "unit_of_measure", "category")
+    q = (q or "").strip()
+    if q:
+        if exact:
+            products = products.filter(Q(sku__iexact=q) | Q(barcode=q))
+        else:
+            products = products.filter(
+                Q(name__icontains=q) | Q(sku__icontains=q) | Q(barcode__icontains=q))
+    if category not in (None, ""):
+        products = products.filter(category_id__in=category_with_descendants(company, category))
+    return products.order_by("name", "sku")
+
+
+def product_card(product, on_hand=None):
+    """A product as the till's screens see it (JSON-safe)."""
+    rate = product.tax_rate.rate if product.tax_rate_id else Z
+    return {
+        "id": str(product.pk),
+        "sku": product.sku,
+        "barcode": product.barcode,
+        "name": product.name,
+        "unit": product.unit_of_measure.abbreviation if product.unit_of_measure_id else "",
+        "price": str(money(product.selling_price or Z)),
+        "unit_price": str(D(str(product.selling_price or 0))),
+        "tax_rate": str(rate),
+        "type": product.product_type,
+        "tracked": bool(product.track_inventory),
+        "category": str(product.category_id) if product.category_id else "",
+        "on_hand": (str(on_hand if on_hand is not None else Z)
+                    if product.track_inventory else None),
+        "image": product.image.url if product.image else "",
     }

@@ -80,6 +80,14 @@ class POSSale(BaseModel, NotesMixin):
     # slow response) sends the same token, and the till hands back the ticket
     # the first submission made instead of taking the money a second time.
     submission_token = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    # Who served the customer, picked on the till's top bar. Display only: the
+    # drawer and the cash-up stay the cashier's, but a sales report can credit
+    # the person on the floor who made the sale.
+    salesperson = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True,
+                                    blank=True, related_name="pos_sales_served")
+    # The customer's own reference (an LPO number, a table, a phone number),
+    # typed on the top bar. Not the ticket number -- that is `reference`.
+    customer_reference = models.CharField(max_length=100, blank=True, default="")
 
     class Meta:
         ordering = ["-created_at"]
@@ -107,6 +115,9 @@ class POSSaleLine(models.Model):
                                  null=True, blank=True, related_name="pos_sale_lines")
     quantity = models.DecimalField(max_digits=12, decimal_places=4)
     unit_price = models.DecimalField(max_digits=15, decimal_places=4)
+    # The line discount a supervisor gave, as a percentage of the shelf price,
+    # and what it took off the line before tax (discount_amount).
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
     line_total = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
@@ -118,3 +129,45 @@ class POSSaleLine(models.Model):
     def net_total(self):
         """The line before tax — what the revenue account is credited with."""
         return (self.line_total or Decimal("0")) - (self.tax_amount or Decimal("0"))
+
+
+class POSCashMovement(BaseModel):
+    """Money put into or taken out of a drawer that is not a sale or a refund.
+
+    A payout (OUT) is notes handed over the counter for something the shop
+    paid for -- a delivery boy's fare, milk for the office -- or a cash drop
+    to the safe. A pay-in (IN) is a float top-up mid-shift. Either way the
+    drawer's expected cash moves with it, and the ledger is told at once:
+
+        payout   DR the counter account (an expense, or the bank/safe)   CR the till (1100)
+        pay-in   DR the till (1100)   CR the counter account (float equity, the bank/safe)
+    """
+    DIRECTIONS = [("OUT", "Payout"), ("IN", "Pay-in")]
+
+    session = models.ForeignKey(POSSession, on_delete=models.CASCADE, related_name="cash_movements")
+    reference = models.CharField(max_length=50, db_index=True)
+    direction = models.CharField(max_length=3, choices=DIRECTIONS)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.CharField(max_length=255)
+    account = models.ForeignKey("accounting.Account", on_delete=models.PROTECT,
+                                related_name="pos_cash_movements")
+    journal_entry = models.ForeignKey("accounting.JournalEntry", on_delete=models.SET_NULL,
+                                      null=True, blank=True, related_name="pos_cash_movements")
+    performed_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT,
+                                     related_name="pos_cash_movements")
+    # One-time form token, as on a ticket: the same payout form submitted
+    # twice takes the notes out of the drawer once.
+    submission_token = models.CharField(max_length=64, blank=True, default="", db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "submission_token"],
+                condition=~Q(submission_token=""),
+                name="pos_one_cash_movement_per_submission",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.reference} {self.get_direction_display()} {self.amount}"

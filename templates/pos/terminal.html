@@ -1,232 +1,480 @@
-{% extends "base/base.html" %}
-{% load ui_extras %}
-{% block content %}
-{% url 'pos:home' as back %}
-{% include "_includes/page_header.html" with title="Till" subtitle="Ring up a counter sale — priced off the product card" back_url=back back_label="Point of Sale" hide_print=True %}
+<!DOCTYPE html>
+{% load static ui_extras %}
+<html lang="en" data-theme="{{ request.user.theme_preference|default:'light' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>Till — {{ session.branch.name }} — Mofisi</title>
+  <script>
+    (function () {
+      var el = document.documentElement;
+      if (el.getAttribute('data-theme') === 'system') {
+        var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        el.setAttribute('data-theme', dark ? 'dark' : 'light');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
+</head>
+<body class="pos-body font-sans">
+{% can_do "sales:payment_create" as may_receive %}
+{% can_do "pos:session_close" "POST" as may_close %}
+{% can_do "pos:cash_up" as may_cashup %}
+{% can_do "pos:cash_movement" "POST" as may_move %}
+{% can_do "pos:sale_find" as may_find %}
+{% can_do "pos:item_lookup" as may_lookup %}
 
-{% if not session %}
-<section class="card max-w-2xl">
-  {% can_do "pos:session_open" "POST" as may_open %}{% if may_open %}{% url 'pos:session_open' as open_url %}{% endif %}
-  {% include "_includes/empty_state.html" with icon="lock" title="This till is not open." text="Money taken at a counter has to be traced to the person and the shift that took it, so a session with its opening float comes first." action_label="Open the till" action_url=open_url only %}
-</section>
-{% else %}
+<div class="pos-shell" id="pos"
+     data-session="{{ session.pk }}"
+     data-currency="{{ book }}"
+     data-supervisor="{% if is_supervisor %}1{% endif %}"
+     data-locked="{% if locked %}1{% endif %}"
+     data-lookup-url="{% url 'pos:item_lookup' %}"
+     data-lock-url="{% url 'pos:lock' %}"
+     data-unlock-url="{% url 'pos:unlock' %}"
+     data-payment-url="{% url 'sales:payment_create' %}"
+     data-may-receive="{% if may_receive %}1{% endif %}">
 
-{# ── Who is on the till ── #}
-<div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-2">
-  <span class="inline-flex items-center gap-1.5">{% include "_includes/icon.html" with name="user" cls="h-4 w-4 text-ink-muted" only %}<span class="sr-only">Cashier</span>{{ session.cashier.get_full_name|default:session.cashier.username }}</span>
-  <span class="inline-flex items-center gap-1.5">{% include "_includes/icon.html" with name="map-pin" cls="h-4 w-4 text-ink-muted" only %}<span class="sr-only">Branch</span>{{ session.branch.name }}</span>
-  <span class="inline-flex items-center gap-1.5">{% include "_includes/icon.html" with name="clock" cls="h-4 w-4 text-ink-muted" only %}Opened {{ session.opened_at|date:"d M, H:i" }}</span>
-  <span class="inline-flex items-center gap-1.5">Taking so far <strong class="num text-success">{{ report.total_sales|money }} {{ book }}</strong></span>
-  <span class="inline-flex items-center gap-1.5">Drawer should hold <strong class="num text-ink">{{ report.expected_cash|money }}</strong></span>
+  {# ── 1. Top bar ── #}
+  <header class="pos-top" aria-label="Till">
+    <span class="pos-brand">POS</span>
+    <span class="pos-online" id="pos-online" role="status">Online</span>
+    <h1 class="pos-doc-title" id="pos-doc-title">Invoice</h1>
+
+    <label class="pos-top-field w-44" title="Sales person (display only — the drawer stays the cashier's)">
+      <span class="sr-only">Sales person</span>
+      <select name="salesperson" form="till-form" id="pos-salesperson" class="pos-top-input">
+        <option value="">Sales person</option>
+        {% for person in salespeople %}<option value="{{ person.pk }}" {% if person.pk|stringformat:"s" == posted.salesperson %}selected{% endif %}>{{ person.get_full_name|default:person.username }}</option>{% endfor %}
+      </select>
+      {% include "_includes/icon.html" with name="search" only %}
+    </label>
+    <label class="pos-top-field pos-top-wide w-36">
+      <span class="sr-only">Reference</span>
+      <input type="text" name="customer_reference" form="till-form" id="pos-reference" maxlength="100" value="{{ posted.customer_reference }}" placeholder="Reference" class="pos-top-input" autocomplete="off">
+    </label>
+    <label class="pos-top-field w-44">
+      <span class="sr-only">Customer</span>
+      <select name="customer" form="till-form" id="pos-customer" class="pos-top-input">
+        <option value="" data-name="WALK-IN">WALK-IN</option>
+        {% for c in customers %}<option value="{{ c.pk }}" data-name="{{ c.name }}" {% if c.pk|stringformat:"s" == posted.customer %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      </select>
+      {% include "_includes/icon.html" with name="chevron-down" only %}
+    </label>
+    <button type="button" class="pos-top-icon" data-open="dlg-shift" aria-label="This shift: drawer and recent tickets" title="This shift">
+      {% include "_includes/icon.html" with name="printer" only %}
+    </button>
+    <span class="pos-customer-chip">
+      <span class="pos-avatar" id="pos-cust-initials" aria-hidden="true">WI</span>
+      <span><span class="pos-chip-label">Customer</span><span class="pos-chip-name" id="pos-cust-name">WALK-IN</span></span>
+    </span>
+    <a href="{% url 'pos:home' %}" class="pos-top-icon" aria-label="Leave the till (it stays open)" title="Leave the till — the session stays open">
+      {% include "_includes/icon.html" with name="logout" only %}
+    </a>
+  </header>
+
+  {% if messages %}
+  <div class="pos-flash" aria-live="polite">
+    {% for message in messages %}
+    <div class="alert shadow-pop {% if 'error' in message.tags %}alert-danger{% elif 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% else %}alert-info{% endif %}" role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}">
+      <div class="alert-body">{{ message }}</div>
+      <button type="button" class="alert-close" onclick="this.parentElement.remove()" aria-label="Dismiss message">{% include "_includes/icon.html" with name="x" stroke="2" only %}</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <main class="pos-main">
+    {# ── 2. Function keys ── #}
+    <nav class="pos-zone pos-keys" aria-label="Function keys">
+      <button type="button" class="pos-fkey" data-fn="qty"><span class="pos-fkey-key">F1</span><span class="icon-tile">{% include "_includes/icon.html" with name="clipboard" only %}</span>Enter Quantity</button>
+      <button type="button" class="pos-fkey" data-fn="lock"><span class="pos-fkey-key">F7</span><span class="icon-tile">{% include "_includes/icon.html" with name="lock" only %}</span>Lock Station</button>
+      <button type="button" class="pos-fkey" data-fn="return" {% if not may_find %}disabled title="Your role cannot look up past tickets."{% endif %}><span class="pos-fkey-key">F3</span><span class="icon-tile">{% include "_includes/icon.html" with name="arrow-left" only %}</span>Process Return</button>
+      <button type="button" class="pos-fkey" data-fn="cashout" {% if not may_close %}disabled title="Your role cannot close a till."{% endif %}><span class="pos-fkey-key">F9</span><span class="icon-tile">{% include "_includes/icon.html" with name="cash" only %}</span>Cash Out Close Day</button>
+      <button type="button" class="pos-fkey" data-fn="discount" {% if not is_supervisor %}aria-disabled="true" title="Only a supervisor (administrator, finance or sales manager) can give a discount."{% endif %}><span class="pos-fkey-key">F4</span><span class="icon-tile">{% include "_includes/icon.html" with name="trending-down" only %}</span>Apply Discount</button>
+      <button type="button" class="pos-fkey" data-fn="price" {% if not may_lookup %}disabled title="Your role cannot look up items."{% endif %}><span class="pos-fkey-key">F10</span><span class="icon-tile">{% include "_includes/icon.html" with name="search" only %}</span>Price/Stock Check</button>
+      <button type="button" class="pos-fkey" data-fn="void"><span class="pos-fkey-key">F5</span><span class="icon-tile">{% include "_includes/icon.html" with name="x-circle" only %}</span>Void Sale Clear</button>
+      <button type="button" class="pos-fkey" data-fn="account" {% if not may_receive %}aria-disabled="true" title="Your role cannot take a customer's account payment — ask the accounts office."{% endif %}><span class="pos-fkey-key">F11</span><span class="icon-tile">{% include "_includes/icon.html" with name="bank" only %}</span>Account Payment</button>
+      <button type="button" class="pos-fkey" data-fn="refund" {% if not may_find %}disabled title="Your role cannot look up past tickets."{% endif %}><span class="pos-fkey-key">F6</span><span class="icon-tile">{% include "_includes/icon.html" with name="refresh" only %}</span>Process Refund</button>
+      <button type="button" class="pos-fkey" data-fn="doctype"><span class="pos-fkey-key">F12</span><span class="icon-tile">{% include "_includes/icon.html" with name="document" only %}</span><span>Document Type <span class="block text-[11px] font-medium text-ink-muted" id="pos-doc-sub">(Invoice)</span></span></button>
+      <button type="button" class="pos-fkey" data-fn="payout" {% if not may_move %}disabled title="Your role cannot pay money in or out of a drawer."{% endif %}><span class="pos-fkey-key">F2</span><span class="icon-tile">{% include "_includes/icon.html" with name="receipt" only %}</span>Payout/Payin</button>
+      <button type="button" class="pos-fkey pos-fkey-pay" data-fn="tender"><span class="pos-fkey-key">Ctrl+F12 · T</span><span class="icon-tile">{% include "_includes/icon.html" with name="cart" only %}</span>Amount Tendered</button>
+      <button type="button" class="pos-fkey" data-fn="bom" {% if not boms_json %}disabled title="No active bill of materials to load — add one under Manufacturing."{% endif %}><span class="pos-fkey-key">&nbsp;</span><span class="icon-tile">{% include "_includes/icon.html" with name="box" only %}</span>Load BOM</button>
+      <button type="button" class="pos-fkey" data-fn="finish" {% if not may_close %}disabled title="Your role cannot close a till."{% endif %}><span class="pos-fkey-key">F8</span><span class="icon-tile">{% include "_includes/icon.html" with name="check-circle" only %}</span>Finish Session</button>
+    </nav>
+
+    {# ── 3. Product pictures ── #}
+    <section class="pos-zone pos-panel" aria-label="Products">
+      <div class="pos-panel-head">
+        <div class="pos-screens" id="pos-screens" role="tablist" aria-label="Screens">
+          <button type="button" class="pos-screen-tab is-active" data-screen="" role="tab">All</button>
+          {% for s in screens %}<button type="button" class="pos-screen-tab" data-screen="{{ s.id }}" role="tab">{{ s.name }}</button>{% endfor %}
+        </div>
+        <button type="button" class="btn btn-secondary btn-icon btn-sm" id="pos-screen-prev" aria-label="Previous screen">{% include "_includes/icon.html" with name="chevron-left" stroke="2" only %}</button>
+        <span class="whitespace-nowrap text-[12px] font-semibold text-ink-muted" id="pos-screen-label">Screen 1 of 1</span>
+        <button type="button" class="btn btn-secondary btn-icon btn-sm" id="pos-screen-next" aria-label="Next screen">{% include "_includes/icon.html" with name="chevron-right" stroke="2" only %}</button>
+      </div>
+      <div class="pos-tiles" id="pos-tiles" aria-live="polite"></div>
+      <div class="pos-panel-foot" aria-label="Keyboard">
+        <span><span class="pos-kbd">Enter</span> add code</span>
+        <span><span class="pos-kbd">↑</span><span class="pos-kbd">↓</span> line</span>
+        <span><span class="pos-kbd">+</span><span class="pos-kbd">−</span> quantity</span>
+        <span><span class="pos-kbd">Del</span> remove line</span>
+        <span><span class="pos-kbd">F2</span>–<span class="pos-kbd">F12</span> keys</span>
+        <span><span class="pos-kbd">T</span> tender</span>
+        <span><span class="pos-kbd">Esc</span> close</span>
+        <span class="ml-auto">Selling from <strong class="text-ink" id="pos-shelf-name">{{ shelf.name|default:"—" }}</strong></span>
+      </div>
+    </section>
+
+    {# ── 4. The ticket ── #}
+    <section class="pos-zone pos-panel" aria-label="The ticket">
+      <form class="pos-code" id="pos-code-form" role="search" autocomplete="off">
+        <label for="pos-code" class="sr-only">Enter item code</label>
+        <div class="input-group min-w-0 flex-1">
+          {% include "_includes/icon.html" with name="search" cls="h-5 w-5" only %}
+          <input type="text" id="pos-code" class="input" placeholder="Enter item code" autofocus inputmode="text" enterkeyhint="enter">
+        </div>
+        <button type="button" class="btn btn-secondary btn-icon btn-sm" data-fn="items" aria-label="Select item from the list" title="Select item… (list, categories, locations)">{% include "_includes/icon.html" with name="filter" cls="h-5 w-5" only %}</button>
+      </form>
+      <div class="pos-lines" id="pos-lines-wrap">
+        <table>
+          <thead><tr><th>Code</th><th>Unit</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Disc(%)</th><th class="num">Amount</th></tr></thead>
+          <tbody id="pos-lines"></tbody>
+        </table>
+        <p class="pos-empty" id="pos-empty">Scan or type an item code, or tap a picture.</p>
+      </div>
+      <div class="pos-nav">
+        <button type="button" class="btn btn-secondary" data-nav="first" aria-label="First line" title="First line">«</button>
+        <button type="button" class="btn btn-secondary" data-nav="prev" aria-label="Previous line" title="Previous line (↑)">‹</button>
+        <button type="button" class="btn btn-secondary" data-nav="next" aria-label="Next line" title="Next line (↓)">›</button>
+        <button type="button" class="btn btn-secondary" data-nav="last" aria-label="Last line" title="Last line">»</button>
+        <button type="button" class="btn btn-danger-ghost btn-sm ml-auto" data-nav="remove" title="Remove the selected line (Del)">{% include "_includes/icon.html" with name="trash" only %}Remove</button>
+      </div>
+      <div class="pos-total" aria-live="polite">
+        <span><span class="pos-total-label">Total Amount</span><span class="pos-total-meta"><span id="pos-count">0</span> item(s) · VAT <span id="pos-vat">0.00</span><span id="pos-disc-wrap" hidden> · disc <span id="pos-disc">0.00</span></span></span></span>
+        <span class="pos-total-value"><span class="text-base font-semibold text-hero-muted">{{ book }}</span> <span id="pos-total">0.00</span></span>
+        <button type="button" class="btn btn-primary btn-sm" data-fn="tender">Pay</button>
+      </div>
+    </section>
+  </main>
 </div>
 
-{# ── Product search (GET, name "q") ── #}
-<form method="get" action="{% url 'pos:terminal' %}" class="no-card mb-4 flex flex-wrap items-center gap-2" role="search">
-  <label for="till-search" class="sr-only">Scan or search a product</label>
-  <div class="input-group min-w-0 flex-1">
-    {% include "_includes/icon.html" with name="search" cls="h-5 w-5" only %}
-    <input type="search" id="till-search" name="q" value="{{ q }}" placeholder="Scan or search a product…" class="input text-base" autocomplete="off" autofocus>
-  </div>
-  <button type="submit" class="btn btn-secondary">Search</button>
-  {% if q %}<a href="{% url 'pos:terminal' %}" class="btn btn-ghost">Show the whole list</a>{% endif %}
+{# ── The ticket post: the existing contract (qty_<pk>, ticket_token, …) ── #}
+<form method="post" action="{% url 'pos:terminal' %}" id="till-form" hidden>
+  {% csrf_token %}
+  <input type="hidden" name="ticket_token" value="{{ ticket_token }}">
+  <input type="hidden" name="warehouse" id="pos-warehouse" value="{{ shelf.pk|default:'' }}">
+  <div id="pos-line-inputs"></div>
 </form>
 
-<form method="post" action="{% url 'pos:terminal' %}" id="till-form" class="no-card grid grid-cols-1 items-start gap-5 md:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_24rem]">
-  {% csrf_token %}
-  {# One-time token: the same form submitted twice rings one ticket, not two. #}
-  <input type="hidden" name="ticket_token" value="{{ ticket_token }}" />
+{# ── Dialogs ── #}
+<dialog class="pos-dialog" id="dlg-qty" aria-labelledby="dlg-qty-title">
+  <form method="dialog" data-keypad="qty">
+    <div class="pos-dialog-head"><h2 id="dlg-qty-title">Enter quantity</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <p class="mb-2 text-sm text-ink-muted" data-line-label></p>
+      <input type="text" inputmode="decimal" class="pos-readout" data-readout aria-label="Quantity" autocomplete="off">
+      <div class="pos-keypad">{% for k in "789456123" %}<button type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}<button type="button" data-key=".">.</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="Delete a digit">⌫</button></div>
+      <p class="pos-error" data-error role="alert"></p>
+    </div>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-secondary">Set quantity</button></div>
+  </form>
+</dialog>
 
-  {# ── Product grid: tap a tile to add one, or type a quantity ── #}
-  <section aria-label="Products" class="min-w-0">
-    <p class="mb-3 text-xs text-ink-muted">Enter a quantity against anything being bought; leave the rest empty. Tap a product to add one.</p>
-    <ul class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-      {% for row in rows %}
-      <li class="card till-item flex min-w-0 flex-col p-3{% if row.quantity %} border-brand{% endif %}"
-          data-pk="{{ row.product.pk }}" data-name="{{ row.product.name }}"
-          data-price="{{ row.product.selling_price|default:0|stringformat:'s' }}"
-          data-rate="{% if row.product.tax_rate %}{{ row.product.tax_rate.rate|stringformat:'s' }}{% else %}0{% endif %}">
-        <button type="button" class="till-add flex min-h-[3.5rem] w-full flex-1 flex-col items-start gap-1 rounded-lg text-left" aria-label="Add one {{ row.product.name }}">
-          <span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ row.product.name }}</span>
-          <span class="mono text-xs text-ink-muted">{{ row.product.sku }}{% if not row.product.track_inventory %} · not stocked{% endif %}</span>
-          <span class="mt-auto flex w-full items-baseline justify-between gap-2 pt-1">
-            <span class="num text-base font-bold text-ink">{{ row.product.selling_price|money }}</span>
-            <span class="text-xs text-ink-muted">{% if row.product.tax_rate %}VAT {{ row.product.tax_rate.rate|pct }}{% else %}No VAT{% endif %}</span>
-          </span>
-          <span class="text-xs{% if row.on_hand is not None and row.on_hand <= 0 %} text-danger{% else %} text-ink-muted{% endif %}">{% if row.on_hand is None %}On this shelf —{% else %}{{ row.on_hand|qty }} on this shelf{% endif %}</span>
-        </button>
-        <div class="mt-2 flex items-center gap-1.5">
-          <button type="button" class="till-minus btn btn-secondary btn-icon shrink-0" aria-label="One less {{ row.product.name }}"><span class="text-lg font-bold leading-none" aria-hidden="true">−</span></button>
-          <label for="qty-{{ row.product.pk }}" class="sr-only">Quantity of {{ row.product.name }}</label>
-          <input type="number" step="0.0001" min="0" inputmode="decimal" id="qty-{{ row.product.pk }}" name="qty_{{ row.product.pk }}" value="{{ row.quantity }}" placeholder="0"
-            class="till-qty input min-w-0 flex-1 text-center font-mono text-base font-semibold">
-          <button type="button" class="till-plus btn btn-secondary btn-icon shrink-0" aria-label="One more {{ row.product.name }}">{% include "_includes/icon.html" with name="plus" cls="h-4 w-4" stroke="2" only %}</button>
-        </div>
-      </li>
-      {% empty %}
-      <li class="col-span-full card">
-        {% if q %}
-        {% with t="Nothing called “"|add:q|add:"” is on this company's product list." %}{% include "_includes/empty_state.html" with icon="search" title=t compact=True only %}{% endwith %}
-        {% else %}
-        {% include "_includes/empty_state.html" with icon="box" title="This company has no products yet — add them under Inventory." compact=True only %}
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ul>
-  </section>
+<dialog class="pos-dialog" id="dlg-discount" aria-labelledby="dlg-discount-title">
+  <form method="dialog" data-keypad="discount">
+    <div class="pos-dialog-head"><h2 id="dlg-discount-title">Line discount (%)</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <p class="mb-2 text-sm text-ink-muted" data-line-label></p>
+      <input type="text" inputmode="decimal" class="pos-readout" data-readout aria-label="Discount per cent" autocomplete="off">
+      <div class="pos-keypad">{% for k in "789456123" %}<button type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}<button type="button" data-key=".">.</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="Delete a digit">⌫</button></div>
+      <p class="mt-3 text-xs text-ink-muted">Off the shelf price, before VAT. Revenue and VAT are booked at the discounted figure; the goods still leave the shelf at cost.</p>
+      <p class="pos-error" data-error role="alert"></p>
+    </div>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-secondary">Apply discount</button></div>
+  </form>
+</dialog>
 
-  {# ── The running ticket ── #}
-  <div class="block md:sticky md:top-20">
-    <section class="hero" aria-live="polite" aria-label="Running total">
-      <p class="hero-label">Total due ({{ book }})</p>
-      <p class="hero-value num" id="till-total">0.00</p>
-      <p class="hero-meta"><span id="till-count">0</span> item(s) · VAT <span id="till-vat">0.00</span></p>
-      <p class="hero-meta mt-1">Change <span id="till-change" class="hero-credit font-semibold">—</span></p>
-    </section>
+<dialog class="pos-dialog" id="dlg-confirm" aria-labelledby="dlg-confirm-title">
+  <form method="dialog">
+    <div class="pos-dialog-head"><h2 id="dlg-confirm-title" data-title>Are you sure?</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body"><p class="text-[15px] text-ink-2" data-text></p></div>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-danger" data-ok>Yes</button></div>
+  </form>
+</dialog>
 
-    <section class="card mt-4 overflow-hidden">
-      <div class="card-header"><h2 class="card-title">The ticket</h2><span class="text-xs text-ink-muted">estimate · priced on ringing</span></div>
-      <ul id="till-lines" class="list max-h-64 overflow-y-auto">
-        <li class="till-empty px-5 py-5 text-center text-sm text-ink-muted">Nothing on the ticket yet.</li>
-      </ul>
-    </section>
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-items" aria-labelledby="dlg-items-title">
+  <div class="pos-dialog-head"><h2 id="dlg-items-title">Select Item…</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="input-group min-w-0 flex-[1_1_16rem]">
+        {% include "_includes/icon.html" with name="search" cls="h-5 w-5" only %}
+        <label for="items-q" class="sr-only">Search items</label>
+        <input type="search" id="items-q" class="input" placeholder="Code, barcode or name…" autocomplete="off">
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" id="items-cat-btn">{% include "_includes/icon.html" with name="swatch" only %}Category</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="items-loc-btn">{% include "_includes/icon.html" with name="map-pin" only %}Locations</button>
+    </div>
+    <div class="mt-3 flex flex-wrap items-center gap-2">
+      <span class="pos-filter" id="items-filter"><b>Category Filter:</b> <span id="items-filter-path">All categories</span></span>
+      <button type="button" class="btn btn-ghost btn-sm" id="items-filter-clear" hidden>Clear filter</button>
+      <span class="ml-auto text-[13px] text-ink-muted">On hand at <strong class="text-ink" id="items-loc-name">{{ shelf.name|default:"—" }}</strong></span>
+    </div>
+    <div class="table-wrap mt-3">
+      <table class="table table-compact pos-pick">
+        <thead><tr><th>Item Type</th><th>Part Number</th><th>Description</th><th>Barcode</th><th class="num">Price</th><th class="num">On Hand</th></tr></thead>
+        <tbody id="items-rows"><tr><td colspan="6" class="text-center text-ink-muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="pos-dialog-foot">
+    <div class="mr-auto flex items-center gap-1.5">
+      <button type="button" class="btn btn-secondary btn-sm btn-icon" data-page="first" aria-label="First page">«</button>
+      <button type="button" class="btn btn-secondary btn-sm btn-icon" data-page="prev" aria-label="Previous page">‹</button>
+      <span class="px-2 text-sm text-ink-2">Page <strong id="items-page">1</strong> of <strong id="items-pages">1</strong></span>
+      <button type="button" class="btn btn-secondary btn-sm btn-icon" data-page="next" aria-label="Next page">›</button>
+      <button type="button" class="btn btn-secondary btn-sm btn-icon" data-page="last" aria-label="Last page">»</button>
+    </div>
+    <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+    <button type="button" class="btn btn-secondary" id="items-ok">OK</button>
+  </div>
+</dialog>
 
-    <section class="card card-body mt-4">
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-category" aria-labelledby="dlg-category-title">
+  <div class="pos-dialog-head"><h2 id="dlg-category-title">Category</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <div class="pos-cascade" id="cat-cascade">
+      <div><p class="section-title">Level 1</p><ul data-level="0"></ul></div>
+      <div><p class="section-title">Level 2</p><ul data-level="1"></ul></div>
+      <div><p class="section-title">Level 3</p><ul data-level="2"></ul></div>
+    </div>
+    <p class="mt-3 text-sm text-ink-muted">Filter: <strong class="text-ink" id="cat-path">All categories</strong> — a category takes in everything under it.</p>
+  </div>
+  <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" id="cat-all">All categories</button><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="button" class="btn btn-secondary" id="cat-ok">Use this category</button></div>
+</dialog>
+
+<dialog class="pos-dialog" id="dlg-locations" aria-labelledby="dlg-locations-title">
+  <div class="pos-dialog-head"><h2 id="dlg-locations-title">Locations</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <p class="mb-3 text-sm text-ink-muted">The shelf this till sells from and counts on-hand at — this branch's own, or a shared store.</p>
+    <div class="flex flex-col gap-2" id="loc-list">
+      {% for w in warehouses %}<button type="button" class="pos-choice{% if shelf.pk == w.pk %} is-active{% endif %}" data-warehouse="{{ w.pk }}" data-name="{{ w.name }}">{{ w.name }}<span class="text-xs font-medium opacity-70">{% if w.branch_id %}{{ w.branch.name }}{% else %}Shared store{% endif %}</span></button>{% endfor %}
+    </div>
+  </div>
+  <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Close</button></div>
+</dialog>
+
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-price" aria-labelledby="dlg-price-title">
+  <div class="pos-dialog-head"><h2 id="dlg-price-title">Price / stock check</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <form class="flex gap-2" id="price-form" role="search">
+      <div class="input-group min-w-0 flex-1">
+        {% include "_includes/icon.html" with name="search" cls="h-5 w-5" only %}
+        <label for="price-q" class="sr-only">Item code or name</label>
+        <input type="search" id="price-q" class="input" placeholder="Scan or type a code or name…" autocomplete="off">
+      </div>
+      <button type="submit" class="btn btn-secondary">Check</button>
+    </form>
+    <p class="mt-2 text-xs text-ink-muted">Read only — nothing here touches the ticket.</p>
+    <div id="price-results" class="mt-3 flex flex-col gap-3"></div>
+  </div>
+  <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Close</button></div>
+</dialog>
+
+<dialog class="pos-dialog" id="dlg-return" aria-labelledby="dlg-return-title">
+  <form method="get" action="{% url 'pos:sale_find' %}">
+    <div class="pos-dialog-head"><h2 id="dlg-return-title" data-title>Process return</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <label class="form-label" for="return-ref">Ticket number</label>
+      <input type="text" name="ref" id="return-ref" class="input mono" placeholder="POS-00012 — type or scan the receipt" autocomplete="off" required>
+      <p class="mt-3 text-sm text-ink-muted">Opens the ticket's refund screen. The money comes out of your own drawer, and goes back the way it was paid unless a supervisor says otherwise.</p>
+    </div>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-secondary">Find ticket</button></div>
+  </form>
+</dialog>
+
+<dialog class="pos-dialog" id="dlg-doctype" aria-labelledby="dlg-doctype-title">
+  <div class="pos-dialog-head"><h2 id="dlg-doctype-title">Document type</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body flex flex-col gap-2">
+    <button type="button" class="pos-choice is-active" data-doctype="INVOICE">Invoice<span class="text-xs font-medium opacity-70">A normal ticket</span></button>
+    <button type="button" class="pos-choice" data-doctype="RETURN">Return<span class="text-xs font-medium opacity-70">Find a past ticket and refund it</span></button>
+    <button type="button" class="pos-choice" disabled title="Quotations are raised under Sales, not at the till.">Quotation<span class="text-xs font-medium opacity-70">Not issued from the till</span></button>
+    <button type="button" class="pos-choice" disabled title="Sales orders are raised under Sales, not at the till.">Sales order<span class="text-xs font-medium opacity-70">Not issued from the till</span></button>
+  </div>
+  <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Close</button></div>
+</dialog>
+
+<dialog class="pos-dialog" id="dlg-payout" aria-labelledby="dlg-payout-title">
+  <form method="post" action="{% url 'pos:cash_movement' session.pk %}" id="payout-form">
+    {% csrf_token %}
+    <input type="hidden" name="movement_token" value="{{ movement_token }}">
+    <input type="hidden" name="direction" id="payout-direction" value="OUT">
+    <div class="pos-dialog-head"><h2 id="dlg-payout-title">Payout / Pay-in</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <div class="seg mb-4" role="group" aria-label="Direction">
+        <button type="button" data-direction="OUT" class="is-active" aria-pressed="true">Payout (money out)</button>
+        <button type="button" data-direction="IN" aria-pressed="false">Pay-in (money in)</button>
+      </div>
       <div class="grid grid-cols-1 gap-4">
         <div class="form-field">
-          <label class="form-label" for="till-customer">Customer (optional, for the ticket)</label>
-          <select id="till-customer" name="customer" class="select">
-            <option value="">— Counter sale —</option>
-            {% for c in customers %}<option value="{{ c.pk }}" {% if c.pk|stringformat:"s" == request.POST.customer %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
-          </select>
+          <label class="form-label" for="payout-amount">Amount ({{ book }})</label>
+          <input type="text" inputmode="decimal" name="amount" id="payout-amount" class="input text-right text-lg font-bold" required autocomplete="off">
+          <p class="form-help">The drawer should hold <strong>{{ report.expected_cash|money }}</strong> now.</p>
         </div>
         <div class="form-field">
-          <label class="form-label" for="till-warehouse">Take stock from</label>
-          <select id="till-warehouse" name="warehouse" class="select">
-            {% for w in warehouses %}<option value="{{ w.pk }}" {% if shelf.pk == w.pk %}selected{% endif %}>{{ w.name }}</option>{% endfor %}
-          </select>
+          <label class="form-label" for="payout-reason">What it is for</label>
+          <input type="text" name="reason" id="payout-reason" maxlength="255" class="input" required placeholder="e.g. delivery fare, float top-up from the safe">
         </div>
         <div class="form-field">
-          <label class="form-label" for="till-method">How it is paid</label>
-          <select id="till-method" name="payment_method" class="select">
-            {% for value, label in methods %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-          </select>
+          <label class="form-label" for="payout-account">Booked against</label>
+          <select name="account" id="payout-account" class="select"></select>
+          <p class="form-help" id="payout-help">Dr this account, Cr the till (1100).</p>
         </div>
-        <div class="form-field">
-          <label class="form-label" for="till-tendered">Cash tendered <span class="font-normal text-ink-muted">(blank = paid exactly)</span></label>
-          <input type="number" step="0.01" min="0" inputmode="decimal" id="till-tendered" name="amount_tendered" value="{{ request.POST.amount_tendered }}" class="input text-right font-mono text-base">
-        </div>
-        <div class="form-field">
-          <label class="form-label" for="till-notes">Note on the ticket</label>
-          <input type="text" id="till-notes" name="notes" value="{{ request.POST.notes }}" class="input" placeholder="e.g. paid by M-Pesa, message code …">
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary btn-lg btn-block mt-5 min-h-[3.5rem] text-base">
-        {% include "_includes/icon.html" with name="cash" cls="h-5 w-5" stroke="2" only %}Take payment &amp; ring up
-      </button>
-      <p class="mt-3 text-xs text-ink-muted">The bill is priced and the change counted when it is rung up — the ticket that opens shows both, and books the money, the revenue, the tax and the stock in one step.</p>
-    </section>
-  </div>
-</form>
-
-{# ── This shift ── #}
-<div class="mt-8 grid grid-cols-1 gap-5 lg:grid-cols-2">
-  <section class="card">
-    <div class="card-header">
-      <h2 class="card-title">This shift</h2>
-      <div class="flex flex-wrap gap-2">
-        {% can_do "pos:cash_up" as may_cashup %}{% if may_cashup %}<a href="{% url 'pos:cash_up' session.pk %}" class="btn btn-ghost btn-sm">Cash-up sheet</a>{% endif %}
-        <a href="{% url 'pos:session_detail' session.pk %}" class="btn btn-ghost btn-sm">Session detail</a>
       </div>
     </div>
-    <dl class="dl-rows px-5">
-      <div><dt>Opening float</dt><dd>{{ report.opening_cash|money }}</dd></div>
-      <div><dt>Tickets rung</dt><dd>{{ report.ticket_count }}</dd></div>
-      <div><dt>Total sales</dt><dd class="text-success">{{ report.total_sales|money }}</dd></div>
-      <div><dt>Refunds</dt><dd class="text-danger">{{ report.total_refunds|money }}</dd></div>
-      <div><dt class="font-semibold text-ink">Expected in the drawer</dt><dd class="font-bold">{{ report.expected_cash|money }}</dd></div>
-    </dl>
-  </section>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-secondary">Record it</button></div>
+  </form>
+</dialog>
 
-  <section class="card overflow-hidden">
-    <div class="card-header"><h2 class="card-title">The last tickets</h2></div>
-    <ul class="list">
+<dialog class="pos-dialog" id="dlg-bom" aria-labelledby="dlg-bom-title">
+  <div class="pos-dialog-head"><h2 id="dlg-bom-title">Load bill of materials</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <p class="mb-3 text-sm text-ink-muted">Adds every component of a kit or hamper as its own line, at its own shelf price. The BOM itself is not changed.</p>
+    <div class="flex flex-col gap-2" id="bom-list"></div>
+    <div class="form-field mt-4">
+      <label class="form-label" for="bom-kits">How many kits</label>
+      <input type="text" inputmode="decimal" id="bom-kits" class="input w-32 text-right" value="1">
+    </div>
+    <p class="pos-error" data-error role="alert"></p>
+  </div>
+  <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="button" class="btn btn-secondary" id="bom-ok">Add components</button></div>
+</dialog>
+
+<dialog class="pos-dialog" id="dlg-cashout" aria-labelledby="dlg-cashout-title">
+  <form method="post" action="{% url 'pos:session_close' session.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="then" value="cash_up">
+    <div class="pos-dialog-head"><h2 id="dlg-cashout-title">Cash out — close the day</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <dl class="dl-rows">
+        <div><dt>Opening float</dt><dd class="num">{{ report.opening_cash|money }}</dd></div>
+        <div><dt>Cash sales</dt><dd class="num">{{ report.cash_taken|money }}</dd></div>
+        <div><dt>Cash refunds</dt><dd class="num">{{ report.cash_given|money }}</dd></div>
+        <div><dt>Payouts</dt><dd class="num">{{ report.paid_out|money }}</dd></div>
+        <div><dt>Pay-ins</dt><dd class="num">{{ report.paid_in|money }}</dd></div>
+        <div><dt class="font-semibold text-ink">Expected in the drawer</dt><dd class="num font-bold">{{ report.expected_cash|money }}</dd></div>
+      </dl>
+      <div class="form-field mt-4">
+        <label class="form-label" for="cashout-count">Cash counted in the drawer ({{ book }})</label>
+        <input type="text" inputmode="decimal" name="closing_cash" id="cashout-count" class="input text-right text-lg font-bold" required autocomplete="off">
+        <p class="form-help">Closing stops the till. A short or over count is written off to cash over and short, once.</p>
+      </div>
+      <p class="pos-error" data-ticket-warning hidden>There are lines on the ticket that have not been rung — they will be lost.</p>
+    </div>
+    <div class="pos-dialog-foot">
+      {% if may_cashup %}<a href="{% url 'pos:cash_up' session.pk %}" class="btn btn-ghost mr-auto">Cash-up sheet</a>{% endif %}
+      <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+      <button type="submit" class="btn btn-danger">Count &amp; close till</button>
+    </div>
+  </form>
+</dialog>
+
+<form method="post" action="{% url 'pos:session_close' session.pk %}" id="finish-form" hidden>{% csrf_token %}</form>
+
+<dialog class="pos-dialog" id="dlg-shift" aria-labelledby="dlg-shift-title">
+  <div class="pos-dialog-head"><h2 id="dlg-shift-title">This shift</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <p class="mb-3 text-sm text-ink-muted">{{ session.cashier.get_full_name|default:session.cashier.username }} · {{ session.branch.name }} · opened {{ session.opened_at|date:"d M, H:i" }}</p>
+    <dl class="dl-rows">
+      <div><dt>Opening float</dt><dd class="num">{{ report.opening_cash|money }}</dd></div>
+      <div><dt>Tickets rung</dt><dd class="num">{{ report.ticket_count }}</dd></div>
+      <div><dt>Total sales</dt><dd class="num text-success">{{ report.total_sales|money }}</dd></div>
+      <div><dt>Refunds</dt><dd class="num text-danger">{{ report.total_refunds|money }}</dd></div>
+      <div><dt>Payouts / pay-ins</dt><dd class="num">{{ report.paid_out|money }} / {{ report.paid_in|money }}</dd></div>
+      <div><dt class="font-semibold text-ink">Expected in the drawer</dt><dd class="num font-bold">{{ report.expected_cash|money }}</dd></div>
+    </dl>
+    <p class="section-title mt-5">The last tickets</p>
+    <ul class="list rounded-ctl border border-line">
       {% for s in recent_sales %}
-      <li class="list-row items-center py-3">
-        <div class="min-w-0 flex-1">
-          <a href="{% url 'pos:sale_detail' s.pk %}" class="row-link mono">{{ s.reference }}</a>
-          {% if s.refund_of_id %}<span class="badge badge-danger ml-1">refund</span>{% endif %}
-          <p class="text-xs text-ink-muted">{{ s.get_payment_method_display }}</p>
-        </div>
+      <li class="list-row items-center py-2.5">
+        <div class="min-w-0 flex-1"><a href="{% url 'pos:sale_detail' s.pk %}" class="row-link mono">{{ s.reference }}</a>{% if s.refund_of_id %} <span class="badge badge-danger">refund</span>{% endif %}<p class="text-xs text-ink-muted">{{ s.get_payment_method_display }}</p></div>
         <span class="num font-semibold{% if s.refund_of_id %} text-danger{% endif %}">{{ s.total_amount|money }}</span>
       </li>
       {% empty %}
-      <li class="px-5 py-6 text-center text-sm text-ink-muted">Nothing sold on this till yet.</li>
+      <li class="px-5 py-5 text-center text-sm text-ink-muted">Nothing sold on this till yet.</li>
       {% endfor %}
     </ul>
-  </section>
+  </div>
+  <div class="pos-dialog-foot">
+    <a href="{% url 'pos:session_detail' session.pk %}" class="btn btn-ghost">Session detail</a>
+    <button type="button" class="btn btn-secondary" data-close>Close</button>
+  </div>
+</dialog>
+
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-pay" aria-labelledby="dlg-pay-title">
+  <form method="dialog" id="pay-form">
+    <div class="pos-dialog-head"><h2 id="dlg-pay-title">Amount tendered</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <div>
+          <p class="section-title">How it is paid</p>
+          <div class="pos-methods" role="group" aria-label="Payment method">
+            {% for value, label in methods %}<button type="button" class="pos-method{% if forloop.first %} is-active{% endif %}" data-method="{{ value }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">{% if value == "CASH" %}{% include "_includes/icon.html" with name="cash" cls="h-5 w-5" only %}{% elif value == "CARD" %}{% include "_includes/icon.html" with name="key" cls="h-5 w-5" only %}{% elif value == "MPESA" %}{% include "_includes/icon.html" with name="bell" cls="h-5 w-5" only %}{% else %}{% include "_includes/icon.html" with name="bank" cls="h-5 w-5" only %}{% endif %}{{ label }}</button>{% endfor %}
+          </div>
+          <input type="hidden" name="payment_method" form="till-form" id="pay-method" value="CASH">
+          <dl class="dl-rows mt-4">
+            <div><dt>Total due</dt><dd class="num text-lg font-extrabold"><span id="pay-total">0.00</span></dd></div>
+            <div><dt>VAT included</dt><dd class="num" id="pay-vat">0.00</dd></div>
+          </dl>
+          <div class="form-field mt-3">
+            <label class="form-label" for="pay-notes">Note on the ticket</label>
+            <input type="text" name="notes" form="till-form" id="pay-notes" class="input" value="{{ posted.notes }}" placeholder="e.g. M-Pesa message code">
+          </div>
+        </div>
+        <div>
+          <label class="section-title block" for="pay-tendered">Cash tendered</label>
+          <input type="text" inputmode="decimal" name="amount_tendered" form="till-form" id="pay-tendered" class="pos-readout" placeholder="exact" autocomplete="off" value="{{ posted.amount_tendered }}">
+          <div class="pos-keypad" id="pay-keypad">{% for k in "789456123" %}<button type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}<button type="button" data-key=".">.</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="Delete a digit">⌫</button></div>
+          <div class="mt-2 flex flex-wrap gap-1.5" id="pay-quick"></div>
+          <div class="pos-change" id="pay-change-box"><span class="text-sm font-semibold" id="pay-change-label">Change due</span><strong id="pay-change">0.00</strong></div>
+          <p class="pos-error" data-error role="alert"></p>
+        </div>
+      </div>
+    </div>
+    <div class="pos-dialog-foot">
+      <button type="button" class="btn btn-ghost" data-close>Back to the ticket</button>
+      <button type="submit" class="btn btn-primary btn-lg min-w-[14rem]" id="pay-complete">{% include "_includes/icon.html" with name="check" stroke="2" only %}Complete sale</button>
+    </div>
+  </form>
+</dialog>
+
+{# ── Lock screen (F7) ── #}
+<div class="pos-lock" id="pos-lock" {% if not locked %}hidden{% endif %} role="dialog" aria-modal="true" aria-labelledby="pos-lock-title">
+  <form class="pos-lock-card" id="lock-form" autocomplete="off">
+    <span class="icon-tile icon-tile-lg icon-tile-hero mx-auto mb-4">{% include "_includes/icon.html" with name="lock" only %}</span>
+    <h2 class="text-2xl font-extrabold" id="pos-lock-title">Station locked</h2>
+    <p class="mt-1 text-hero-muted">{{ session.cashier.get_full_name|default:session.cashier.username }} · {{ session.branch.name }}</p>
+    <label for="lock-password" class="sr-only">Your password</label>
+    <input type="password" id="lock-password" class="pos-top-input mt-6 h-12 text-center text-base" placeholder="Your password to unlock" autocomplete="current-password">
+    <p class="pos-lock-error" id="lock-error" role="alert"></p>
+    <button type="submit" class="btn btn-primary btn-block mt-2">Unlock</button>
+    <p class="mt-4 text-xs text-hero-muted">The ticket in progress is kept until you are back.</p>
+  </form>
 </div>
 
-<script>
-(function () {
-  // Display only: the server prices the ticket. This keeps a running total so
-  // the cashier can see the bill and the change before ringing it up.
-  var form = document.getElementById('till-form');
-  if (!form) return;
-  var items = Array.prototype.slice.call(form.querySelectorAll('.till-item'));
-  var fmt = function (n) { return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
-  var num = function (v) { var n = parseFloat(v); return isFinite(n) && n > 0 ? n : 0; };
-  var list = document.getElementById('till-lines');
-  var tendered = document.getElementById('till-tendered');
-
-  function render() {
-    var total = 0, vat = 0, count = 0;
-    list.textContent = '';
-    items.forEach(function (li) {
-      var q = num(li.querySelector('.till-qty').value);
-      li.classList.toggle('border-brand', q > 0);
-      if (!q) return;
-      var net = Math.round(q * num(li.dataset.price) * 100) / 100;
-      var tax = Math.round(net * num(li.dataset.rate)) / 100;
-      total += net + tax; vat += tax; count += q;
-      var row = document.createElement('li');
-      row.className = 'list-row items-center py-2.5';
-      var name = document.createElement('span');
-      name.className = 'min-w-0 flex-1 truncate text-sm';
-      name.textContent = q + ' × ' + li.dataset.name;
-      var amt = document.createElement('span');
-      amt.className = 'num text-sm font-semibold';
-      amt.textContent = fmt(net + tax);
-      row.appendChild(name); row.appendChild(amt); list.appendChild(row);
-    });
-    if (!list.children.length) {
-      var empty = document.createElement('li');
-      empty.className = 'px-5 py-5 text-center text-sm text-ink-muted';
-      empty.textContent = 'Nothing on the ticket yet.';
-      list.appendChild(empty);
-    }
-    document.getElementById('till-total').textContent = fmt(total);
-    document.getElementById('till-vat').textContent = fmt(vat);
-    document.getElementById('till-count').textContent = String(Math.round(count * 10000) / 10000);
-    var t = num(tendered.value);
-    document.getElementById('till-change').textContent = t ? fmt(Math.max(0, t - total)) : '—';
-  }
-
-  function bump(li, by) {
-    var input = li.querySelector('.till-qty');
-    var next = Math.max(0, num(input.value) + by);
-    input.value = next ? String(Math.round(next * 10000) / 10000) : '';
-    render();
-  }
-
-  items.forEach(function (li) {
-    li.querySelector('.till-add').addEventListener('click', function () { bump(li, 1); });
-    li.querySelector('.till-plus').addEventListener('click', function () { bump(li, 1); });
-    li.querySelector('.till-minus').addEventListener('click', function () { bump(li, -1); });
-    li.querySelector('.till-qty').addEventListener('input', render);
-  });
-  tendered.addEventListener('input', render);
-  render();
-})();
-</script>
-{% endif %}
-{% endblock %}
+{{ products_json|json_script:"pos-products" }}
+{{ categories_json|json_script:"pos-categories" }}
+{{ ticket_json|json_script:"pos-ticket" }}
+{{ boms_json|json_script:"pos-boms" }}
+{{ movement_accounts|json_script:"pos-accounts" }}
+{{ movement_defaults|json_script:"pos-account-defaults" }}
+<script src="{% static 'pos/till.js' %}"></script>
+</body>
+</html>
