@@ -4,8 +4,11 @@
 {% url 'inventory:warehouse_detail' warehouse.pk as back_url %}
 {% include "_includes/page_header.html" with title="Cycle Count" subtitle=warehouse.name back_url=back_url back_label=warehouse.name %}
 
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="inventory/_category_filter.html" submit_label="Show sheet" %}
+
 <form method="post" class="no-card" novalidate>
   {% csrf_token %}
+  <input type="hidden" name="category" value="{{ selected_category }}">
   <section class="card overflow-hidden">
     <div class="card-header">
       <div class="form-field">
@@ -16,12 +19,13 @@
     </div>
     <div class="table-wrap rounded-none border-0 shadow-none">
       <table class="table">
-        <thead><tr><th>SKU</th><th>Product</th><th class="num">System qty</th><th class="num">Counted qty</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th class="num">System qty</th><th class="num">Counted qty</th></tr></thead>
         <tbody>
           {% for sl in stock_levels %}
           <tr>
             <td class="mono text-xs text-ink-2">{{ sl.product.sku }}</td>
             <td class="font-medium">{{ sl.product.name }}</td>
+            <td class="text-xs text-ink-2">{{ sl.product.category.path_label|default:"Uncategorised" }}</td>
             <td class="num text-ink-2">{{ sl.quantity|qty }}</td>
             <td class="num">
               <label class="sr-only" for="count-{{ sl.pk }}">Counted quantity: {{ sl.product.name }}</label>
@@ -29,7 +33,7 @@
             </td>
           </tr>
           {% empty %}
-          <tr><td colspan="4" class="p-0">{% include "_includes/empty_state.html" with icon="box" title="No stock lines in this warehouse yet" compact=True only %}</td></tr>
+          <tr><td colspan="5" class="p-0">{% if selected_category %}{% include "_includes/empty_state.html" with icon="box" title="No stock lines in this category here" text="Choose another category, or clear the filter to count the whole warehouse." compact=True only %}{% else %}{% include "_includes/empty_state.html" with icon="box" title="No stock lines in this warehouse yet" compact=True only %}{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

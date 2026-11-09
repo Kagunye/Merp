@@ -1,0 +1,113 @@
+{% comment %}
+Cascading product-category picker: Level 1 > Level 2 > Level 3.
+  {% include "_includes/category_picker.html" with name="category" selected=selected_category %}
+Params (all optional):
+  name         the field name posted / sent as GET (default "category")
+  selected     the chosen category id (string)
+  field_id     id of the named select (default "fb-<name>")
+  company      company whose tree is shown (default request.active_company)
+  label        visible label (default "Category")
+  show_label   False to draw no label (when the caller draws one, e.g. a form)
+  empty_label  text of the blank choice (default "All categories")
+  wrap         True to wrap it in <div class="form-field"> for a filter bar
+Sends exactly one value under `name`: the deepest level chosen, or "" for none.
+With scripts off it is a single <select> listing every category by its full
+path ("DRINKS > Carbonated > Sugar"). With scripts on, three linked selects
+replace it; picking a level loads its children from inventory:category_children
+and any level may be left blank.
+{% endcomment %}{% load category_tags %}{% category_nodes company as cp_nodes %}{% with cp_name=name|default:"category" %}{% with cp_default="fb-"|add:cp_name %}{% with cp_id=field_id|default:cp_default cp_sel=selected|default:""|stringformat:"s" %}
+<div class="{% if wrap %}form-field {% endif %}category-picker" data-category-picker data-children-url="{% url 'inventory:category_children' %}">
+  {% if show_label is not False %}<label class="form-label" for="{{ cp_id }}">{{ label|default:"Category" }}</label>{% endif %}
+  <select id="{{ cp_id }}" name="{{ cp_name }}" class="select" data-cp-value>
+    <option value="">{{ empty_label|default:"All categories" }}</option>
+    {% for n in cp_nodes %}<option value="{{ n.id }}" data-parent="{{ n.parent }}" data-level="{{ n.level }}"{% if n.id == cp_sel %} selected{% endif %}>{{ n.label }}</option>
+    {% endfor %}
+  </select>
+  <div class="hidden" data-cp-levels><div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+    {% for lvl in "123" %}
+    <div>
+      <label class="sr-only" for="{{ cp_id }}-l{{ lvl }}">{{ label|default:"Category" }} level {{ lvl }}</label>
+      <select id="{{ cp_id }}-l{{ lvl }}" class="select" data-cp-level="{{ lvl }}" aria-label="Level {{ lvl }}" disabled>
+        <option value="">Level {{ lvl }}{% if lvl != "1" %} (any){% endif %}</option>
+      </select>
+    </div>
+    {% endfor %}
+  </div></div>
+</div>
+{% endwith %}{% endwith %}{% endwith %}
+<script>
+(function () {
+  if (window.mofisiCategoryPicker) { window.mofisiCategoryPicker.scan(); return; }
+  function fill(select, rows, placeholder, chosen) {
+    select.innerHTML = "";
+    var blank = document.createElement("option");
+    blank.value = ""; blank.textContent = placeholder;
+    select.appendChild(blank);
+    rows.forEach(function (row) {
+      var opt = document.createElement("option");
+      opt.value = row.id; opt.textContent = row.name;
+      if (row.id === chosen) { opt.selected = true; }
+      select.appendChild(opt);
+    });
+    select.disabled = rows.length === 0;
+  }
+  function children(url, parent) {
+    return fetch(url + "?parent=" + encodeURIComponent(parent || ""), {
+      headers: {"Accept": "application/json"}, credentials: "same-origin"
+    }).then(function (r) { if (!r.ok) { throw new Error(r.status); } return r.json(); })
+      .then(function (data) { return data.results || []; });
+  }
+  function init(root) {
+    if (root.dataset.cpReady) { return; }
+    root.dataset.cpReady = "1";
+    var url = root.dataset.childrenUrl;
+    var value = root.querySelector("[data-cp-value]");
+    var levels = Array.prototype.slice.call(root.querySelectorAll("[data-cp-level]"));
+    var wrap = root.querySelector("[data-cp-levels]");
+    var placeholders = levels.map(function (s) { return s.options[0].textContent; });
+    // Ancestors of the current value, read off the fallback select's options.
+    var parents = {};
+    Array.prototype.forEach.call(value.options, function (o) { if (o.value) { parents[o.value] = o.dataset.parent || ""; } });
+    var path = [], node = value.value, guard = 0;
+    while (node && guard++ < 5) { path.unshift(node); node = parents[node]; }
+
+    function sync() {
+      var deepest = "";
+      levels.forEach(function (s) { if (s.value) { deepest = s.value; } });
+      value.value = deepest;
+      value.dispatchEvent(new Event("change", {bubbles: true}));
+    }
+    function load(index, parent, chosen) {
+      if (index >= levels.length) { return Promise.resolve(); }
+      return children(url, parent).then(function (rows) {
+        fill(levels[index], rows, placeholders[index], chosen || "");
+      });
+    }
+    function clearFrom(index) {
+      for (var i = index; i < levels.length; i++) { fill(levels[i], [], placeholders[i], ""); }
+    }
+    levels.forEach(function (select, index) {
+      select.addEventListener("change", function () {
+        clearFrom(index + 1);
+        var p = select.value ? load(index + 1, select.value, "") : Promise.resolve();
+        p.then(sync, sync);
+      });
+    });
+    // Build the levels down the current path, then swap the fallback out.
+    var chain = load(0, "", path[0]);
+    path.forEach(function (id, i) { chain = chain.then(function () { return load(i + 1, id, path[i + 1]); }); });
+    chain.then(function () {
+      value.classList.add("hidden");
+      value.setAttribute("aria-hidden", "true");
+      value.tabIndex = -1;
+      wrap.classList.remove("hidden");
+    }).catch(function () { /* keep the plain select */ });
+  }
+  window.mofisiCategoryPicker = {
+    scan: function () { document.querySelectorAll("[data-category-picker]").forEach(init); }
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", window.mofisiCategoryPicker.scan);
+  } else { window.mofisiCategoryPicker.scan(); }
+})();
+</script>

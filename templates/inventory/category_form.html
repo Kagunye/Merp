@@ -1,0 +1,5 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'inventory:category_list' as back_url %}
+{% include "_includes/model_form.html" with title=page_title subtitle="Categories go three levels deep at most, for example DRINKS > Carbonated > Sugar" section_label="Category Details" back_url=back_url cancel_url=back_url submit_label="Save Category" %}
+{% endblock %}

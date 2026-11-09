@@ -99,17 +99,167 @@ def convert_quantity(quantity, from_uom, to_uom):
 
 
 class ProductCategory(BaseModel):
+    """A shelf in the company's item tree, at most three levels deep.
+
+    DRINKS > Carbonated > Sugar: level 1 is the department, level 2 the kind,
+    level 3 the variant. A product may sit at any level, and every search and
+    report that filters on a category takes in everything beneath it, so a
+    filter on DRINKS finds the sugar-free 500ml as well as the juice.
+
+    Names are unique among siblings only, ignoring case: "340ml" may sit under
+    both Carbonated and Juice, but not twice under Carbonated.
+    """
+    MAX_DEPTH = 3
+
     company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     parent = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="children")
+    code = models.CharField(max_length=30, blank=True, default="",
+                            help_text="Optional short code for labels and exports.")
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Lower numbers come first among siblings; ties sort by name.")
     description = models.TextField(blank=True, default="")
 
     class Meta:
         verbose_name_plural = "product categories"
-        unique_together = [("company", "name")]
+        ordering = ["sort_order", "name"]
 
     def __str__(self):
-        return self.name
+        return self.path_label
+
+    # ── where it sits ──
+
+    @property
+    def path(self):
+        """Ancestors then self, top first. Stops on a loop rather than spinning."""
+        chain, seen, node = [], set(), self
+        while node is not None and node.pk not in seen:
+            chain.append(node)
+            seen.add(node.pk)
+            node = node.parent
+        return list(reversed(chain))
+
+    @property
+    def level(self):
+        return len(self.path)
+
+    @property
+    def path_label(self):
+        return " > ".join(c.name for c in self.path)
+
+    def descendant_ids(self):
+        """This category's id and every id beneath it (three levels at most)."""
+        ids, frontier = [self.pk], [self.pk]
+        for _ in range(self.MAX_DEPTH + 1):
+            frontier = list(ProductCategory.objects.filter(
+                parent_id__in=frontier).exclude(pk__in=ids).values_list("pk", flat=True))
+            if not frontier:
+                break
+            ids += frontier
+        return ids
+
+    def subtree_height(self):
+        """How many levels this category and its descendants span (1 = no children)."""
+        height, frontier, seen = 1, [self.pk], {self.pk}
+        for _ in range(self.MAX_DEPTH + 1):
+            frontier = [pk for pk in ProductCategory.objects.filter(
+                parent_id__in=frontier).values_list("pk", flat=True) if pk not in seen]
+            if not frontier:
+                break
+            seen.update(frontier)
+            height += 1
+        return height
+
+    @classmethod
+    def tree(cls, company, active_only=True):
+        """Level-1 nodes, each {"category", "level", "children": [...]}, three deep.
+
+        Built from one query. Orphans whose parent belongs to another company
+        or is inactive (when ``active_only``) are left out, with their subtree.
+        """
+        qs = cls.objects.filter(company=company)
+        if active_only:
+            qs = qs.filter(is_active=True)
+        cats = list(qs.order_by("sort_order", "name"))
+        by_parent = {}
+        for c in cats:
+            by_parent.setdefault(c.parent_id, []).append(c)
+
+        def build(parent_id, level):
+            if level > cls.MAX_DEPTH:
+                return []
+            return [{"category": c, "level": level, "children": build(c.pk, level + 1)}
+                    for c in by_parent.get(parent_id, [])]
+        return build(None, 1)
+
+    @classmethod
+    def flat_tree(cls, company, active_only=True):
+        """The tree as a flat list of nodes in display order (depth first)."""
+        out = []
+
+        def walk(nodes):
+            for n in nodes:
+                out.append(n)
+                walk(n["children"])
+        walk(cls.tree(company, active_only=active_only))
+        return out
+
+    @classmethod
+    def ids_under(cls, company, category_id):
+        """The ids a filter on ``category_id`` covers, or None when it is not
+        one of this company's categories (so the caller can ignore it)."""
+        import uuid
+        try:
+            uuid.UUID(str(category_id))
+        except (ValueError, TypeError, AttributeError):
+            return None
+        cat = cls.objects.filter(company=company, pk=category_id).first()
+        return cat.descendant_ids() if cat else None
+
+    # ── rules ──
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        parent = self.parent
+        existing = not self._state.adding
+        if parent is not None:
+            if self.company_id and parent.company_id != self.company_id:
+                errors["parent"] = "The parent category belongs to another company."
+            elif existing and parent.pk == self.pk:
+                errors["parent"] = "A category cannot be its own parent."
+            elif existing and self.pk in [c.pk for c in parent.path]:
+                errors["parent"] = (f"{parent.name} sits beneath {self.name}, so it cannot "
+                                    "be its parent: that would make a loop.")
+            elif not parent.is_active:
+                errors["parent"] = f"{parent.name} is inactive. Reactivate it or choose another parent."
+            else:
+                depth = parent.level + (self.subtree_height() if existing else 1)
+                if depth > self.MAX_DEPTH:
+                    if existing and self.subtree_height() > 1:
+                        errors["parent"] = (
+                            f"Moving {self.name} under {parent.path_label} would put its "
+                            f"sub-categories {depth} levels deep. Categories go "
+                            f"{self.MAX_DEPTH} levels at most.")
+                    else:
+                        errors["parent"] = (
+                            f"{parent.path_label} is already at level {parent.level}. "
+                            f"Categories go {self.MAX_DEPTH} levels at most.")
+        name = (self.name or "").strip()
+        if name and self.company_id and "parent" not in errors:
+            twins = ProductCategory.objects.filter(
+                company_id=self.company_id, parent=parent, name__iexact=name, is_active=True)
+            if existing:
+                twins = twins.exclude(pk=self.pk)
+            if twins.exists():
+                where = parent.path_label if parent else "the top level"
+                errors["name"] = f"There is already a category called {name} under {where}."
+        if errors:
+            raise ValidationError(errors)
+
+    def products_in_use(self):
+        """Active products filed under this category or anything beneath it."""
+        return Product.objects.filter(category_id__in=self.descendant_ids(), is_active=True)
 
 
 class Product(BaseModel, NotesMixin):

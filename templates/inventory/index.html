@@ -40,6 +40,16 @@
   {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" only %}</div><span class="label">Bulk Label Printing</span></a>{% endif %}
 </div>
 
+{% can_do "reporting:sales_by_category" as g_sbc %}{% if g_sbc %}
+<div class="launcher-section-label">
+  Reports
+  <span class="launcher-section-count">1 module</span>
+</div>
+<div class="launcher-grid">
+  <a href="{% url 'reporting:sales_by_category' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" only %}</div><span class="label">Sales by Category</span></a>
+</div>
+{% endif %}
+
 <div class="launcher-section-label">
   Repackaging
   <span class="launcher-section-count">1 module</span>
@@ -66,7 +76,7 @@
 <div class="launcher-grid">
   {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="document" cls="h-7 w-7" only %}</div><span class="label">Inventory &amp; Services</span></a>{% endif %}
   {% can_do "organizations:warehouse_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'organizations:warehouse_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" only %}</div><span class="label">Locations</span></a>{% endif %}
-  {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" only %}</div><span class="label">Categories</span></a>{% endif %}
+  {% can_do "inventory:category_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:category_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="swatch" cls="h-7 w-7" only %}</div><span class="label">Categories</span></a>{% endif %}
   {% can_do "hr:employee_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'hr:employee_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" only %}</div><span class="label">Employees</span></a>{% endif %}
   {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" only %}</div><span class="label">Pricelists</span></a>{% endif %}
   {% can_do "inventory:product_list" as tile_ok %}{% if tile_ok %}<a href="{% url 'inventory:product_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="briefcase" cls="h-7 w-7" only %}</div><span class="label">Contract Pricing</span></a>{% endif %}

@@ -1,0 +1,57 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "inventory:category_create" "POST" as may_create %}{% if may_create %}{% url 'inventory:category_create' as new_url %}{% endif %}
+{% can_do "inventory:category_update" "POST" as may_edit %}{% can_do "inventory:category_deactivate" "POST" as may_retire %}
+{% can_do "inventory:product_list" as may_products %}
+{% include "_includes/page_header.html" with title=page_title subtitle="Up to three levels, such as DRINKS > Carbonated > Sugar. Every product search and the sales-by-category report filter on these, taking in everything beneath the level chosen." action_label="New Category" action_url=new_url hide_print=True %}
+
+<div class="mb-5 flex flex-wrap items-center gap-2 text-sm text-ink-2">
+  <span class="badge badge-neutral">{{ level_counts.1|default:0 }} at level 1</span>
+  <span class="badge badge-neutral">{{ level_counts.2|default:0 }} at level 2</span>
+  <span class="badge badge-neutral">{{ level_counts.3|default:0 }} at level 3</span>
+  {% if uncategorised %}<span class="badge badge-warning">{{ uncategorised }} product{{ uncategorised|pluralize }} uncategorised</span>{% endif %}
+</div>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Category</th><th>Level</th><th>Code</th><th class="num">Products here</th><th class="num">Incl. sub-categories</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      {% with cat=row.category %}
+      <tr>
+        <td>
+          <div class="flex items-center gap-2 {% if row.level == 2 %}pl-6{% elif row.level == 3 %}pl-12{% endif %}">
+            {% if row.level > 1 %}<span class="text-ink-faint" aria-hidden="true">&#8627;</span>{% endif %}
+            <span class="{% if row.level == 1 %}font-bold text-ink{% elif row.level == 2 %}font-semibold text-ink-2{% else %}text-ink-2{% endif %}">{{ cat.name }}</span>
+          </div>
+          {% if cat.description %}<div class="text-xs text-ink-muted {% if row.level == 2 %}pl-6{% elif row.level == 3 %}pl-12{% endif %}">{{ cat.description|truncatechars:90 }}</div>{% endif %}
+        </td>
+        <td><span class="badge {% if row.level == 1 %}badge-brand{% elif row.level == 2 %}badge-info{% else %}badge-neutral{% endif %}">Level {{ row.level }}</span></td>
+        <td class="mono text-xs text-ink-2">{{ cat.code|default:"" }}</td>
+        <td class="num text-ink-2">{{ row.direct }}</td>
+        <td class="num font-semibold">{% if may_products and row.total %}<a href="{% url 'inventory:product_list' %}?category={{ cat.pk }}" class="link">{{ row.total }}</a>{% else %}{{ row.total }}{% endif %}</td>
+        <td class="actions">
+          {% if may_create and row.level < 3 %}<a href="{{ new_url }}?parent={{ cat.pk }}" class="btn btn-ghost btn-sm">Add sub-category</a>{% endif %}
+          {% if may_edit %}<a href="{% url 'inventory:category_update' cat.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}
+          {% if may_retire %}
+          <form method="post" action="{% url 'inventory:category_deactivate' cat.pk %}" class="inline" onsubmit="return confirm('Retire {{ cat.name|escapejs }}{% if row.children %} and its sub-categories{% endif %}?')">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger-ghost btn-sm">Retire</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endwith %}
+      {% empty %}
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="swatch" title="No categories yet" text="Group products into up to three levels, for example DRINKS > Carbonated > Sugar." action_label="Add the first category" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="mt-4 text-xs text-ink-muted">Retiring a category also retires everything beneath it. It is refused while any active product is filed under it or one of its sub-categories: move those products to another category first, so none drop out of the category filters and reports unnoticed.</p>
+{% if retired %}
+<p class="mt-2 text-xs text-ink-muted">Retired: {% for c in retired %}{{ c.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+{% endif %}
+{% endblock %}

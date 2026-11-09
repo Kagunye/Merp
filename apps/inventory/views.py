@@ -37,11 +37,17 @@ class ProductListView(LoginRequiredMixin, ListView):
         ptype = self.request.GET.get("type")
         if ptype:
             qs = qs.filter(product_type=ptype)
+        self.category_ids = category_filter_ids(self.request, company)
+        if self.category_ids is not None:
+            qs = qs.filter(category_id__in=self.category_ids)
         return qs
+
+    category_ids = None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Products"
+        ctx["selected_category"] = _selected_category(self.request, self.category_ids)
         ctx["q"] = self.request.GET.get("q", "")
         ctx["selected_type"] = self.request.GET.get("type", "")
         ctx["product_types"] = Product.PRODUCT_TYPES
@@ -162,11 +168,17 @@ class StockMovementListView(LoginRequiredMixin, ListView):
         mtype = self.request.GET.get("type")
         if mtype:
             qs = qs.filter(movement_type=mtype)
+        self.category_ids = category_filter_ids(self.request, company)
+        if self.category_ids is not None:
+            qs = qs.filter(product__category_id__in=self.category_ids)
         return qs
+
+    category_ids = None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Stock Movements"
+        ctx["selected_category"] = _selected_category(self.request, self.category_ids)
         ctx["q"] = self.request.GET.get("q", "")
         ctx["selected_type"] = self.request.GET.get("type", "")
         ctx["movement_types"] = StockMovement.MOVEMENT_TYPES
@@ -250,9 +262,20 @@ class InventoryWarehouseStockView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         company = self.request.active_company
         if company:
-            ctx["stock_levels"] = StockLevel.objects.filter(
+            levels = StockLevel.objects.filter(
                 warehouse__company=company,
-            ).select_related("warehouse", "product").order_by("warehouse__name", "product__name")
+            ).select_related("warehouse", "product", "product__unit_of_measure",
+                             "product__category")
+            ids = category_filter_ids(self.request, company)
+            if ids is not None:
+                levels = levels.filter(product__category_id__in=ids)
+            ctx["selected_category"] = _selected_category(self.request, ids)
+            levels = levels.order_by("warehouse__name", "product__name")
+            ctx["stock_levels"] = levels
+            # The valuation of what is listed, valued as the ledger values it:
+            # each tracked shelf at the value it carries.
+            ctx["listed_value"] = levels.filter(product__track_inventory=True).aggregate(
+                t=Sum("value"))["t"] or Decimal("0")
         return ctx
 
 
@@ -413,10 +436,26 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
         # Only stock-tracked products have a shelf to count: an untracked
         # product's movements post nothing to the ledger, so a count of one
         # would put stock in the valuation that the inventory account never saw.
-        ctx["stock_levels"] = StockLevel.objects.filter(
+        levels = StockLevel.objects.filter(
             warehouse=warehouse, product__track_inventory=True,
-        ).select_related("product").order_by("product__name")
+        ).select_related("product", "product__category")
+        # A count can be done one category at a time: the sheet lists only that
+        # category and everything beneath it, and posting it touches nothing else.
+        ids = category_filter_ids(self.request, company)
+        if ids is not None:
+            levels = levels.filter(product__category_id__in=ids)
+        ctx["selected_category"] = _selected_category(self.request, ids)
+        ctx["stock_levels"] = levels.order_by("product__name")
         return ctx
+
+    @staticmethod
+    def _sheet_url(request, warehouse):
+        """Back to the sheet, still showing the category it was counted for."""
+        from django.urls import reverse
+        from urllib.parse import urlencode
+        url = reverse("inventory:inventory_count", kwargs={"pk": warehouse.pk})
+        cat = (request.POST.get("category") or "").strip()
+        return f"{url}?{urlencode({'category': cat})}" if cat else url
 
     def post(self, request, *args, **kwargs):
         from apps.organizations.models import Warehouse
@@ -430,15 +469,21 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
                 movement_date = datetime.date.fromisoformat(raw_date)
             except ValueError:
                 messages.error(request, f"Count not posted: '{raw_date}' is not a date (YYYY-MM-DD).")
-                return redirect("inventory:inventory_count", pk=warehouse.pk)
+                return redirect(self._sheet_url(request, warehouse))
         refusal = stock_date_refusal(company, movement_date, "A count")
         if refusal:
             messages.error(request, f"Count not posted. {refusal}")
-            return redirect("inventory:inventory_count", pk=warehouse.pk)
+            return redirect(self._sheet_url(request, warehouse))
         # Untracked products are left off the sheet (see get_context_data), and
         # a box posted for one anyway is ignored rather than counted.
-        levels = list(StockLevel.objects.filter(
-            warehouse=warehouse, product__track_inventory=True).select_related("product"))
+        levels = StockLevel.objects.filter(
+            warehouse=warehouse, product__track_inventory=True).select_related("product")
+        from .models import ProductCategory
+        raw_cat = (request.POST.get("category") or "").strip()
+        cat_ids = ProductCategory.ids_under(company, raw_cat) if raw_cat else None
+        if cat_ids is not None:
+            levels = levels.filter(product__category_id__in=cat_ids)
+        levels = list(levels)
         # Every box is read before anything is posted. A count is one event: a
         # sheet with one unreadable figure on it is handed back whole, rather
         # than half posted with the bad line quietly left out.
@@ -464,7 +509,7 @@ class InventoryCountView(LoginRequiredMixin, TemplateView):
             counted.append((sl, value))
         if problems:
             messages.error(request, "Count not posted. " + " ".join(problems))
-            return redirect("inventory:inventory_count", pk=warehouse.pk)
+            return redirect(self._sheet_url(request, warehouse))
         count = 0
         try:
             with transaction.atomic():
@@ -667,3 +712,176 @@ def unit_set_base(request, pk):
         unit.save(update_fields=["is_base", "base_factor", "updated_at"])
     messages.success(request, f"{unit.abbreviation} is now the base unit of {unit.get_kind_display()}.")
     return redirect("inventory:unit_list")
+
+
+# ───────────────────────────── product categories ────────────────────────────
+
+def category_filter_ids(request, company, param="category"):
+    """The category ids a list's ``?category=`` filter covers (the category and
+    everything beneath it), or None when no valid category was asked for.
+    Anything that is not one of this company's categories is ignored."""
+    from .models import ProductCategory
+    raw = (request.GET.get(param) or "").strip()
+    if not raw or company is None:
+        return None
+    return ProductCategory.ids_under(company, raw)
+
+
+def _selected_category(request, ids):
+    """The ?category= value to show as chosen, only when it was a valid one."""
+    return (request.GET.get("category") or "").strip() if ids else ""
+
+
+class ProductCategoryListView(LoginRequiredMixin, TemplateView):
+    """The category tree: level 1 > 2 > 3, each with how many active products
+    sit at it or anywhere beneath it."""
+    template_name = "inventory/category_list.html"
+
+    def get_context_data(self, **kwargs):
+        from .models import ProductCategory
+        ctx = super().get_context_data(**kwargs)
+        company = self.request.active_company
+        ctx["page_title"] = "Product Categories"
+        if not company:
+            ctx["rows"] = []
+            return ctx
+        rows = ProductCategory.flat_tree(company)
+        direct = dict(Product.objects.filter(company=company, is_active=True)
+                      .exclude(category=None).values_list("category").annotate(n=Count("pk")))
+
+        def total(node):
+            node["direct"] = direct.get(node["category"].pk, 0)
+            node["total"] = node["direct"] + sum(total(c) for c in node["children"])
+            return node["total"]
+        tree = ProductCategory.tree(company)
+        for node in tree:
+            total(node)
+        flat = []
+
+        def walk(nodes):
+            for n in nodes:
+                flat.append(n)
+                walk(n["children"])
+        walk(tree)
+        ctx["rows"] = flat
+        ctx["level_counts"] = {lvl: sum(1 for r in rows if r["level"] == lvl) for lvl in (1, 2, 3)}
+        ctx["uncategorised"] = Product.objects.filter(
+            company=company, is_active=True, category=None).count()
+        ctx["retired"] = ProductCategory.objects.filter(company=company, is_active=False).order_by("name")
+        return ctx
+
+
+class _CategoryFormMixin:
+    template_name = "inventory/category_form.html"
+    success_url = reverse_lazy("inventory:category_list")
+
+    def get_form_class(self):
+        from .forms import ProductCategoryForm
+        return ProductCategoryForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["company"] = self.request.active_company
+        return kwargs
+
+
+class ProductCategoryCreateView(LoginRequiredMixin, CompanyRequiredMixin, _CategoryFormMixin, CreateView):
+    def get_initial(self):
+        from .models import ProductCategory
+        initial = super().get_initial()
+        parent = self.request.GET.get("parent")
+        if parent and ProductCategory.ids_under(self.request.active_company, parent):
+            initial["parent"] = parent
+        return initial
+
+    def form_valid(self, form):
+        form.instance.company = self.request.active_company
+        response = super().form_valid(form)
+        messages.success(self.request, f"Category '{self.object.path_label}' created.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = "New Category"
+        return ctx
+
+
+class ProductCategoryUpdateView(LoginRequiredMixin, _CategoryFormMixin, UpdateView):
+    def get_queryset(self):
+        from .models import ProductCategory
+        return ProductCategory.objects.filter(company=self.request.active_company, is_active=True)
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, f"Category '{self.object.path_label}' updated.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["page_title"] = f"Edit: {self.object.path_label}"
+        return ctx
+
+
+@login_required
+@require_POST
+def category_deactivate(request, pk):
+    """Retire a category and everything beneath it.
+
+    Refused while any active product is filed under it or under one of its
+    sub-categories: those products would drop out of every category filter
+    and report without anyone deciding where they belong. Move them first
+    (edit each product, or file them elsewhere), then retire the category.
+    """
+    from .models import ProductCategory
+    cat = get_object_or_404(ProductCategory, pk=pk, company=request.active_company)
+    in_use = cat.products_in_use()
+    n = in_use.count()
+    if n:
+        examples = ", ".join(p.name for p in in_use.order_by("name")[:3])
+        messages.error(
+            request,
+            f"{cat.path_label} cannot be retired: {n} active product(s) are filed under it "
+            f"or its sub-categories ({examples}{', …' if n > 3 else ''}). Move them to "
+            "another category first.")
+        return redirect("inventory:category_list")
+    ids = cat.descendant_ids()
+    ProductCategory.objects.filter(pk__in=ids).update(is_active=False)
+    below = len(ids) - 1
+    messages.success(
+        request, f"Category {cat.path_label} retired"
+        + (f", with {below} sub-categor{'y' if below == 1 else 'ies'}." if below else "."))
+    return redirect("inventory:category_list")
+
+
+@login_required
+def category_children(request):
+    """JSON: the active children of ``?parent=<id>`` (level 1 when blank),
+    for the cascading picker. Only ever this company's categories."""
+    from django.http import JsonResponse
+    from .models import ProductCategory
+    company = request.active_company
+    if company is None:
+        return JsonResponse({"parent": None, "results": []})
+    raw = (request.GET.get("parent") or "").strip()
+    parent = None
+    if raw:
+        if ProductCategory.ids_under(company, raw) is None:
+            return JsonResponse({"error": "Unknown category."}, status=404)
+        parent = ProductCategory.objects.get(pk=raw, company=company)
+        if not parent.is_active:
+            return JsonResponse({"error": "Unknown category."}, status=404)
+    level = (parent.level + 1) if parent else 1
+    if level > ProductCategory.MAX_DEPTH:
+        rows = []
+    else:
+        kids = ProductCategory.objects.filter(company=company, parent=parent, is_active=True)
+        with_children = set(ProductCategory.objects.filter(
+            company=company, parent__in=kids, is_active=True).values_list("parent_id", flat=True))
+        rows = [{"id": str(c.pk), "name": c.name, "code": c.code, "level": level,
+                 "has_children": c.pk in with_children and level < ProductCategory.MAX_DEPTH}
+                for c in kids.order_by("sort_order", "name")]
+    return JsonResponse({
+        "parent": ({"id": str(parent.pk), "name": parent.name, "label": parent.path_label,
+                    "level": parent.level} if parent else None),
+        "results": rows,
+    })

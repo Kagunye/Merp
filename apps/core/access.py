@@ -138,6 +138,12 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("inventory", "stock_transfer", FINANCE | STOCK | AUDIT, frozenset({"WAREHOUSE_MANAGER"})),
     ("inventory", "inventory_count", FINANCE | STOCK | AUDIT, frozenset({"WAREHOUSE_MANAGER"})),
     ("inventory", "unit_*", STOCK | FINANCE | AUDIT, STOCK),
+    # The cascading category picker reads the tree from here on every screen
+    # that searches or chooses products, so whoever may see the products may
+    # read it. Keeping the tree itself is the stores' and buyers' work.
+    ("inventory", "category_children",
+     FINANCE | SALES | STOCK | AUDIT | {"POS_CASHIER", "VIEWER"}, NOBODY),
+    ("inventory", "category_*", STOCK | FINANCE | AUDIT, STOCK),
 
     # --- Customers and suppliers: split by who owns the relationship.
     ("crm", "supplier_*", FINANCE | STOCK | AUDIT | {"VIEWER"}, FINANCE | {"PROCUREMENT"}),
@@ -154,6 +160,8 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # old "aged_*" rule handed the creditors' list to sales as well.
     ("reporting", "aged_debtors", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
     ("reporting", "aged_creditors", FINANCE | AUDIT, NOBODY),
+    # Sales mix by category: what sold, for how much and at what cost.
+    ("reporting", "sales_by_category", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
     ("reporting", "*", FINANCE | AUDIT, NOBODY),
     ("sales", "*", FINANCE | SALES | AUDIT | {"VIEWER"}, SALES | {"FINANCE_MANAGER"}),
     ("pos", "*", FINANCE | TILL | AUDIT, TILL),
