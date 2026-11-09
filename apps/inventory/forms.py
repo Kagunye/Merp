@@ -35,6 +35,8 @@ class ProductForm(forms.ModelForm):
             create_default_units(company)
         self.fields["category"].queryset = ProductCategory.objects.filter(company=company, is_active=True)
         self.fields["category"].empty_label = "— No category"
+        # The cascading Level 1 / 2 / 3 picker; it still posts one `category`.
+        self.fields["category"].widget = CategoryPickerWidget(company=company)
         self.fields["unit_of_measure"].queryset = UnitOfMeasure.objects.filter(company=company, is_active=True)
         self.fields["tax_rate"].queryset = TaxRate.objects.filter(company=company, is_active=True)
         self.fields["tax_rate"].empty_label = "— Use default tax"
@@ -440,3 +442,97 @@ class UnitOfMeasureForm(PlainNumbersMixin, forms.ModelForm):
                 f"{saved.abbreviation} would silently be rescaled. Add a new unit with the "
                 "factor you need instead.")
         return cleaned
+
+
+# ───────────────────────────── product categories ────────────────────────────
+
+class CategoryPickerWidget(forms.Select):
+    """Draws a category field as the cascading three-level picker.
+
+    The include (``_includes/category_picker.html``) renders one ``<select>``
+    carrying the field's name and every category by its full path, so the form
+    works with scripts off; with scripts on it adds the linked Level 1 / 2 / 3
+    selects and keeps that one named select set to the deepest level chosen.
+    The form still posts a single category id under the field's own name.
+    """
+
+    def __init__(self, company=None, empty_label="— No category", attrs=None):
+        # model_form.html gives a field the full row when its widget has
+        # `rows`; three selects side by side need it. Not rendered.
+        super().__init__({"rows": 1, **(attrs or {})})
+        self.company = company
+        self.empty_label = empty_label
+
+    def render(self, name, value, attrs=None, renderer=None):
+        from django.template.loader import render_to_string
+        from django.utils.safestring import mark_safe
+        attrs = self.build_attrs(self.attrs, attrs)
+        return mark_safe(render_to_string("_includes/category_picker.html", {
+            "name": name,
+            "selected": "" if value in (None, "") else str(value),
+            "field_id": attrs.get("id") or f"id_{name}",
+            "company": self.company,
+            "empty_label": self.empty_label,
+            "show_label": False,
+        }))
+
+
+class ProductCategoryForm(forms.ModelForm):
+    """Create or edit a category. The parent list offers only valid parents:
+    this company's active categories at level 1 or 2, never the category
+    itself or anything beneath it, and none that would push its own
+    sub-categories past level 3. The model's clean() checks the same again."""
+
+    class Meta:
+        model = ProductCategory
+        fields = ["name", "parent", "code", "sort_order", "description"]
+        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.company = company
+        if company is not None and self.instance._state.adding:
+            self.instance.company = company
+        parent = self.fields["parent"]
+        parent.empty_label = "— None (top level)"
+        parent.required = False
+        parent.label = "Parent category"
+        parent.help_text = (f"Leave blank for a level-1 category. Categories go "
+                            f"{ProductCategory.MAX_DEPTH} levels deep at most.")
+        if company is None:
+            parent.queryset = ProductCategory.objects.none()
+            return
+        editing = not self.instance._state.adding
+        height = self.instance.subtree_height() if editing else 1
+        excluded = set(self.instance.descendant_ids()) if editing else set()
+        valid, labels = [], {}
+        for node in ProductCategory.flat_tree(company):
+            cat = node["category"]
+            if cat.pk in excluded or node["level"] + height > ProductCategory.MAX_DEPTH:
+                continue
+            valid.append(cat.pk)
+            labels[cat.pk] = ("\u2003" * (node["level"] - 1)) + cat.name
+        # A parent the category already has stays selectable, even if retired,
+        # so an unrelated edit is not refused for a choice nobody made today.
+        if editing and self.instance.parent_id and self.instance.parent_id not in valid:
+            valid.append(self.instance.parent_id)
+        parent.queryset = ProductCategory.objects.filter(pk__in=valid)
+        order = {pk: i for i, pk in enumerate(valid)}
+        parent.label_from_instance = lambda c: labels.get(c.pk, c.path_label)
+        # Keep the tree order rather than the queryset's alphabetical one.
+        parent.choices = [("", parent.empty_label)] + [
+            (pk, labels.get(pk) or str(ProductCategory.objects.get(pk=pk)))
+            for pk in sorted(valid, key=lambda pk: order[pk])]
+        self.fields["sort_order"].required = False
+
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if not name:
+            raise forms.ValidationError("A category needs a name.")
+        if ">" in name:
+            raise forms.ValidationError("A name cannot contain '>': it separates the levels.")
+        return name
+
+    def clean_sort_order(self):
+        value = self.cleaned_data.get("sort_order")
+        return 0 if value in (None, "") else value

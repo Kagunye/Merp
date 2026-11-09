@@ -374,6 +374,37 @@ the loop would otherwise leak into the include.
 | `model_form.html` | `form`\*, `title`, `subtitle`, `back_url`, `cancel_url`, `submit_label`, `section_label`, `extra_template`. Unchanged from before. |
 | `launcher.html` | `launcher_title`, `launcher_subtitle`. The tiles stay inline as `<a … class="launcher-tile">`, and tests count that exact attribute. |
 | `print_button.html` | `print_label` |
+| `category_picker.html` | `name` (default `category`), `selected` (category id), `field_id` (default `fb-<name>`), `label` (default "Category"), `show_label` (False when the caller draws the label), `empty_label` (default "All categories"), `wrap` (True wraps it in a `form-field` for a filter bar), `company` (default the active company). See "Category picker" below. |
+
+### Category picker
+
+Product categories go three levels deep (DRINKS > Carbonated > Sugar). Every
+screen that searches or chooses products uses one picker for them:
+
+```django
+{# in a filter bar: pass it as (or from) the extra_template #}
+{% include "_includes/filter_bar.html" with search_name="none" extra_template="inventory/_category_filter.html" %}
+{# anywhere else #}
+{% include "_includes/category_picker.html" with name="category" selected=selected_category wrap=True %}
+```
+
+- It always sends **one** value under `name`: the deepest level chosen, or
+  blank. Any level may be left blank, so "all of DRINKS" is just Level 1.
+- **Scripts off:** it is a single `<select>` listing every active category by
+  its full path ("DRINKS > Carbonated > Sugar"), so the form still works.
+- **Scripts on:** that select is hidden and three linked selects (Level 1,
+  2, 3) take its place. Choosing a level loads its children from
+  `inventory:category_children` (`GET ?parent=<id>`, blank for level 1; JSON
+  `{"parent": …, "results": [{"id", "name", "code", "level", "has_children"}]}`),
+  company-scoped and open to every role that may see products. Plain JS, no
+  dependencies; the script is inline in the include and runs once per page.
+- On a model form, `ProductForm` swaps the field's widget for
+  `CategoryPickerWidget`, which renders this include, so
+  `_includes/model_form.html` needs nothing special.
+- Views filter with `category_filter_ids(request, company)` from
+  `apps/inventory/views.py`: the category and every id beneath it, or `None`
+  for a blank, junk or other-company value (which is ignored). Put the
+  chosen id back in the context as `selected_category`.
 
 `{% load ui_extras %}` provides these filters and tags:
 

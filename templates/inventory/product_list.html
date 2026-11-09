@@ -3,16 +3,18 @@
 {% block content %}
 {% can_do "inventory:product_create" "POST" as may_create %}{% if may_create %}{% url 'inventory:product_create' as new_url %}{% endif %}
 {% can_do "inventory:product_edit" "POST" as may_edit %}
+{% can_do "inventory:category_list" as may_cats %}{% if may_cats %}{% url 'inventory:category_list' as cats_url %}{% endif %}
 {% can_do "inventory:movement_list" as may_moves %}{% if may_moves %}{% url 'inventory:movement_list' as moves_url %}{% endif %}
 {% include "_includes/page_header.html" with title=page_title subtitle="Products, services and what is on the shelf" action_label="New Product" action_url=new_url secondary_label="Movements" secondary_url=moves_url %}
 
 <div class="mb-5 flex flex-wrap items-center gap-2 text-sm text-ink-2">
   <span class="badge badge-neutral">{{ total_products }} products</span>
+  {% if cats_url %}<a href="{{ cats_url }}" class="badge badge-neutral">Manage categories</a>{% endif %}
   {% if low_stock_count > 0 %}<span class="badge badge-warning">{% include "_includes/icon.html" with name="warning" cls="h-3.5 w-3.5" only %}{{ low_stock_count }} low stock</span>{% endif %}
 </div>
 
 {% with type_choices=product_types %}
-{% include "_includes/filter_bar.html" with search_placeholder="SKU or name" search_value=q extra_template="inventory/_type_filter.html" %}
+{% include "_includes/filter_bar.html" with search_placeholder="SKU or name" search_value=q extra_template="inventory/_type_category_filter.html" %}
 {% endwith %}
 
 <div class="table-wrap">
@@ -26,7 +28,7 @@
       <tr>
         <td class="mono whitespace-nowrap text-xs text-ink-2">{{ product.sku }}</td>
         <td><a href="{% url 'inventory:product_detail' product.pk %}" class="row-link">{{ product.name }}</a></td>
-        <td class="text-xs text-ink-2">{{ product.category.name|default:"—" }}</td>
+        <td class="text-xs text-ink-2">{% if product.category %}{{ product.category.path_label }}{% else %}<span class="text-ink-muted">Uncategorised</span>{% endif %}</td>
         <td><span class="badge {% if product.product_type == 'GOODS' %}badge-info{% elif product.product_type == 'SERVICE' %}badge-brand{% else %}badge-neutral{% endif %}">{{ product.get_product_type_display }}</span></td>
         <td class="num text-ink-2">{{ product.cost_price|money }}</td>
         <td class="num font-semibold">{{ product.selling_price|money }}</td>

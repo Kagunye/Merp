@@ -25,7 +25,7 @@ class Command(BaseCommand):
         from apps.crm.models import Customer, Supplier, Lead
         from apps.expenses.models import ExpenseCategory
         from apps.hr.models import Employee, LeaveType
-        from apps.inventory.models import Product, UnitOfMeasure
+        from apps.inventory.models import Product, ProductCategory, UnitOfMeasure
         from apps.core.services import create_default_units
         from apps.organizations.models import Branch, Company, Department, Warehouse
         from apps.procurement.models import Bill
@@ -111,6 +111,30 @@ class Command(BaseCommand):
                 defaults={"email": "info@nrc.co.ke", "status": "NEW"},
             )
 
+            # ---- Product categories: three levels, e.g. DRINKS > Carbonated > Sugar ----
+            def category(name, parent=None, order=0):
+                cat = ProductCategory.objects.filter(
+                    company=company, parent=parent, name__iexact=name).first()
+                if cat is None:
+                    cat = ProductCategory.objects.create(
+                        company=company, parent=parent, name=name, sort_order=order)
+                return cat
+
+            drinks = category("DRINKS", order=1)
+            carbonated = category("Carbonated", drinks, 1)
+            category("Sugar", carbonated, 1)
+            category("Sugar-free", carbonated, 2)
+            water = category("Water", drinks, 2)
+            category("500ml", water, 1)
+            category("1 litre", water, 2)
+            juice = category("Juice", drinks, 3)
+            category("340ml", juice, 1)
+            category("500ml", juice, 2)
+            hardware = category("HARDWARE", order=2)
+            widgets = category("Widgets", hardware, 1)
+            category("Fasteners", hardware, 2)
+            self.stdout.write("  Product categories: example three-level tree ready")
+
             # ---- Inventory product ----
             uom = create_default_units(company)["PCS"]
             product, _ = Product.objects.get_or_create(
@@ -125,6 +149,9 @@ class Command(BaseCommand):
                     "is_active": True,
                 },
             )
+            if product.category_id is None:
+                product.category = widgets
+                product.save(update_fields=["category", "updated_at"])
 
             # ---- Banking ----
             bank, _ = BankAccount.objects.get_or_create(

@@ -6,7 +6,7 @@
 {% include "_includes/page_header.html" with title=page_title subtitle="All stock in/out transactions" action_label="New Adjustment" action_url=new_url secondary_label="Products" secondary_url=products_url %}
 
 {% with type_choices=movement_types %}
-{% include "_includes/filter_bar.html" with search_placeholder="Product or reference" search_value=q extra_template="inventory/_type_filter.html" %}
+{% include "_includes/filter_bar.html" with search_placeholder="Product or reference" search_value=q extra_template="inventory/_type_category_filter.html" %}
 {% endwith %}
 
 <div class="table-wrap">
