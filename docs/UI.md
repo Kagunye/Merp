@@ -551,7 +551,7 @@ between the header and the tiles.
   (`signin-hero.webp`, with the brand gradient behind it) and a dark glass
   welcome card (`hero` block: `auth-hero-eyebrow`, `auth-hero-title`,
   `auth-hero-tagline`, `auth-hero-text`). Right is the dark `auth-panel`
-  with the white logo, `top_right` (the English | Kiswahili `seg`), the form
+  with the white logo, `top_right` (the light/dark theme `seg`), the form
   and the "Keep your password and codes to yourself" note. Fields on the panel
   use `auth-label` + `input-line` and `auth-link`; buttons are
   `btn btn-primary` with an outlined `btn btn-secondary` beside it. Never
