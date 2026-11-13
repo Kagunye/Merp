@@ -100,16 +100,16 @@
   </div>
 </section>
 
-{# ── Workspace: main grid, and the quick-access column (right on ≥1280px, a row on top on tablets, last on phones) ── #}
-<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_15rem]">
+{# ── Workspace, laid out like Palladium's: the board on the left, quick access down the right on ≥1280px (a row on top on tablets, last on phones) ── #}
+<div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_13rem]">
 
   {% if quick_access %}
   <nav aria-label="Quick access" class="order-last md:order-first xl:order-last">
-    <p class="section-title mb-3 xl:mb-3">Quick access</p>
+    <p class="section-title mb-3">Quick access</p>
     <div class="grid grid-cols-2 gap-3 md:grid-cols-5 xl:grid-cols-1">
       {% for q in quick_access %}
-      <a href="{{ q.url }}" class="group flex min-h-[6.5rem] flex-col justify-between gap-3 rounded-card border border-line bg-surface p-4 transition-colors hover:border-brand/40 hover:bg-brand-50 xl:min-h-[7rem]">
-        <span class="icon-tile group-hover:bg-surface">{% include "_includes/icon.html" with name=q.icon cls="h-5 w-5" %}</span>
+      <a href="{{ q.url }}" class="group flex min-h-[5.5rem] flex-col justify-between gap-2 rounded-card border border-line bg-surface p-4 transition-colors hover:border-brand/40 hover:bg-brand-50 xl:min-h-[6.25rem] xl:flex-row xl:items-center xl:justify-start xl:gap-3">
+        <span class="icon-tile shrink-0 group-hover:bg-surface">{% include "_includes/icon.html" with name=q.icon cls="h-5 w-5" %}</span>
         <span class="text-sm font-bold leading-snug text-ink">{{ q.label }}</span>
       </a>
       {% endfor %}
@@ -117,128 +117,128 @@
   </nav>
   {% endif %}
 
-  <div class="min-w-0 space-y-6">
+  <div class="min-w-0 space-y-5">
 
-    {# ── Six document tiles: mine (large), the company's total, my share as a bar ── #}
-    {% if tiles %}
-    <section aria-label="My documents">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {% for row in tile_rows %}{% for t in row %}
-        <a href="{{ t.url }}" class="group flex min-w-0 flex-col rounded-card border border-line bg-surface p-5 transition-colors hover:border-line-strong hover:bg-surface-2" data-tile="{{ t.key }}">
-          <div class="flex items-start justify-between gap-3">
-            <h2 class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink">
-              <span class="min-w-0 leading-snug">{{ t.title }}</span>
-              <span class="shrink-0 text-ink-faint" title="{{ t.mine_note }}" aria-label="How mine is counted: {{ t.mine_note }}">{% include "_includes/icon.html" with name="info" cls="h-3.5 w-3.5" %}</span>
-            </h2>
-            <span class="icon-tile icon-tile-sm shrink-0">{% include "_includes/icon.html" with name=t.icon cls="h-4 w-4" %}</span>
-          </div>
-          <p class="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-2 text-2xl font-extrabold tracking-tight text-ink sm:text-[1.65rem]">
-            {% if t.money_shown %}<span class="num">{{ t.my_amount|money }}</span>{% endif %}
-            <span class="{% if t.money_shown %}text-base font-semibold text-ink-muted{% endif %}">({{ t.my_count }})</span>
-          </p>
-          <p class="mt-1 text-xs text-ink-muted">Total: {% if t.money_shown %}<span class="num font-semibold text-ink-2">{{ t.total_amount|money }}</span> {% endif %}({{ t.total_count }}){% if t.money_shown %} <span class="text-ink-faint">{{ book }}</span>{% endif %}</p>
-          <div class="mt-4 flex items-center gap-3">
-            <div class="h-2 flex-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuenow="{{ t.share_css }}" aria-valuemin="0" aria-valuemax="100" aria-label="My share of {{ t.title|cut:'My ' }}">
-              <div class="h-full rounded-full {{ t.bar }}" style="width: {{ t.share_css }}%"></div>
+    {# ── Row 1: six document tiles (3 × 2), with the gauge and efficiency stacked beside them ── #}
+    {% if tiles or gauge or efficiency %}
+    <div class="grid grid-cols-1 gap-5 2xl:grid-cols-12">
+      {% if tiles %}
+      <section aria-label="My documents" class="min-w-0 {% if gauge or efficiency %}2xl:col-span-8{% else %}2xl:col-span-12{% endif %}">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {% for row in tile_rows %}{% for t in row %}
+          <a href="{{ t.url }}" class="group flex min-w-0 flex-col rounded-card border border-line bg-surface p-4 transition-colors hover:border-line-strong hover:bg-surface-2" data-tile="{{ t.key }}">
+            <div class="flex items-start justify-between gap-3">
+              <h2 class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink">
+                <span class="min-w-0 leading-snug">{{ t.title }}</span>
+                <span class="shrink-0 text-ink-faint" title="{{ t.mine_note }}" aria-label="How mine is counted: {{ t.mine_note }}">{% include "_includes/icon.html" with name="info" cls="h-3.5 w-3.5" %}</span>
+              </h2>
+              <span class="icon-tile icon-tile-sm shrink-0">{% include "_includes/icon.html" with name=t.icon cls="h-4 w-4" %}</span>
             </div>
-            <span class="w-12 text-right text-xs font-semibold tabular-nums text-ink-2">{{ t.share|floatformat:0 }}%</span>
-          </div>
-        </a>
-        {% endfor %}{% endfor %}
-      </div>
-      <p class="mt-2 text-xs text-ink-muted">Figures for {{ period.label|lower }} in {{ book }}{% if tiles.0.money_shown %}{% else %}; amounts are not shown for your role{% endif %}. The bar is your share of the company total.</p>
-    </section>
-    {% endif %}
-
-    {# ── Gauge and efficiency ── #}
-    {% if gauge or efficiency %}
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-5">
-      {% if gauge %}
-      <section class="card flex flex-col {% if efficiency %}lg:col-span-2{% else %}lg:col-span-5{% endif %}" aria-labelledby="gauge-title">
-        <div class="card-header">
-          <div><h2 id="gauge-title" class="card-title">My Performance</h2><p class="card-subtitle">Collection rate of my invoices</p></div>
+            <p class="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-2 text-2xl font-extrabold tracking-tight text-ink">
+              {% if t.money_shown %}<span class="num">{{ t.my_amount|money }}</span>{% endif %}
+              <span class="{% if t.money_shown %}text-base font-semibold text-ink-muted{% endif %}">({{ t.my_count }})</span>
+            </p>
+            <p class="mt-0.5 text-xs text-ink-muted">Total: {% if t.money_shown %}<span class="num font-semibold text-ink-2">{{ t.total_amount|money }}</span> {% endif %}({{ t.total_count }}){% if t.money_shown %} <span class="text-ink-faint">{{ book }}</span>{% endif %}</p>
+            <div class="mt-auto flex items-center gap-3 pt-3">
+              <div class="h-2 flex-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuenow="{{ t.share_css }}" aria-valuemin="0" aria-valuemax="100" aria-label="My share of {{ t.title|cut:'My ' }}">
+                <div class="h-full rounded-full {{ t.bar }}" style="width: {{ t.share_css }}%"></div>
+              </div>
+              <span class="w-10 text-right text-xs font-semibold tabular-nums text-ink-2">{{ t.share|floatformat:0 }}%</span>
+            </div>
+          </a>
+          {% endfor %}{% endfor %}
         </div>
-        <div class="card-body flex flex-1 flex-col items-center justify-center">
-          {% with g=gauge.geometry %}
-          <svg viewBox="-12 0 244 132" class="w-full max-w-[17rem]" role="img" aria-label="{% if gauge.rate is not None %}Collection rate {{ gauge.rate }} percent, {{ g.band }}{% else %}No invoices of yours in this period{% endif %}">
-            {% for s in g.segments %}<path d="{{ s.d }}" fill="none" class="{{ s.cls }}" stroke-width="16" stroke-linecap="butt"><title>{{ s.label }}</title></path>{% endfor %}
-            {% for t in g.ticks %}<text x="{{ t.x }}" y="{{ t.y }}" text-anchor="middle" class="fill-ink-muted text-[9px] font-semibold">{{ t.v }}%</text>{% endfor %}
-            {% if g.angle is not None %}
-            <g transform="rotate({{ g.angle }} {{ g.cx }} {{ g.cy }})">
-              <line x1="{{ g.cx }}" y1="{{ g.cy }}" x2="{{ g.cx }}" y2="{{ g.cy|add:'-70' }}" class="stroke-ink" stroke-width="3" stroke-linecap="round"/>
-            </g>
-            {% endif %}
-            <circle cx="{{ g.cx }}" cy="{{ g.cy }}" r="7" class="fill-ink"/>
-          </svg>
-          <div class="-mt-1 flex w-full max-w-[17rem] justify-between text-[11px] font-semibold uppercase tracking-wide text-ink-muted"><span>Poor</span><span>Excellent</span></div>
-          {% if gauge.rate is not None %}
-          <p class="mt-3 text-3xl font-extrabold tracking-tight text-ink">{{ gauge.rate|pct:1 }}</p>
-          <p class="text-sm font-semibold text-ink-2">{{ g.band }}</p>
-          <p class="mt-2 text-center text-xs text-ink-muted"><span class="num">{{ gauge.paid|money }}</span> paid of <span class="num">{{ gauge.invoiced|money }}</span> {{ book }} on {{ gauge.count }} invoice{{ gauge.count|pluralize }}</p>
-          {% else %}
-          <p class="mt-3 text-center text-sm font-semibold text-ink-2">No invoices of yours in this period</p>
-          <p class="mt-1 text-center text-xs text-ink-muted">Become the sales rep on orders, or the account manager on customers, to see your rate.</p>
-          {% endif %}
-          {% if gauge.conversion is not None %}<p class="mt-2 text-xs text-ink-muted">Quote-to-order conversion: <span class="font-semibold text-ink-2">{{ gauge.conversion|pct:1 }}</span></p>{% endif %}
-          {% endwith %}
-        </div>
+        <p class="mt-2 text-xs text-ink-muted">Figures for {{ period.label|lower }} in {{ book }}{% if tiles.0.money_shown %}{% else %}; amounts are not shown for your role{% endif %}. The bar is your share of the company total.</p>
       </section>
       {% endif %}
-      {% if efficiency %}
-      <section class="card {% if gauge %}lg:col-span-3{% else %}lg:col-span-5{% endif %}" aria-labelledby="eff-title">
-        <div class="card-header flex-wrap gap-2">
-          <div><h2 id="eff-title" class="card-title">Efficiency</h2><p class="card-subtitle">Sales vs lost sales by month · {{ book }}</p></div>
-          <div class="seg" role="group" aria-label="Whose figures">
-            <button type="button" class="is-active" data-eff-scope="mine" aria-pressed="true">Mine</button>
-            <button type="button" data-eff-scope="company" aria-pressed="false">Company</button>
+
+      {% if gauge or efficiency %}
+      <div class="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2 {% if tiles %}2xl:col-span-4 2xl:grid-cols-1{% else %}2xl:col-span-12{% endif %}">
+        {% if gauge %}
+        <section class="card flex flex-col p-4" aria-labelledby="gauge-title">
+          <div class="flex items-baseline justify-between gap-2">
+            <h2 id="gauge-title" class="card-title">My Performance</h2>
+            <p class="text-xs text-ink-muted">Collection rate</p>
           </div>
-        </div>
-        <div class="card-body">
-          <div class="relative h-60 {% if efficiency.mine.empty %}hidden{% endif %}" data-eff-chart><canvas id="chart-efficiency" aria-label="Sales and lost sales by month" role="img"></canvas></div>
-          <div class="{% if not efficiency.mine.empty %}hidden{% endif %}" data-eff-empty>
-            {% include "_includes/empty_state.html" with icon="chart" title="No efficiency data available" text="No sales or lost sales in this period." compact=True only %}
+          <div class="flex flex-1 flex-col items-center justify-center pt-2">
+            {% with g=gauge.geometry %}
+            <svg viewBox="-12 0 244 132" class="w-full max-w-[14rem]" role="img" aria-label="{% if gauge.rate is not None %}Collection rate {{ gauge.rate }} percent, {{ g.band }}{% else %}No invoices of yours in this period{% endif %}">
+              {% for s in g.segments %}<path d="{{ s.d }}" fill="none" class="{{ s.cls }}" stroke-width="16" stroke-linecap="butt"><title>{{ s.label }}</title></path>{% endfor %}
+              {% for t in g.ticks %}<text x="{{ t.x }}" y="{{ t.y }}" text-anchor="middle" class="fill-ink-muted text-[9px] font-semibold">{{ t.v }}%</text>{% endfor %}
+              {% if g.angle is not None %}
+              <g transform="rotate({{ g.angle }} {{ g.cx }} {{ g.cy }})">
+                <line x1="{{ g.cx }}" y1="{{ g.cy }}" x2="{{ g.cx }}" y2="{{ g.cy|add:'-70' }}" class="stroke-ink" stroke-width="3" stroke-linecap="round"/>
+              </g>
+              {% endif %}
+              <circle cx="{{ g.cx }}" cy="{{ g.cy }}" r="7" class="fill-ink"/>
+            </svg>
+            <div class="-mt-1 flex w-full max-w-[14rem] justify-between text-[11px] font-semibold uppercase tracking-wide text-ink-muted"><span>Poor</span><span>Excellent</span></div>
+            {% if gauge.rate is not None %}
+            <p class="mt-2 text-2xl font-extrabold tracking-tight text-ink">{{ gauge.rate|pct:1 }} <span class="text-sm font-semibold text-ink-2">{{ g.band }}</span></p>
+            <p class="mt-1 text-center text-xs text-ink-muted"><span class="num">{{ gauge.paid|money }}</span> paid of <span class="num">{{ gauge.invoiced|money }}</span> {{ book }} on {{ gauge.count }} invoice{{ gauge.count|pluralize }}</p>
+            {% else %}
+            <p class="mt-2 text-center text-sm font-semibold text-ink-2">No invoices of yours in this period</p>
+            <p class="mt-0.5 text-center text-xs text-ink-muted">Become the sales rep on orders, or the account manager on customers, to see your rate.</p>
+            {% endif %}
+            {% if gauge.conversion is not None %}<p class="mt-1 text-xs text-ink-muted">Quote-to-order conversion: <span class="font-semibold text-ink-2">{{ gauge.conversion|pct:1 }}</span></p>{% endif %}
+            {% endwith %}
           </div>
-          <p class="mt-2 text-xs text-ink-muted">Sales are issued invoices. Lost sales are quotes that expired or were cancelled, plus cancelled orders.</p>
-        </div>
-        {{ efficiency_chart|json_script:"efficiency-data" }}
-      </section>
+        </section>
+        {% endif %}
+        {% if efficiency %}
+        <section class="card flex flex-col p-4" aria-labelledby="eff-title">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div><h2 id="eff-title" class="card-title">Efficiency</h2><p class="text-xs text-ink-muted">Sales vs lost sales · {{ book }}</p></div>
+            <div class="seg" role="group" aria-label="Whose figures">
+              <button type="button" class="is-active" data-eff-scope="mine" aria-pressed="true">Mine</button>
+              <button type="button" data-eff-scope="company" aria-pressed="false">Company</button>
+            </div>
+          </div>
+          <div class="flex flex-1 flex-col justify-center pt-3">
+            <div class="relative h-44 {% if efficiency.mine.empty %}hidden{% endif %}" data-eff-chart><canvas id="chart-efficiency" aria-label="Sales and lost sales by month" role="img"></canvas></div>
+            <div class="{% if not efficiency.mine.empty %}hidden{% endif %}" data-eff-empty>
+              {% include "_includes/empty_state.html" with icon="chart" title="No efficiency data available" text="No sales or lost sales in this period." compact=True only %}
+            </div>
+            <p class="mt-2 text-[11px] leading-snug text-ink-muted">Sales are issued invoices. Lost sales are quotes that expired or were cancelled, plus cancelled orders.</p>
+          </div>
+          {{ efficiency_chart|json_script:"efficiency-data" }}
+        </section>
+        {% endif %}
+      </div>
       {% endif %}
     </div>
     {% endif %}
 
-    {# ── Task list and approvals (tinted panels) ── #}
+    {# ── Row 2: task list (narrow) and approvals (wide), tinted panels ── #}
     {% if tasks or approvals %}
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-12">
       {% if tasks %}
-      <section class="rounded-card border border-info-line bg-info-bg p-5" aria-labelledby="tasks-title">
-        <div class="mb-4 flex items-center justify-between gap-3">
+      <section class="rounded-card border border-info-line bg-info-bg p-4 {% if approvals %}lg:col-span-5 2xl:col-span-4{% else %}lg:col-span-12{% endif %}" aria-labelledby="tasks-title">
+        <div class="mb-3 flex items-center justify-between gap-3">
           <h2 id="tasks-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="clipboard" cls="h-4 w-4 text-info" %}My Task List</h2>
           <span class="text-xs text-ink-muted">Assigned to me, open</span>
         </div>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 2xl:grid-cols-4">
+        <div class="grid grid-cols-4 gap-2">
           {% for c in tasks %}
-          <a href="{{ c.url }}" class="flex min-w-0 flex-col rounded-[14px] border border-line bg-surface px-3 py-3 transition-colors hover:border-line-strong" data-task="{{ c.key }}">
+          <a href="{{ c.url }}" class="flex min-w-0 flex-col items-center rounded-[14px] border border-line bg-surface px-1.5 py-2.5 text-center transition-colors hover:border-line-strong" data-task="{{ c.key }}">
             <span class="text-2xl font-extrabold tabular-nums {% if c.count and c.tone == 'danger' %}text-danger{% elif c.count and c.tone == 'warning' %}text-warning{% else %}text-ink{% endif %}">{{ c.count }}</span>
-            <span class="text-xs font-semibold leading-snug text-ink-muted">{{ c.label }}</span>
+            <span class="text-[11px] font-semibold leading-tight text-ink-muted">{{ c.label }}</span>
           </a>
           {% endfor %}
         </div>
       </section>
       {% endif %}
       {% if approvals %}
-      <section class="rounded-card border border-warning-line bg-warning-bg p-5" aria-labelledby="approvals-title">
-        <div class="mb-4 flex items-center justify-between gap-3">
+      <section class="rounded-card border border-warning-line bg-warning-bg p-4 {% if tasks %}lg:col-span-7 2xl:col-span-8{% else %}lg:col-span-12{% endif %}" aria-labelledby="approvals-title">
+        <div class="mb-3 flex items-center justify-between gap-3">
           <h2 id="approvals-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4 text-warning" %}My Approvals</h2>
           <span class="text-xs text-ink-muted">Waiting on you</span>
         </div>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {% for a in approvals %}
-          <a href="{{ a.url }}" class="flex min-w-0 flex-col rounded-[14px] border border-line bg-surface px-3 py-3 transition-colors hover:border-line-strong" data-approval="{{ a.key }}">
-            <span class="flex items-center justify-between gap-2">
-              <span class="text-2xl font-extrabold tabular-nums {% if a.count %}text-warning{% else %}text-ink{% endif %}">{{ a.count }}</span>
-              <span class="text-ink-faint">{% include "_includes/icon.html" with name=a.icon cls="h-4 w-4" %}</span>
-            </span>
-            <span class="text-xs font-semibold leading-snug text-ink-muted">{{ a.label }}</span>
+          <a href="{{ a.url }}" class="flex min-w-0 items-center gap-2.5 rounded-[14px] border border-line bg-surface px-3 py-2.5 transition-colors hover:border-line-strong" data-approval="{{ a.key }}">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 {% if a.count %}border-warning text-warning{% else %}border-line text-ink{% endif %} text-sm font-extrabold tabular-nums">{{ a.count }}</span>
+            <span class="min-w-0 text-[11px] font-semibold leading-tight text-ink-muted">{{ a.label }}</span>
           </a>
           {% endfor %}
         </div>
@@ -247,91 +247,94 @@
     </div>
     {% endif %}
 
-    {# ── CRM calendar, and the two stats tiles ── #}
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    {# ── Row 3: CRM calendar, the two stats tiles, and the Top 20 ── #}
+    <div class="grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-12">
       {% if calendar %}
-      <section class="rounded-card border border-success-line bg-success-bg p-4 sm:p-5 lg:col-span-2" aria-labelledby="cal-title" id="crm-calendar">
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 id="cal-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="calendar" cls="h-4 w-4 text-success" %}Calendar</h2>
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="seg" role="group" aria-label="Calendar view">
-              <button type="button" data-cal-view="day" aria-pressed="false">Day</button>
-              <button type="button" data-cal-view="week" aria-pressed="false">Week</button>
-              <button type="button" class="is-active" data-cal-view="month" aria-pressed="true">Month</button>
-            </div>
+      <section class="rounded-card border border-success-line bg-success-bg p-4 2xl:col-span-4" aria-labelledby="cal-title" id="crm-calendar">
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 id="cal-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="calendar" cls="h-4 w-4 text-success" %}CRM Calendar</h2>
+          <div class="seg" role="group" aria-label="Calendar view">
+            <button type="button" data-cal-view="day" aria-pressed="false">Day</button>
+            <button type="button" data-cal-view="week" aria-pressed="false">Week</button>
+            <button type="button" class="is-active" data-cal-view="month" aria-pressed="true">Month</button>
           </div>
         </div>
-        <div class="rounded-[16px] border border-line bg-surface p-3 sm:p-4">
-          <div class="mb-3 flex items-center justify-between gap-2">
+        <div class="rounded-[16px] border border-line bg-surface p-2.5">
+          <div class="mb-1 flex items-center justify-between gap-2">
             <button type="button" class="btn btn-ghost btn-sm btn-icon" data-cal-nav="-1" aria-label="Previous">{% include "_includes/icon.html" with name="chevron-left" cls="h-5 w-5" %}</button>
             <p class="text-sm font-bold text-ink" data-cal-label aria-live="polite">{{ calendar.label }}</p>
             <button type="button" class="btn btn-ghost btn-sm btn-icon" data-cal-nav="1" aria-label="Next">{% include "_includes/icon.html" with name="chevron-right" cls="h-5 w-5" %}</button>
           </div>
-          <div data-cal-grid class="grid grid-cols-7 gap-1 text-center text-xs" role="grid" aria-label="Month">
+          <div data-cal-grid class="grid grid-cols-7 gap-0.5 text-center text-xs" role="grid" aria-label="Month">
             {# drawn by the script below from the events data #}
           </div>
-          <div data-cal-list class="mt-3 border-t border-divider pt-3" aria-live="polite">
+          <div data-cal-list class="mt-2 max-h-40 overflow-y-auto border-t border-divider pt-2" aria-live="polite">
             <p class="text-xs text-ink-muted">Choose a day to see what falls on it.</p>
           </div>
         </div>
-        <ul class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted" aria-label="Legend">
+        <ul class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-muted" aria-label="Legend">
           {% for k in calendar_kinds %}<li class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full {{ k.tone }}"></span>{{ k.label }}</li>{% endfor %}
         </ul>
         {{ calendar|json_script:"calendar-data" }}
       </section>
       {% endif %}
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-1 {% if not calendar %}lg:col-span-3 lg:grid-cols-2{% endif %}">
+      {% if efficiency or show.receivables or show.payables or show.trading or show.open_invoices or show.open_bills or show.journals %}
+      <div class="grid grid-cols-2 gap-5 2xl:col-span-3 2xl:grid-cols-1">
         {% if efficiency %}
-        <a href="#my-stats" data-open="my-stats" class="group flex flex-col justify-between gap-4 rounded-card border border-line bg-surface p-5 transition-colors hover:border-brand/40 hover:bg-brand-50">
+        <a href="#my-stats" data-open="my-stats" class="group flex min-h-[9rem] flex-col items-center justify-center gap-3 rounded-card border border-line bg-surface p-4 text-center transition-colors hover:border-brand/40 hover:bg-brand-50">
           <span class="icon-tile">{% include "_includes/icon.html" with name="chart" cls="h-5 w-5" %}</span>
-          <span><span class="block text-base font-bold text-ink">My Statistics</span><span class="block text-xs text-ink-muted">My quotes, orders, invoices and lost sales by month</span></span>
+          <span><span class="block text-sm font-bold text-ink">My Statistics</span><span class="block text-xs text-ink-muted">Quotes, orders, invoices and lost sales by month</span></span>
         </a>
         {% endif %}
         {% if show.receivables or show.payables or show.trading or show.open_invoices or show.open_bills or show.journals %}
-        <a href="#company-performance" data-open="company-performance" class="group flex flex-col justify-between gap-4 rounded-card border border-line bg-surface p-5 transition-colors hover:border-brand/40 hover:bg-brand-50">
+        <a href="#company-performance" data-open="company-performance" class="group flex min-h-[9rem] flex-col items-center justify-center gap-3 rounded-card border border-line bg-surface p-4 text-center transition-colors hover:border-brand/40 hover:bg-brand-50">
           <span class="icon-tile">{% include "_includes/icon.html" with name="trending-up" cls="h-5 w-5" %}</span>
-          <span><span class="block text-base font-bold text-ink">Company Performance</span><span class="block text-xs text-ink-muted">Receivables, payables, trading and open documents</span></span>
+          <span><span class="block text-sm font-bold text-ink">Company Performance</span><span class="block text-xs text-ink-muted">Receivables, payables, trading and open documents</span></span>
         </a>
         {% endif %}
       </div>
-    </div>
+      {% endif %}
 
-    {# ── Top 20: vendors, customers, inventory in the period ── #}
-    {% if top20 %}
-    <section class="rounded-card border border-brand-100 bg-brand-50 p-4 sm:p-5" aria-labelledby="top-title">
-      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="top-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="trending-up" cls="h-4 w-4 text-brand" %}Top 20</h2>
-        <div class="seg" role="tablist" aria-label="Top 20 lists">
-          {% for t in top20 %}<button type="button" role="tab" id="tab-top-{{ t.key }}" aria-controls="panel-top-{{ t.key }}" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" class="{% if forloop.first %}is-active{% endif %}" data-top-tab="{{ t.key }}">{{ t.label }}</button>{% endfor %}
+      {% if top20 %}
+      <section class="flex min-w-0 flex-col rounded-card border border-brand-100 bg-brand-50 p-4 md:col-span-2 2xl:col-span-5" aria-labelledby="top-title">
+        <h2 id="top-title" class="card-title mb-3 flex items-center gap-2">{% include "_includes/icon.html" with name="trending-up" cls="h-4 w-4 text-brand" %}Top 20</h2>
+        <div class="mb-3 grid gap-2" style="grid-template-columns: repeat({{ top20|length }}, minmax(0, 1fr))" role="tablist" aria-label="Top 20 lists">
+          {% for t in top20 %}
+          <button type="button" role="tab" id="tab-top-{{ t.key }}" aria-controls="panel-top-{{ t.key }}" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" data-top-tab="{{ t.key }}"
+                  class="flex flex-col items-center gap-1.5 rounded-[14px] border px-2 py-2.5 text-xs font-bold transition-colors aria-selected:border-brand aria-selected:bg-surface aria-selected:text-brand-ink border-transparent text-ink-2 hover:bg-surface/70 {% if forloop.first %}is-active{% endif %}">
+            {% if t.key == 'vendors' %}{% include "_includes/icon.html" with name="briefcase" cls="h-6 w-6" %}{% elif t.key == 'customers' %}{% include "_includes/icon.html" with name="users" cls="h-6 w-6" %}{% else %}{% include "_includes/icon.html" with name="box" cls="h-6 w-6" %}{% endif %}
+            {{ t.label }}
+          </button>
+          {% endfor %}
         </div>
-      </div>
-      {% for t in top20 %}
-      <div id="panel-top-{{ t.key }}" role="tabpanel" aria-labelledby="tab-top-{{ t.key }}" data-top-panel="{{ t.key }}" class="overflow-hidden rounded-[16px] border border-line bg-surface {% if not forloop.first %}hidden{% endif %}">
-        {% if t.rows %}
-        <div class="table-wrap rounded-none border-0 shadow-none">
-          <table class="table table-compact">
-            <thead><tr><th class="w-10">#</th><th>{% if t.key == 'vendors' %}Supplier{% elif t.key == 'customers' %}Customer{% else %}Product{% endif %}</th><th class="num">{% if t.key == 'inventory' %}Qty{% else %}Docs{% endif %}</th><th class="num">{{ t.what }}</th></tr></thead>
-            <tbody>
-              {% for r in t.rows %}
-              <tr>
-                <td class="text-ink-muted tabular-nums">{{ forloop.counter }}</td>
-                <td class="max-w-[16rem] truncate">{% if r.url %}<a href="{{ r.url }}" class="row-link">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
-                <td class="num text-ink-muted">{% if t.key == 'inventory' %}{{ r.qty|qty }}{% else %}{{ r.count }}{% endif %}</td>
-                <td class="num font-semibold">{{ r.amount|money }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+        {% for t in top20 %}
+        <div id="panel-top-{{ t.key }}" role="tabpanel" aria-labelledby="tab-top-{{ t.key }}" data-top-panel="{{ t.key }}" class="min-h-0 flex-1 overflow-hidden rounded-[16px] border border-line bg-surface {% if not forloop.first %}hidden{% endif %}">
+          {% if t.rows %}
+          <div class="table-wrap max-h-64 overflow-y-auto rounded-none border-0 shadow-none">
+            <table class="table table-compact">
+              <thead><tr><th class="w-8">#</th><th>{% if t.key == 'vendors' %}Supplier{% elif t.key == 'customers' %}Customer{% else %}Product{% endif %}</th><th class="num">{% if t.key == 'inventory' %}Qty{% else %}Docs{% endif %}</th><th class="num" title="{{ t.what }}">Amount</th></tr></thead>
+              <tbody>
+                {% for r in t.rows %}
+                <tr>
+                  <td class="text-ink-muted tabular-nums">{{ forloop.counter }}</td>
+                  <td class="max-w-[12rem] truncate">{% if r.url %}<a href="{{ r.url }}" class="row-link">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
+                  <td class="num text-ink-muted">{% if t.key == 'inventory' %}{{ r.qty|qty }}{% else %}{{ r.count }}{% endif %}</td>
+                  <td class="num font-semibold">{{ r.amount|money }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          {% include "_includes/empty_state.html" with icon="inbox" title="Nothing in this period" text="Nothing was bought or sold in the period you chose." compact=True only %}
+          {% endif %}
         </div>
-        {% else %}
-        {% include "_includes/empty_state.html" with icon="inbox" title="Nothing in this period" text="Nothing was bought or sold in the period you chose." compact=True only %}
-        {% endif %}
-      </div>
-      {% endfor %}
-      <p class="mt-2 text-xs text-ink-muted">{{ period.label }} · {{ book }} · by value, largest first.</p>
-    </section>
-    {% endif %}
+        {% endfor %}
+        <p class="mt-2 text-xs text-ink-muted">{% for t in top20 %}<span data-top-note="{{ t.key }}" class="{% if not forloop.first %}hidden{% endif %}">{{ t.what }}</span>{% endfor %} · {{ period.label }} · {{ book }} · largest first.</p>
+      </section>
+      {% endif %}
+    </div>
 
     {# ── My statistics (opens from its tile) ── #}
     {% if efficiency %}
@@ -513,6 +516,7 @@
   tabs.forEach((t) => t.addEventListener('click', () => {
     tabs.forEach((x) => { const on = x === t; x.classList.toggle('is-active', on); x.setAttribute('aria-selected', on ? 'true' : 'false'); });
     document.querySelectorAll('[data-top-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.topPanel !== t.dataset.topTab));
+    document.querySelectorAll('[data-top-note]').forEach((p) => p.classList.toggle('hidden', p.dataset.topNote !== t.dataset.topTab));
   }));
 
   if (window.Chart) {
@@ -593,12 +597,12 @@
         const start = weekStart(new Date(cursor.getFullYear(), cursor.getMonth(), 1));
         for (let i = 0; i < 42; i++) { const d = new Date(start); d.setDate(start.getDate() + i); days.push(d); }
         const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        grid.className = 'grid grid-cols-7 gap-1 text-center text-xs';
+        grid.className = 'grid grid-cols-7 gap-0.5 text-center text-xs';
         grid.innerHTML = names.map((n) => `<div class="py-1 font-semibold text-ink-muted" role="columnheader">${n}</div>`).join('') + days.map((d) => {
           const k = iso(d), evs = eventsOn(k), inMonth = d.getMonth() === cursor.getMonth();
           const tones = [...new Set(evs.map((e) => e.tone))].slice(0, 4);
           const cls = k === selected ? 'bg-brand text-white' : (k === today ? 'bg-brand-50 text-brand-ink font-bold' : (inMonth ? 'text-ink hover:bg-surface-2' : 'text-ink-faint hover:bg-surface-2'));
-          return `<button type="button" role="gridcell" data-day="${k}" aria-label="${d.toDateString()}${evs.length ? ', ' + evs.length + ' item' + (evs.length > 1 ? 's' : '') : ''}" class="flex h-11 flex-col items-center justify-center gap-0.5 rounded-[10px] text-xs font-semibold transition-colors sm:h-12 ${cls}"><span>${d.getDate()}</span><span class="flex h-1.5 gap-0.5">${tones.map((t) => `<span class="h-1.5 w-1.5 rounded-full ${t} ${k === selected ? 'ring-1 ring-white' : ''}"></span>`).join('')}</span></button>`;
+          return `<button type="button" role="gridcell" data-day="${k}" aria-label="${d.toDateString()}${evs.length ? ', ' + evs.length + ' item' + (evs.length > 1 ? 's' : '') : ''}" class="flex h-9 flex-col items-center justify-center gap-0.5 rounded-[10px] text-xs font-semibold transition-colors ${cls}"><span>${d.getDate()}</span><span class="flex h-1.5 gap-0.5">${tones.map((t) => `<span class="h-1.5 w-1.5 rounded-full ${t} ${k === selected ? 'ring-1 ring-white' : ''}"></span>`).join('')}</span></button>`;
         }).join('');
         list.innerHTML = dayList(selected);
       } else if (view === 'week') {
