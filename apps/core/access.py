@@ -261,6 +261,14 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("payments", "pos_mpesa_start", NOBODY, TILL),
     ("payments", "request_status", FINANCE | SALES | TILL | AUDIT, FINANCE | SALES | TILL),
     ("payments", "home", FINANCE | AUDIT, NOBODY),
+    # Tags and labels: the stores tag stock and finance tags fixed assets, so
+    # both issue and print; the auditor, viewer and sales manager may look.
+    # Voiding a sticker is a manager's word. Anybody who scans a tag may look
+    # it up and open it (the lookup only ever searches the active company).
+    ("tagging", "batch_void", NOBODY, FM | {"WAREHOUSE_MANAGER"}),
+    ("tagging", "lookup", EVERYONE, NOBODY),
+    ("tagging", "tag_detail", EVERYONE, NOBODY),
+    ("tagging", "*", FINANCE | STOCK | AUDIT | {"SALES_MANAGER", "VIEWER"}, FINANCE | STOCK),
     ("organizations", "department_*", HR | {"FINANCE_MANAGER"}, HR),
     ("organizations", "department_list", HR | {"FINANCE_MANAGER"}, NOBODY),
     ("organizations", "*", FM, NOBODY),
@@ -312,6 +320,7 @@ MODULE_LABELS = {
     "control_panel": "Control Panel", "sms": "SMS", "business_mgmt": "Business Management",
     "kra": "KRA eTIMS",
     "payments": "Payment gateways",
+    "tagging": "Tags & labels",
 }
 
 
@@ -362,7 +371,8 @@ def can(user, role: str | None, namespace: str | None, url_name: str | None, met
 
 HOME_NAMES = {
     "dashboard": "index", "expenses": "home", "timesheets": "home", "helpdesk": "home",
-    "documents": "home", "banking": "home", "pos": "home", "kra": "home", "payments": "home", "notifications": "list",
+    "documents": "home", "banking": "home", "pos": "home", "kra": "home", "payments": "home", "tagging": "home",
+    "notifications": "list",
     "recruitment": "home", "organizations": "home", "accounts": "user_list",
 }
 

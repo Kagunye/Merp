@@ -1,0 +1,21 @@
+{% comment %}Styles of one tag. Each .tg sets --h (its height in mm, unitless) so type scales with the label.{% endcomment %}
+<style>
+  .tg { --h: 25; position: relative; box-sizing: border-box; display: flex; gap: calc(var(--h) * .05mm); align-items: stretch;
+        padding: calc(var(--h) * .055mm); overflow: hidden; background: #fff; color: #000;
+        font: min(calc(var(--h) * .1mm), 3.4mm)/1.15 "Helvetica Neue", Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tg-qr { flex: none; height: 100%; max-width: 45%; aspect-ratio: 1 / 1; }
+  .tg-qr svg { display: block; width: 100%; height: 100%; }
+  .tg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: calc(var(--h) * .02mm); }
+  .tg-head { display: flex; align-items: center; gap: calc(var(--h) * .05mm); min-width: 0; }
+  .tg-head img { display: block; flex: none; max-height: min(calc(var(--h) * .22mm), 8mm); max-width: 40%; object-fit: contain; filter: grayscale(1) contrast(1.2); }
+  .tg-co { flex: 1; font-size: .92em; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .tg-code { font: 800 min(calc(var(--h) * .165mm), 6.5mm)/1 "Consolas", "Menlo", "Courier New", monospace; letter-spacing: -.02em; white-space: nowrap; }
+  .tg-name { font-weight: 800; font-size: 1.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tg-lines div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tg-price { font-weight: 800; }
+  .tg-bc { height: min(calc(var(--h) * .22mm), 12mm); min-height: 4mm; }
+  .tg-bars .tg-bc { flex: 1; height: auto; max-height: 55%; }
+  .tg-bc svg { display: block; width: 100%; height: 100%; }
+  .tg-void { position: absolute; inset: 0; display: grid; place-items: center; font: 900 calc(var(--h) * .3mm)/1 Arial, sans-serif;
+             color: #000; letter-spacing: .2em; background: rgb(255 255 255 / .6); }
+</style>

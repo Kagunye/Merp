@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+{% comment %}
+Print page for a run of tags. Standalone (no app shell): the @page box is the
+label stock itself -- one label per page on a roll, or an A4 sheet with the
+labels on a grid at the stock's own margins and pitch. Black on white.
+{% endcomment %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tags {{ first }}–{{ last }} — {{ company.name }}</title>
+  {% include "tagging/_label_css.html" %}
+  <style>
+    @page { size: {{ size.pw }}mm {{ size.ph }}mm; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    .page { position: relative; width: {{ size.pw }}mm; height: {{ size.ph }}mm; overflow: hidden; background: #fff;
+            break-after: page; page-break-after: always; }
+    .page:last-child { break-after: auto; page-break-after: auto; }
+    .grid { position: absolute; top: {{ size.top }}mm; left: {{ size.left }}mm; display: grid;
+            grid-template-columns: repeat({{ size.cols }}, {{ size.lw }}mm); grid-auto-rows: {{ size.lh }}mm;
+            column-gap: {{ size.cgap }}mm; row-gap: {{ size.rgap }}mm; }
+    .cell { width: {{ size.lw }}mm; height: {{ size.lh }}mm; overflow: hidden; }
+    .bar { font: 13px/1.4 "Helvetica Neue", Arial, sans-serif; padding: 10px 16px; background: #f3f3f3; border-bottom: 1px solid #ccc;
+           display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+    .bar a, .bar button { font: inherit; padding: 6px 12px; border: 1px solid #888; border-radius: 6px; background: #fff; color: #000;
+                          text-decoration: none; cursor: pointer; }
+    .bar button.primary { background: #111; color: #fff; border-color: #111; }
+    .bar .warn { color: #a40000; font-weight: 600; }
+    @media screen {
+      body { background: #e6e6e6; }
+      .pages { padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+      .page { box-shadow: 0 1px 5px rgb(0 0 0 / .25); }
+      body.outline .cell, body.outline .roll .tg { outline: 1px dashed #999; outline-offset: -1px; }
+    }
+    @media print { .bar { display: none; } .pages { padding: 0; } }
+  </style>
+</head>
+<body class="outline">
+  <div class="bar">
+    <a href="{{ back }}">← Back to {{ batch.number }}</a>
+    <button type="button" class="primary" onclick="window.print()">Print</button>
+    <span><b>{{ count }}</b> tag{{ count|pluralize }}{% if copies > 1 %} × {{ copies }} copies{% endif %}, {{ first }} to {{ last }} · {{ size.name }}</span>
+    <label><input type="checkbox" checked onchange="document.body.classList.toggle('outline', this.checked)"> Show label edges (screen only)</label>
+    {% if too_many %}<span class="warn">Only the first {{ max_print }} are on this page. Print the rest as another range.</span>{% endif %}
+    {% if not count %}<span class="warn">No active tags in that range (void tags are never printed).</span>{% endif %}
+    <span style="color:#555">In the print dialog choose the label size above, margins "None" and scale 100%.</span>
+  </div>
+  <div class="pages">
+    {% for cells in pages %}
+      {% if size.sheet %}
+      <div class="page"><div class="grid">
+        {% for l in cells %}<div class="cell">{% if l %}{% include "tagging/_label.html" with w=size.lw h=size.lh %}{% endif %}</div>{% endfor %}
+      </div></div>
+      {% else %}
+      {% for l in cells %}<div class="page roll">{% include "tagging/_label.html" with w=size.lw h=size.lh %}</div>{% endfor %}
+      {% endif %}
+    {% endfor %}
+  </div>
+</body>
+</html>

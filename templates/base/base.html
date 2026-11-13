@@ -76,8 +76,9 @@
     {% if nav.sales %}{% include "base/_nav_item.html" with href="/sales/" key="sales" label="Sales" icon="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" %}{% endif %}
     {% if nav.pos %}{% include "base/_nav_item.html" with href="/pos/" key="pos" label="Point of Sale" short="POS" icon="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" %}{% endif %}
 
-    {% if nav.inventory or nav.procurement or nav.warehousing or nav.manufacturing or nav.workshop %}<div class="nav-divider">Supply chain</div>{% endif %}
+    {% if nav.inventory or nav.procurement or nav.warehousing or nav.manufacturing or nav.workshop or nav.tagging %}<div class="nav-divider">Supply chain</div>{% endif %}
     {% if nav.inventory %}{% include "base/_nav_item.html" with href="/inventory/" key="inventory" label="Inventory" short="Stock" icon="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" %}{% endif %}
+    {% if nav.tagging %}{% include "base/_nav_item.html" with href="/tagging/" key="tagging" label="Tags & labels" short="Tags" icon="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" icon2="M6 6h.008v.008H6V6z" %}{% endif %}
     {% if nav.procurement %}{% include "base/_nav_item.html" with href="/procurement/" key="procurement" label="Procurement" short="Buying" icon="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" %}{% endif %}
     {% if nav.warehousing %}{% include "base/_nav_item.html" with href="/warehousing/" key="warehousing" label="Warehouse Mgmt" short="Stores" icon="M3 7l9-4 9 4M4 10h16v10H4V10z" icon2="M8 14h8M8 17h5" %}{% endif %}
     {% if nav.manufacturing %}{% include "base/_nav_item.html" with href="/manufacturing/" key="manufacturing" label="Manufacturing" short="Factory" icon="M19 7l-7 7-3-3m0 0L5 15m4-4V5m0 0h8" icon2="M4 20h16" %}{% endif %}
