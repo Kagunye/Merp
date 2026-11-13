@@ -80,9 +80,12 @@ class CompanyCreateView(LoginRequiredMixin, CreateView):
         return kwargs
 
     def form_valid(self, form):
-        with transaction.atomic():
+        from apps.core import tenancy
+        from apps.core.services import provision_company
+        # A new company starts in the shared database, even when the one being
+        # worked in keeps its data in a database of its own.
+        with tenancy.company_db(None), transaction.atomic():
             self.object = form.save()
-            from apps.core.services import provision_company
             provision_company(self.object, self.request.user)
         messages.success(
             self.request,
@@ -122,10 +125,14 @@ class CompanyDetailView(LoginRequiredMixin, DetailView):
         return companies_for_user(self.request.user)
 
     def get_context_data(self, **kwargs):
+        from apps.core import tenancy
         ctx = super().get_context_data(**kwargs)
-        ctx["branches"] = self.object.branches.all()
-        ctx["departments"] = self.object.departments.all()
-        ctx["warehouses"] = self.object.warehouses.all()
+        # Read from wherever this company keeps its data -- it may not be the
+        # company being worked in -- so the lists are fetched here, not later.
+        with tenancy.company_db(self.object):
+            ctx["branches"] = list(self.object.branches.all())
+            ctx["departments"] = list(self.object.departments.all())
+            ctx["warehouses"] = list(self.object.warehouses.all())
         ctx["can_edit"] = companies_user_administers(self.request.user).filter(
             pk=self.object.pk).exists()
         return ctx

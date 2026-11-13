@@ -10,6 +10,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
+from apps.core.tenancy import find_anywhere
+
 from . import services
 from .backends import GatewayError, driver, stk_callback_items
 from .forms import GatewayForm
@@ -173,11 +175,15 @@ def _body(request):
         return {}
 
 
+# The gateways call back with a key and no signed-in company: find_anywhere
+# looks in the shared database, then in each company's own database, and the
+# rest of the request runs against the one the key was found in.
+
 @csrf_exempt
 @require_POST
 def callback(request, provider, key):
     """M-Pesa's STK result. Its word only prompts a status query."""
-    req = PaymentRequest.objects.filter(callback_key=key).select_related("gateway").first()
+    req = find_anywhere(lambda: PaymentRequest.objects.filter(callback_key=key).select_related("gateway").first())
     if req is None:
         return JsonResponse({"ResultCode": 1, "ResultDesc": "Unknown request"}, status=404)
     hint = stk_callback_items(_body(request)) if provider == "mpesa" else _body(request)
@@ -190,7 +196,7 @@ def callback(request, provider, key):
 @csrf_exempt
 @require_GET
 def pesapal_ipn(request, key):
-    gw = PaymentGateway.objects.filter(webhook_key=key, provider="PESAPAL").first()
+    gw = find_anywhere(lambda: PaymentGateway.objects.filter(webhook_key=key, provider="PESAPAL").first())
     tracking = request.GET.get("OrderTrackingId", "")
     merchant = request.GET.get("OrderMerchantReference", "")
     if gw is None:
@@ -206,7 +212,7 @@ def pesapal_ipn(request, key):
 @require_GET
 def returned(request, key):
     """Where Pesapal / DPO send the customer back after paying."""
-    req = PaymentRequest.objects.filter(callback_key=key).select_related("gateway", "company").first()
+    req = find_anywhere(lambda: PaymentRequest.objects.filter(callback_key=key).select_related("gateway", "company").first())
     if req is None:
         raise Http404
     services.refresh(req)
@@ -216,7 +222,7 @@ def returned(request, key):
 @csrf_exempt
 @require_POST
 def c2b_validate(request, key):
-    if not PaymentGateway.objects.filter(webhook_key=key, provider="MPESA").exists():
+    if find_anywhere(lambda: PaymentGateway.objects.filter(webhook_key=key, provider="MPESA").first()) is None:
         raise Http404
     return JsonResponse({"ResultCode": "0", "ResultDesc": "Accepted"})
 
@@ -224,7 +230,7 @@ def c2b_validate(request, key):
 @csrf_exempt
 @require_POST
 def c2b_confirm(request, key):
-    gw = PaymentGateway.objects.filter(webhook_key=key, provider="MPESA").first()
+    gw = find_anywhere(lambda: PaymentGateway.objects.filter(webhook_key=key, provider="MPESA").first())
     if gw is None:
         raise Http404
     try:
@@ -237,7 +243,8 @@ def c2b_confirm(request, key):
 @csrf_exempt
 def simulate(request, key):
     """The simulator's checkout page (Pesapal / DPO in SIMULATOR mode)."""
-    req = PaymentRequest.objects.filter(callback_key=key, gateway__environment="SIMULATOR").select_related("gateway").first()
+    req = find_anywhere(lambda: PaymentRequest.objects.filter(
+        callback_key=key, gateway__environment="SIMULATOR").select_related("gateway").first())
     if req is None:
         raise Http404
     if request.method == "POST":

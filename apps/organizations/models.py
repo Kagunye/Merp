@@ -19,12 +19,27 @@ class Company(BaseModel, AddressMixin, ContactMixin, NotesMixin):
     industry = models.CharField(max_length=100, blank=True, default="")
     is_default = models.BooleanField(default=False)
 
+    # Where the company's business data lives (apps.core.tenancy). Off: in the
+    # shared database with every other company, as always. On: in its own
+    # database, reached through the URL below; `manage.py move_company` turns it
+    # on once the data has been copied and checked, and back off again.
+    own_database = models.BooleanField(default=False, editable=False)
+    # The URL, either named by an environment variable (nothing secret kept in
+    # the database) or stored encrypted (see tenancy.encrypt_url).
+    database_url_env = models.CharField(max_length=100, blank=True, default="", editable=False)
+    database_url_encrypted = models.TextField(blank=True, default="", editable=False)
+
     class Meta:
         verbose_name_plural = "companies"
         ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+    def database_url(self):
+        """The company's own database URL, or "" when it has none set."""
+        from apps.core import tenancy
+        return tenancy.company_database_url(self)
 
     def save(self, *args, **kwargs):
         if self.is_default:

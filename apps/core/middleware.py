@@ -17,9 +17,13 @@ class EnsureCsrfCookieMiddleware(MiddlewareMixin):
 
 
 class CompanyContextMiddleware(MiddlewareMixin):
-    """Attach the user's active company to the request."""
+    """Attach the user's active company to the request, and switch to the
+    company's own database when it keeps its data in one (apps.core.tenancy)."""
 
     def process_request(self, request):
+        from . import tenancy
+        # Start on the shared database; put back whatever was current at the end.
+        request._tenancy_token = tenancy.begin_request()
         request.active_company = None
         request.active_branch = None
         request.company_role = None
@@ -54,6 +58,12 @@ class CompanyContextMiddleware(MiddlewareMixin):
                 except Exception:
                     pass
 
+        # Everything after this -- the branch, the view, its reports -- reads
+        # the company's database if it has one. Users, companies and
+        # memberships stay in the shared one (tenancy.CompanyDatabaseRouter).
+        if request.active_company is not None and request.active_company.own_database:
+            tenancy.activate(request.active_company, request.user)
+
         # The user's role in the company they're working in: drives access.
         if request.active_company:
             try:
@@ -72,6 +82,11 @@ class CompanyContextMiddleware(MiddlewareMixin):
                 request.active_branch = branch
             except Exception:
                 pass
+
+    def process_response(self, request, response):
+        from . import tenancy
+        tenancy.deactivate(getattr(request, "_tenancy_token", None))
+        return response
 
 
 class RoleAccessMiddleware:

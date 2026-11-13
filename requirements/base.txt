@@ -32,3 +32,4 @@ django-money==3.5.3
 py-moneyed==3.0
 qrcode==8.2
 barcode==1.0.0
+cryptography==43.0.3
