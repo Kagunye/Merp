@@ -1,0 +1,6 @@
+{% load ui_extras %}{% can_do "kra:queue_retry" "POST" as may_retry %}{% if may_retry and can_retry %}
+<form method="post" action="{% url 'kra:queue_retry' sub.pk %}" class="inline">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="refresh" cls="h-4 w-4" stroke="2" only %}Send again</button>
+</form>
+{% endif %}

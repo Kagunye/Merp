@@ -1,0 +1,125 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:settings_edit' as settings_url %}
+{% include "_includes/page_header.html" with title="KRA eTIMS" subtitle="Every invoice and till sale signed by KRA, in order, with nothing lost offline." badge=conf.enabled|yesno:"On,Off" badge_class=conf.enabled|yesno:"badge-success,badge-neutral" secondary_label="Settings" secondary_url=settings_url actions_template="kra/_home_actions.html" hide_print=True %}
+
+{% for w in warnings %}
+<div class="alert alert-warning mb-3" role="status">
+  {% include "_includes/icon.html" with name="warning" only %}
+  <div class="alert-body">{{ w }}</div>
+</div>
+{% endfor %}
+
+<div class="stat-grid mb-6">
+  {% url 'kra:queue' as queue_url %}
+  {% for code, label, n in statuses %}
+  {% with url=queue_url|add:"?status="|add:code %}
+  {% if code == "FAILED" %}{% include "_includes/stat.html" with label=label value=n icon="x-circle" tone="danger" url=url only %}
+  {% elif code == "SENT" %}{% include "_includes/stat.html" with label=label value=n icon="check-circle" tone="success" url=url only %}
+  {% elif code == "PENDING" %}{% include "_includes/stat.html" with label=label value=n icon="clock" tone="warning" url=url only %}
+  {% else %}{% include "_includes/stat.html" with label=label value=n icon="inbox" tone="neutral" url=url only %}{% endif %}
+  {% endwith %}
+  {% endfor %}
+  {% include "_includes/stat.html" with label="Receipts signed today" value=today.receipts icon="receipt" tone="info" only %}
+  {% include "_includes/stat.html" with label="Credit notes today" value=today.credit_notes icon="document" tone="info" only %}
+</div>
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <div class="space-y-5 lg:col-span-2">
+    <section class="card">
+      <div class="card-header">
+        <div><h2 class="card-title">Connection</h2><p class="card-subtitle">How this company talks to KRA</p></div>
+        <a href="{% url 'kra:settings_edit' %}" class="card-link">Settings →</a>
+      </div>
+      <div class="card-body">
+        <dl class="dl dl-3">
+          <div><dt>Status</dt><dd>{% if conf.enabled %}{% status_badge "ACTIVE" "On" %}{% else %}{% status_badge "INACTIVE" "Off" %}{% endif %}</dd></div>
+          <div><dt>Backend</dt><dd>{{ conf.get_backend_display }}</dd></div>
+          <div><dt>Environment</dt><dd>{% if conf.environment == "PRODUCTION" %}{% status_badge "ACTIVE" conf.get_environment_display %}{% else %}{% status_badge "PENDING" conf.get_environment_display %}{% endif %}</dd></div>
+          <div><dt>KRA PIN</dt><dd class="mono">{{ conf.kra_pin|default:"Not set" }}</dd></div>
+          <div><dt>Devices initialised</dt><dd>{{ ready_count }} / {{ active_count }}</dd></div>
+          <div><dt>Send on posting</dt><dd>{{ conf.auto_send|yesno:"Yes,No — queue only" }}</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <div><h2 class="card-title">Devices</h2><p class="card-subtitle">One KRA control unit per branch</p></div>
+        <a href="{% url 'kra:device_list' %}" class="card-link">All devices →</a>
+      </div>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>Branch</th><th>bhfId</th><th>SCU ID</th><th>State</th><th>Last sync</th></tr></thead>
+          <tbody>
+            {% for d in devices %}
+            <tr>
+              <td>{{ d.branch.name }}</td>
+              <td class="mono">{{ d.bhf_id }}</td>
+              <td class="mono">{{ d.sdc_id|default:"—" }}</td>
+              <td>{% if not d.is_active %}{% status_badge "INACTIVE" "Not in use" %}{% elif d.ready %}{% status_badge "READY" "Ready" %}{% else %}{% status_badge "PENDING" "Not initialised" %}{% endif %}</td>
+              <td class="whitespace-nowrap text-xs text-ink-muted">{{ d.last_sync|date:"d M Y, H:i"|default:"Never" }}</td>
+            </tr>
+            {% empty %}
+            {% can_do "kra:device_create" "POST" as may_dev %}{% if may_dev %}{% url 'kra:device_create' as dev_url %}{% endif %}
+            <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="building" title="No device yet" text="Add head office (bhfId 00) with the serial KRA registered, then initialise it." action_label="Add device" action_url=dev_url compact=True only %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card overflow-hidden">
+      <div class="card-header">
+        <div><h2 class="card-title">Recently signed</h2><p class="card-subtitle">Receipts and credit notes KRA signed</p></div>
+        <a href="{% url 'kra:queue' %}?status=SENT" class="card-link">Queue →</a>
+      </div>
+      <div class="table-wrap rounded-none border-0 shadow-none">
+        <table class="table">
+          <thead><tr><th>CU invoice no.</th><th>Type</th><th>Document</th><th>Signed</th></tr></thead>
+          <tbody>
+            {% for r in recent_receipts %}
+            <tr>
+              <td class="mono"><a href="{% url 'kra:queue_detail' r.submission_id %}" class="row-link">{{ r.cu_invoice_no }}</a></td>
+              <td>{% if r.receipt_type == "R" %}{% status_badge "CREDIT_NOTE" "Credit note" %}{% else %}{% status_badge "SENT" "Sale" %}{% endif %}</td>
+              <td class="mono text-xs">{{ r.submission.source_label|default:"—" }}</td>
+              <td class="whitespace-nowrap text-xs text-ink-muted">{{ r.signed_at|date:"d M Y, H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="Nothing signed yet" text="Posted invoices and till sales appear here once KRA signs them." compact=True only %}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="space-y-5">
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Sections</h2></div>
+      <ul class="list">
+        <li class="list-row py-3"><a href="{% url 'kra:settings_edit' %}" class="row-link">Settings</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:settings_tax_map' %}" class="row-link">Tax types (A–E)</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:device_list' %}" class="row-link">Devices</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:codes' %}" class="row-link">KRA codes and item classes</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:items' %}" class="row-link">Items registered with KRA</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:queue' %}" class="row-link">Queue (outbox)</a>{% if counts.FAILED %}<span class="badge badge-danger ml-auto"><span class="badge-dot" aria-hidden="true"></span>{{ counts.FAILED }} refused</span>{% endif %}</li>
+        <li class="list-row py-3"><a href="{% url 'kra:purchases' %}" class="row-link">Supplier invoices</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:imports' %}" class="row-link">Customs imports</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:pin_check' %}" class="row-link">KRA PIN check</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:notices' %}" class="row-link">KRA notices</a></li>
+        <li class="list-row py-3"><a href="{% url 'kra:checklist' %}" class="row-link">Readiness checklist</a></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">Scheduled run</h2>{% if cron_token_set %}{% status_badge "ACTIVE" "Token set" %}{% else %}{% status_badge "PENDING" "No token" %}{% endif %}</div>
+      <div class="card-body space-y-2 text-sm text-ink-2">
+        <p>Schedule <span class="mono">GET /kra/cron/?token=…</span> every 15 minutes (set <span class="mono">KRA_CRON_TOKEN</span>).</p>
+        <p class="text-xs text-ink-muted">Each run pulls KRA's codes, notices, supplier invoices and imports for every initialised device, then sends the queue. KRA expects data at least every 15 minutes.</p>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

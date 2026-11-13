@@ -1,0 +1,6 @@
+{% load ui_extras %}{% can_do "kra:queue_run" "POST" as may_run %}{% if may_run %}
+<form method="post" action="{% url 'kra:queue_run' %}" class="inline">
+  {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="refresh" cls="h-4 w-4" stroke="2" only %}Send queue now</button>
+</form>
+{% endif %}

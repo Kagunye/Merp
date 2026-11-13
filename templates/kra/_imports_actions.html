@@ -1,0 +1,6 @@
+{% load ui_extras %}{% can_do "kra:imports_fetch" "POST" as may_fetch %}{% if may_fetch %}
+<form method="post" action="{% url 'kra:imports_fetch' %}" class="inline">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="download" cls="h-4 w-4" stroke="2" only %}Fetch from KRA</button>
+</form>
+{% endif %}

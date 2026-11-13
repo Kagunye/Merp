@@ -91,6 +91,7 @@ a till roll). Black on white only, so there are no theme colours to honour.
     <tr><td>Change</td><td class="amt">{{ sale.change_given|money }}</td></tr>
   </table>
   {% endif %}
+  {% if sale %}{% load kra_tags %}{% kra_block "pos.POSSale" sale.pk compact=True %}{% endif %}
   {% if conf.receipt_footer %}<hr class="rule"><div class="c pre">{{ conf.receipt_footer }}</div>{% endif %}
 </div>
 <div class="tools">

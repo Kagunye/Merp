@@ -1,0 +1,43 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="KRA PIN check" subtitle="Ask KRA whether a PIN exists and whose it is" back_url=back back_label="KRA eTIMS" hide_print=True %}
+{% can_do "kra:pin_check" "POST" as may_check %}
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <form method="post" class="card no-card lg:col-span-1" novalidate>
+    {% csrf_token %}
+    <div class="card-body">
+      <div class="form-field">
+        <label class="form-label" for="{{ form.pin.id_for_label }}">{{ form.pin.label }}</label>
+        {{ form.pin }}
+        <p class="form-help">{{ form.pin.help_text }}</p>
+        {% for e in form.pin.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+      </div>
+    </div>
+    <div class="card-footer">{% if may_check %}<button type="submit" class="btn btn-primary btn-block">{% include "_includes/icon.html" with name="search" cls="h-4 w-4" stroke="2" only %}Look up</button>{% else %}<p class="text-xs text-ink-muted">Your role may not query KRA.</p>{% endif %}</div>
+  </form>
+
+  <div class="lg:col-span-2">
+    {% if error %}
+    <div class="alert alert-danger" role="alert">{% include "_includes/icon.html" with name="x-circle" only %}<div class="alert-body">{{ error }}</div></div>
+    {% elif looked_up and result %}
+    <section class="card">
+      <div class="card-header"><h2 class="card-title">{{ result.taxprNm|default:"Registered taxpayer" }}</h2>{% if result.taxprSttsCd == "A" %}{% status_badge "ACTIVE" "Active" %}{% else %}{% status_badge "INACTIVE" result.taxprSttsCd|default:"Unknown" %}{% endif %}</div>
+      <div class="card-body">
+        <dl class="dl">
+          <div><dt>KRA PIN</dt><dd class="mono">{{ result.tin|default:form.cleaned_data.pin }}</dd></div>
+          <div><dt>Name</dt><dd>{{ result.taxprNm|default:"—" }}</dd></div>
+          {% if result.prvncNm or result.dstrtNm %}<div class="dl-full"><dt>Location</dt><dd>{{ result.locDesc|default:"" }} {{ result.dstrtNm|default:"" }} {{ result.prvncNm|default:"" }}</dd></div>{% endif %}
+        </dl>
+      </div>
+    </section>
+    {% elif looked_up %}
+    <div class="card">{% include "_includes/empty_state.html" with icon="search" title="Not found" text="KRA has no taxpayer with that PIN." only %}</div>
+    {% else %}
+    <div class="card">{% include "_includes/empty_state.html" with icon="user" title="Enter a PIN" text="Use it before adding a customer's PIN to an invoice: KRA refuses a sale to a PIN it does not know." only %}</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

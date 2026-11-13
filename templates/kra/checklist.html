@@ -1,0 +1,73 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="Does it pass KRA's eTIMS modules?" subtitle="The readiness checklist: every eTIMS function KRA vets an integrator on, run end to end" back_url=back back_label="KRA eTIMS" %}
+{% can_do "kra:checklist" "POST" as may_run %}
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3 no-print">
+  <section class="card lg:col-span-2">
+    <div class="card-header"><h2 class="card-title">About this checklist</h2></div>
+    <div class="card-body space-y-3 text-sm text-ink-2">
+      <p>KRA does not publish its certification test sheet: it hands it out during vetting (ask <span class="mono">timsupport@kra.go.ke</span>). This checklist follows the function groups and ordering rules of KRA's OSCU/VSCU v2.0 specifications: initialisation, code sync, customers, items, imports, sales and credit notes, purchases, stock, and the offline queue.</p>
+      <p><strong class="text-ink">Simulator run:</strong> plays every scenario against the built-in KRA simulator inside a transaction that is rolled back. Your devices, numbers and queue are untouched and nothing is sent anywhere.</p>
+      <p><strong class="text-ink">Sandbox run:</strong> plays the same scenarios against your configured backend in KRA's sandbox. Offered only when the environment is Sandbox and the backend is not the simulator.</p>
+    </div>
+  </section>
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Run it</h2></div>
+    <div class="card-body space-y-4">
+      {% if may_run %}
+      <form method="post" class="no-card">{% csrf_token %}<input type="hidden" name="mode" value="simulator">
+        <button type="submit" class="btn btn-primary btn-block">Run checklist (simulator)</button>
+      </form>
+      {% if can_live %}
+      <div class="alert alert-warning" role="status">{% include "_includes/icon.html" with name="warning" only %}<div class="alert-body">This sends test documents (items, sales, credit notes, purchases, stock) to KRA's sandbox on your device, using your real invoice numbers there. It is not rolled back on KRA's side.</div></div>
+      <form method="post" class="no-card" onsubmit="return confirm('Send test documents to KRA\'s sandbox now?');">{% csrf_token %}<input type="hidden" name="mode" value="live">
+        <button type="submit" class="btn btn-secondary btn-block">Run against KRA sandbox</button>
+      </form>
+      {% else %}
+      <p class="text-xs text-ink-muted">A run against KRA's sandbox needs the Sandbox environment and a real backend (now: {{ conf.get_backend_display }}, {{ conf.get_environment_display }}).</p>
+      {% endif %}
+      <p class="text-xs text-ink-muted">A run takes a few seconds.</p>
+      {% else %}
+      <p class="text-sm text-ink-muted">Your role may read the checklist but not run it.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+{% if error %}
+<div class="alert alert-danger mt-5" role="alert">{% include "_includes/icon.html" with name="x-circle" only %}<div class="alert-body">{{ error }}</div></div>
+{% endif %}
+
+{% if report %}
+<section class="mt-6 space-y-5" aria-label="Checklist results">
+  <div class="stat-grid">
+    {% include "_includes/stat.html" with label="Passed" value=report.passed icon="check-circle" tone="success" only %}
+    {% if report.failed %}{% include "_includes/stat.html" with label="Failed" value=report.failed icon="x-circle" tone="danger" only %}{% else %}{% include "_includes/stat.html" with label="Failed" value=report.failed icon="x-circle" tone="neutral" only %}{% endif %}
+    {% include "_includes/stat.html" with label="Mode" value=report.mode icon="cog" tone="info" only %}
+    {% include "_includes/stat.html" with label="Ran at" value=report.ran_at|date:"d M Y, H:i:s" icon="clock" tone="neutral" only %}
+  </div>
+  {% for g in groups %}
+  <section class="card overflow-hidden">
+    <div class="card-header">
+      <h2 class="card-title">{{ g.id }}. {{ g.title }}</h2>
+      {% if g.passed == g.total %}{% status_badge "SUCCESS" "All passed" %}{% else %}<span class="badge badge-danger"><span class="badge-dot" aria-hidden="true"></span>{{ g.passed }} of {{ g.total }} passed</span>{% endif %}
+    </div>
+    <ul class="list">
+      {% for r in g.rows %}
+      <li class="list-row items-start py-3">
+        <span class="mt-0.5 shrink-0">{% if r.ok %}{% status_badge "SUCCESS" "Pass" %}{% else %}{% status_badge "FAILED" "Fail" %}{% endif %}</span>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-ink">{{ r.label }}</p>
+          {% if r.detail %}<p class="mt-0.5 break-words text-xs {% if r.ok %}text-ink-muted{% else %}text-danger{% endif %}">{{ r.detail }}</p>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

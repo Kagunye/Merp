@@ -1,0 +1,55 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="Supplier invoices from KRA" subtitle="What your suppliers reported selling to you: confirm or reject each one with KRA" back_url=back back_label="KRA eTIMS" actions_template="kra/_purchases_actions.html" hide_print=True %}
+{% can_do "kra:purchase_decide" "POST" as may_decide %}
+
+<nav class="tabs mb-4" aria-label="Supplier invoice status">
+  <a href="?" class="tab{% if not status %} tab-active{% endif %}" {% if not status %}aria-current="page"{% endif %}>All</a>
+  {% for code, label in statuses %}<a href="?status={{ code }}" class="tab{% if status == code %} tab-active{% endif %}" {% if status == code %}aria-current="page"{% endif %}>{{ label }}{% if code == "FETCHED" and to_review %} <span class="tab-count">{{ to_review }}</span>{% endif %}</a>{% endfor %}
+</nav>
+{% include "_includes/filter_bar.html" with search_placeholder="Supplier, PIN or invoice number" %}
+
+<div class="space-y-3">
+  {% for p in object_list %}
+  <details class="card overflow-hidden">
+    <summary class="flex cursor-pointer flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4">
+      <div class="min-w-0 flex-1">
+        <p class="font-semibold text-ink">{{ p.supplier_name|default:"Unnamed supplier" }}</p>
+        <p class="mono text-xs text-ink-muted">PIN {{ p.supplier_tin }}{% if p.supplier_bhf_id %} · branch {{ p.supplier_bhf_id }}{% endif %} · invoice {{ p.supplier_invoice_no }}{% if p.sale_date %} · {{ p.sale_date|slice:":4" }}-{{ p.sale_date|slice:"4:6" }}-{{ p.sale_date|slice:"6:8" }}{% endif %}</p>
+      </div>
+      <div class="text-right"><p class="text-xs text-ink-muted">Total</p><p class="num font-semibold">{{ p.total_amount|money }}</p></div>
+      <div class="text-right"><p class="text-xs text-ink-muted">VAT</p><p class="num">{{ p.total_tax|money }}</p></div>
+      <div>{% if p.status == "FETCHED" %}{% status_badge "REVIEW" p.get_status_display %}{% else %}{% status_badge p.status p.get_status_display %}{% endif %}</div>
+    </summary>
+    <div class="table-wrap rounded-none border-0 border-t border-line shadow-none">
+      <table class="table table-compact">
+        <thead><tr><th>#</th><th>Item</th><th>KRA code</th><th class="num">Qty</th><th class="num">Price</th><th>Tax</th><th class="num">VAT</th><th class="num">Total</th></tr></thead>
+        <tbody>
+          {% for it in p.data.itemList %}
+          <tr>
+            <td>{{ it.itemSeq }}</td><td>{{ it.itemNm }}</td><td class="mono text-xs">{{ it.itemCd|default:"—" }}</td>
+            <td class="num">{{ it.qty|qty }} {{ it.qtyUnitCd }}</td><td class="num">{{ it.prc|money }}</td>
+            <td class="mono">{{ it.taxTyCd }}</td><td class="num">{{ it.taxAmt|money }}</td><td class="num">{{ it.totAmt|money }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="8" class="empty-row">KRA sent no item lines.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if may_decide and p.status == "FETCHED" %}
+    <form method="post" action="{% url 'kra:purchase_decide' p.pk %}" class="card-footer flex flex-wrap justify-end gap-2 no-card">
+      {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" name="action" value="reject" class="btn btn-danger-ghost btn-sm" onclick="return confirm('Reject this supplier invoice with KRA?');">Reject</button>
+      <button type="submit" name="action" value="confirm" class="btn btn-secondary btn-sm">Confirm purchase</button>
+    </form>
+    {% endif %}
+  </details>
+  {% empty %}
+  <div class="card">{% include "_includes/empty_state.html" with icon="document" title="No supplier invoices" text="Fetch from KRA to see what suppliers have reported selling to you." %}</div>
+  {% endfor %}
+</div>
+{% include "_includes/pagination.html" %}
+{% endblock %}

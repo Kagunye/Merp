@@ -55,6 +55,7 @@
       {% if sale.notes %}<p class="border-t border-line bg-surface-2 px-5 py-3 text-xs text-ink-muted">Note on this ticket: <strong class="text-ink-2">{{ sale.notes }}</strong></p>{% endif %}
     </section>
 
+    {% load kra_tags %}{% kra_block "pos.POSSale" sale.pk %}
     {% if refunds.exists %}
     <section class="card overflow-hidden">
       <div class="card-header"><h2 class="card-title">Given back on this ticket</h2></div>

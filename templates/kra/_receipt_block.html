@@ -1,0 +1,58 @@
+{% load ui_extras kra_tags %}{% comment %}
+KRA eTIMS block for a document: drawn by {% kra_block "sales.Invoice" invoice.pk %}
+(or compact=True on the 80 mm thermal receipt, which has its own black-on-white
+styles: .c .b .rule .meta). Nothing at all when eTIMS is off or the document was
+never queued.
+{% endcomment %}{% if compact %}{% if receipt %}
+<hr class="rule">
+<div class="c b">KRA eTIMS · SCU INFORMATION</div>
+{% if receipt.receipt_type == "R" %}<div class="c b">CREDIT NOTE · ORIGINAL CU INVOICE NO.</div><div class="c">{{ original_cu_no }}</div>{% endif %}
+<table class="meta">
+  <tr><td>Date/Time</td><td>{{ receipt.signed_at|date:"d/m/Y H:i:s" }}</td></tr>
+  <tr><td>SCU ID</td><td>{{ receipt.sdc_id }}</td></tr>
+  <tr><td>CU INVOICE NO.</td><td>{{ receipt.cu_invoice_no }}</td></tr>
+  <tr><td>Receipt no.</td><td>{{ receipt.receipt_no }}{% if receipt.total_receipt_no %}/{{ receipt.total_receipt_no }}{% endif %}</td></tr>
+  {% if receipt.mrc_no %}<tr><td>MRC</td><td>{{ receipt.mrc_no }}</td></tr>{% endif %}
+</table>
+{% if receipt.internal_data %}<div>Internal Data:</div><div class="c">{{ receipt.internal_data|kra_dashed }}</div>{% endif %}
+{% if receipt.signature %}<div>Receipt Signature:</div><div class="c">{{ receipt.signature|kra_dashed }}</div>{% endif %}
+{% if receipt.qr_url %}<div class="c">{{ receipt.qr_url|qr_svg:"132" }}</div>{% endif %}
+{% elif sub %}
+<hr class="rule">
+<div class="c b">KRA eTIMS</div>
+<div class="c">Pending KRA signature ({{ sub.get_status_display }})</div>
+{% endif %}{% else %}{% if receipt %}
+<section class="card mt-5 overflow-hidden" aria-label="KRA eTIMS SCU information">
+  <div class="card-header">
+    <div class="flex min-w-0 items-center gap-2">
+      <h2 class="card-title">KRA eTIMS · SCU information</h2>
+      {% if receipt.receipt_type == "R" %}<span class="badge badge-info"><span class="badge-dot" aria-hidden="true"></span>Credit note</span>{% else %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>Signed by KRA</span>{% endif %}
+    </div>
+    {% can_do "kra:queue_detail" as may_kra %}{% if may_kra and receipt.submission_id %}<a href="{% url 'kra:queue_detail' receipt.submission_id %}" class="card-link no-print">Submission →</a>{% endif %}
+  </div>
+  <div class="card-body flex flex-col gap-5 sm:flex-row sm:items-start">
+    <dl class="dl min-w-0 flex-1">
+      <div><dt>Date/Time</dt><dd>{{ receipt.signed_at|date:"d M Y, H:i:s" }}</dd></div>
+      <div><dt>SCU ID</dt><dd class="mono">{{ receipt.sdc_id|default:"—" }}</dd></div>
+      <div><dt>CU invoice no.</dt><dd class="mono">{{ receipt.cu_invoice_no }}</dd></div>
+      <div><dt>Receipt number</dt><dd class="mono">{{ receipt.receipt_no }}{% if receipt.total_receipt_no %} / {{ receipt.total_receipt_no }}{% endif %}</dd></div>
+      {% if receipt.mrc_no %}<div><dt>MRC</dt><dd class="mono">{{ receipt.mrc_no }}</dd></div>{% endif %}
+      {% if receipt.receipt_type == "R" %}<div><dt>Credit note · original CU invoice no.</dt><dd class="mono">{{ original_cu_no|default:"—" }}</dd></div>{% endif %}
+      {% if receipt.internal_data %}<div class="dl-full"><dt>Internal data</dt><dd class="mono break-all">{{ receipt.internal_data|kra_dashed }}</dd></div>{% endif %}
+      {% if receipt.signature %}<div class="dl-full"><dt>Receipt signature</dt><dd class="mono break-all">{{ receipt.signature|kra_dashed }}</dd></div>{% endif %}
+    </dl>
+    {% if receipt.qr_url %}
+    <a href="{{ receipt.qr_url }}" target="_blank" rel="noopener" class="block h-32 w-32 shrink-0 self-center overflow-hidden rounded-ctl border border-line sm:self-start" title="Verify on KRA">{{ receipt.qr_url|qr_svg }}</a>
+    {% endif %}
+  </div>
+</section>
+{% elif sub %}
+<div class="alert alert-warning mt-5" role="status">
+  {% include "_includes/icon.html" with name="clock" only %}
+  <div class="alert-body">
+    <p class="alert-title">Pending KRA signature</p>
+    {{ sub.get_status_display }}{% if sub.attempts %} · {{ sub.attempts }} attempt{{ sub.attempts|pluralize }}{% endif %}{% if sub.last_error %} — {{ sub.last_error }}{% endif %}
+    {% can_do "kra:queue_detail" as may_kra %}{% if may_kra %}<a href="{% url 'kra:queue_detail' sub.pk %}" class="ml-1 font-semibold underline no-print">Open in the eTIMS queue</a>{% endif %}
+  </div>
+</div>
+{% endif %}{% endif %}

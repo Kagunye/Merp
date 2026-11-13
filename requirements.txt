@@ -16,3 +16,4 @@ dj-database-url==2.2.0
 psycopg2-binary==2.9.9
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
+qrcode==8.2

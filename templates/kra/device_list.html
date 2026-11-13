@@ -1,0 +1,48 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "kra:device_create" "POST" as may_create %}{% if may_create %}{% url 'kra:device_create' as new_url %}{% endif %}
+{% can_do "kra:device_init" "POST" as may_init %}
+{% can_do "kra:device_edit" "POST" as may_edit %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="eTIMS devices" subtitle="One KRA control unit per branch: KRA PIN + bhfId + device serial" back_url=back back_label="KRA eTIMS" action_label="Add device" action_url=new_url hide_print=True %}
+
+{% if not conf.kra_pin %}
+<div class="alert alert-warning mb-4" role="status">{% include "_includes/icon.html" with name="warning" only %}<div class="alert-body">Set the company's KRA PIN in eTIMS settings before initialising a device.</div></div>
+{% endif %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Branch</th><th>bhfId</th><th>Serial</th><th>SCU ID</th><th>MRC</th><th>Initialised</th><th class="num">Next invoice</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+      {% for d in devices %}
+      <tr>
+        <td>
+          {% if may_edit %}<a href="{% url 'kra:device_edit' d.pk %}" class="row-link">{{ d.branch.name }}</a>{% else %}{{ d.branch.name }}{% endif %}
+          {% if d.branch_name %}<p class="text-xs text-ink-muted">KRA: {{ d.branch_name }}</p>{% endif %}
+          {% if d.last_error %}<p class="mt-1 max-w-sm text-xs text-danger">{{ d.last_error }}</p>{% endif %}
+        </td>
+        <td class="mono">{{ d.bhf_id }}</td>
+        <td class="mono">{{ d.device_serial }}</td>
+        <td class="mono">{{ d.sdc_id|default:"—" }}</td>
+        <td class="mono">{{ d.mrc_no|default:"—" }}</td>
+        <td class="whitespace-nowrap text-xs text-ink-muted">{{ d.initialized_at|date:"d M Y, H:i"|default:"—" }}</td>
+        <td class="num">{{ d.next_invoice_no }}</td>
+        <td>{% if not d.is_active %}{% status_badge "INACTIVE" "Not in use" %}{% elif d.ready %}{% status_badge "READY" "Ready" %}{% else %}{% status_badge "PENDING" "Not initialised" %}{% endif %}</td>
+        <td class="actions">
+          {% if may_init and not d.ready %}
+          <form method="post" action="{% url 'kra:device_init' d.pk %}" class="inline">{% csrf_token %}
+            <button type="submit" class="btn btn-secondary btn-sm">Initialise</button>
+          </form>
+          {% endif %}
+          {% if may_edit %}<a href="{% url 'kra:device_edit' d.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" class="p-0">{% include "_includes/empty_state.html" with icon="building" title="No device yet" text="Add head office (bhfId 00) with the serial KRA registered for it, then initialise it to receive its communication key." action_label="Add device" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-3 text-xs text-ink-muted">Initialising asks KRA (selectInitOsdcInfo) for the device's communication key, SCU id and MRC number. KRA answers 902 when the device is already installed elsewhere — ask timsupport@kra.go.ke for its key.</p>
+{% endblock %}

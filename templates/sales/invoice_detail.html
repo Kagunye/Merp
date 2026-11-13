@@ -98,6 +98,7 @@
   </section>
 </div>
 
+{% load kra_tags %}{% kra_block "sales.Invoice" invoice.pk %}
 {% if invoice.credit_notes.exists %}
 <section class="card mt-5 overflow-hidden">
   <div class="card-header"><h2 class="card-title">Credit notes issued against this invoice</h2></div>

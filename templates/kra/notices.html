@@ -1,0 +1,20 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="KRA notices" subtitle="Announcements KRA publishes to eTIMS taxpayers" back_url=back back_label="KRA eTIMS" actions_template="kra/_codes_actions.html" hide_print=True %}
+<ul class="card list overflow-hidden">
+  {% for n in object_list %}
+  <li class="list-row items-start py-4">
+    <div class="min-w-0 flex-1">
+      <p class="font-semibold text-ink">{{ n.title }}</p>
+      {% if n.content %}<p class="mt-1 text-sm text-ink-2">{{ n.content|linebreaksbr }}</p>{% endif %}
+      <p class="mt-1 text-xs text-ink-muted">No. {{ n.notice_no }}{% if n.registered_at %} · {{ n.registered_at|slice:":4" }}-{{ n.registered_at|slice:"4:6" }}-{{ n.registered_at|slice:"6:8" }}{% endif %}{% if n.detail_url %} · <a href="{{ n.detail_url }}" target="_blank" rel="noopener" class="link">Details</a>{% endif %}</p>
+    </div>
+  </li>
+  {% empty %}
+  <li>{% include "_includes/empty_state.html" with icon="bell" title="No notices" text="KRA's notices arrive with each pull from KRA." compact=True only %}</li>
+  {% endfor %}
+</ul>
+{% include "_includes/pagination.html" %}
+{% endblock %}

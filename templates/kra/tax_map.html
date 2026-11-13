@@ -1,0 +1,39 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:settings_edit' as back %}
+{% include "_includes/page_header.html" with title="KRA tax types" subtitle="Which KRA letter each of your tax rates is" back_url=back back_label="eTIMS settings" hide_print=True %}
+{% can_do "kra:settings_tax_map" "POST" as may_save %}
+
+<form method="post" class="card no-card overflow-hidden">
+  {% csrf_token %}
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Tax rate</th><th>Code</th><th class="num">Rate</th><th>KRA tax type</th><th>Source</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.rate.name }}{% if not row.rate.is_active %} <span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Inactive</span>{% endif %}</td>
+          <td class="mono">{{ row.rate.code }}</td>
+          <td class="num">{{ row.rate.rate|pct:2 }}</td>
+          <td>
+            <label class="sr-only" for="tax-{{ row.rate.pk }}">KRA tax type for {{ row.rate.name }}</label>
+            <select id="tax-{{ row.rate.pk }}" name="tax_{{ row.rate.pk }}" class="select input-sm min-w-[12rem]" {% if not may_save %}disabled{% endif %}>
+              {% if not row.current %}<option value="">— choose —</option>{% endif %}
+              {% for code, label in letters %}<option value="{{ code }}" {% if code == row.current %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="text-xs text-ink-muted">{% if row.mapped %}Your choice{% elif row.default %}Default for {{ row.rate.rate|pct:0 }}{% else %}<span class="text-danger">Needs a choice</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="cog" title="No tax rates yet" text="Add tax rates in the general ledger first." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer flex flex-wrap items-center justify-between gap-3">
+    <p class="text-xs text-ink-muted">16% defaults to B, 8% to E and 0% to C (zero-rated). Choose A if a 0% rate is really exempt, D for non-VAT.</p>
+    {% if may_save and rows %}<button type="submit" class="btn btn-primary">Save tax types</button>{% endif %}
+  </div>
+</form>
+{% endblock %}

@@ -68,6 +68,7 @@ LOCAL_APPS = [
     "apps.projects",
     "apps.expenses",
     "apps.pos",
+    "apps.kra",
     "apps.notifications",
     "apps.documents",
     "apps.reporting",

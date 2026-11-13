@@ -1,0 +1,51 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="eTIMS queue" subtitle="Every call to KRA waits here until KRA accepts it; sales leave strictly in invoice-number order" back_url=back back_label="KRA eTIMS" actions_template="kra/_home_actions.html" hide_print=True %}
+
+<nav class="tabs mb-4" aria-label="Queue status">
+  <a href="?{% if kind %}kind={{ kind }}{% endif %}" class="tab{% if not status %} tab-active{% endif %}" {% if not status %}aria-current="page"{% endif %}>All</a>
+  {% for code, label in statuses %}
+  <a href="?status={{ code }}{% if kind %}&amp;kind={{ kind }}{% endif %}" class="tab{% if status == code %} tab-active{% endif %}" {% if status == code %}aria-current="page"{% endif %}>{{ label }}{% for k, n in counts.items %}{% if k == code %} <span class="tab-count">{{ n }}</span>{% endif %}{% endfor %}</a>
+  {% endfor %}
+</nav>
+
+<form method="get" class="filter-bar no-print" role="search">
+  {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+  <div class="form-field filter-bar-search">
+    <label class="form-label" for="queue-q">Search</label>
+    <div class="input-group">{% include "_includes/icon.html" with name="search" cls="h-4 w-4" only %}<input type="search" id="queue-q" name="q" value="{{ q }}" class="input" placeholder="Document, number or KRA message"></div>
+  </div>
+  <div class="form-field">
+    <label class="form-label" for="queue-kind">Kind</label>
+    <select id="queue-kind" name="kind" class="select">
+      <option value="">All kinds</option>
+      {% for code, label in kinds %}<option value="{{ code }}" {% if kind == code %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-bar-actions"><button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="filter" cls="h-4 w-4" only %}Filter</button>{% if request.GET %}<a href="{{ request.path }}" class="btn btn-ghost">Clear</a>{% endif %}</div>
+</form>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Created</th><th>Kind</th><th>Document</th><th class="num">No.</th><th>Status</th><th class="num">Tries</th><th>KRA answer</th></tr></thead>
+    <tbody>
+      {% for s in object_list %}
+      <tr>
+        <td class="whitespace-nowrap text-xs text-ink-muted"><a href="{% url 'kra:queue_detail' s.pk %}" class="row-link">{{ s.created_at|date:"d M Y, H:i" }}</a></td>
+        <td>{{ s.get_kind_display }}{% if s.device %}<p class="text-xs text-ink-muted">bhfId {{ s.device.bhf_id }}</p>{% endif %}</td>
+        <td class="mono text-xs">{{ s.source_label|default:"—" }}</td>
+        <td class="num">{{ s.sequence|default_if_none:"" }}</td>
+        <td>{% status_badge s.status s.get_status_display %}</td>
+        <td class="num">{{ s.attempts }}</td>
+        <td class="max-w-xs text-xs">{% if s.result_code %}<span class="mono">{{ s.result_code }}</span> {% endif %}{{ s.result_message|default:s.last_error|truncatechars:90 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="inbox" title="Nothing here" text="Posted invoices, till sales, item registrations and KRA pulls appear here." compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "_includes/pagination.html" %}
+{% endblock %}

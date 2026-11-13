@@ -1,0 +1,56 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="KRA codes" subtitle="KRA's standard code lists and item classes, pulled from KRA" back_url=back back_label="KRA eTIMS" actions_template="kra/_codes_actions.html" hide_print=True %}
+
+{% if last_sync %}<p class="mb-3 text-xs text-ink-muted">Last pulled {{ last_sync|date:"d M Y, H:i" }}. Each pull fetches only what changed since the last one.</p>{% endif %}
+
+{% if classes or item_class_count %}
+<nav class="tabs mb-4" aria-label="Code lists">
+  {% for c in classes %}
+  <a href="?cls={{ c.cd_cls }}" class="tab{% if tab == c.cd_cls %} tab-active{% endif %}" {% if tab == c.cd_cls %}aria-current="page"{% endif %}>{{ c.name|default:c.cd_cls }} <span class="tab-count">{{ c.n }}</span></a>
+  {% endfor %}
+  <a href="?cls=items" class="tab{% if tab == 'items' %} tab-active{% endif %}" {% if tab == 'items' %}aria-current="page"{% endif %}>Item classes <span class="tab-count">{{ item_class_count }}</span></a>
+</nav>
+
+{% if tab == "items" %}
+<form method="get" class="filter-bar no-print" role="search">
+  <input type="hidden" name="cls" value="items">
+  <div class="form-field filter-bar-search">
+    <label class="form-label" for="codes-q">Search item classes</label>
+    <div class="input-group">{% include "_includes/icon.html" with name="search" cls="h-4 w-4" only %}<input type="search" id="codes-q" name="q" value="{{ q }}" class="input" placeholder="Code or name"></div>
+  </div>
+  <div class="filter-bar-actions"><button type="submit" class="btn btn-secondary">Search</button>{% if q %}<a href="?cls=items" class="btn btn-ghost">Clear</a>{% endif %}</div>
+</form>
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Code</th><th>Name</th><th class="num">Level</th><th>Tax type</th><th>In use</th></tr></thead>
+    <tbody>
+      {% for c in object_list %}
+      <tr><td class="mono">{{ c.code }}</td><td>{{ c.name }}</td><td class="num">{{ c.level }}</td><td class="mono">{{ c.tax_type|default:"—" }}</td><td>{{ c.use_yn|yesno:"Yes,No" }}</td></tr>
+      {% empty %}
+      <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="search" title="No item class matches" compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "_includes/pagination.html" %}
+{% else %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Code</th><th>Name</th><th>Extra</th><th class="num">Order</th><th>In use</th></tr></thead>
+    <tbody>
+      {% for c in codes %}
+      <tr><td class="mono">{{ c.cd }}</td><td>{{ c.name }}</td><td class="mono text-xs">{{ c.user_dfn_cd1|default:"—" }}</td><td class="num">{{ c.sort_order }}</td><td>{{ c.use_yn|yesno:"Yes,No" }}</td></tr>
+      {% empty %}
+      <tr><td colspan="5" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No codes in this list" compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% else %}
+<div class="card">{% include "_includes/empty_state.html" with icon="clipboard" title="No codes yet" text="Pull KRA's code lists once a device is initialised: tax types, units, payment types and item classes." %}</div>
+{% endif %}
+{% endblock %}

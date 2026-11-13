@@ -187,6 +187,12 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("reporting", "*", FINANCE | AUDIT, NOBODY),
     ("sales", "*", FINANCE | SALES | AUDIT | {"VIEWER"}, SALES | {"FINANCE_MANAGER"}),
     ("pos", "*", FINANCE | TILL | AUDIT, TILL),
+    # KRA eTIMS: finance runs it (the finance manager changes settings and
+    # devices); the auditor reads it. A document's own receipt page shows its
+    # KRA block to whoever may open the document.
+    ("kra", "settings*", FINANCE | AUDIT, FM),
+    ("kra", "device*", FINANCE | AUDIT, FM),
+    ("kra", "*", FINANCE | AUDIT, FINANCE),
     ("procurement", "*", FINANCE | STOCK | AUDIT | {"VIEWER"}, PURCHASERS),
     ("inventory", "*", FINANCE | SALES | STOCK | AUDIT | {"POS_CASHIER", "VIEWER"}, STOCK),
     ("warehousing", "*", FINANCE | SALES | STOCK | AUDIT | {"POS_CASHIER", "VIEWER"}, STOCK),
@@ -253,6 +259,9 @@ PUBLIC = {
     ("", "home"),
     ("accounts", "login"), ("accounts", "register"), ("accounts", "logout"),
     ("accounts", "password_reset"), ("accounts", "password_reset_confirm"),
+    # The scheduled eTIMS run (Vercel Cron / any scheduler): no session, it
+    # checks the KRA_CRON_TOKEN itself and refuses everything else.
+    ("kra", "cron"),
 }
 
 # Reachable by any signed-in user, even one who doesn't belong to a company yet.
@@ -278,6 +287,7 @@ MODULE_LABELS = {
     "payroll": "Payroll", "projects": "Projects", "crm": "Customers & Suppliers",
     "organizations": "Company Settings", "accounts": "User Management",
     "control_panel": "Control Panel", "sms": "SMS", "business_mgmt": "Business Management",
+    "kra": "KRA eTIMS",
 }
 
 
@@ -328,7 +338,7 @@ def can(user, role: str | None, namespace: str | None, url_name: str | None, met
 
 HOME_NAMES = {
     "dashboard": "index", "expenses": "home", "timesheets": "home", "helpdesk": "home",
-    "documents": "home", "banking": "home", "pos": "home", "notifications": "list",
+    "documents": "home", "banking": "home", "pos": "home", "kra": "home", "notifications": "list",
     "recruitment": "home", "organizations": "home", "accounts": "user_list",
 }
 

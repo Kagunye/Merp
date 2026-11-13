@@ -1,0 +1,87 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="Items with KRA" subtitle="Every product needs a KRA item code, class and units before a sale can use it" back_url=back back_label="KRA eTIMS" hide_print=True %}
+{% can_do "kra:item_register" "POST" as may_reg %}
+
+{% if not conf.enabled or not has_device %}
+<div class="alert alert-info mb-4" role="status">{% include "_includes/icon.html" with name="info" only %}<div class="alert-body">{% if not conf.enabled %}eTIMS is off: you can prepare classes and units, but nothing is sent to KRA.{% else %}Add and initialise a device before registering items.{% endif %}</div></div>
+{% endif %}
+
+<form method="get" class="filter-bar no-print" role="search">
+  <div class="form-field filter-bar-search">
+    <label class="form-label" for="items-q">Search</label>
+    <div class="input-group">{% include "_includes/icon.html" with name="search" cls="h-4 w-4" only %}<input type="search" id="items-q" name="q" value="{{ q }}" class="input" placeholder="Name, SKU or KRA code"></div>
+  </div>
+  <div class="form-field">
+    <label class="form-label" for="items-state">Registration</label>
+    <select id="items-state" name="state" class="select">
+      <option value="">All</option>
+      <option value="registered" {% if state == "registered" %}selected{% endif %}>Registered</option>
+      <option value="unregistered" {% if state == "unregistered" %}selected{% endif %}>Not registered</option>
+    </select>
+  </div>
+  <div class="filter-bar-actions"><button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="filter" cls="h-4 w-4" only %}Filter</button>{% if request.GET %}<a href="{{ request.path }}" class="btn btn-ghost">Clear</a>{% endif %}</div>
+</form>
+
+{% if may_reg %}
+<form method="post" action="{% url 'kra:item_register' %}" id="bulk-register" class="toolbar no-card mb-3">
+  {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="toolbar-group">
+    <button type="submit" name="action" value="register" class="btn btn-secondary btn-sm">Register selected</button>
+    <button type="submit" name="action" value="register_all" class="btn btn-primary btn-sm" {% if not unregistered %}disabled{% endif %}>Register all unregistered ({{ unregistered }})</button>
+  </div>
+  <p class="text-xs text-ink-muted">Registering sends saveItem to KRA now; a later change to a registered item is sent again on its own.</p>
+</form>
+{% endif %}
+
+{% if item_classes %}<datalist id="kra-item-classes">{% for c in item_classes %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}</datalist>{% endif %}
+
+<div class="table-wrap">
+  <table class="table table-compact">
+    <thead><tr>
+      {% if may_reg %}<th><span class="sr-only">Select</span></th>{% endif %}
+      <th>Product</th><th>KRA item code</th><th>Class</th><th>Type</th><th>Pkg unit</th><th>Qty unit</th><th>Tax</th><th>Registered</th>{% if may_reg %}<th><span class="sr-only">Actions</span></th>{% endif %}
+    </tr></thead>
+    <tbody>
+      {% for row in rows %}
+      {% with p=row.product item=row.item %}
+      <tr>
+        {% if may_reg %}<td><label class="sr-only" for="sel-{{ p.pk }}">Select {{ p.name }}</label><input type="checkbox" id="sel-{{ p.pk }}" name="products" value="{{ p.pk }}" form="bulk-register" class="checkbox"></td>{% endif %}
+        <td><p class="font-medium">{{ p.name }}</p><p class="mono text-xs text-ink-muted">{{ p.sku }}</p></td>
+        <td class="mono">{{ item.item_cd|default:"—" }}</td>
+        {% if may_reg %}
+        <td><label class="sr-only" for="cls-{{ p.pk }}">Item class of {{ p.name }}</label><input type="text" id="cls-{{ p.pk }}" name="item_cls_cd" form="row-{{ p.pk }}" value="{{ item.item_cls_cd|default:'5059690800' }}" list="kra-item-classes" inputmode="numeric" maxlength="10" class="input input-sm mono w-36"></td>
+        <td><label class="sr-only" for="ty-{{ p.pk }}">Item type of {{ p.name }}</label>
+          <select id="ty-{{ p.pk }}" name="item_ty_cd" form="row-{{ p.pk }}" class="select input-sm w-40">
+            {% for code, label in item_types %}<option value="{{ code }}" {% if item and item.item_ty_cd == code %}selected{% elif not item and p.product_type == "SERVICE" and code == "3" %}selected{% elif not item and p.product_type != "SERVICE" and code == "2" %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select></td>
+        <td><label class="sr-only" for="pkg-{{ p.pk }}">Packaging unit of {{ p.name }}</label>
+          {% if pkg_units %}<select id="pkg-{{ p.pk }}" name="pkg_unit_cd" form="row-{{ p.pk }}" class="select input-sm w-28">{% for u in pkg_units %}<option value="{{ u.cd }}" {% if item.pkg_unit_cd|default:"NT" == u.cd %}selected{% endif %}>{{ u.cd }} — {{ u.name }}</option>{% endfor %}</select>
+          {% else %}<input type="text" id="pkg-{{ p.pk }}" name="pkg_unit_cd" form="row-{{ p.pk }}" value="{{ item.pkg_unit_cd|default:'NT' }}" maxlength="5" class="input input-sm mono w-20">{% endif %}</td>
+        <td><label class="sr-only" for="qty-{{ p.pk }}">Quantity unit of {{ p.name }}</label>
+          {% if qty_units %}<select id="qty-{{ p.pk }}" name="qty_unit_cd" form="row-{{ p.pk }}" class="select input-sm w-28">{% for u in qty_units %}<option value="{{ u.cd }}" {% if item.qty_unit_cd|default:"U" == u.cd %}selected{% endif %}>{{ u.cd }} — {{ u.name }}</option>{% endfor %}</select>
+          {% else %}<input type="text" id="qty-{{ p.pk }}" name="qty_unit_cd" form="row-{{ p.pk }}" value="{{ item.qty_unit_cd|default:'U' }}" maxlength="5" class="input input-sm mono w-20">{% endif %}</td>
+        {% else %}
+        <td class="mono">{{ item.item_cls_cd|default:"—" }}</td>
+        <td>{{ item.get_item_ty_cd_display|default:"—" }}</td>
+        <td class="mono">{{ item.pkg_unit_cd|default:"—" }}</td>
+        <td class="mono">{{ item.qty_unit_cd|default:"—" }}</td>
+        {% endif %}
+        <td class="mono">{% if row.letter %}{{ row.letter }}{% else %}<a href="{% url 'kra:settings_tax_map' %}" class="text-danger underline" title="This tax rate has no KRA tax type">map</a>{% endif %}</td>
+        <td class="whitespace-nowrap text-xs">{% if item.registered_at %}{% status_badge "SENT" "Registered" %}<p class="mt-1 text-ink-muted">{{ item.registered_at|date:"d M Y" }}</p>{% else %}{% status_badge "PENDING" "Not registered" %}{% endif %}</td>
+        {% if may_reg %}<td class="actions"><button type="submit" form="row-{{ p.pk }}" class="btn btn-ghost btn-sm">Save</button></td>{% endif %}
+      </tr>
+      {% endwith %}
+      {% empty %}
+      <tr><td colspan="10" class="p-0">{% include "_includes/empty_state.html" with icon="box" title="No products found" text="Active products of this company appear here." compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if may_reg %}{% for row in rows %}
+<form method="post" action="{% url 'kra:item_register' %}" id="row-{{ row.product.pk }}" class="hidden">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="product" value="{{ row.product.pk }}"><input type="hidden" name="next" value="{{ request.get_full_path }}"></form>
+{% endfor %}{% endif %}
+{% include "_includes/pagination.html" %}
+{% endblock %}

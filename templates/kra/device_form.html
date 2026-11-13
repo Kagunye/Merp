@@ -1,0 +1,37 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:device_list' as back %}
+{% if device %}
+{% include "_includes/model_form.html" with form=form title="Edit device" subtitle=device back_url=back cancel_url=back submit_label="Save device" %}
+{% else %}
+{% include "_includes/model_form.html" with form=form title="New eTIMS device" subtitle="The branch, its KRA bhfId and the serial KRA registered" back_url=back cancel_url=back submit_label="Save device" %}
+{% endif %}
+{% if device %}
+<section class="card mt-5">
+  <div class="card-header"><h2 class="card-title">What KRA handed back</h2>{% if device.ready %}{% status_badge "READY" "Ready" %}{% else %}{% status_badge "PENDING" "Not initialised" %}{% endif %}</div>
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>SCU / CU ID</dt><dd class="mono">{{ device.sdc_id|default:"—" }}</dd></div>
+      <div><dt>MRC number</dt><dd class="mono">{{ device.mrc_no|default:"—" }}</dd></div>
+      <div><dt>Device id</dt><dd class="mono">{{ device.dvc_id|default:"—" }}</dd></div>
+      <div><dt>Taxpayer</dt><dd>{{ device.taxpayer_name|default:"—" }}</dd></div>
+      <div><dt>KRA branch name</dt><dd>{{ device.branch_name|default:"—" }}</dd></div>
+      <div><dt>Initialised</dt><dd>{{ device.initialized_at|date:"d M Y, H:i"|default:"—" }}</dd></div>
+      <div><dt>Next invoice no.</dt><dd class="mono">{{ device.next_invoice_no }}</dd></div>
+      <div><dt>Next stock no.</dt><dd class="mono">{{ device.next_stock_no }}</dd></div>
+      <div><dt>Communication key</dt><dd>{% if device.cmc_key %}Held (not shown){% else %}—{% endif %}</dd></div>
+      {% if device.last_error %}<div class="dl-full"><dt>Last error</dt><dd class="text-danger">{{ device.last_error }}</dd></div>{% endif %}
+    </dl>
+  </div>
+  {% can_do "kra:device_init" "POST" as may_init %}{% if may_init %}
+  <div class="card-footer">
+    <form method="post" action="{% url 'kra:device_init' device.pk %}" class="inline" {% if device.ready %}onsubmit="return confirm('Initialise again? KRA refuses (902) a device that is already installed.');"{% endif %}>
+      {% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+      <button type="submit" class="btn btn-secondary">{% if device.ready %}Initialise again{% else %}Initialise with KRA{% endif %}</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

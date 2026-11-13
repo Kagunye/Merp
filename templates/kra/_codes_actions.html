@@ -1,0 +1,6 @@
+{% load ui_extras %}{% can_do "kra:codes_sync" "POST" as may_sync %}{% if may_sync %}
+<form method="post" action="{% url 'kra:codes_sync' %}" class="inline">
+  {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="refresh" cls="h-4 w-4" stroke="2" only %}Pull from KRA</button>
+</form>
+{% endif %}

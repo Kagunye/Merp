@@ -221,6 +221,17 @@ def _invoice_entry_amounts(invoice, rate, total_base, default_revenue, default_v
     return rows
 
 @transaction.atomic
+def _etims_booked(document):
+    """Hand a booked sales document to KRA eTIMS (queued on commit; a KRA
+    problem never undoes the posting)."""
+    try:
+        from apps.kra.signals import document_booked
+        document_booked(document)
+    except Exception:          # noqa: BLE001 - KRA must never break the ledger
+        import logging
+        logging.getLogger("apps.kra").exception("eTIMS hook failed")
+
+
 def post_invoice(invoice, user=None) -> JournalEntry:
     """
     Post a customer invoice to the general ledger.
@@ -332,6 +343,7 @@ def post_invoice(invoice, user=None) -> JournalEntry:
     )
     invoice.journal_entry = je
     invoice.status = "SENT"
+    _etims_booked(invoice)
     return je
 
 
@@ -678,6 +690,7 @@ def post_credit_note(note, user=None) -> JournalEntry:
     _Invoice.objects.filter(pk=note.pk).update(journal_entry=je, status="CREDIT_NOTE")
     note.journal_entry = je
     note.status = "CREDIT_NOTE"
+    _etims_booked(note)
     return je
 
 
@@ -1233,6 +1246,7 @@ def post_pos_sale(sale, user=None, refund=False) -> JournalEntry:
     from apps.pos.models import POSSale as _Sale
     _Sale.objects.filter(pk=sale.pk).update(journal_entry=je)
     sale.journal_entry = je
+    _etims_booked(sale)
     return je
 
 

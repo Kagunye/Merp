@@ -1,0 +1,48 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'kra:home' as back %}
+{% include "_includes/page_header.html" with title="Customs imports" subtitle="Items customs declared for you: approve each against one of your products, or reject it" back_url=back back_label="KRA eTIMS" actions_template="kra/_imports_actions.html" hide_print=True %}
+{% can_do "kra:import_decide" "POST" as may_decide %}
+
+<nav class="tabs mb-4" aria-label="Import status">
+  <a href="?" class="tab{% if not status %} tab-active{% endif %}" {% if not status %}aria-current="page"{% endif %}>All</a>
+  {% for code, label in statuses %}<a href="?status={{ code }}" class="tab{% if status == code %} tab-active{% endif %}" {% if status == code %}aria-current="page"{% endif %}>{{ label }}{% if code == "2" and waiting %} <span class="tab-count">{{ waiting }}</span>{% endif %}</a>{% endfor %}
+</nav>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Item</th><th>Declaration</th><th>HS code</th><th>Origin</th><th class="num">Quantity</th><th>Status</th><th>Decision</th></tr></thead>
+    <tbody>
+      {% for r in object_list %}
+      <tr>
+        <td><p class="font-medium">{{ r.item_name|default:"—" }}</p>{% if r.data.spplrNm %}<p class="text-xs text-ink-muted">{{ r.data.spplrNm }}</p>{% endif %}</td>
+        <td class="mono text-xs">{{ r.declaration_no|default:r.task_cd }}<p class="text-ink-muted">{{ r.declaration_date|slice:":4" }}-{{ r.declaration_date|slice:"4:6" }}-{{ r.declaration_date|slice:"6:8" }} · item {{ r.item_seq }}</p></td>
+        <td class="mono">{{ r.hs_code|default:"—" }}</td>
+        <td class="mono">{{ r.origin_country|default:"—" }}</td>
+        <td class="num">{{ r.quantity|qty }} {{ r.qty_unit_cd }}</td>
+        <td>{% if r.status == "2" %}{% status_badge "WAITING" r.get_status_display %}{% elif r.status == "3" %}{% status_badge "APPROVED" r.get_status_display %}{% else %}{% status_badge "CANCELLED" r.get_status_display %}{% endif %}</td>
+        <td>
+          {% if r.status == "2" and may_decide %}
+          <form method="post" action="{% url 'kra:import_decide' r.pk %}" class="flex flex-wrap items-center gap-2">
+            {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <label class="sr-only" for="imp-{{ r.pk }}">Our product for {{ r.item_name }}</label>
+            <select id="imp-{{ r.pk }}" name="product" class="select input-sm w-56">
+              <option value="">— our product —</option>
+              {% for p in products %}<option value="{{ p.pk }}" {% if r.product_id == p.pk %}selected{% endif %}>{{ p.name }} ({{ p.sku }})</option>{% endfor %}
+            </select>
+            <button type="submit" name="action" value="approve" class="btn btn-secondary btn-sm">Approve</button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger-ghost btn-sm" onclick="return confirm('Reject this import with KRA?');">Reject</button>
+          </form>
+          {% elif r.product %}<span class="text-sm">{{ r.product.name }}</span>
+          {% else %}<span class="text-xs text-ink-muted">—</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="box" title="No imports" text="Fetch from KRA to see goods customs declared for you." compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "_includes/pagination.html" %}
+{% endblock %}
