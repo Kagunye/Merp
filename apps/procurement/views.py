@@ -1859,3 +1859,10 @@ def requisition_to_po(request, pk):
         f"({money(po.total_amount)} {po.currency}). It is a draft: check the prices "
         "against the supplier's quote, then send it.")
     return redirect("procurement:po_detail", pk=po.pk)
+
+
+@login_required
+def po_print(request, pk):
+    from apps.organizations.documents import render_document
+    order = get_object_or_404(PurchaseOrder, pk=pk, company=request.active_company)
+    return render_document(request, "po", order)

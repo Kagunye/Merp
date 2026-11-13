@@ -296,6 +296,102 @@ def add_item(order, item, quantity, staff, *, note=""):
     return line
 
 
+# ─────────────────────────────────── split bills ───────────────────────────────────
+#
+# A table that pays separately gets separate bills: each part is paid on its own
+# (cash, card, M-Pesa) and rung as its own ticket, so every ticket still has one
+# tender the cash-up can prove. Items move with their price, discount and happy
+# hour as ordered; nothing is re-priced by splitting.
+
+Q4 = Decimal("0.0001")
+MAX_WAYS = 20
+
+
+def _split_child(order, staff):
+    from apps.core.models import SequenceCounter
+    return POSOrder.objects.create(
+        company=order.company, branch=order.branch, station=order.station, table=order.table,
+        waiter=order.waiter, covers=1, opened_at=timezone.now(), split_from=order,
+        notes=f"Split from {order.reference} by {staff.name}"[:500],
+        reference=SequenceCounter.next_number(order.company, "BILL-"))
+
+
+def _copy_line(line, order, quantity):
+    return POSOrderLine.objects.create(
+        order=order, menu_item=line.menu_item, product=line.product, name=line.name, quantity=quantity,
+        unit_price=line.unit_price, discount_percent=line.discount_percent, price_rule=line.price_rule,
+        note=line.note, added_by=line.added_by)
+
+
+def _reopen(order):
+    # A printed bill that is split no longer matches what was printed.
+    POSOrder.objects.filter(pk=order.pk, status="BILLED").update(status="OPEN", billed_at=None)
+
+
+@transaction.atomic
+def split_items(order, staff, moves):
+    """Move items (or part of a line's quantity) to a new bill on the same
+    table. `moves` maps line id -> quantity to move. Returns the new bill."""
+    _check_staff(order, staff, "split a bill")
+    _claim(order, "split it")
+    lines = {l.pk: l for l in order.lines.select_for_update().filter(status="ACTIVE")}
+    wanted = []
+    for key, raw in (moves or {}).items():
+        if raw in (None, ""):
+            continue
+        line = lines.get(int(key)) if str(key).isdigit() else None
+        if line is None:
+            raise ValidationError("One of those items is not on this bill any more.")
+        qty = services.number(raw, f"Quantity of {line.name}", limit=services.QUANTITY_LIMIT)
+        if qty <= 0:
+            continue
+        if qty > line.quantity:
+            raise ValidationError(f"Only {line.quantity.normalize():f} × {line.name} is on the bill.")
+        wanted.append((line, qty))
+    if not wanted:
+        raise ValidationError("Choose what moves to the new bill.")
+    staying = sum(l.quantity for l in lines.values()) - sum(q for _, q in wanted)
+    if staying <= 0:
+        raise ValidationError("That is everything on the bill: leave something on it, or just pay it.")
+    child = _split_child(order, staff)
+    for line, qty in wanted:
+        if qty == line.quantity:
+            POSOrderLine.objects.filter(pk=line.pk).update(order=child)
+        else:
+            POSOrderLine.objects.filter(pk=line.pk).update(quantity=line.quantity - qty)
+            _copy_line(line, child, qty)
+    _reopen(order)
+    return child
+
+
+@transaction.atomic
+def split_even(order, staff, ways):
+    """Share the bill equally between `ways` guests: every item is divided, and
+    the last part takes any remainder so the quantities add up exactly.
+    Returns all the bills, the original first."""
+    _check_staff(order, staff, "split a bill")
+    _claim(order, "split it")
+    try:
+        ways = int(ways)
+    except (TypeError, ValueError):
+        raise ValidationError("Split between how many guests?")
+    if not 2 <= ways <= MAX_WAYS:
+        raise ValidationError(f"Split between 2 and {MAX_WAYS} guests.")
+    lines = list(order.lines.select_for_update().filter(status="ACTIVE"))
+    if not lines:
+        raise ValidationError("There is nothing on the bill to split.")
+    children = [_split_child(order, staff) for _ in range(ways - 1)]
+    for line in lines:
+        share = (line.quantity / ways).quantize(Q4, rounding=ROUND_HALF_UP)
+        if share <= 0 or line.quantity - share * (ways - 1) <= 0:
+            raise ValidationError(f"{line.name} is too small to share {ways} ways.")
+        for child in children:
+            _copy_line(line, child, share)
+        POSOrderLine.objects.filter(pk=line.pk).update(quantity=line.quantity - share * (ways - 1))
+    _reopen(order)
+    return [order] + children
+
+
 @transaction.atomic
 def void_line(line, manager, requested_by, reason):
     reason = (reason or "").strip()

@@ -2,7 +2,8 @@
 {% load ui_extras %}
 {% block content %}
 {% url 'sales:order_list' as back %}
-{% include "_includes/page_header.html" with title=order.reference subtitle=order.customer.name back_url=back back_label="Sales Orders" actions_template="sales/_order_actions.html" %}
+{% url "sales:order_print" order.pk as print_url %}
+{% include "_includes/page_header.html" with title=order.reference subtitle=order.customer.name back_url=back back_label="Sales Orders" print_url=print_url actions_template="sales/_order_actions.html" %}
 
 <div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
   <section class="card overflow-hidden xl:col-span-2">

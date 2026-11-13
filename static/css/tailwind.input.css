@@ -967,18 +967,26 @@ select.pos-top-input { @apply appearance-none pr-8; }
 .pos-screen-tab { @apply h-9 shrink-0 whitespace-nowrap rounded-full border border-line px-3.5 text-[13px] font-semibold text-ink-2 hover:bg-surface-2; }
 .pos-screen-tab.is-active { @apply border-hero bg-hero text-white; }
 .pos-tiles { @apply min-h-0 flex-1 overflow-y-auto p-3; display: grid; gap: 10px;
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); align-content: start; }
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); grid-auto-rows: max-content; align-content: start; }
 .pos-tile { @apply flex min-w-0 flex-col overflow-hidden rounded-[16px] border border-line bg-surface text-left;
   transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
 .pos-tile:hover { @apply border-line-strong; }
 .pos-tile:active { transform: scale(.97); }
 .pos-tile:focus-visible { @apply outline outline-2 outline-offset-2 outline-ink; }
-.pos-tile-pic { @apply flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-icon-bg; }
+.pos-tile-pic { @apply flex aspect-[4/3] w-full shrink-0 items-center justify-center overflow-hidden bg-icon-bg; }
 .pos-tile-pic img { @apply h-full w-full object-cover; }
 .pos-tile-initials { @apply text-2xl font-extrabold tracking-tight text-brand-ink; }
 .pos-tile-body { @apply flex flex-1 flex-col gap-0.5 px-2.5 py-2; }
 .pos-tile-name { @apply line-clamp-2 text-[13px] font-semibold leading-snug text-ink; }
 .pos-tile-price { @apply mt-auto text-[13px] font-bold text-ink; font-variant-numeric: tabular-nums; }
+/* With a picture: the picture fills the whole card and the name and price
+   sit on it as a caption, on a dark fade so they read on any photo. */
+.pos-tile.has-pic { @apply relative min-h-[9.5rem] justify-end border-0 bg-icon-bg; }
+.pos-tile.has-pic .pos-tile-pic { @apply absolute inset-0 aspect-auto h-full; }
+.pos-tile.has-pic .pos-tile-body { @apply relative flex-none px-2.5 pb-2 pt-8;
+  background: linear-gradient(to top, rgb(0 0 0 / .78), rgb(0 0 0 / .45) 60%, transparent); }
+.pos-tile.has-pic .pos-tile-name, .pos-tile.has-pic .pos-tile-price { @apply text-white; text-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.pos-tile.has-pic:hover { @apply border-0; box-shadow: 0 0 0 2px var(--color-line-strong, rgb(0 0 0 / .2)); }
 .pos-tile-count { @apply ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-white; }
 .pos-panel-foot { @apply flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-divider px-3 py-2 text-[12px] text-ink-muted; }
 .pos-kbd { @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded-[6px] border border-line-strong bg-surface-2 px-1 text-[11px] font-bold text-ink-2; }

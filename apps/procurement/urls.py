@@ -30,6 +30,7 @@ urlpatterns = [
     path("orders/", views.PurchaseOrderListView.as_view(), name="po_list"),
     path("orders/new/", views.PurchaseOrderCreateView.as_view(), name="po_create"),
     path("orders/<uuid:pk>/", views.PurchaseOrderDetailView.as_view(), name="po_detail"),
+    path("orders/<uuid:pk>/print/", views.po_print, name="po_print"),
     path("orders/<uuid:pk>/send/", views.po_send, name="po_send"),
     path("orders/<uuid:pk>/cancel/", views.po_cancel, name="po_cancel"),
     path("orders/<uuid:pk>/close-short/", views.po_close_short, name="po_close_short"),

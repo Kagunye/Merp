@@ -67,6 +67,7 @@ urlpatterns = [
     path("bills/<uuid:pk>/add/", st.bill_add, name="bill_add"),
     path("bills/<uuid:pk>/void-line/", st.bill_void_line, name="bill_void_line"),
     path("bills/<uuid:pk>/void/", st.bill_void, name="bill_void"),
+    path("bills/<uuid:pk>/split/", st.bill_split, name="bill_split"),
     path("bills/<uuid:pk>/print/", st.bill_print, name="bill_print"),
     path("bills/<uuid:pk>/pay/", st.bill_pay, name="bill_pay"),
     path("cashier/", st.cashier_panel, name="cashier_panel"),

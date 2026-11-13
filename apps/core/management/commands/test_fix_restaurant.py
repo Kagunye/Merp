@@ -197,6 +197,7 @@ class Command(BaseCommand):
         self.check_close()
         self.check_day_end()
         self.check_screens()
+        self.check_split()
 
     # ── 1 ──
     def check_pins(self):
@@ -436,3 +437,72 @@ class Command(BaseCommand):
             self.expect(f"the cashier opens {name}", st in (200, 302), str(st))
         self.expect("a viewer is kept off the station", status(viewer, "pos:station_pick") == 403,
                     str(status(viewer, "pos:station_pick")))
+
+    # ── 7 ──
+    def check_split(self):
+        from apps.inventory.models import StockMovement
+        from apps.pos import restaurant, services
+        from apps.pos.models import POSOrder, POSTable
+        self.section("7. split bills")
+        table = POSTable.objects.create(company=self.company, branch=self.hq, station=self.station,
+                                        name="Table 9", area="Terrace")
+        bill = restaurant.open_order(self.station, self.waiter, table=table, covers=3)
+        beer = restaurant.add_item(bill, self.i_tusker, "5", self.waiter)
+        chips = restaurant.add_item(bill, self.i_chips, "2", self.waiter)
+        whole = restaurant.order_totals(bill)["total"]
+
+        self.refused("more than is on the bill cannot move",
+                     lambda: restaurant.split_items(bill, self.waiter, {beer.pk: "6"}), "only 5")
+        self.refused("moving everything is refused (just pay the bill)",
+                     lambda: restaurant.split_items(bill, self.waiter, {beer.pk: "5", chips.pk: "2"}), "everything")
+        part = restaurant.split_items(bill, self.waiter, {beer.pk: "2", chips.pk: "1"})
+        qty = lambda o: {l.product_id: l.quantity for l in o.lines.filter(status="ACTIVE")}   # noqa: E731
+        self.expect("by item: 2 beers and 1 chips move to a new bill on the same table",
+                    part.table_id == table.pk and part.split_from_id == bill.pk
+                    and qty(part) == {self.tusker.pk: D("2"), self.chips.pk: D("1")}
+                    and qty(bill) == {self.tusker.pk: D("3"), self.chips.pk: D("1")}, str(qty(part)))
+        moved_line = part.lines.get(product=self.tusker)
+        self.expect("…at the price and discount they were ordered at",
+                    moved_line.unit_price == beer.unit_price and moved_line.discount_percent == beer.discount_percent)
+        two = restaurant.order_totals(bill)["total"] + restaurant.order_totals(part)["total"]
+        self.expect("the two bills add up to the original", abs(two - whole) <= D("0.02"), f"{two} vs {whole}")
+
+        parts = restaurant.split_even(bill, self.waiter, 3)
+        beers = sum((qty(o).get(self.tusker.pk, D("0")) for o in parts), D("0"))
+        self.expect("equally 3 ways: three bills whose beers add back to exactly 3",
+                    len(parts) == 3 and beers == D("3") and all(o.table_id == table.pk for o in parts), f"{beers}")
+        self.refused("between 2 and 20 guests only", lambda: restaurant.split_even(part, self.waiter, 1), "between 2")
+
+        till = services.open_session(self.company, self.cashier, self.hq, D("0"))
+        sales = []
+        for order, method in zip(parts + [part], ["CASH", "CARD", "MPESA", "CASH"]):
+            order.refresh_from_db()
+            sales.append(restaurant.close_order(order, self.cashier, payment_method=method,
+                                                token=services.new_token()))
+        paid = sum((s.total_amount for s in sales), D("0"))
+        self.expect("each part is paid on its own, by cash, card or M-Pesa",
+                    sorted(s.payment_method for s in sales) == ["CARD", "CASH", "CASH", "MPESA"]
+                    and abs(paid - whole) <= D("0.04"), f"paid {paid} for {whole}")
+        out = sum((m.quantity for m in StockMovement.objects.filter(
+            reference__in=[s.reference for s in sales], product=self.tusker)), D("0"))
+        self.expect("stock: exactly the 5 beers left the shelf across the parts", out == D("5"), f"{out}")
+        self.expect("no part of the table is left open",
+                    not POSOrder.objects.filter(table=table, status__in=POSOrder.LIVE).exists())
+
+        # the screen: PIN in, split from the bill page
+        cashier = self.login(self.cashier)
+        bill2 = restaurant.open_order(self.station, self.waiter, table=table)
+        restaurant.add_item(bill2, self.i_tusker, "2", self.waiter)
+        cashier.post(reverse("pos:station_pin", args=[self.station.pk]),
+                     {"staff": self.waiter.pk, "pin": "4826", "bill": bill2.pk})
+        page = cashier.get(reverse("pos:bill_detail", args=[bill2.pk]))
+        self.expect("the bill page has the Split button", page.status_code == 200 and b'data-open="dlg-split"' in page.content,
+                    str(page.status_code))
+        r = cashier.post(reverse("pos:bill_split", args=[bill2.pk]), {"mode": "even", "ways": "2"})
+        self.expect("splitting from the screen makes two bills",
+                    r.status_code == 302 and POSOrder.objects.filter(table=table, status__in=POSOrder.LIVE).count() == 2,
+                    str(r.status_code))
+        floor = cashier.get(reverse("pos:station_floor", args=[self.station.pk]))
+        self.expect("the floor shows the table with 2 bills", b"2 bills (split)" in floor.content)
+        r = self.login(self.viewer).post(reverse("pos:bill_split", args=[bill2.pk]), {"mode": "even", "ways": "2"})
+        self.expect("a viewer cannot split a bill", r.status_code == 403, str(r.status_code))

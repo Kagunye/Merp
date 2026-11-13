@@ -187,6 +187,7 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
             "customers": customers,
             "salespeople": services.company_people(company) if company else [],
             "methods": methods,
+            "mpesa_gateway": _mpesa_gateway(company),
             "is_supervisor": services.is_supervisor(company, user) if company else False,
             "locked": is_locked(self.request, cashier_session),
             "movement_token": services.new_token(),
@@ -732,6 +733,14 @@ def sale_find(request):
                        if text else "Type or scan the ticket number to return.")
         return redirect("pos:terminal")
     return redirect(f"{reverse('pos:sale_detail', args=[sale.pk])}#refund")
+
+
+def _mpesa_gateway(company):
+    """The company's switched-on M-Pesa gateway, for the till's prompt."""
+    if company is None:
+        return None
+    from apps.payments.services import gateway
+    return gateway(company, "MPESA")
 
 
 @login_required

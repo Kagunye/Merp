@@ -174,3 +174,29 @@ class WarehouseForm(forms.ModelForm):
             self.fields["is_default"].help_text = (
                 "A company has one default warehouse: ticking this moves the role "
                 "from the current default to this one.")
+
+
+class DocumentLayoutForm(forms.ModelForm):
+    logo_file = forms.ImageField(required=False, label="Logo",
+                                 help_text="PNG with a transparent background prints best. Kept with the company, not in the media folder.")
+
+    class Meta:
+        from .models import DocumentLayout
+        model = DocumentLayout
+        fields = ["tagline", "banner", "accent", "show_ship_to", "terms_quote", "terms_order",
+                  "terms_invoice", "terms_po", "bank_details", "footer"]
+        widgets = {
+            "accent": forms.TextInput(attrs={"type": "color"}),
+            "terms_quote": forms.Textarea(attrs={"rows": 8}),
+            "terms_order": forms.Textarea(attrs={"rows": 6}),
+            "terms_invoice": forms.Textarea(attrs={"rows": 6}),
+            "terms_po": forms.Textarea(attrs={"rows": 6}),
+            "bank_details": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def clean_accent(self):
+        import re
+        value = (self.cleaned_data.get("accent") or "").strip()
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+            raise forms.ValidationError("Use a colour like #1F4E9A.")
+        return value

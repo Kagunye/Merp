@@ -1,4 +1,5 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
 {% include "_includes/page_header.html" with title="Organizations" subtitle="Companies, branches, departments and warehouses" hide_print=True %}
 
@@ -20,6 +21,12 @@
     <p class="mt-2 text-sm font-semibold text-ink">Manage warehouses →</p>
     <p class="stat-meta">Stock locations</p>
   </a>
+  {% can_do "organizations:document_layout" as may_layout %}{% if may_layout %}
+  <a href="{% url 'organizations:document_layout' %}" class="stat">
+    <p class="stat-label"><span class="stat-icon tone-brand">{% include "_includes/icon.html" with name="printer" cls="h-4 w-4" only %}</span>Printed documents</p>
+    <p class="mt-2 text-sm font-semibold text-ink">Logo, terms and layout →</p>
+    <p class="stat-meta">Quotations, invoices, orders</p>
+  </a>{% endif %}
 </div>
 
 <h2 class="section-title">Your companies</h2>

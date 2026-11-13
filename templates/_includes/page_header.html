@@ -28,6 +28,8 @@ Params (all optional except title):
                    POST buttons, dropdowns, more than two actions)
   hide_print       True hides the Print button (shown by default)
   print_label      caption of the Print button
+  print_url        a printable layout to open instead (quotations, invoices...):
+                   the Print button becomes a "Print / PDF" link to it
 URLs must already be resolved: {% url 'x:y' as u %} then pass u.
 {% endcomment %}
 <header class="page-header">
@@ -50,7 +52,8 @@ URLs must already be resolved: {% url 'x:y' as u %} then pass u.
     {% if subtitle %}<p class="page-subtitle">{{ subtitle }}</p>{% endif %}
   </div>
   <div class="page-actions no-print">
-    {% if not hide_print %}{% include "_includes/print_button.html" %}{% endif %}
+    {% if print_url %}<a href="{{ print_url }}" class="btn btn-secondary" target="_blank" rel="noopener">{% include "_includes/icon.html" with name="printer" only %}Print / PDF</a>
+    {% elif not hide_print %}{% include "_includes/print_button.html" %}{% endif %}
     {% if actions_template %}{% include actions_template %}{% endif %}
     {% if secondary_label and secondary_url %}
     <a href="{{ secondary_url }}" class="btn btn-secondary">{{ secondary_label }}</a>

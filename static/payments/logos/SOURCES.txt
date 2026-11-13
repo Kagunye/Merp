@@ -1,0 +1,7 @@
+Payment gateway logos (trademarks of their owners; shown to identify the gateway in use).
+mpesa.svg    Safaricom M-PESA. Wikimedia Commons, File:M-PESA_LOGO-01.svg
+             https://upload.wikimedia.org/wikipedia/commons/1/15/M-PESA_LOGO-01.svg
+pesapal.png  Pesapal. https://www.pesapal.com/media/118158/pesapal-logo.png
+dpo.png      DPO Pay by Network. https://dpogroup.com/wp-content/uploads/2025/01/DPO_Pay_by_Network_Logo_3.png
+pesapal.svg / dpo.svg wrap the PNGs so every page uses the same <provider>.svg name.
+Downloaded 13 Nov 2026.

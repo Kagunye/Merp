@@ -10,6 +10,7 @@ user's own open till, exactly like the counter.
 import datetime
 from itertools import groupby
 
+from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
@@ -177,13 +178,20 @@ def station_floor(request, pk):
             company=company, branch=station.branch, is_active=True).filter(
             Q(station=station) | Q(station__isnull=True)))
         live = list(restaurant.live_orders(company, station.branch))
-        by_table = {o.table_id: o for o in live if o.table_id}
+        by_table = {}
+        for o in live:
+            if o.table_id:
+                by_table.setdefault(o.table_id, []).append(o)
         table_rows = []
         for t in tables:
-            o = by_table.get(t.pk)
+            orders = sorted(by_table.get(t.pk, []), key=lambda o: o.opened_at)
+            o = orders[0] if orders else None
+            # A split table shows its first bill and how many more are open;
+            # the total is what the whole table still owes.
             table_rows.append({
-                "table": t, "order": o,
+                "table": t, "order": o, "more": len(orders) - 1 if orders else 0,
                 "totals": restaurant.order_totals(o) if o else None,
+                "table_total": sum((restaurant.order_totals(x)["total"] for x in orders), Decimal("0")) if orders else None,
                 "minutes": _minutes(o.opened_at) if o else 0,
             })
         ctx.update({
@@ -371,6 +379,31 @@ def bill_void_line(request, pk):
     _touch(request)
     messages.success(request, f"{line.name} voided, authorised by {manager.name}.")
     return redirect("pos:bill_detail", pk=order.pk)
+
+
+@login_required
+@require_POST
+def bill_split(request, pk):
+    """Split a bill by item, or equally between guests; each part is paid on its own."""
+    order = _order(request, pk)
+    actor = current_actor(request, order.station)
+    if actor is None:
+        return _need_pin(request, order.station, order)
+    try:
+        if request.POST.get("mode") == "even":
+            bills = restaurant.split_even(order, actor, request.POST.get("ways"))
+            msg = f"Bill split {len(bills)} ways: " + ", ".join(b.reference for b in bills) + ". Each is paid on its own."
+            target = order
+        else:
+            moves = {k[len("move_"):]: v for k, v in request.POST.items() if k.startswith("move_")}
+            target = restaurant.split_items(order, actor, moves)
+            msg = f"New bill {target.reference} made from {order.reference} for the same table."
+    except ValidationError as exc:
+        _error(request, exc)
+        return redirect("pos:bill_detail", pk=order.pk)
+    _touch(request)
+    messages.success(request, msg)
+    return redirect("pos:bill_detail", pk=target.pk)
 
 
 @login_required

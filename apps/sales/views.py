@@ -441,6 +441,10 @@ class InvoiceDetailView(LoginRequiredMixin, DetailView):
         ctx["credit_date_default"] = max(datetime.date.today(), self.object.invoice_date)
         ctx["has_stock_lines"] = any(
             line.product_id and line.product.track_inventory for line in ctx["lines"])
+        if self.object.status in ("SENT", "PARTIAL", "OVERDUE") and self.object.outstanding_amount > 0:
+            from apps.payments.services import gateways_for
+            ctx["pay_gateways"] = list(gateways_for(self.object.company))
+            ctx["pay_requests"] = self.object.payment_requests.select_related("gateway")[:5]
         return ctx
 
 
@@ -2199,3 +2203,26 @@ def _already_credited(original):
         if target is not None:
             credited[target] += note_line.quantity or Decimal("0")
     return credited
+
+
+# ───────────────────────────── printed documents ─────────────────────────────
+
+@login_required
+def quote_print(request, pk):
+    from apps.organizations.documents import render_document
+    quote = get_object_or_404(SalesQuote, pk=pk, company=request.active_company)
+    return render_document(request, "quote", quote)
+
+
+@login_required
+def order_print(request, pk):
+    from apps.organizations.documents import render_document
+    order = get_object_or_404(SalesOrder, pk=pk, company=request.active_company)
+    return render_document(request, "order", order)
+
+
+@login_required
+def invoice_print(request, pk):
+    from apps.organizations.documents import render_document
+    invoice = get_object_or_404(Invoice, pk=pk, company=request.active_company)
+    return render_document(request, "credit_note" if invoice.original_invoice_id else "invoice", invoice)

@@ -251,6 +251,16 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
 
     # --- Company set-up and user management: admin territory.
     # HR keeps the department tree: people are filed under it.
+    # The printed-document logo appears on every quotation, invoice and PO, so
+    # whoever may print one may load it; the layout itself is the admin's.
+    ("organizations", "document_logo", EVERYONE, NOBODY),
+    # Payment gateways: the admin sets them up (gateway_* has no rule, so it
+    # is admin-only); finance and sales ask customers to pay invoices; the till
+    # sends M-Pesa prompts; finance and audit read the log.
+    ("payments", "invoice_request", NOBODY, FINANCE | SALES),
+    ("payments", "pos_mpesa_start", NOBODY, TILL),
+    ("payments", "request_status", FINANCE | SALES | TILL | AUDIT, FINANCE | SALES | TILL),
+    ("payments", "home", FINANCE | AUDIT, NOBODY),
     ("organizations", "department_*", HR | {"FINANCE_MANAGER"}, HR),
     ("organizations", "department_list", HR | {"FINANCE_MANAGER"}, NOBODY),
     ("organizations", "*", FM, NOBODY),
@@ -271,6 +281,10 @@ PUBLIC = {
     # Offline mode: the service worker, the app manifest, the offline page and
     # the connectivity ping carry no company data.
     ("", "sw"), ("", "webmanifest"), ("", "offline"), ("", "ping"),
+    # Payment gateways call back with no session. Each address carries a
+    # secret key, and nothing is believed until the gateway is asked again.
+    ("payments", "callback"), ("payments", "pesapal_ipn"), ("payments", "returned"),
+    ("payments", "c2b_confirm"), ("payments", "c2b_validate"), ("payments", "simulate"),
 }
 
 # Reachable by any signed-in user, even one who doesn't belong to a company yet.
@@ -297,6 +311,7 @@ MODULE_LABELS = {
     "organizations": "Company Settings", "accounts": "User Management",
     "control_panel": "Control Panel", "sms": "SMS", "business_mgmt": "Business Management",
     "kra": "KRA eTIMS",
+    "payments": "Payment gateways",
 }
 
 
@@ -347,7 +362,7 @@ def can(user, role: str | None, namespace: str | None, url_name: str | None, met
 
 HOME_NAMES = {
     "dashboard": "index", "expenses": "home", "timesheets": "home", "helpdesk": "home",
-    "documents": "home", "banking": "home", "pos": "home", "kra": "home", "notifications": "list",
+    "documents": "home", "banking": "home", "pos": "home", "kra": "home", "payments": "home", "notifications": "list",
     "recruitment": "home", "organizations": "home", "accounts": "user_list",
 }
 

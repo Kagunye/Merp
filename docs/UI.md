@@ -596,3 +596,39 @@ Mofisi keeps working without a connection and syncs when it is back.
   the receipt and kicks the drawer on cash (one job); the till's **Open Drawer** key (Ctrl+D)
   asks for a reason. Every opening is logged and listed on the day end.
 - Checks: `python manage.py test_fix_hardware`.
+
+## Printed documents
+
+- **Organisations → Printed documents** (admin): logo (kept in the database), tagline, banner text,
+  title colour, a Ship To box, terms for each document type, bank / M-Pesa details and a footer.
+- Quotations, sales orders, invoices, credit notes and purchase orders have a **Print / PDF**
+  button that opens one shared A4 layout (`templates/_print/document.html`).
+- Terms print on their own page, only for quotation, sales order, invoice and PO, and only when
+  set. Credit notes never carry terms. Bank details print on invoices only.
+- Checks: `python manage.py test_fix_documents`.
+
+## Payment gateways (M-Pesa, Pesapal, DPO)
+
+- **Finance → Payment gateways**: a card per provider; the admin enters the merchant keys.
+  Environments: *Simulator* (no money moves, for training and tests), *Sandbox*, *Live*.
+- **Invoice page → Ask the customer to pay**: an M-Pesa PIN prompt to the customer's phone, or a
+  Pesapal / DPO checkout link. The receipt is booked against the invoice when the gateway confirms.
+- **Till → Amount tendered → M-Pesa**: type the customer's number, *Send prompt*; the sale
+  completes by itself when M-Pesa confirms, with the M-Pesa code on the ticket.
+- **Paybill / till payments** (C2B): register the URLs from the M-Pesa settings page; a payment whose
+  account number is an invoice number is booked to that invoice, anything else waits to be matched.
+- A payment is PAID only when the gateway itself confirms it (STK query, Pesapal status, DPO
+  verifyToken); a callback only prompts the check. Each one is booked once.
+- Sandbox and Live need the site on a public https address, because the providers call back.
+- The providers' official logos are in `static/payments/logos/` (sources in `SOURCES.txt`).
+- Checks: `python manage.py test_fix_payments`.
+
+## Running on the client's own MySQL server
+
+- Set `DATABASE_URL=mysql://user:password@host:3306/merp` (MySQL 8.0+ or MariaDB 10.6+). Create
+  the database with `CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`, then `python manage.py migrate`.
+- The driver is PyMySQL (pure Python, in requirements). Connections use utf8mb4, strict mode and
+  READ COMMITTED.
+- MySQL does not enforce "unique only when filled in" constraints (POS ticket tokens, one POS
+  card / M-Pesa bank account). The app still checks these before saving; only the database-level
+  backstop against two simultaneous posts is missing.

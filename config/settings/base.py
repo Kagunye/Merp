@@ -69,6 +69,7 @@ LOCAL_APPS = [
     "apps.expenses",
     "apps.pos",
     "apps.kra",
+    "apps.payments",
     "apps.notifications",
     "apps.documents",
     "apps.reporting",
@@ -129,7 +130,33 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASES = {"default": env.db("DATABASE_URL")}
+def database_from_url(url_var="DATABASE_URL"):
+    """The database from DATABASE_URL: sqlite:///..., postgres://... or, for a
+    client who keeps the data on their own server, mysql://user:pass@host:3306/db.
+
+    MySQL is driven by PyMySQL (pure Python, nothing to compile) and set up
+    for this app: utf8mb4 so names and receipts keep every character, strict
+    mode so a bad value is refused rather than silently cut, and READ
+    COMMITTED like PostgreSQL. Needs MySQL 8.0+ or MariaDB 10.6+.
+    """
+    db = env.db(url_var)
+    if "mysql" in db.get("ENGINE", ""):
+        try:
+            import pymysql
+            pymysql.install_as_MySQLdb()
+        except ImportError:      # mysqlclient installed instead: fine
+            pass
+        opts = db.setdefault("OPTIONS", {})
+        opts.setdefault("charset", "utf8mb4")
+        opts.setdefault("init_command", "SET sql_mode='STRICT_TRANS_TABLES', innodb_strict_mode=1")
+        opts.setdefault("isolation_level", "read committed")
+        db.setdefault("CONN_MAX_AGE", 60)
+        db.setdefault("TEST", {}).setdefault("CHARSET", "utf8mb4")
+        db["TEST"].setdefault("COLLATION", "utf8mb4_unicode_ci")
+    return db
+
+
+DATABASES = {"default": database_from_url()}
 
 AUTH_USER_MODEL = "accounts.User"
 

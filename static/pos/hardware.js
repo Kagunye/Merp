@@ -60,7 +60,11 @@
       return fetch(p.bridge + '/send', { method: 'POST', signal: timeout(8000), headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ host: p.host, port: p.port, data: b64 }) })
         .then(function (r) { return r.json().catch(function () { return { ok: r.ok }; }); })
-        .then(function (d) { if (!d.ok) throw new Error(d.error || 'The bridge could not reach the printer.'); });
+        .then(function (d) { if (!d.ok) throw new Error(d.error || 'The bridge could not reach the printer.'); },
+              function (err) {
+                if (err && err.message && /bridge|printer/i.test(err.message)) throw err;
+                throw new Error('The Mofisi bridge is not running on this PC. Start it (tools/mofisi-bridge), then try again.');
+              });
     }
     if (p.connection === 'EPSON') {
       var scheme = (p.port === 443 || p.port === 8043) ? 'https' : 'http';
@@ -70,7 +74,8 @@
       return fetch(scheme + '://' + p.host + ':' + p.port + '/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000',
         { method: 'POST', signal: timeout(12000), headers: { 'Content-Type': 'text/xml; charset=utf-8' }, body: xml })
         .then(function (r) { return r.text(); })
-        .then(function (t) { if (!/success="true"/.test(t)) throw new Error('The Epson printer refused the job.'); });
+        .then(function (t) { if (!/success="true"/.test(t)) throw new Error('The Epson printer refused the job.'); },
+              function (err) { if (err && /refused/.test(err.message)) throw err; throw new Error('The Epson printer at ' + p.host + ' did not answer. Check it is on and on the network.'); });
     }
     if (p.connection === 'STAR') {
       var body = '<root>' + (extra.text ? '<text>' + esc(extra.text) + '\n\n</text><cutpaper feed="true" type="partial"/>' : '') +

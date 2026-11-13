@@ -410,6 +410,9 @@ class POSOrder(BaseModel, NotesMixin):
     voided_by = models.ForeignKey(POSStaff, on_delete=models.SET_NULL, null=True, blank=True,
                                   related_name="+")
     void_reason = models.CharField(max_length=255, blank=True, default="")
+    split_from = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="split_bills",
+                                   help_text="The bill this one was split off, so each guest can pay their part.")
 
     class Meta:
         ordering = ["-opened_at"]

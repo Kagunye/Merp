@@ -1,0 +1,70 @@
+{% extends "base/base.html" %}
+{% load static ui_extras %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Payment gateways" subtitle="M-Pesa prompts, Pesapal and DPO checkout links, and paybill payments booked automatically" hide_print=True %}
+
+<div class="grid gap-4 md:grid-cols-3">
+  {% for c in cards %}
+  {% can_do "payments:gateway_edit" "POST" as may_edit %}
+  <section class="card flex flex-col p-5">
+    <div class="flex items-start justify-between gap-3">
+      <img src="{% static 'payments/logos/' %}{{ c.provider|lower }}.svg" alt="{{ c.label }}" class="h-12 w-auto max-w-[170px] rounded-lg border border-line bg-white p-1">
+      {% if c.gateway.is_active %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>On{% if c.gateway.environment != "LIVE" %} · {{ c.gateway.environment|title }}{% endif %}</span>
+      {% else %}<span class="badge badge-neutral">Off</span>{% endif %}
+    </div>
+    <h2 class="card-title mt-3">{{ c.label }}</h2>
+    <p class="mt-1 flex-1 text-sm text-ink-muted">{{ c.blurb }}</p>
+    {% if c.gateway.last_check %}<p class="mt-2 text-xs {% if c.gateway.last_check_ok %}text-success{% else %}text-danger{% endif %}">Checked {{ c.gateway.last_check|timesince }} ago: {{ c.gateway.last_check_note }}</p>{% endif %}
+    {% if may_edit %}<a href="{% url 'payments:gateway_edit' c.provider|lower %}" class="btn btn-secondary btn-sm mt-4 self-start">{% if c.gateway %}Settings{% else %}Set up{% endif %}</a>{% endif %}
+  </section>
+  {% endfor %}
+</div>
+
+<section class="card mt-6 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Payment requests</h2><p class="card-subtitle">Prompts and links sent, newest first</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table table-compact">
+      <thead><tr><th>When</th><th>Gateway</th><th>For</th><th>Customer</th><th class="num">Amount</th><th>Status</th><th>Code</th><th>Receipt</th></tr></thead>
+      <tbody>
+        {% for r in requests %}
+        <tr>
+          <td class="whitespace-nowrap text-ink-2">{{ r.created_at|date:"d M H:i" }}</td>
+          <td>{{ r.gateway.get_provider_display }}{% if r.gateway.environment == "SIMULATOR" %} <span class="badge badge-neutral">sim</span>{% endif %}</td>
+          <td>{% if r.invoice %}<a class="row-link" href="{% url 'sales:invoice_detail' r.invoice.pk %}">{{ r.invoice.reference }}</a>{% else %}{{ r.reference }}{% endif %}</td>
+          <td class="text-ink-2">{{ r.phone|default:r.payer }}</td>
+          <td class="num">{{ r.amount|money }}</td>
+          <td>{% if r.status == "PAID" %}<span class="badge badge-success">Paid</span>{% elif r.status == "PENDING" %}<span class="badge badge-warning">Waiting</span>{% else %}<span class="badge badge-danger" title="{{ r.note }}">{{ r.get_status_display }}</span>{% endif %}</td>
+          <td class="mono">{{ r.receipt|default:"—" }}</td>
+          <td class="mono">{{ r.customer_payment.reference|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="empty-row">No payment requests yet. Ask for payment from an invoice, or from the till with M-Pesa.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-6 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Paid straight to the paybill / till</h2><p class="card-subtitle">Matched to the invoice whose number the customer typed as the account</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table table-compact">
+      <thead><tr><th>When</th><th>M-Pesa code</th><th>Account typed</th><th>Payer</th><th class="num">Amount</th><th>Booked to</th></tr></thead>
+      <tbody>
+        {% for p in paybill %}
+        <tr>
+          <td class="whitespace-nowrap text-ink-2">{{ p.created_at|date:"d M H:i" }}</td>
+          <td class="mono">{{ p.trans_id }}</td>
+          <td class="mono">{{ p.account|default:"—" }}</td>
+          <td class="text-ink-2">{{ p.payer }}</td>
+          <td class="num">{{ p.amount|money }}</td>
+          <td>{% if p.invoice %}<a class="row-link" href="{% url 'sales:invoice_detail' p.invoice.pk %}">{{ p.invoice.reference }}</a>{% else %}<span class="badge badge-warning" title="{{ p.note }}">Match by hand</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty-row">None yet. Register the paybill URLs under M-Pesa settings to receive them.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

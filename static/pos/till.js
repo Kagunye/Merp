@@ -207,7 +207,7 @@
     box.textContent = '';
     var shown = PRODUCTS.filter(function (p) { return !key || p.screen === key; });
     shown.forEach(function (p) {
-      var b = el('button', 'pos-tile');
+      var b = el('button', 'pos-tile' + (p.image ? ' has-pic' : ''));
       b.type = 'button';
       b.dataset.id = p.id;
       b.setAttribute('aria-label', 'Add one ' + p.name);
@@ -610,6 +610,8 @@
     $('#pay-tendered').disabled = !cash;
     $$('#pay-keypad button, #pay-quick button').forEach(function (b) { b.disabled = !cash; });
     if (!cash) $('#pay-tendered').value = '';
+    var mp = $('#pay-mpesa');
+    if (mp) mp.hidden = m !== 'MPESA';
     payUpdate();
   }
   function payUpdate() {
@@ -642,14 +644,72 @@
     if (!state.lines.length) { toast('Nothing on the ticket yet.', 'warning'); return; }
     if (state.doc === 'RETURN') { setDoc('INVOICE'); }
     $('#dlg-pay [data-error]').textContent = '';
+    if (typeof mpesaReset === 'function' && !submitting) mpesaReset();
     setMethod(method);
     open('dlg-pay');
     setTimeout(function () { (method === 'CASH' ? $('#pay-tendered') : $('#pay-complete')).focus(); }, 0);
   }
+  // ── M-Pesa prompt (Lipa na M-Pesa) from the pay panel ─────────────────
+  var mpesa = { id: null, paid: false, timer: null };
+  function mpesaSay(text, tone) { var p = $('#pay-mpesa-status'); if (p) { p.textContent = text; p.className = 'mt-1 text-sm ' + (tone || ''); } }
+  function mpesaReset() {
+    if (mpesa.timer) clearTimeout(mpesa.timer);
+    mpesa = { id: null, paid: false, timer: null };
+    var sim = $('#pay-mpesa-sim'); if (sim) sim.hidden = true;
+    var send = $('#pay-mpesa-send'); if (send) send.disabled = false;
+  }
+  function mpesaPoll(simulate) {
+    if (!mpesa.id) return;
+    var opts = { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } };
+    if (simulate) { opts.method = 'POST'; opts.headers['X-CSRFToken'] = csrf(); opts.body = new URLSearchParams({ simulate: 'PAID' }); }
+    fetch('/payments/requests/' + mpesa.id + '/status/', opts).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.status === 'PAID') {
+        mpesa.paid = true;
+        $('#pay-notes').value = ('M-Pesa ' + (d.receipt || '')).trim();
+        mpesaSay('Paid: M-Pesa ' + d.receipt + '. Completing the sale…', 'text-success');
+        $('#pay-form').requestSubmit();
+        return;
+      }
+      if (d.status !== 'PENDING') {
+        mpesaSay((d.note || d.label) + ' Send the prompt again, or take another payment.', 'text-danger');
+        mpesaReset();
+        return;
+      }
+      mpesa.timer = setTimeout(function () { mpesaPoll(false); }, 3000);
+    }).catch(function () { mpesa.timer = setTimeout(function () { mpesaPoll(false); }, 5000); });
+  }
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.content : ''; }
+  if ($('#pay-mpesa-send')) {
+    $('#pay-mpesa-send').addEventListener('click', function () {
+      var t = ticketTotals();
+      var phone = $('#pay-mpesa-phone').value.trim();
+      if (!phone) { mpesaSay("Enter the customer's phone number.", 'text-danger'); return; }
+      mpesaReset();
+      this.disabled = true;
+      mpesaSay('Sending the prompt…');
+      fetch(cfg.mpesaUrl, { method: 'POST', credentials: 'same-origin',
+        headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'fetch' },
+        body: new URLSearchParams({ amount: String(Math.ceil(t.total)), phone: phone, reference: ($('#pos-reference').value || '').trim() }) })
+        .then(function (r) { return r.json(); }).then(function (d) {
+          if (!d.ok) { mpesaSay(d.error, 'text-danger'); mpesaReset(); return; }
+          mpesa.id = d.id;
+          mpesaSay('Prompt sent for ' + cfg.currency + ' ' + fmt(Math.ceil(t.total)) + ". Waiting for the customer's PIN…", 'text-warning');
+          var sim = $('#pay-mpesa-sim'); if (sim && d.simulated) sim.hidden = false;
+          mpesa.timer = setTimeout(function () { mpesaPoll(false); }, 3000);
+        }).catch(function () { mpesaSay("No connection: take the M-Pesa code from the customer's message instead.", 'text-danger'); mpesaReset(); });
+    });
+    var simBtn = $('#pay-mpesa-sim');
+    if (simBtn) simBtn.addEventListener('click', function () { mpesaPoll(true); });
+  }
+
   var submitting = false;
   $('#pay-form').addEventListener('submit', function (e) {
     e.preventDefault();
     if (submitting) return;
+    if (method === 'MPESA' && mpesa.id && !mpesa.paid) {
+      $('#dlg-pay [data-error]').textContent = 'The M-Pesa prompt has not been paid yet. Wait for the PIN, or close and take another payment.';
+      return;
+    }
     var t = ticketTotals();
     var text = $('#pay-tendered').value.trim();
     var err = $('#dlg-pay [data-error]');

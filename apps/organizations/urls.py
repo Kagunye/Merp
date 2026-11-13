@@ -7,6 +7,8 @@ urlpatterns = [
     path("", views.ModuleHomeView.as_view(), name="home"),
     # Companies
     path("companies/", views.CompanyListView.as_view(), name="company_list"),
+    path("documents/layout/", views.document_layout, name="document_layout"),
+    path("documents/logo/", views.document_logo, name="document_logo"),
     path("companies/new/", views.CompanyCreateView.as_view(), name="company_create"),
     path("companies/<uuid:pk>/", views.CompanyDetailView.as_view(), name="company_detail"),
     path("companies/<uuid:pk>/edit/", views.CompanyUpdateView.as_view(), name="company_edit"),

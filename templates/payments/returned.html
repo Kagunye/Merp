@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment — {{ req.company.name }}</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; background: #f4f5f7; color: #111; margin: 0; display: grid; place-items: center; min-height: 100vh; padding: 16px; box-sizing: border-box; }
+    .box { background: #fff; border-radius: 16px; padding: 28px; max-width: 420px; width: 100%; box-shadow: 0 2px 12px rgb(0 0 0 / .08); text-align: center; }
+    .ok { color: #16794c; } .wait { color: #9a6700; } .bad { color: #b42318; }
+    h1 { font-size: 22px; margin: 0 0 6px; } p { margin: 6px 0; color: #444; }
+  </style>
+  {% if req.status == "PENDING" %}<meta http-equiv="refresh" content="5">{% endif %}
+</head>
+<body>
+  <div class="box">
+    {% if req.status == "PAID" %}<h1 class="ok">Payment received</h1><p>{{ req.currency }} {{ req.amount }} for {{ req.reference }}.</p>{% if req.receipt %}<p>Confirmation: <strong>{{ req.receipt }}</strong></p>{% endif %}
+    {% elif req.status == "PENDING" %}<h1 class="wait">Waiting for confirmation…</h1><p>This page refreshes by itself.</p>
+    {% else %}<h1 class="bad">Payment not completed</h1><p>{{ req.note|default:req.get_status_display }}</p>{% endif %}
+    <p style="margin-top:16px;font-size:14px">{{ req.company.name }}</p>
+  </div>
+</body>
+</html>

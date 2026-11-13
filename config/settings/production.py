@@ -13,5 +13,5 @@ SECURE_HSTS_PRELOAD = True
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")  # noqa: F405
 
 DATABASES = {
-    "default": env.db("DATABASE_URL")  # noqa: F405
+    "default": database_from_url()  # noqa: F405  (mysql:// works too)
 }

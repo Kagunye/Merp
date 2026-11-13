@@ -4,7 +4,8 @@
 {% block content %}
 {% can_do "procurement:bill_detail" as may_bills %}{% can_do "procurement:requisition_detail" as may_req %}{% can_do "procurement:po_line_add" "POST" as may_add_line %}{% can_do "procurement:po_line_delete" "POST" as may_drop_line %}
 {% url 'procurement:po_list' as back %}
-{% include "_includes/page_header.html" with title="PO: "|add:po.reference eyebrow="Purchase order" subtitle=po.supplier.name back_url=back back_label="Purchase Orders" actions_template="procurement/_po_actions.html" %}
+{% url "procurement:po_print" po.pk as print_url %}
+{% include "_includes/page_header.html" with title="PO: "|add:po.reference eyebrow="Purchase order" subtitle=po.supplier.name back_url=back back_label="Purchase Orders" print_url=print_url actions_template="procurement/_po_actions.html" %}
 
 <section class="card mb-5">
   <div class="card-header">

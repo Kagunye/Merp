@@ -285,3 +285,56 @@ class WarehouseDetailView(LoginRequiredMixin, DetailView):
             return Warehouse.objects.none()
         return Warehouse.objects.filter(company=company)
 
+
+
+# ───────────────────────────── printed documents ─────────────────────────────
+
+def document_layout(request):
+    """The look of quotations, orders, invoices and purchase orders."""
+    from django.contrib.auth.decorators import login_required  # noqa: F401  (middleware checks the role)
+    from django.core.exceptions import ValidationError
+    from django.shortcuts import render
+    from .documents import layout_for, logo_url, save_logo
+    from .forms import DocumentLayoutForm
+
+    if not request.user.is_authenticated:
+        return redirect("accounts:login")
+    company = request.active_company
+    if company is None:
+        return redirect("organizations:company_list")
+    layout = layout_for(company)
+    form = DocumentLayoutForm(request.POST or None, request.FILES or None, instance=layout)
+    if request.method == "POST":
+        if request.POST.get("action") == "remove_logo":
+            layout.logo_data, layout.logo_type, layout.logo_updated = None, "", None
+            layout.save(update_fields=["logo_data", "logo_type", "logo_updated", "updated_at"])
+            messages.success(request, "Logo removed from printed documents.")
+            return redirect("organizations:document_layout")
+        if form.is_valid():
+            form.save()
+            upload = form.cleaned_data.get("logo_file")
+            if upload:
+                try:
+                    save_logo(layout, upload)
+                except ValidationError as exc:
+                    messages.error(request, exc.messages[0])
+                    return redirect("organizations:document_layout")
+            messages.success(request, "Document layout saved. Quotations, orders, invoices and purchase orders print with it.")
+            return redirect("organizations:document_layout")
+    from apps.sales.models import Invoice, SalesQuote
+    sample = {"quote": SalesQuote.objects.filter(company=company).order_by("-created_at").first(),
+              "invoice": Invoice.objects.filter(company=company, original_invoice__isnull=True).order_by("-created_at").first()}
+    return render(request, "organizations/document_layout.html",
+                  {"form": form, "layout": layout, "logo": logo_url(layout), "sample": sample})
+
+
+def document_logo(request):
+    from django.http import Http404, HttpResponse
+    from .models import DocumentLayout
+    company = getattr(request, "active_company", None)
+    layout = DocumentLayout.objects.filter(company=company).first() if company else None
+    if layout is None or not layout.logo_data:
+        raise Http404
+    response = HttpResponse(bytes(layout.logo_data), content_type=layout.logo_type or "image/png")
+    response["Cache-Control"] = "private, max-age=31536000, immutable"
+    return response

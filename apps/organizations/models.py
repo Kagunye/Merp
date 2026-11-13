@@ -181,3 +181,41 @@ class CompanyMembership(BaseModel):
                 user=self.user, is_default=True
             ).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
+
+
+class DocumentLayout(models.Model):
+    """How the company's printed documents look: quotation, sales order,
+    invoice, credit note and purchase order share one A4 layout.
+
+    The logo is kept in the database (a small thumbnail), not the media
+    folder, because the hosted media folder is emptied on every deploy.
+    Terms are per document type and printed on their own page, only on the
+    documents that carry terms (a credit note or delivery note does not).
+    """
+    company = models.OneToOneField(Company, on_delete=models.CASCADE, related_name="document_layout")
+    logo_data = models.BinaryField(null=True, blank=True, editable=False)
+    logo_type = models.CharField(max_length=40, blank=True, default="", editable=False)
+    logo_updated = models.DateTimeField(null=True, blank=True, editable=False)
+    tagline = models.CharField(max_length=120, blank=True, default="",
+                               help_text="A line under the logo, e.g. 'Sufficiently Superior Services'.")
+    banner = models.CharField(max_length=60, blank=True, default="",
+                              help_text="Small text above the document title, e.g. 'General Hardware'.")
+    accent = models.CharField(max_length=7, default="#1F4E9A",
+                              help_text="Colour of the title band and table headings (#RRGGBB).")
+    show_ship_to = models.BooleanField(default=True, verbose_name="Show a Ship To box")
+    terms_quote = models.TextField(blank=True, default="", verbose_name="Quotation terms")
+    terms_order = models.TextField(blank=True, default="", verbose_name="Sales order terms")
+    terms_invoice = models.TextField(blank=True, default="", verbose_name="Invoice terms")
+    terms_po = models.TextField(blank=True, default="", verbose_name="Purchase order terms")
+    bank_details = models.TextField(blank=True, default="",
+                                    help_text="How to pay: bank, account, branch, M-Pesa paybill. Printed on invoices.")
+    footer = models.CharField(max_length=200, blank=True, default="",
+                              help_text="Printed at the foot of every page.")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Document layout — {self.company}"
+
+    def terms_for(self, kind):
+        return {"quote": self.terms_quote, "order": self.terms_order,
+                "invoice": self.terms_invoice, "po": self.terms_po}.get(kind, "")

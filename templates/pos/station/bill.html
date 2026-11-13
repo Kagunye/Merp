@@ -49,7 +49,7 @@
           <input type="hidden" name="section" value="{{ s.section.pk }}">
           <input type="hidden" name="quantity" value="1" data-qty>
           <input type="hidden" name="note" value="" data-note>
-          <button type="submit" class="pos-tile min-h-[96px] w-full">
+          <button type="submit" class="pos-tile min-h-[96px] w-full{% if t.picture %} has-pic{% endif %}">
             {% if t.picture %}<span class="pos-tile-pic"><img src="{{ t.picture }}" alt="" loading="lazy"></span>{% endif %}
             <span class="pos-tile-body">
               <span class="pos-tile-name">{{ t.item.label }}</span>
@@ -127,6 +127,7 @@
             {% csrf_token %}<input type="hidden" name="action" value="print">
             <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="printer" only %}Print bill</button>
           </form>
+          <button type="button" class="btn btn-secondary" data-open="dlg-split" {% if totals.items <= 0 %}disabled{% endif %}>{% include "_includes/icon.html" with name="users" only %}Split</button>
           <button type="button" class="btn btn-danger-ghost" data-open="dlg-void-bill">{% include "_includes/icon.html" with name="x-circle" only %}Void bill</button>
           {% if may_pay %}
           <button type="button" class="btn btn-primary ml-auto" data-open="dlg-pay" {% if not totals.items %}disabled{% endif %}>{% include "_includes/icon.html" with name="cash" stroke="2" only %}Pay</button>
@@ -157,6 +158,42 @@
   </form>
 </dialog>
 
+{# ── Split the bill: each part is paid on its own ── #}
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-split" aria-labelledby="dlg-split-title">
+  <div class="pos-dialog-head"><h2 id="dlg-split-title">Split bill {{ order.reference }}</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body grid gap-6 md:grid-cols-2">
+    <form method="post" action="{% url 'pos:bill_split' order.pk %}" autocomplete="off">
+      {% csrf_token %}<input type="hidden" name="mode" value="items">
+      <h3 class="text-sm font-bold text-ink">By item</h3>
+      <p class="mb-3 text-xs text-ink-muted">Choose what moves to a new bill for the same table. Part of a line can move, e.g. 2 of 5 beers.</p>
+      <table class="table table-compact">
+        <thead><tr><th>Item</th><th class="num">On bill</th><th class="num">Move</th></tr></thead>
+        <tbody>
+          {% for l in lines %}{% if l.status == 'ACTIVE' %}
+          <tr><td>{{ l.name }}</td><td class="num">{{ l.quantity|qty }}</td>
+            <td class="num"><input type="text" inputmode="decimal" name="move_{{ l.pk }}" class="input w-20 text-right" placeholder="0" aria-label="Move how many {{ l.name }}" data-max="{{ l.quantity|floatformat:'-4' }}"></td></tr>
+          {% endif %}{% endfor %}
+        </tbody>
+      </table>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" class="btn btn-ghost btn-sm" data-move-all>Move one of each</button>
+        <button type="submit" class="btn btn-primary ml-auto">Make the new bill</button>
+      </div>
+    </form>
+    <form method="post" action="{% url 'pos:bill_split' order.pk %}" autocomplete="off">
+      {% csrf_token %}<input type="hidden" name="mode" value="even">
+      <h3 class="text-sm font-bold text-ink">Equally</h3>
+      <p class="mb-3 text-xs text-ink-muted">Every item is shared, and each guest gets their own bill to pay by cash, card or M-Pesa.</p>
+      <label class="form-label" for="split-ways">Between how many guests?</label>
+      <div class="flex items-center gap-2">
+        <input type="number" id="split-ways" name="ways" min="2" max="20" value="{% if order.covers > 1 %}{{ order.covers }}{% else %}2{% endif %}" class="input w-24" data-ways>
+        <span class="text-sm text-ink-2">≈ {{ book }} <strong data-each>—</strong> each</span>
+      </div>
+      <button type="submit" class="btn btn-primary mt-4">Split equally</button>
+    </form>
+  </div>
+</dialog>
+
 {# ── Void the whole bill ── #}
 <dialog class="pos-dialog" id="dlg-void-bill" aria-labelledby="dlg-void-bill-title">
   <form method="post" action="{% url 'pos:bill_void' order.pk %}" autocomplete="off">
@@ -178,5 +215,17 @@
 {% endif %}
 
 <script src="{% static 'pos/station.js' %}"></script>
+{% if live %}<script>
+(function () {
+  var d = document.getElementById('dlg-split'); if (!d) return;
+  var total = {{ totals.total|stringformat:"s" }};
+  var ways = d.querySelector('[data-ways]'), each = d.querySelector('[data-each]');
+  function show() { var n = parseInt(ways.value, 10); each.textContent = n >= 2 ? (total / n).toFixed(2) : '—'; }
+  ways.addEventListener('input', show); show();
+  d.querySelector('[data-move-all]').addEventListener('click', function () {
+    d.querySelectorAll('input[name^="move_"]').forEach(function (i) { i.value = Math.min(1, parseFloat(i.dataset.max) || 0) || ''; });
+  });
+})();
+</script>{% endif %}
 </body>
 </html>

@@ -41,6 +41,8 @@
      data-locked="{% if locked %}1{% endif %}"
      data-lookup-url="{% url 'pos:item_lookup' %}"
      data-sync-url="{% url 'pos:terminal_sync' %}"
+     data-mpesa="{% if mpesa_gateway %}1{% endif %}" data-mpesa-sim="{% if mpesa_gateway.environment == 'SIMULATOR' %}1{% endif %}"
+     data-mpesa-url="{% url 'payments:pos_mpesa_start' %}"
      data-lock-url="{% url 'pos:lock' %}"
      data-unlock-url="{% url 'pos:unlock' %}"
      data-payment-url="{% url 'sales:payment_create' %}"
@@ -439,6 +441,17 @@
             <div><dt>Total due</dt><dd class="num text-lg font-extrabold"><span id="pay-total">0.00</span></dd></div>
             <div><dt>VAT included</dt><dd class="num" id="pay-vat">0.00</dd></div>
           </dl>
+          {% if mpesa_gateway %}
+          <div class="pos-mpesa mt-3" id="pay-mpesa" hidden>
+            <label class="form-label" for="pay-mpesa-phone">Customer's M-Pesa number</label>
+            <div class="flex gap-2">
+              <input type="tel" id="pay-mpesa-phone" class="input" placeholder="0712 345 678" autocomplete="off">
+              <button type="button" class="btn btn-secondary whitespace-nowrap" id="pay-mpesa-send">Send prompt</button>
+            </div>
+            <p class="mt-1 text-sm" id="pay-mpesa-status" role="status" aria-live="polite">The customer enters their PIN on the phone; the sale completes by itself when M-Pesa confirms.</p>
+            {% if mpesa_gateway.environment == "SIMULATOR" %}<button type="button" class="btn btn-ghost btn-sm mt-1" id="pay-mpesa-sim" hidden>Customer paid (practice)</button>{% endif %}
+          </div>
+          {% endif %}
           <div class="form-field mt-3">
             <label class="form-label" for="pay-notes">Note on the ticket</label>
             <input type="text" name="notes" form="till-form" id="pay-notes" class="input" value="{{ posted.notes }}" placeholder="e.g. M-Pesa message code">
