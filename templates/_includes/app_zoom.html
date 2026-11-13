@@ -1,0 +1,18 @@
+{% comment %}
+Page zoom, applied before first paint. Mofisi shows at 80% by default; the
+header's Appearance menu can change it (kept on this device as "merp.zoom").
+CSS reads --app-zoom to keep full-height layouts full height (see "App zoom"
+in tailwind.input.css). Phones keep 100%: their layout is already sized for
+the small screen.
+{% endcomment %}
+<script>
+  (function () {
+    var z = null;
+    try { z = parseFloat(localStorage.getItem('merp.zoom')); } catch (_) {}
+    if (!(z >= 0.5 && z <= 1.25)) z = 0.8;
+    if (window.matchMedia && window.matchMedia('(max-width: 639px)').matches) z = 1;
+    var el = document.documentElement;
+    el.style.setProperty('--app-zoom', String(z));
+    el.style.zoom = String(z);
+  })();
+</script>

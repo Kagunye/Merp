@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {% include "_includes/app_zoom.html" %}
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}Mofisi{% endblock %}</title>
   <script>
@@ -34,7 +35,7 @@
 
   {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen">
+<body class="min-h-app">
 
 <a href="#main-content" class="skip-link">Skip to content</a>
 
@@ -103,7 +104,7 @@
 </aside>
 
 <!-- ============================ MAIN ============================ -->
-<div id="main-wrapper" class="flex min-h-screen flex-col">
+<div id="main-wrapper" class="flex min-h-app flex-col">
 
   <header id="topbar" class="fixed right-0 top-0 z-30 flex items-center gap-2 px-3 sm:gap-3 sm:px-6">
 
@@ -149,6 +150,13 @@
           <button type="button" class="menu-item w-full text-left" role="menuitemradio" data-theme-pick="system">{% include "_includes/icon.html" with name="cog" cls="h-4 w-4" %}<span class="flex-1">System</span><span class="text-xs text-ink-muted">Follows your device</span></button>
           <button type="button" class="menu-item w-full text-left" role="menuitemradio" data-theme-pick="light">{% include "_includes/icon.html" with name="sun" cls="h-4 w-4" %}<span class="flex-1">Light</span></button>
           <button type="button" class="menu-item w-full text-left" role="menuitemradio" data-theme-pick="dark">{% include "_includes/icon.html" with name="moon" cls="h-4 w-4" %}<span class="flex-1">Dark</span></button>
+          <div class="menu-sep hidden sm:block"></div>
+          <p class="menu-label hidden sm:block">Size</p>
+          <div class="hidden gap-1 px-2 pb-1 sm:flex" role="group" aria-label="Page size">
+            <button type="button" class="menu-item flex-1 justify-center" data-zoom-pick="0.8" aria-pressed="false">80%</button>
+            <button type="button" class="menu-item flex-1 justify-center" data-zoom-pick="0.9" aria-pressed="false">90%</button>
+            <button type="button" class="menu-item flex-1 justify-center" data-zoom-pick="1" aria-pressed="false">100%</button>
+          </div>
         </div>
       </div>
 
@@ -410,6 +418,25 @@
     closeMenus(null);
   }));
   markTheme();
+
+  // ---- Page size (80% by default; see _includes/app_zoom.html) -------------
+  function markZoom() {
+    const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom')) || 1;
+    document.querySelectorAll('[data-zoom-pick]').forEach(b => {
+      const on = Math.abs(parseFloat(b.dataset.zoomPick) - z) < 0.001;
+      b.classList.toggle('menu-item-active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+  document.querySelectorAll('[data-zoom-pick]').forEach(b => b.addEventListener('click', () => {
+    const z = b.dataset.zoomPick;
+    try { localStorage.setItem('merp.zoom', z); } catch (_) {}
+    document.documentElement.style.setProperty('--app-zoom', z);
+    document.documentElement.style.zoom = z;
+    markZoom();
+    applyLayout();
+  }));
+  markZoom();
 
   // ---- "/" jumps to the search, as on Caritas -------------------------------
   document.addEventListener('keydown', (e) => {
