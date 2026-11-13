@@ -1,0 +1,89 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'tagging:home' as back %}
+{% include "_includes/page_header.html" with title="Issue tags" subtitle="A run of new numbers, issued once and never repeated" back_url=back back_label="Tags & labels" hide_print=True %}
+
+<form method="post" class="grid gap-5 lg:grid-cols-3" novalidate autocomplete="off" id="tag-batch-form">
+  {% csrf_token %}
+  <div class="card card-body lg:col-span-2">
+    {% for e in form.non_field_errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+    <div class="form-section">What the tags are for</div>
+    <div class="form-grid">
+      {% include "pos/backoffice/_field.html" with field=form.title full=True %}
+      {% include "pos/backoffice/_field.html" with field=form.purpose %}
+      <div data-for="PRODUCT">{% include "pos/backoffice/_field.html" with field=form.product %}</div>
+      <div data-for="ASSET">{% include "pos/backoffice/_field.html" with field=form.asset %}</div>
+      <div data-for="FREE">{% include "pos/backoffice/_field.html" with field=form.subject_text %}</div>
+    </div>
+
+    <div class="form-section mt-6">Numbers</div>
+    <div class="form-grid">
+      {% include "pos/backoffice/_field.html" with field=form.prefix %}
+      {% include "pos/backoffice/_field.html" with field=form.padding %}
+      {% include "pos/backoffice/_field.html" with field=form.start %}
+      {% include "pos/backoffice/_field.html" with field=form.quantity %}
+    </div>
+    <p class="mt-2 text-sm text-ink-muted">Next free number for <span class="mono">{{ prefix }}</span>: <b class="mono">{{ next_free }}</b>.
+      <span id="range-preview" class="mono"></span></p>
+
+    <div class="form-grid mt-3">{% include "pos/backoffice/_field.html" with field=form.names full=True %}</div>
+
+    <div class="form-section mt-6">What prints</div>
+    <div class="form-grid">
+      {% include "pos/backoffice/_field.html" with field=form.label_size %}
+      {% include "pos/backoffice/_field.html" with field=form.code_type %}
+      <div data-qr>{% include "pos/backoffice/_field.html" with field=form.qr_content %}</div>
+    </div>
+    <div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+      {% for f in form %}{% if f.name|slice:":5" == "show_" %}<label class="check" for="{{ f.id_for_label }}"{% if f.name == "show_price" %} data-for="PRODUCT"{% endif %}>{{ f }} {{ f.label }}</label>{% endif %}{% endfor %}
+    </div>
+    <div class="form-grid mt-3">
+      {% include "pos/backoffice/_field.html" with field=form.line1 %}
+      {% include "pos/backoffice/_field.html" with field=form.line2 %}
+    </div>
+    <div class="form-actions">
+      <a href="{{ back }}" class="btn btn-ghost">Cancel</a>
+      <button type="submit" class="btn btn-primary">Issue tags</button>
+    </div>
+  </div>
+
+  <aside class="space-y-4 text-sm text-ink-muted">
+    <section class="card card-body">
+      <h2 class="card-title">Numbers never repeat</h2>
+      <p class="mt-1">Each prefix keeps its own counter for this company. A batch takes its numbers once; a lost or damaged sticker is reprinted with the same code from the batch, and a spoilt one is voided. Its number is not issued again.</p>
+    </section>
+    <section class="card card-body">
+      <h2 class="card-title">The QR code</h2>
+      <p class="mt-1">Holds the tag's own code and details as plain text (code | company | what it is). It never holds a link to this site. Scan it into <b>Find a tag</b> to open the tag.</p>
+    </section>
+    <section class="card card-body">
+      <h2 class="card-title">Label stock</h2>
+      <ul class="mt-1 list-disc pl-5">{% for k, s in sizes.items %}<li>{{ s.0 }}</li>{% endfor %}</ul>
+      <p class="mt-2">The logo is the one on your printed documents (Company settings → Documents), or the company logo.</p>
+    </section>
+  </aside>
+</form>
+
+<script>
+(function () {
+  var form = document.getElementById("tag-batch-form");
+  var purpose = form.querySelector("[name=purpose]");
+  function sync() {
+    form.querySelectorAll("[data-for]").forEach(function (el) { el.hidden = el.dataset.for !== purpose.value; });
+  }
+  purpose.addEventListener("change", sync); sync();
+  var kind = form.querySelector("[name=code_type]");
+  function syncKind() { form.querySelectorAll("[data-qr]").forEach(function (el) { el.hidden = kind.value !== "QR"; }); }
+  kind.addEventListener("change", syncKind); syncKind();
+  var prefix = form.querySelector("[name=prefix]"), pad = form.querySelector("[name=padding]"),
+      start = form.querySelector("[name=start]"), qty = form.querySelector("[name=quantity]"),
+      out = document.getElementById("range-preview"), nextFree = {{ next_free }};
+  function code(n) { var p = parseInt(pad.value, 10) || 5; return (prefix.value || "").toUpperCase() + String(n).padStart(p, "0"); }
+  function preview() {
+    var s = parseInt(start.value, 10) || nextFree, q = parseInt(qty.value, 10) || 0;
+    out.textContent = q > 0 ? "This batch: " + code(s) + " to " + code(s + q - 1) + "." : "";
+  }
+  [prefix, pad, start, qty].forEach(function (el) { el.addEventListener("input", preview); }); preview();
+})();
+</script>
+{% endblock %}

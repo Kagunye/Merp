@@ -38,6 +38,7 @@ urlpatterns = [
     path("pos/", include("apps.pos.urls")),
     path("kra/", include("apps.kra.urls")),
     path("payments/", include("apps.payments.urls")),
+    path("tagging/", include("apps.tagging.urls")),
     path("documents/", include("apps.documents.urls")),
     path("reports/", include("apps.reporting.urls")),
     path("fixed-assets/", include("apps.fixed_assets.urls")),

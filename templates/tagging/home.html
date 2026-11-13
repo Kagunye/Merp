@@ -1,0 +1,45 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "tagging:batch_create" "POST" as may_issue %}
+{% if may_issue %}{% url 'tagging:batch_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Tags & labels" subtitle="Numbered stickers with your logo, a QR code and a barcode, for stock, assets or anything else" action_label="Issue tags" action_url=new_url hide_print=True %}
+
+<div class="grid gap-4 lg:grid-cols-3">
+  <div class="lg:col-span-2">{% include "tagging/_lookup_box.html" %}</div>
+  <div class="stat-grid grid-cols-2">
+    {% include "_includes/stat.html" with label="Tags issued" value=totals.all icon="box" tone="brand" %}
+    {% include "_includes/stat.html" with label="Void" value=totals.void icon="x-circle" tone="neutral" %}
+  </div>
+</div>
+
+<section class="card mt-6 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Batches</h2><p class="card-subtitle">Each batch is a run of numbers issued once. Reprints keep the same codes.</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table table-compact">
+      <thead><tr><th>Batch</th><th>Codes</th><th class="num">Tags</th><th>For</th><th>Label</th><th>Issued</th><th></th></tr></thead>
+      <tbody>
+        {% for b in page %}
+        <tr>
+          <td><a class="row-link mono" href="{% url 'tagging:batch_detail' b.pk %}">{{ b.number }}</a>{% if b.title %}<div class="text-xs text-ink-muted">{{ b.title }}</div>{% endif %}</td>
+          <td class="mono whitespace-nowrap">{{ b.first_code }} – {{ b.last_code }}</td>
+          <td class="num">{{ b.quantity }}{% if b.void_count %} <span class="badge badge-neutral" title="voided">{{ b.void_count }} void</span>{% endif %}</td>
+          <td>{{ b.get_purpose_display }}{% if b.subject_text %}<div class="text-xs text-ink-muted">{{ b.subject_text|truncatechars:50 }}</div>{% endif %}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ b.get_label_size_display|truncatechars:28 }}</td>
+          <td class="whitespace-nowrap text-ink-2">{{ b.created_at|date:"d M Y" }}{% if b.created_by %}<div class="text-xs">{{ b.created_by.get_full_name|default:b.created_by.username }}</div>{% endif %}</td>
+          <td class="text-right"><a class="btn btn-secondary btn-sm" href="{% url 'tagging:batch_print' b.pk %}" target="_blank" rel="noopener">Print</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="empty-row">No tags issued yet.{% if may_issue %} <a class="row-link" href="{{ new_url }}">Issue the first batch</a>.{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% if page.has_other_pages %}
+<nav class="mt-4 flex items-center justify-between text-sm" aria-label="Pagination">
+  <span class="text-ink-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  <span class="flex gap-1">{% if page.has_previous %}<a class="btn btn-secondary btn-sm" href="?page={{ page.previous_page_number }}">Prev</a>{% endif %}{% if page.has_next %}<a class="btn btn-secondary btn-sm" href="?page={{ page.next_page_number }}">Next</a>{% endif %}</span>
+</nav>
+{% endif %}
+{% endblock %}

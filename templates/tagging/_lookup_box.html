@@ -1,0 +1,8 @@
+<form method="get" action="{% url 'tagging:lookup' %}" class="card card-body" role="search">
+  <label for="tag-scan" class="form-label">Scan a tag, or type its code or name</label>
+  <div class="mt-1 flex gap-2">
+    <input id="tag-scan" name="q" value="{{ q|default:'' }}" class="input flex-1 font-mono" placeholder="TAG-00001" autocomplete="off" autofocus spellcheck="false">
+    <button class="btn btn-primary">Find</button>
+  </div>
+  <p class="form-help">A barcode or QR scanner types the code here and presses Enter. The QR holds the code first, then the details.</p>
+</form>

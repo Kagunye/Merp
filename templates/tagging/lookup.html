@@ -1,0 +1,29 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "tagging:home" as may_home %}
+{% if may_home %}{% url 'tagging:home' as back %}{% endif %}
+{% include "_includes/page_header.html" with title="Find a tag" subtitle="Scan a tag's QR code or barcode, or type its code or name" back_url=back back_label="Tags & labels" hide_print=True %}
+
+<div class="max-w-2xl">
+  {% include "tagging/_lookup_box.html" %}
+  {% if code %}
+  <section class="card mt-4 overflow-hidden">
+    <div class="card-header"><div><h2 class="card-title">No tag {{ code }}</h2><p class="card-subtitle">{% if results %}Codes or names containing “{{ code }}”:{% else %}Nothing in this company matches. Check the code, or the company you are signed in to.{% endif %}</p></div></div>
+    {% if results %}
+    <div class="table-wrap rounded-none border-0 shadow-none">
+      <table class="table table-compact">
+        <thead><tr><th>Code</th><th>Name</th><th>Batch</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for t in results %}
+          <tr><td><a class="row-link mono" href="{% url 'tagging:tag_detail' t.pk %}">{{ t.code }}</a></td><td>{{ t.name|default:"—" }}</td><td class="mono">{{ t.batch.number }}</td>
+              <td>{% if t.is_void %}<span class="badge badge-danger">Void</span>{% else %}<span class="badge badge-success">Active</span>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

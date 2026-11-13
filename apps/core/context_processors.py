@@ -37,7 +37,7 @@ def global_context(request):
 
 
 NAV_MODULES = [
-    "dashboard", "accounting", "business_mgmt", "banking", "crm", "sales", "pos", "kra", "payments", "inventory",
+    "dashboard", "accounting", "business_mgmt", "banking", "crm", "sales", "pos", "kra", "payments", "inventory", "tagging",
     "procurement", "warehousing", "manufacturing", "workshop", "hr", "payroll", "timesheets",
     "recruitment", "projects", "expenses", "fixed_assets", "reporting", "documents", "helpdesk",
     "notifications", "sms", "control_panel",

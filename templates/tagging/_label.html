@@ -1,0 +1,24 @@
+{% comment %}One tag. Needs: l (a label from views._labels), batch, company, logo, w, h (mm).{% endcomment %}
+<div class="tg{% if l.barcode %} tg-bars{% endif %}" style="width:{{ w }}mm;height:{{ h }}mm;--h:{{ h }}">
+  {% if l.qr %}<div class="tg-qr">{{ l.qr|safe }}</div>{% endif %}
+  <div class="tg-body">
+    {% if logo or batch.show_company %}
+    <div class="tg-head">
+      {% if logo %}<img src="{{ logo }}" alt="">{% endif %}
+      {% if batch.show_company %}<span class="tg-co">{{ company.name }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if batch.show_code %}<div class="tg-code">{{ l.tag.code }}</div>{% endif %}
+    {% if l.tag.name %}<div class="tg-name">{{ l.tag.name }}</div>{% endif %}
+    {% if batch.subject_text or batch.line1 or batch.line2 or l.price %}
+    <div class="tg-lines">
+      {% if batch.subject_text %}<div>{{ batch.subject_text }}</div>{% endif %}
+      {% if batch.line1 %}<div>{{ batch.line1 }}</div>{% endif %}
+      {% if batch.line2 %}<div>{{ batch.line2 }}</div>{% endif %}
+      {% if l.price %}<div class="tg-price">{{ l.price }}</div>{% endif %}
+    </div>
+    {% endif %}
+    {% if l.barcode %}<div class="tg-bc">{{ l.barcode|safe }}</div>{% endif %}
+  </div>
+  {% if l.tag.is_void %}<div class="tg-void">VOID</div>{% endif %}
+</div>

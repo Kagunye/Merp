@@ -1,0 +1,64 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "tagging:batch_detail" as may_batch %}
+{% can_do "tagging:batch_print" as may_print %}
+{% can_do "tagging:batch_void" "POST" as may_void %}
+{% can_do "tagging:tag_rename" "POST" as may_rename %}
+{% url 'tagging:lookup' as back %}
+{% if tag.is_void %}{% include "_includes/page_header.html" with title=tag.code badge="Void" badge_class="badge-danger" subtitle=tag.name|default:batch.subject_text back_url=back back_label="Find a tag" hide_print=True %}
+{% else %}{% include "_includes/page_header.html" with title=tag.code badge="Active" badge_class="badge-success" subtitle=tag.name|default:batch.subject_text back_url=back back_label="Find a tag" hide_print=True %}{% endif %}
+{% include "tagging/_label_css.html" %}
+
+<div class="grid gap-5 lg:grid-cols-3">
+  <section class="card card-body lg:col-span-2">
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <div><dt class="text-ink-muted">Batch</dt><dd class="mono">{% if may_batch %}<a class="row-link" href="{% url 'tagging:batch_detail' batch.pk %}">{{ batch.number }}</a>{% else %}{{ batch.number }}{% endif %}{% if batch.title %} · {{ batch.title }}{% endif %}</dd></div>
+      <div><dt class="text-ink-muted">For</dt><dd>{{ batch.get_purpose_display }}{% if batch.product %}: {{ batch.product.sku }} {{ batch.product.name }}{% elif batch.asset %}: {{ batch.asset.code }} {{ batch.asset.name }}{% elif batch.subject_text %}: {{ batch.subject_text }}{% endif %}</dd></div>
+      {% for line in batch.lines %}<div><dt class="text-ink-muted">Line {{ forloop.counter }}</dt><dd>{{ line }}</dd></div>{% endfor %}
+      <div><dt class="text-ink-muted">Printed</dt><dd>{{ tag.print_count }} time{{ tag.print_count|pluralize }}{% if tag.last_printed_at %}, last {{ tag.last_printed_at|date:"d M Y H:i" }}{% endif %}</dd></div>
+      <div><dt class="text-ink-muted">Issued</dt><dd>{{ batch.created_at|date:"d M Y" }}</dd></div>
+      {% if tag.is_void %}<div class="col-span-2"><dt class="text-ink-muted">Voided</dt><dd>{{ tag.voided_at|date:"d M Y H:i" }}{% if tag.voided_by %} by {{ tag.voided_by.get_full_name|default:tag.voided_by.username }}{% endif %}: {{ tag.void_reason }}</dd></div>{% endif %}
+      {% if batch.show_qr %}<div class="col-span-2"><dt class="text-ink-muted">QR holds</dt><dd class="mono break-all">{{ payload }}</dd></div>
+      {% else %}<div class="col-span-2"><dt class="text-ink-muted">Barcode holds</dt><dd class="mono">{{ tag.code }}</dd></div>{% endif %}
+    </dl>
+    <h3 class="mt-5 text-sm font-semibold">The label (actual size)</h3>
+    <div class="mt-2 inline-block rounded border border-line bg-white p-2">
+      {% include "tagging/_label.html" with l=label w=batch.size.5 h=batch.size.6 %}
+    </div>
+    {% if may_print and not tag.is_void %}
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a class="btn btn-primary btn-sm" target="_blank" rel="noopener" href="{% url 'tagging:batch_print' batch.pk %}?from={{ tag.number }}&to={{ tag.number }}">Reprint this tag</a>
+      <a class="btn btn-secondary btn-sm" href="{% url 'tagging:batch_zpl' batch.pk %}?from={{ tag.number }}&to={{ tag.number }}">ZPL</a>
+    </div>
+    {% endif %}
+  </section>
+
+  <aside class="space-y-4">
+    <section class="card card-body">
+      {% if batch.show_qr %}<div class="mx-auto w-48 rounded bg-white p-2">{{ big_qr|safe }}</div>
+      {% else %}<div class="mx-auto h-20 w-full max-w-xs rounded bg-white p-1">{{ barcode|safe }}</div>{% endif %}
+      <p class="mt-1 text-center font-mono text-sm">{{ tag.code }}</p>
+    </section>
+    {% if may_rename %}
+    <form method="post" action="{% url 'tagging:tag_rename' tag.pk %}" class="card card-body">
+      {% csrf_token %}
+      <h2 class="card-title">Name</h2>
+      <p class="mt-1 text-sm text-ink-muted">What you call this tag. It prints on the label and goes into the QR; reprint after renaming.</p>
+      <label class="form-field mt-2"><span class="sr-only">Name</span><input class="input" name="name" maxlength="80" value="{{ tag.name }}" placeholder="Reception laptop"></label>
+      <button class="btn btn-secondary btn-sm mt-3 self-start">Save name</button>
+    </form>
+    {% endif %}
+    {% if may_void and not tag.is_void %}
+    <form method="post" action="{% url 'tagging:batch_void' batch.pk %}" class="card card-body">
+      {% csrf_token %}
+      <input type="hidden" name="from" value="{{ tag.number }}"><input type="hidden" name="to" value="{{ tag.number }}">
+      <input type="hidden" name="next" value="{{ request.path }}">
+      <h2 class="card-title">Void this tag</h2>
+      <label class="form-field mt-2"><span class="form-label">Reason</span><input class="input" name="reason" maxlength="200" required placeholder="Lost"></label>
+      <button class="btn btn-danger btn-sm mt-3 self-start" onclick="return confirm('Void {{ tag.code }}? This cannot be undone.')">Void</button>
+    </form>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}
