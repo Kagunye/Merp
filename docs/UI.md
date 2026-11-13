@@ -632,3 +632,27 @@ Mofisi keeps working without a connection and syncs when it is back.
 - MySQL does not enforce "unique only when filled in" constraints (POS ticket tokens, one POS
   card / M-Pesa bank account). The app still checks these before saving; only the database-level
   backstop against two simultaneous posts is missing.
+
+## A company with its own database
+
+Every company shares one database by default, kept apart by the company on each row. A company
+can instead keep its business data in a database of its own (SQLite, PostgreSQL or MySQL):
+
+- `python manage.py move_company "Acme Ltd" --url postgres://user:pass@host:5432/acme` (or
+  `--env ACME_DATABASE_URL` to keep only the variable's name; `--dry-run` counts first). The
+  target is migrated, the company's rows are copied as they are, and rows per table plus
+  journal lines and debit/credit totals per account are compared before the company is
+  switched over. A copy that does not match is rolled back.
+- `--back` brings the data home again (stale rows left in the shared database are replaced).
+  `--purge-source` deletes the company's rows from the shared database after a checked move
+  out; without it they stay as a snapshot that nothing reads.
+- The shared database stays the control database: sign-in, users, companies, memberships and
+  roles live there. The company's database holds its books, sales, POS, stock, purchasing,
+  HR, payroll, KRA and payments, its branches, warehouses and fiscal years, plus copies of
+  its company row, memberships and members (with no usable password) so foreign keys hold.
+- The URL is stored encrypted with `TENANT_DB_KEY` (falls back to `SECRET_KEY`). Set
+  `TENANT_DB_KEY` before moving anyone, so rotating `SECRET_KEY` never locks a company out.
+- Deploys run `manage.py migrate_companies` after `migrate`; a company database that missed
+  it catches up on its first request.
+- Gateway callbacks (M-Pesa, Pesapal, DPO) find their company's database by the key.
+- Checks: `python manage.py test_fix_tenancy`.

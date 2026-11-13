@@ -18,3 +18,4 @@ PyMySQL==1.1.1          # only used when DATABASE_URL is mysql://
 django-celery-beat==2.7.0
 django-celery-results==2.5.1
 qrcode==8.2
+cryptography==43.0.3      # encrypts company database URLs (apps.core.tenancy)

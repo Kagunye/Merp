@@ -19,6 +19,9 @@ python3.12 manage.py collectstatic --noinput --clear
 echo "BUILD: attempting migrations (non-fatal)"
 python3.12 manage.py migrate --noinput || echo "BUILD: migrations skipped or failed; app will boot without them"
 
+echo "BUILD: migrating company databases, if any company has its own (non-fatal)"
+python3.12 manage.py migrate_companies || echo "BUILD: a company database was not migrated; it catches up on first use"
+
 echo "BUILD: ensuring default admin user exists (non-fatal)"
 python3.12 manage.py create_default_admin || echo "BUILD: admin seed skipped (no DB attached yet)"
 
