@@ -15,12 +15,19 @@ def run(request):
     given = request.GET.get("token") or request.headers.get("Authorization", "").removeprefix("Bearer ")
     if not expected or not hmac.compare_digest(expected, given or ""):
         return HttpResponseForbidden("no")
+    from apps.core import tenancy
+    from apps.organizations.models import Company
     from . import services
     from .models import EtimsSettings
     done = {}
-    for conf in EtimsSettings.objects.filter(enabled=True).select_related("company"):
+    # Company by company, each in its own database when it keeps one: the
+    # shared database alone would never see those companies' queues.
+    for company in Company.objects.filter(is_active=True):
         try:
-            done[str(conf.company_id)] = services.sync_all(conf.company)
+            with tenancy.company_db(company):
+                if not EtimsSettings.objects.filter(company_id=company.pk, enabled=True).exists():
+                    continue
+                done[str(company.pk)] = services.sync_all(company)
         except Exception as exc:   # noqa: BLE001 - one company must not stop the rest
-            done[str(conf.company_id)] = f"error: {exc}"
+            done[str(company.pk)] = f"error: {exc}"
     return JsonResponse({"ok": True, "companies": len(done), "result": done})
