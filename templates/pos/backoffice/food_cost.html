@@ -1,0 +1,43 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Recipe costing" subtitle="What each dish costs to make today (ingredients at their current shelf cost) against its menu price before VAT" %}
+
+<form method="get" class="mb-4 flex flex-wrap items-end gap-3 no-print">
+  <div class="form-field"><label class="form-label" for="fc-menu">Menu</label>
+    <select id="fc-menu" name="menu" class="select"><option value="">All menus</option>{% for m in menus %}<option value="{{ m.pk }}"{% if menu and m.pk == menu.pk %} selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></div>
+  <div class="form-field"><label class="form-label" for="fc-target">Target food cost %</label>
+    <input id="fc-target" name="target" type="number" step="0.5" min="1" max="100" value="{{ target }}" class="input w-28"></div>
+  <button class="btn btn-secondary">Show</button>
+</form>
+
+<div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+  <div class="stat"><p class="stat-label">Average food cost</p><p class="stat-value">{% if avg_pct is not None %}{{ avg_pct|pct }}{% else %}—{% endif %}</p><p class="stat-meta">Target {{ target|pct }}</p></div>
+  <div class="stat"><p class="stat-label">Over target</p><p class="stat-value{% if over %} text-danger{% endif %}">{{ over }}</p><p class="stat-meta">Re-price or re-cost these</p></div>
+  <div class="stat"><p class="stat-label">No recipe yet</p><p class="stat-value">{{ no_recipe }}</p><p class="stat-meta">Costed at the product's own cost</p></div>
+</div>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Item</th><th>Menu · section</th><th class="num">Price</th><th class="num">Cost</th><th class="num">Food cost</th><th class="num">Gross profit</th><th>Recipe</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="font-semibold">{{ r.item.label }}</td>
+        <td class="text-ink-2">{{ r.item.section.menu.name }} · {{ r.item.section.name }}</td>
+        <td class="num">{{ r.price|money }}</td>
+        <td class="num">{{ r.cost|money }}</td>
+        <td class="num">{% if r.pct is not None %}<span class="{% if r.over %}font-bold text-danger{% else %}text-success{% endif %}">{{ r.pct|pct }}</span>{% else %}—{% endif %}</td>
+        <td class="num">{{ r.profit|money }}</td>
+        <td>{% if r.has_recipe %}<details><summary class="cursor-pointer text-sm text-ink-2">{{ r.ingredients|length }} ingredient{{ r.ingredients|length|pluralize }}</summary>
+          <ul class="mt-1 space-y-0.5 text-xs text-ink-muted">{% for g in r.ingredients %}<li>{{ g.quantity|qty }} {{ g.component.unit_of_measure.abbreviation }} {{ g.component.name }} @ {{ g.unit|money }} = {{ g.cost|money }}</li>{% endfor %}</ul></details>
+          {% else %}<span class="badge badge-neutral">none</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="empty-row">No menu items yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-3 text-sm text-ink-muted">A recipe is a bill of materials (Manufacturing) for the dish, marked <strong>Recipe: take the ingredients off the shelf when sold</strong>. Selling the dish at the till then takes the ingredients off the station's shelf, so the stock count and cost of sales stay true.</p>
+{% endblock %}

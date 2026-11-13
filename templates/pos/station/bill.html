@@ -94,6 +94,7 @@
                 <span class="block font-semibold {% if l.status == 'VOID' %}line-through{% endif %}">{{ l.name }}</span>
                 {% if l.note %}<span class="block text-xs text-ink-muted">“{{ l.note }}”</span>{% endif %}
                 {% if l.price_rule %}<span class="block text-xs text-success">{{ l.price_rule.name }}</span>{% endif %}
+                {% if l.kitchen_ticket_id and l.status == "ACTIVE" %}<span class="block text-xs text-ink-muted">Sent to {{ l.kitchen_ticket.prep_station.name }} {{ l.kitchen_ticket.created_at|date:"H:i" }}{% if l.kitchen_ticket.done_at %} · <span class="text-success">ready</span>{% endif %}</span>{% endif %}
                 {% if l.status == 'VOID' %}<span class="block text-xs text-danger">Voided: {{ l.void_reason }} · {{ l.voided_by.name|default:"manager" }}</span>{% endif %}
               </td>
               <td class="num cursor-default {% if l.status == 'VOID' %}line-through{% endif %}">{{ l.quantity|qty }}</td>
@@ -112,6 +113,7 @@
           </tbody>
         </table>
       </div>
+      {% if kitchen_tickets %}<p class="shrink-0 border-t border-divider px-4 py-1.5 text-xs text-ink-muted">Kitchen: {% for t in kitchen_tickets %}<a class="row-link" href="{% url 'pos:bill_kot' t.pk %}?autoprint=1" target="_blank" rel="noopener">{{ t.number }}</a> {{ t.prep_station.name }}{% if t.kind == "VOID" %} (cancel){% endif %}{% if t.done_at %} ✓{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
       <dl class="dl-rows shrink-0 border-t border-divider px-4 py-2 text-sm">
         <div><dt>Subtotal (net)</dt><dd class="num">{{ totals.subtotal|money }}</dd></div>
         {% if totals.discount %}<div><dt>Discount given</dt><dd class="num">{{ totals.discount|money }}</dd></div>{% endif %}
@@ -127,6 +129,7 @@
             {% csrf_token %}<input type="hidden" name="action" value="print">
             <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="printer" only %}Print bill</button>
           </form>
+          <form method="post" action="{% url 'pos:bill_send' order.pk %}" class="no-card">{% csrf_token %}<button type="submit" class="btn btn-secondary" {% if not unsent %}disabled title="Nothing new for the kitchen"{% endif %}>{% include "_includes/icon.html" with name="bell" only %}Send to kitchen{% if unsent %} ({{ unsent }}){% endif %}</button></form>
           <button type="button" class="btn btn-secondary" data-open="dlg-split" {% if totals.items <= 0 %}disabled{% endif %}>{% include "_includes/icon.html" with name="users" only %}Split</button>
           <button type="button" class="btn btn-danger-ghost" data-open="dlg-void-bill">{% include "_includes/icon.html" with name="x-circle" only %}Void bill</button>
           {% if may_pay %}
@@ -215,6 +218,26 @@
 {% endif %}
 
 <script src="{% static 'pos/station.js' %}"></script>
+{% if request.GET.kot %}<script src="{% static 'js/offline.js' %}"></script><script src="{% static 'pos/hardware.js' %}"></script>
+<script>
+(function () {
+  // Print the tickets just sent, each on its own station's printer.
+  var ids = '{{ request.GET.kot|escapejs }}'.split(',').filter(function (x) { return /^\d+$/.test(x); });
+  if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+  ids.forEach(function (id) {
+    fetch('/pos/hardware/kot/' + id + '/', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { (window.posToast || alert)(d.error || 'The kitchen printer could not be reached.'); return; }
+        if (d.sent) return;                                  // the server printed it
+        if (!d.printer) return;          // no printer: the kitchen screen has it; the bill lists it to print
+        MerpHardware.sendTo(d.printer, d.data, d.text).catch(function (e) {
+          alert('Kitchen ticket not printed: ' + e.message + ' It is on the kitchen screen.');
+        });
+      });
+  });
+})();
+</script>{% endif %}
 {% if live %}<script>
 (function () {
   var d = document.getElementById('dlg-split'); if (!d) return;

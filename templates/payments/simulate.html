@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load ui_extras %}
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,7 +17,7 @@
     <span class="tag">Simulator: no money moves</span>
     <h1 style="font-size:22px;margin:12px 0 4px">{{ req.gateway.get_provider_display }} checkout</h1>
     <p style="margin:0;color:#444">{{ req.description }}</p>
-    <p style="font-size:28px;font-weight:800;margin:14px 0">{{ req.currency }} {{ req.amount }}</p>
+    <p style="font-size:28px;font-weight:800;margin:14px 0">{{ req.currency }} {{ req.amount|money }}</p>
     <button class="pay" name="result" value="PAID">Pay (practice)</button>
     <button class="fail" name="result" value="FAILED">Decline</button>
   </form>

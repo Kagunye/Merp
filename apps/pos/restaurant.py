@@ -18,8 +18,8 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from . import services
-from .models import (POSDayEnd, POSMenuItem, POSOrder, POSOrderLine, POSPriceRule, POSSale,
-                     POSSaleLine, POSSession, POSSettings, POSStaff)
+from .models import (POSDayEnd, POSKitchenTicket, POSMenuItem, POSOrder, POSOrderLine, POSPriceRule,
+                     POSSale, POSSaleLine, POSSession, POSSettings, POSStaff)
 
 D = Decimal
 Z = D("0")
@@ -296,6 +296,88 @@ def add_item(order, item, quantity, staff, *, note=""):
     return line
 
 
+# ───────────────────────────────── kitchen tickets ─────────────────────────────────
+#
+# Items go to where they are prepared (the item's own station, else its menu
+# section's). "Send to kitchen" groups everything not yet sent into one ticket
+# per station; printing or paying the bill sends anything still unsent, so the
+# kitchen never misses a dish that was billed. Voiding a sent item sends a
+# cancel ticket to the same station.
+
+def prep_station_for(line):
+    item = line.menu_item
+    if item is None:
+        return None
+    station = item.prep_station or item.section.prep_station
+    if station is None or not station.is_active:
+        return None
+    if station.branch_id and station.branch_id != line.order.branch_id:
+        return None
+    return station
+
+
+def _snapshot(line, qty=None):
+    return {"line": line.pk, "name": line.name, "qty": str((qty or line.quantity).normalize()),
+            "note": line.note}
+
+
+def _ticket(order, station, kind, items, staff):
+    from apps.core.models import SequenceCounter
+    return POSKitchenTicket.objects.create(
+        company=order.company, order=order, prep_station=station, kind=kind, items=items, sent_by=staff,
+        number=SequenceCounter.next_number(order.company, "KOT-"))
+
+
+def send_to_kitchen(order, staff):
+    """One ticket per preparation station for everything not sent yet.
+    Returns the tickets (none when there was nothing new to send)."""
+    pending = list(order.lines.select_related("menu_item__section__prep_station", "menu_item__prep_station")
+                   .filter(status="ACTIVE", kitchen_ticket__isnull=True))
+    groups = {}
+    for line in pending:
+        station = prep_station_for(line)
+        if station is not None:
+            groups.setdefault(station, []).append(line)
+    tickets = []
+    for station, lines in sorted(groups.items(), key=lambda kv: kv[0].name):
+        ticket = _ticket(order, station, "NEW", [_snapshot(l) for l in lines], staff)
+        # Only lines still unsent are claimed: a second device sending at the
+        # same moment cannot put the same dish on two tickets.
+        claimed = POSOrderLine.objects.filter(pk__in=[l.pk for l in lines],
+                                              kitchen_ticket__isnull=True).update(kitchen_ticket=ticket)
+        if claimed != len(lines):
+            raise ValidationError("Someone else just sent this bill to the kitchen. Look again.")
+        tickets.append(ticket)
+    return tickets
+
+
+def _cancel_in_kitchen(order, lines, staff, reason):
+    groups = {}
+    for line in lines:
+        if line.kitchen_ticket_id:
+            groups.setdefault(line.kitchen_ticket.prep_station, []).append(line)
+    for station, sent in groups.items():
+        items = [{**_snapshot(l), "note": f"CANCEL: {reason}"[:120]} for l in sent]
+        _ticket(order, station, "VOID", items, staff)
+
+
+def kitchen_queue(station, branch=None):
+    """Open tickets for a kitchen screen, oldest first."""
+    qs = POSKitchenTicket.objects.filter(prep_station=station, done_at__isnull=True).select_related(
+        "order__table", "order__waiter")
+    if branch is not None:
+        qs = qs.filter(order__branch=branch)
+    return qs.order_by("created_at")
+
+
+def bump(ticket):
+    """The kitchen marks a ticket done (ready to serve, or cancel seen)."""
+    if not POSKitchenTicket.objects.filter(pk=ticket.pk, done_at__isnull=True).update(done_at=timezone.now()):
+        raise ValidationError(f"{ticket.number} is already done.")
+    ticket.refresh_from_db()
+    return ticket
+
+
 # ─────────────────────────────────── split bills ───────────────────────────────────
 #
 # A table that pays separately gets separate bills: each part is paid on its own
@@ -320,7 +402,7 @@ def _copy_line(line, order, quantity):
     return POSOrderLine.objects.create(
         order=order, menu_item=line.menu_item, product=line.product, name=line.name, quantity=quantity,
         unit_price=line.unit_price, discount_percent=line.discount_percent, price_rule=line.price_rule,
-        note=line.note, added_by=line.added_by)
+        note=line.note, added_by=line.added_by, kitchen_ticket=line.kitchen_ticket)
 
 
 def _reopen(order):
@@ -407,6 +489,7 @@ def void_line(line, manager, requested_by, reason):
     POSOrderLine.objects.filter(pk=line.pk, status="ACTIVE").update(
         status="VOID", voided_by=manager, void_requested_by=requested_by,
         void_reason=reason[:255], voided_at=timezone.now())
+    _cancel_in_kitchen(order, [line], manager, reason)
     if order.status == "BILLED":
         POSOrder.objects.filter(pk=order.pk).update(status="OPEN", billed_at=None)
 
@@ -420,6 +503,7 @@ def void_order(order, manager, reason, requested_by=None):
     if manager is None or not manager.is_manager:
         raise ValidationError("Only a manager can void a bill.")
     now = timezone.now()
+    _cancel_in_kitchen(order, list(order.lines.filter(status="ACTIVE")), manager, reason)
     order.lines.filter(status="ACTIVE").update(
         status="VOID", voided_by=manager, void_requested_by=requested_by,
         void_reason=reason[:255], voided_at=now)
@@ -432,6 +516,7 @@ def print_bill(order):
     _claim(order, "print it")
     if not order.lines.filter(status="ACTIVE").exists():
         raise ValidationError("There is nothing on the bill to print.")
+    send_to_kitchen(order, None)       # nothing billed that the kitchen never saw
     POSOrder.objects.filter(pk=order.pk).update(status="BILLED", billed_at=timezone.now())
     order.refresh_from_db()
     return order
@@ -451,6 +536,7 @@ def close_order(order, user, *, payment_method="CASH", tendered="", token="", se
     lines = list(order.lines.filter(status="ACTIVE").select_related("product__tax_rate"))
     if not lines:
         raise ValidationError("There is nothing on the bill to pay for. Void it instead.")
+    send_to_kitchen(order, None)
     salesperson = None
     if order.waiter.user_id and services.company_people(order.company).filter(
             pk=order.waiter.user_id).exists():
@@ -648,3 +734,57 @@ def close_day(company, branch, day, user):
     return POSDayEnd.objects.create(company=company, branch=branch, business_date=day,
                                     closed_by=user, closed_at=timezone.now(),
                                     summary=_plain(report))
+
+
+# ─────────────────────────────── recipe costing ─────────────────────────────────
+
+def _unit_cost(product, warehouse=None):
+    """What one unit costs today: the shelf's average (the station's shelf
+    first, else every shelf weighted by stock), else the product's cost price."""
+    from apps.inventory.models import StockLevel
+    levels = StockLevel.objects.filter(product=product, quantity__gt=0)
+    if warehouse is not None:
+        here = levels.filter(warehouse=warehouse).first()
+        if here is not None and here.avg_cost:
+            return here.avg_cost
+    qty = value = Z
+    for lv in levels:
+        qty += lv.quantity
+        value += lv.value
+    if qty > 0 and value > 0:
+        return (value / qty).quantize(D("0.0001"))
+    return product.cost_price or Z
+
+
+def recipe_cost(product, warehouse=None):
+    """(cost of one, ingredient rows) for a dish; a plain product costs itself."""
+    bom = services.recipe_for(product)
+    if bom is None:
+        return _unit_cost(product, warehouse), []
+    per = bom.production_quantity or D("1")
+    rows, total = [], Z
+    for line in bom.lines.all():
+        use = line.quantity * (D("1") + (line.scrap_percent or Z) / D("100")) / per
+        unit = _unit_cost(line.component, warehouse)
+        cost = (use * unit).quantize(D("0.0001"))
+        rows.append({"component": line.component, "quantity": use.quantize(D("0.0001")), "unit": unit, "cost": cost})
+        total += cost
+    return total.quantize(D("0.01")), rows
+
+
+def food_cost_report(company, menu=None, target=D("35")):
+    """Every item on the menus: price (before VAT), what its recipe costs today,
+    food cost % and gross profit per portion. `target` flags the items above it."""
+    items = POSMenuItem.objects.filter(section__menu__company=company, is_available=True).select_related(
+        "section__menu", "product").order_by("section__menu__name", "section__sort_order", "sort_order")
+    if menu is not None:
+        items = items.filter(section__menu=menu)
+    out = []
+    for item in items:
+        price = item.price if item.price is not None else (item.product.selling_price or Z)
+        cost, ingredients = recipe_cost(item.product)
+        pct = (cost / price * 100).quantize(D("0.1")) if price else None
+        out.append({"item": item, "price": price, "cost": cost, "pct": pct, "profit": price - cost,
+                    "ingredients": ingredients, "has_recipe": bool(ingredients),
+                    "over": pct is not None and pct > target})
+    return out

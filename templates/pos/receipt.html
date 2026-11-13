@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+{% load static ui_extras %}{% comment %}
+An 80 mm receipt from the same lines the thermal printer gets
+(apps/pos/hardware.receipt_lines): the KRA fiscal layout when eTIMS is on,
+a plain shop receipt otherwise. Standalone, black on white.
+{% endcomment %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>Receipt {{ sale.reference }}</title>
+  <style>
+    @page { size: 80mm auto; margin: 3mm; }
+    html, body { background: #e9e9e9; margin: 0; }
+    body { font: 12.5px/1.35 "Courier New", Courier, monospace; color: #000; }
+    .r { width: 72mm; margin: 12px auto; background: #fff; padding: 5mm 4mm; box-shadow: 0 1px 6px rgb(0 0 0 / .15); }
+    .c { text-align: center; } .b { font-weight: 700; }
+    .title { text-align: center; font-weight: 800; font-size: 15px; letter-spacing: .02em; }
+    .row { display: flex; justify-content: space-between; gap: 8px; }
+    .row span:last-child { text-align: right; white-space: nowrap; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; } .row3 span:nth-child(n+2) { text-align: right; }
+    .total { display: flex; justify-content: space-between; font-weight: 800; font-size: 16px; margin: 2px 0; }
+    .rule { border-top: 1px dashed #000; margin: 4px 0; } .dots { border-top: 2px dotted #000; margin: 5px 0; }
+    .blank { height: .7em; } .wrap { word-break: break-all; }
+    .qr { display: flex; justify-content: center; margin: 6px 0; } .qr svg { width: 46mm; height: 46mm; }
+    .tools { text-align: center; margin: 10px; } .tools button { font: inherit; padding: 6px 14px; }
+    @media print { html, body { background: #fff; } .r { box-shadow: none; margin: 0 auto; } .tools { display: none; } }
+  </style>
+</head>
+<body>
+<div class="tools"><button type="button" onclick="window.print()">Print</button> <button type="button" onclick="history.back()">Back</button></div>
+<div class="r">
+  {% for kind, value in lines %}
+    {% if kind == "title" %}<div class="title">{{ value }}</div>
+    {% elif kind == "center" %}<div class="c">{{ value }}</div>
+    {% elif kind == "bold" %}<div class="b">{{ value }}</div>
+    {% elif kind == "left" %}<div class="wrap">{{ value }}</div>
+    {% elif kind == "cols" %}<div class="row"><span>{{ value.0 }}</span><span>{{ value.1 }}</span></div>
+    {% elif kind == "cols3" %}<div class="row3"><span>{{ value.0 }}</span><span>{{ value.1 }}</span><span>{{ value.2 }}</span></div>
+    {% elif kind == "total" %}<div class="total"><span>{{ value.0 }}</span><span>{{ value.1 }}</span></div>
+    {% elif kind == "rule" %}<div class="rule"></div>
+    {% elif kind == "dots" %}<div class="dots"></div>
+    {% elif kind == "blank" %}<div class="blank"></div>
+    {% elif kind == "qr" %}<div class="qr">{{ qr_svg|safe }}</div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% can_do "pos:hw_config" as may_hw %}
+{% if may_hw %}<script src="{% static 'js/offline.js' %}"></script><script src="{% static 'pos/hardware.js' %}"></script>{% endif %}
+<script>
+(function () {
+  // A receipt printer on the shop network prints it (and opens the drawer on
+  // cash, once); otherwise the browser prints this page.
+  var auto = {{ autoprint|yesno:"true,false" }}, saleId = '{{ sale.pk }}';
+  var cash = '{{ sale.payment_method }}' === 'CASH', refund = {{ sale.refund_of_id|yesno:"true,false" }};
+  var tools = document.querySelector('.tools');
+  function browserPrint() { window.print(); }
+  function useLan() {
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.textContent = 'Print to till printer';
+    var out = document.createElement('span'); out.setAttribute('role', 'status');
+    tools.insertBefore(btn, tools.firstChild); tools.appendChild(out);
+    btn.addEventListener('click', function () {
+      out.textContent = ' Printing…';
+      MerpHardware.printReceipt(saleId, {}).then(function () { out.textContent = ' Printed.'; },
+        function (e) { out.textContent = ' ' + e.message; });
+    });
+    if (auto) {
+      out.textContent = ' Sending to the till printer…';
+      MerpHardware.afterSale(saleId, cash, refund ? 'REFUND' : 'SALE').then(function (r) {
+        if (r.error) { out.textContent = ' ' + r.error; browserPrint(); }
+        else out.textContent = r.drawer ? ' Printed, drawer opened.' : ' Printed.';
+      });
+    }
+  }
+  if (auto && window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+  window.addEventListener('load', function () {
+    if (window.MerpHardware) {
+      MerpHardware.load().then(function () {
+        var p = MerpHardware.current();
+        if (p && p.print) { useLan(); return; }
+        if (auto && p && cash && p.drawer_on_cash) MerpHardware.afterSale(saleId, true, refund ? 'REFUND' : 'SALE');
+        if (auto) browserPrint();
+      });
+    } else if (auto) browserPrint();
+  });
+})();
+</script>
+</body>
+</html>

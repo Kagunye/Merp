@@ -329,6 +329,62 @@ class Command(BaseCommand):
         self.expect("DPO createToken escapes the XML and gives the payment page",
                     out["checkout_url"].endswith("T-1") and "A&amp;B &lt;1&gt;" in sent[0][2])
 
+
+        self.section("6b. provider errors read in words (local fake server)")
+        import threading as _th
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Fake(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if "oauth" in self.path:
+                    body = b'{"requestId":"1","errorCode":"400.008.01","errorMessage":"Invalid Authentication passed"}'
+                    self.send_response(400)
+                else:
+                    body = b"<html>Bad gateway</html>"
+                    self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+            do_POST = do_GET
+
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        _th.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        try:
+            with mock.patch.dict(backends.Mpesa.HOSTS, {"SANDBOX": base}):
+                try:
+                    backends.Mpesa(live).check()
+                    said = ""
+                except backends.GatewayError as exc:
+                    said = str(exc)
+            self.expect("Daraja refusing the keys says why", "Invalid Authentication" in said, said)
+            with mock.patch.dict(backends.Pesapal.HOSTS, {"SANDBOX": base + "/x"}):
+                try:
+                    backends.Pesapal(pp).token()
+                    said = ""
+                except backends.GatewayError as exc:
+                    said = str(exc)
+            self.expect("a provider answering an error page says HTTP 502, not a crash", "502" in said, said)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        with mock.patch.dict(backends.Mpesa.HOSTS, {"SANDBOX": "http://127.0.0.1:9"}):
+            try:
+                backends.Mpesa(live).check()
+                said = ""
+            except backends.GatewayError as exc:
+                said = str(exc)
+        self.expect("a provider that cannot be reached says so", "Could not reach" in said, said)
+        r = self.ac.post(reverse("payments:gateway_register_c2b", args=["mpesa"]))
+        self.expect("registering paybill URLs in the simulator says nothing was registered",
+                    r.status_code == 302)
+        page = self.ac.get(reverse("payments:gateway_edit", args=["mpesa"])).content.decode()
+        self.expect("the settings form starts with Switched on and Environment",
+                    page.index('name="is_active"') < page.index('name="environment"') < page.index('name="consumer_key"'))
+
         # ── 7 ──
         self.section("7. roles")
         inv4 = self.invoice("900", f"INV-R{self.stamp[-5:]}")

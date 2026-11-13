@@ -145,6 +145,41 @@ def station_edit(request, pk=None):
                    ("Stations", reverse("pos:bo_station_list")), (title, None))
 
 
+# ─────────────────────────────── kitchen stations ───────────────────────────────
+
+def _prep_stations(company):
+    from .models import POSPrepStation
+    return list(POSPrepStation.objects.filter(company=company, is_active=True).order_by("name"))
+
+
+@login_required
+def prep_list(request):
+    from .models import POSPrepStation
+    company = _company(request)
+    stations = POSPrepStation.objects.filter(company=company).select_related("branch", "printer").annotate(
+        section_count=Count("sections", distinct=True), item_count=Count("items", distinct=True))
+    return _render(request, "pos/backoffice/prep_list.html",
+                   {"stations": stations, "page_title": "Kitchen stations"}, ("Kitchen stations", None))
+
+
+@login_required
+def prep_edit(request, pk=None):
+    from .forms_backoffice import PrepStationForm
+    from .models import POSPrepStation
+    company = _company(request)
+    station = get_object_or_404(POSPrepStation, pk=pk, company=company) if pk else None
+    form = PrepStationForm(request.POST or None, instance=station, company=company)
+    if request.method == "POST" and form.is_valid():
+        if _save(request, form, "Kitchen station {obj.name} saved."):
+            return redirect("pos:bo_prep_list")
+    title = f"Edit {station.name}" if station else "New kitchen station"
+    return _render(request, "pos/backoffice/form.html",
+                   {"form": form, "page_title": title, "title": title,
+                    "subtitle": "Where orders are prepared. Route menu sections to it; its tickets print on its printer.",
+                    "back_url": reverse("pos:bo_prep_list"), "submit_label": "Save station"},
+                   ("Kitchen stations", reverse("pos:bo_prep_list")), (title, None))
+
+
 # ─────────────────────────────────── tables ─────────────────────────────────────
 
 @login_required
@@ -221,6 +256,7 @@ def menu_detail(request, pk):
     item_form = ItemForm(company=company)
     return _render(request, "pos/backoffice/menu_detail.html",
                    {"menu": menu, "sections": sections, "item_form": item_form,
+                    "prep_stations": _prep_stations(company),
                     "page_title": menu.name,
                     "stations": menu.stations.select_related("branch"),
                     "is_default": restaurant.settings_for(company).default_menu_id == menu.pk},
@@ -268,7 +304,13 @@ def section_save(request, pk):
             return back
         section.name = name
         section.sort_order = _sort_order(request.POST.get("sort_order"), section.sort_order)
-        section.save(update_fields=["name", "sort_order"])
+        fields = ["name", "sort_order"]
+        if "prep_station" in request.POST:
+            from .models import POSPrepStation
+            section.prep_station = services.by_pk(POSPrepStation.objects.filter(company=company),
+                                                  request.POST.get("prep_station"))
+            fields.append("prep_station")
+        section.save(update_fields=fields)
         messages.success(request, f"Section {name} saved.")
     elif action == "delete":
         rules = list(section.price_rules.values_list("name", flat=True))
@@ -539,3 +581,23 @@ def item_picture(request, item):
         return redirect(back)
     messages.success(request, f"Picture saved for {found.label}; the tills show it from the next screen.")
     return redirect(back)
+
+
+@login_required
+def food_cost(request):
+    """Recipe costing: what each dish costs to make today against its price."""
+    from decimal import Decimal, InvalidOperation
+    company = _company(request)
+    menu = services.by_pk(POSMenu.objects.filter(company=company), request.GET.get("menu"))
+    try:
+        target = Decimal(request.GET.get("target") or "35")
+    except InvalidOperation:
+        target = Decimal("35")
+    rows = restaurant.food_cost_report(company, menu, target)
+    priced = [r for r in rows if r["pct"] is not None]
+    return _render(request, "pos/backoffice/food_cost.html", {
+        "rows": rows, "menus": POSMenu.objects.filter(company=company).order_by("name"), "menu": menu,
+        "target": target, "page_title": "Recipe costing",
+        "over": sum(1 for r in rows if r["over"]), "no_recipe": sum(1 for r in rows if not r["has_recipe"]),
+        "avg_pct": (sum((r["pct"] for r in priced), Decimal("0")) / len(priced)).quantize(Decimal("0.1")) if priced else None,
+    }, ("Recipe costing", None))

@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load ui_extras %}
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +14,7 @@
 </head>
 <body>
   <div class="box">
-    {% if req.status == "PAID" %}<h1 class="ok">Payment received</h1><p>{{ req.currency }} {{ req.amount }} for {{ req.reference }}.</p>{% if req.receipt %}<p>Confirmation: <strong>{{ req.receipt }}</strong></p>{% endif %}
+    {% if req.status == "PAID" %}<h1 class="ok">Payment received</h1><p>{{ req.currency }} {{ req.amount|money }} for {{ req.reference }}.</p>{% if req.receipt %}<p>Confirmation: <strong>{{ req.receipt }}</strong></p>{% endif %}
     {% elif req.status == "PENDING" %}<h1 class="wait">Waiting for confirmation…</h1><p>This page refreshes by itself.</p>
     {% else %}<h1 class="bad">Payment not completed</h1><p>{{ req.note|default:req.get_status_display }}</p>{% endif %}
     <p style="margin-top:16px;font-size:14px">{{ req.company.name }}</p>

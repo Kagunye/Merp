@@ -168,6 +168,10 @@
     });
   }
 
+  // Send ready-made bytes to a given printer (kitchen tickets go to the station's printer, not this device's).
+  function sendTo(p, b64, text) { return send(p, b64, { text: text, action: 'kot' }); }
+
   window.MerpHardware = { load: load, get printers() { return printers; }, current: current, choose: choose,
-                          openDrawer: openDrawer, printReceipt: printReceipt, afterSale: afterSale, test: test };
+                          openDrawer: openDrawer, printReceipt: printReceipt, afterSale: afterSale, test: test,
+                          sendTo: sendTo };
 })();

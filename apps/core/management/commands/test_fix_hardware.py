@@ -256,6 +256,47 @@ class Command(BaseCommand):
         r = self.client_for(outsider).get(reverse("pos:hw_receipt", args=[sale.pk]) + f"?printer={printer.pk}")
         self.expect("another company cannot print our ticket", r.status_code == 404, f"{r.status_code}")
 
+        # ── 3b ──
+        self.section("3b. receipt layouts")
+        from types import SimpleNamespace
+        from unittest import mock
+        plain = hardware.receipt_text(sale, 42)
+        self.expect("eTIMS off: a plain shop receipt (Sub Total, Sales Tax, TOTAL, Paid By, Transaction ID)",
+                    "Sub Total" in plain and "Sales Tax" in plain and "TOTAL" in plain and "Paid By:" in plain
+                    and f"Transaction ID: {sale.reference}" in plain and "FISCAL" not in plain, plain[:200])
+        self.expect("…with the dotted rules of a shop receipt", "." * 42 in plain)
+        fake = SimpleNamespace(sdc_id="KRACU0100000001", receipt_no="41", total_receipt_no="41", mrc_no="WIS01",
+                               cu_invoice_no="KRACU0100000001/41", internal_data="ABCDEFGH", signature="SIGN1234",
+                               signed_at=timezone.now(), qr_url="https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data=x",
+                               dashed=lambda v: "-".join(v[i:i + 4] for i in range(0, len(v), 4)))
+        self.cust_pin = "P051234567Z"
+        from apps.crm.models import Customer
+        buyer = Customer.objects.create(company=co, name="Pin Buyer Ltd", tax_id=self.cust_pin)
+        sale.customer = buyer
+        sale.save(update_fields=["customer"])
+        with mock.patch("apps.kra.services.receipt_for", return_value=fake):
+            fiscal = hardware.receipt_text(sale, 42)
+            fiscal_raw = hardware.receipt_bytes(sale, printer, kick=False)
+            page = cc.get(reverse("pos:sale_receipt", args=[sale.pk]))
+        self.expect("eTIMS on: the KRA fiscal layout, start to end",
+                    "START OF FISCAL RECEIPT" in fiscal and "END OF FISCAL RECEIPT" in fiscal, fiscal[:120])
+        self.expect("…with the buyer's PIN, the VAT letter on each line and the payment details",
+                    self.cust_pin in fiscal and ("B KES" in fiscal or "D KES" in fiscal) and "PAYMENT DETAILS" in fiscal
+                    and "Amount Due" in fiscal)
+        self.expect("…the VAT group table and the control unit information",
+                    "VATGrp" in fiscal and "CU Serial No:" in fiscal and "KRACU0100000001/41" in fiscal
+                    and "ABCD-EFGH" in fiscal)
+        self.expect("…and the QR code on the printer", b"(k" in fiscal_raw)
+        self.expect("the receipt page shows the same fiscal receipt with the QR",
+                    page.status_code == 200 and b"START OF FISCAL RECEIPT" in page.content and b"<svg" in page.content,
+                    str(page.status_code))
+        with mock.patch("apps.pos.hardware._etims_on", return_value=True):
+            pending = hardware.receipt_text(sale, 42)
+        self.expect("eTIMS on but not yet signed: fiscal layout saying the signature is pending",
+                    "START OF FISCAL RECEIPT" in pending and "KRA signature pending" in pending)
+        detail = cc.get(reverse("pos:sale_detail", args=[sale.pk])).content
+        self.expect("the ticket's Print button opens the receipt", reverse("pos:sale_receipt", args=[sale.pk]).encode() in detail)
+
         # ── 4 ──
         self.section("4. sending")
         for host, port, why in (("8.8.8.8", 9100, "a public address"), ("169.254.169.254", 9100, "link-local"),

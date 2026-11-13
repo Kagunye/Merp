@@ -229,6 +229,9 @@ class POSMenuSection(models.Model):
     menu = models.ForeignKey(POSMenu, on_delete=models.CASCADE, related_name="sections")
     name = models.CharField(max_length=80)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    prep_station = models.ForeignKey("pos.POSPrepStation", on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="sections", verbose_name="Prepared at",
+                                     help_text="Where this section's orders go: the kitchen, the bar... Blank: not sent.")
 
     class Meta:
         ordering = ["sort_order", "name"]
@@ -247,6 +250,9 @@ class POSMenuItem(models.Model):
                                 help_text="Leave blank to sell at the product's selling price.")
     is_available = models.BooleanField(default=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    prep_station = models.ForeignKey("pos.POSPrepStation", on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name="items", verbose_name="Prepared at",
+                                     help_text="Overrides the section's, e.g. a cocktail in Food goes to the bar.")
 
     class Meta:
         ordering = ["sort_order", "id"]
@@ -441,6 +447,8 @@ class POSOrderLine(models.Model):
                                           blank=True, related_name="+")
     void_reason = models.CharField(max_length=255, blank=True, default="")
     voided_at = models.DateTimeField(null=True, blank=True)
+    kitchen_ticket = models.ForeignKey("pos.POSKitchenTicket", on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name="lines")
 
     class Meta:
         ordering = ["added_at", "id"]
@@ -562,3 +570,47 @@ class POSDrawerEvent(models.Model):
 
     def __str__(self):
         return f"{self.get_reason_display()} by {self.user} at {self.created_at:%H:%M}"
+
+
+class POSPrepStation(BaseModel):
+    """Where orders are prepared: the kitchen, the bar, the grill. Menu sections
+    (or single items) are routed to one; its tickets print on its printer and
+    show on its kitchen screen."""
+    KINDS = [("KITCHEN", "Kitchen"), ("BAR", "Bar"), ("OTHER", "Other")]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="pos_prep_stations")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, null=True, blank=True,
+                               help_text="Blank: the same name at every branch (each branch's own printer is used).")
+    name = models.CharField(max_length=60)
+    kind = models.CharField(max_length=10, choices=KINDS, default="KITCHEN")
+    printer = models.ForeignKey(POSPrinter, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+                                help_text="Kitchen tickets print here. Blank: kitchen screen only.")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class POSKitchenTicket(models.Model):
+    """A kitchen order ticket (KOT): what one bill sent to one preparation
+    station at one moment, or a cancellation of something sent before. The
+    items are kept as sent, so the ticket reprints the same however the bill
+    changes afterwards."""
+    KINDS = [("NEW", "Order"), ("VOID", "Cancel")]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="+")
+    order = models.ForeignKey(POSOrder, on_delete=models.CASCADE, related_name="kitchen_tickets")
+    prep_station = models.ForeignKey(POSPrepStation, on_delete=models.PROTECT, related_name="tickets")
+    number = models.CharField(max_length=20, db_index=True)
+    kind = models.CharField(max_length=4, choices=KINDS, default="NEW")
+    items = models.JSONField(default=list)
+    sent_by = models.ForeignKey(POSStaff, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    printed_at = models.DateTimeField(null=True, blank=True)
+    done_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.number} {self.prep_station} ({self.order})"

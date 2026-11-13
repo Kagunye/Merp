@@ -92,6 +92,10 @@ def gateway_register_c2b(request, provider):
     if gw.provider != "MPESA":
         raise Http404
     base = gw.callback_base.rstrip("/") if gw.callback_base else request.build_absolute_uri("/").rstrip("/")
+    if gw.environment == "SIMULATOR":
+        messages.info(request, "Simulator: nothing was registered. Switch to Sandbox or Live with your Daraja keys, "
+                               "then register again so Safaricom tells Mofisi about paybill payments.")
+        return redirect("payments:gateway_edit", provider=gw.provider.lower())
     try:
         driver(gw).register_c2b(base + reverse("payments:c2b_confirm", args=[gw.webhook_key]),
                                 base + reverse("payments:c2b_validate", args=[gw.webhook_key]))

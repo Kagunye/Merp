@@ -33,6 +33,8 @@
   {% can_do "pos:bo_station_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_station_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Stations · {{ counts.stations }}</span></a>{% endif %}
   {% can_do "pos:bo_table_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_table_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Tables · {{ counts.tables }}</span></a>{% endif %}
   {% can_do "pos:bo_staff_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_staff_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Staff &amp; PINs · {{ counts.staff }}</span></a>{% endif %}
+  {% can_do "pos:bo_prep_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_prep_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="bell" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Kitchen stations</span></a>{% endif %}
+  {% can_do "pos:bo_food_cost" as ok %}{% if ok %}<a href="{% url 'pos:bo_food_cost' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Recipe costing</span></a>{% endif %}
   {% can_do "pos:bo_printer_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_printer_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Printers &amp; drawers</span></a>{% endif %}
 </div>
 
@@ -52,6 +54,7 @@
 <div class="launcher-grid">
   {% can_do "pos:station_pick" as ok %}{% if ok %}<a href="{% url 'pos:station_pick' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Waiter station</span></a>{% endif %}
   {% can_do "pos:cashier_panel" as ok %}{% if ok %}<a href="{% url 'pos:cashier_panel' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cashier panel · {{ counts.live }} open</span></a>{% endif %}
+  {% can_do "pos:kitchen_pick" as ok %}{% if ok %}<a href="{% url 'pos:kitchen_pick' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="bell" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Kitchen screens</span></a>{% endif %}
   {% can_do "pos:bo_day_end" as ok %}{% if ok %}<a href="{% url 'pos:bo_day_end' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Day end</span></a>{% endif %}
 </div>
 

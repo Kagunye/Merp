@@ -10,7 +10,7 @@ from .models import BillOfMaterials, BOMLine, WorkOrder
 class BOMForm(PlainNumbersMixin, forms.ModelForm):
     class Meta:
         model = BillOfMaterials
-        fields = ["name", "product", "version", "status", "production_quantity", "notes"]
+        fields = ["name", "product", "version", "status", "production_quantity", "deduct_on_sale", "notes"]
         widgets = {
             "name": forms.TextInput(attrs={"class": "input"}),
             "product": forms.Select(attrs={"class": "select"}),

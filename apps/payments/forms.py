@@ -22,6 +22,8 @@ class GatewayForm(forms.ModelForm):
         for name in list(self.fields):
             if name not in FIELDS[provider]:
                 del self.fields[name]
+        # Switch and environment first, then the keys, as the provider lists them.
+        self.order_fields(FIELDS[provider])
         for name in SECRETS:
             if name in self.fields:
                 # Never sent back to the browser; blank keeps what is stored.
@@ -30,6 +32,9 @@ class GatewayForm(forms.ModelForm):
         if "settlement_account" in self.fields:
             from apps.banking.models import BankAccount
             self.fields["settlement_account"].queryset = BankAccount.objects.filter(company=company)
+            self.fields["settlement_account"].empty_label = "Choose the bank account (M-Pesa: the till's M-Pesa account)"
+        if "callback_base" in self.fields:
+            self.fields["callback_base"].label = "Public address of this site"
 
     def clean(self):
         data = super().clean()

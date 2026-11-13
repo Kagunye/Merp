@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+{% load ui_extras %}{% comment %}A kitchen order ticket on 80 mm paper, standalone like the bill.{% endcomment %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ ticket.number }} — {{ ticket.prep_station.name }}</title>
+  <style>
+    @page { size: 80mm auto; margin: 3mm; }
+    body { font: 13px/1.35 "Courier New", monospace; color: #000; background: #fff; margin: 0; }
+    .t { width: 74mm; margin: 0 auto; padding: 2mm 0; }
+    .c { text-align: center; } .big { font-size: 22px; font-weight: 800; }
+    .item { font-size: 17px; font-weight: 800; margin: 4px 0 0; }
+    .note { margin-left: 14px; font-style: italic; }
+    hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
+    .cancel { border: 3px solid #000; padding: 2px; }
+    .tools { text-align: center; margin: 10px; } @media print { .tools { display: none; } }
+  </style>
+</head>
+<body>
+<div class="t">
+  <div class="c big{% if ticket.kind == 'VOID' %} cancel{% endif %}">{% if ticket.kind == "VOID" %}*** CANCEL ***{% else %}{{ ticket.prep_station.name|upper }}{% endif %}</div>
+  <div class="c">{{ ticket.number }} · {{ ticket.created_at|date:"H:i" }}</div>
+  <hr>
+  <div><b>{{ ticket.order.table.name|default:"No table" }}</b> · {{ ticket.order.reference }}</div>
+  <div>Waiter: {{ ticket.order.waiter.name }} · Guests: {{ ticket.order.covers }}</div>
+  <hr>
+  {% for i in ticket.items %}
+  <div class="item">{{ i.qty }} x {{ i.name }}</div>
+  {% if i.note %}<div class="note">&gt;&gt; {{ i.note }}</div>{% endif %}
+  {% endfor %}
+  <hr>
+</div>
+<div class="tools"><button onclick="window.print()">Print</button> <button onclick="history.back()">Back</button></div>
+{% if autoprint %}<script>window.addEventListener('load', function () { window.print(); });</script>{% endif %}
+</body>
+</html>

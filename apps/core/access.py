@@ -133,6 +133,8 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # is then the PIN entered on it. The cashier panel takes the money.
     ("pos", "station_*", TILL, TILL),
     ("pos", "bill_print", TILL | FINANCE | AUDIT, NOBODY),
+    # Kitchen screens: the till roles bump tickets; finance and audit may look.
+    ("pos", "kitchen_*", TILL | FINANCE | AUDIT, TILL),
     ("pos", "bill_*", TILL | FINANCE | AUDIT, TILL),
     ("pos", "cashier_panel", TILL, TILL),
     ("payroll", "run_approve", NOBODY, FM),

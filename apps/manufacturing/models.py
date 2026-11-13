@@ -17,6 +17,12 @@ class BillOfMaterials(BaseModel, NotesMixin):
     version = models.CharField(max_length=20, default="1.0")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="DRAFT", db_index=True)
     production_quantity = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("1"))
+    # A recipe: selling the product at the till takes these ingredients off the
+    # shelf instead of the product itself (a plate of chips is never stocked;
+    # the potatoes and oil are). Off for batch production that is stocked.
+    deduct_on_sale = models.BooleanField(
+        default=False, verbose_name="Recipe: take the ingredients off the shelf when sold",
+        help_text="For dishes and drinks made to order. Leave off for goods produced in batches and stocked.")
 
     class Meta:
         ordering = ["-created_at"]

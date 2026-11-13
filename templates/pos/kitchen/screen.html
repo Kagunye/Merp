@@ -1,0 +1,32 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'pos:kitchen_pick' as back %}
+{% include "_includes/page_header.html" with title=station.name subtitle="Orders waiting, oldest first. Tap Ready when a ticket is done." back_url=back back_label="Kitchen screens" hide_print=True %}
+<div class="kds-grid" id="kds" data-url="{% url 'pos:kitchen_screen' station.pk %}?partial=1" aria-live="polite">
+  {% include "pos/kitchen/_tickets.html" %}
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+(function () {
+  // Refresh every 8 s; a new ticket beeps once.
+  var box = document.getElementById('kds');
+  var known = box.querySelectorAll('.kds-ticket').length;
+  function beep() {
+    try { var a = new (window.AudioContext || window.webkitAudioContext)(); var o = a.createOscillator();
+      o.frequency.value = 880; o.connect(a.destination); o.start(); setTimeout(function () { o.stop(); a.close(); }, 250); } catch (e) { /* no audio */ }
+  }
+  setInterval(function () {
+    fetch(box.dataset.url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (html) {
+        if (html === null) return;
+        box.innerHTML = html;
+        var n = box.querySelectorAll('.kds-ticket').length;
+        if (n > known) beep();
+        known = n;
+      }).catch(function () { /* offline: keep what is shown */ });
+  }, 8000);
+})();
+</script>
+{% endblock %}

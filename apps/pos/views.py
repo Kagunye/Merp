@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import DetailView, ListView, TemplateView, View
 
@@ -905,3 +906,46 @@ def hw_log(request):
     except ValidationError as exc:
         return JsonResponse({"ok": False, "error": exc.messages[0]}, status=400)
     return JsonResponse({"ok": True, "id": event.pk})
+
+
+@login_required
+def hw_kot(request, pk):
+    """A kitchen ticket for its station's printer: the bytes for the browser to
+    send, or sent here when the server itself reaches the printer."""
+    from . import hardware
+    from .models import POSKitchenTicket
+    company = request.active_company
+    ticket = get_object_or_404(POSKitchenTicket.objects.select_related("prep_station__printer", "order__table",
+                                                                      "order__waiter"), pk=pk, company=company)
+    printer = hardware.kot_printer(ticket)
+    if printer is None:
+        return JsonResponse({"ok": True, "printer": None,
+                             "print_url": reverse("pos:bill_kot", args=[ticket.pk]) + "?autoprint=1"})
+    data = hardware.kot_bytes(ticket, printer)
+    if printer.connection == "SERVER":
+        try:
+            hardware.send_raw(printer.host, printer.port, data)
+        except ValidationError as exc:
+            return JsonResponse({"ok": False, "error": exc.messages[0]}, status=502)
+        POSKitchenTicket.objects.filter(pk=ticket.pk).update(printed_at=timezone.now())
+        return JsonResponse({"ok": True, "sent": True})
+    return JsonResponse({"ok": True, "printer": hardware.printer_config(printer), "data": hardware.b64(data),
+                         "text": hardware.kot_text(ticket, printer.paper_chars)})
+
+
+def render_receipt(request, sale, autoprint=False):
+    """The 80 mm receipt page: the same lines as the thermal printer."""
+    from apps.kra.templatetags.kra_tags import qr_svg
+    from . import hardware
+    lines = hardware.receipt_lines(sale)
+    qr = next((v for k, v in lines if k == "qr"), "")
+    return render(request, "pos/receipt.html", {"sale": sale, "lines": lines, "autoprint": autoprint,
+                                                "qr_svg": qr_svg(qr) if qr else ""})
+
+
+@login_required
+def sale_receipt(request, pk):
+    sale = get_object_or_404(POSSale.objects.select_related("session__branch", "session__cashier", "customer",
+                                                            "refund_of"),
+                             pk=pk, session__company=request.active_company)
+    return render_receipt(request, sale, autoprint=request.GET.get("autoprint") == "1")

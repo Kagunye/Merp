@@ -1,0 +1,14 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Kitchen screens" subtitle="Open the screen for the kitchen or bar this device stands in" hide_print=True %}
+<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  {% for s in stations %}
+  <a href="{% url 'pos:kitchen_screen' s.pk %}" class="card card-body hover:border-line-strong">
+    <span class="text-lg font-bold text-ink">{{ s.name }}</span>
+    <span class="text-sm text-ink-muted">{{ s.get_kind_display }} · {{ s.branch.name|default:"every branch" }}</span>
+  </a>
+  {% empty %}
+  <p class="text-sm text-ink-muted">No kitchen stations yet. Add them in POS → Back office → Kitchen stations.</p>
+  {% endfor %}
+</div>
+{% endblock %}

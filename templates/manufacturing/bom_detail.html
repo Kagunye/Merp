@@ -16,6 +16,7 @@
       <div><dt>Finished product</dt><dd class="font-medium">{{ bom.product.name }}</dd></div>
       <div><dt>Produces</dt><dd>{{ bom.production_quantity|with_unit:bom.product.unit_of_measure }}</dd></div>
       <div><dt>Version</dt><dd class="mono">{{ bom.version }}</dd></div>
+      {% if bom.deduct_on_sale %}<div><dt>At the till</dt><dd><span class="badge badge-success">Recipe</span> selling {{ bom.product.name }} takes these ingredients off the shelf</dd></div>{% endif %}
     </dl>
   </div>
 </section>

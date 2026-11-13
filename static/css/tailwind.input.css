@@ -987,6 +987,20 @@ select.pos-top-input { @apply appearance-none pr-8; }
   background: linear-gradient(to top, rgb(0 0 0 / .78), rgb(0 0 0 / .45) 60%, transparent); }
 .pos-tile.has-pic .pos-tile-name, .pos-tile.has-pic .pos-tile-price { @apply text-white; text-shadow: 0 1px 2px rgb(0 0 0 / .5); }
 .pos-tile.has-pic:hover { @apply border-0; box-shadow: 0 0 0 2px var(--color-line-strong, rgb(0 0 0 / .2)); }
+/* Kitchen display */
+.kds-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-items: start; }
+.kds-ticket { @apply flex flex-col gap-2 rounded-[16px] border-2 border-line bg-surface p-3; }
+.kds-ticket.is-slow { @apply border-warning; }
+.kds-ticket.is-late { @apply border-danger; }
+.kds-ticket.is-cancel { @apply border-danger bg-danger-bg; }
+.kds-head { @apply flex items-baseline justify-between gap-2; }
+.kds-table { @apply text-xl font-extrabold text-ink; }
+.kds-time { @apply text-sm font-bold tabular-nums text-ink-2; }
+.kds-ticket.is-late .kds-time { @apply text-danger; }
+.kds-meta { @apply text-xs text-ink-muted; }
+.kds-items { @apply space-y-1 text-[15px] text-ink; }
+.kds-note { @apply block text-xs italic text-ink-muted; }
+.kds-empty { @apply col-span-full py-16 text-center text-ink-muted; }
 .pos-tile-count { @apply ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-white; }
 .pos-panel-foot { @apply flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-divider px-3 py-2 text-[12px] text-ink-muted; }
 .pos-kbd { @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded-[6px] border border-line-strong bg-surface-2 px-1 text-[11px] font-bold text-ink-2; }

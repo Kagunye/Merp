@@ -14,7 +14,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,7 +26,7 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.accounting.currency import book_currency
 
 from . import restaurant, services
-from .models import POSMenuItem, POSOrder, POSSale, POSStation, POSTable
+from .models import POSKitchenTicket, POSMenuItem, POSOrder, POSPrepStation, POSSale, POSStation, POSTable
 
 ACTOR_KEY = "pos_actor"
 PAY_METHODS = [(v, l) for v, l in POSSale.PAYMENT_METHODS if v != "SPLIT"]
@@ -285,7 +285,7 @@ def _bill_context(request, order, actor):
             sections.append({"section": section, "tiles": tiles})
     till = _till_here(request, order.branch)
     lines = list(order.lines.select_related("voided_by", "void_requested_by", "added_by",
-                                            "price_rule").all())
+                                            "price_rule", "kitchen_ticket__prep_station").all())
     return {
         "order": order, "station": station, "actor": actor, "conf": conf, "live": live,
         "sections": sections, "lines": lines,
@@ -297,6 +297,9 @@ def _bill_context(request, order, actor):
         "book": book_currency(company),
         "active_section": request.GET.get("section") or "",
         "minutes": _minutes(order.opened_at),
+        "kitchen_tickets": list(order.kitchen_tickets.select_related("prep_station").order_by("-created_at")[:6]),
+        "unsent": sum(1 for l in lines if l.status == "ACTIVE" and not l.kitchen_ticket_id
+                      and restaurant.prep_station_for(l) is not None) if live else 0,
     }
 
 
@@ -431,6 +434,10 @@ def bill_void(request, pk):
 def bill_print(request, pk):
     """The bill (or, once paid, the receipt) on 80 mm thermal paper."""
     order = _order(request, pk)
+    if order.sale_id:
+        # Paid: the receipt is the sale's own, fiscal when eTIMS is on.
+        from .views import render_receipt
+        return render_receipt(request, order.sale, autoprint=request.GET.get("autoprint") == "1")
     company = order.company
     conf = restaurant.settings_for(company)
     lines = list(order.lines.filter(status="ACTIVE").select_related("price_rule"))
@@ -473,6 +480,71 @@ def bill_pay(request, pk):
     messages.success(request, f"Bill {order.reference} paid: {sale.reference}, "
                               f"{sale.total_amount} taken, {sale.change_given} change.")
     return _receipt(order)
+
+
+@login_required
+@require_POST
+def bill_send(request, pk):
+    """Send what is new on the bill to the kitchen and the bar."""
+    order = _order(request, pk)
+    actor = current_actor(request, order.station)
+    if actor is None:
+        return _need_pin(request, order.station, order)
+    try:
+        with transaction.atomic():
+            restaurant._claim(order, "send it")
+            tickets = restaurant.send_to_kitchen(order, actor)
+    except ValidationError as exc:
+        _error(request, exc)
+        return redirect("pos:bill_detail", pk=order.pk)
+    _touch(request)
+    if not tickets:
+        messages.info(request, "Nothing new to send: everything on the bill has gone to the kitchen already "
+                               "(or is not made there).")
+        return redirect("pos:bill_detail", pk=order.pk)
+    messages.success(request, "Sent: " + ", ".join(f"{t.number} to {t.prep_station.name}" for t in tickets) + ".")
+    return redirect(reverse("pos:bill_detail", args=[order.pk]) + "?kot=" + ",".join(str(t.pk) for t in tickets))
+
+
+@login_required
+@require_GET
+def bill_kot(request, pk):
+    """A kitchen ticket on 80 mm paper (when the station has no LAN printer)."""
+    ticket = get_object_or_404(POSKitchenTicket.objects.select_related("order__table", "order__waiter", "prep_station"),
+                               pk=pk, company=_company(request))
+    return render(request, "pos/station/kot.html", {"ticket": ticket, "now": timezone.now(),
+                                                    "autoprint": request.GET.get("autoprint") == "1"})
+
+
+@login_required
+def kitchen_pick(request):
+    company = _company(request)
+    return render(request, "pos/kitchen/pick.html", {
+        "stations": POSPrepStation.objects.filter(company=company, is_active=True).order_by("name"),
+        "page_title": "Kitchen screens"})
+
+
+@login_required
+def kitchen_screen(request, pk):
+    """A kitchen display: open tickets, oldest first, each with how long it has waited."""
+    company = _company(request)
+    station = get_object_or_404(POSPrepStation, pk=pk, company=company)
+    branch = services.home_branch(company, request.user) if station.branch_id is None else None
+    if request.method == "POST":
+        ticket = services.by_pk(POSKitchenTicket.objects.filter(prep_station=station), request.POST.get("ticket"))
+        if ticket is not None:
+            try:
+                restaurant.bump(ticket)
+            except ValidationError as exc:
+                _error(request, exc)
+        return redirect("pos:kitchen_screen", pk=station.pk)
+    tickets = []
+    for t in restaurant.kitchen_queue(station, branch):
+        tickets.append({"ticket": t, "minutes": _minutes(t.created_at)})
+    ctx = {"station": station, "tickets": tickets, "page_title": station.name}
+    if request.GET.get("partial") == "1":
+        return render(request, "pos/kitchen/_tickets.html", ctx)
+    return render(request, "pos/kitchen/screen.html", ctx)
 
 
 # ─────────────────────────────────── cashier ────────────────────────────────────

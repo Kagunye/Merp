@@ -157,7 +157,7 @@ class MenuForm(CompanyForm):
 class ItemForm(forms.ModelForm):
     class Meta:
         model = POSMenuItem
-        fields = ["product", "display_name", "price", "sort_order"]
+        fields = ["product", "display_name", "price", "sort_order", "prep_station"]
 
     def __init__(self, *args, company, **kwargs):
         super().__init__(*args, **kwargs)
@@ -172,6 +172,9 @@ class ItemForm(forms.ModelForm):
         self.fields["sort_order"].required = False
         self.fields["sort_order"].label = "Position"
         self.fields["display_name"].label = "Name on the menu"
+        from .models import POSPrepStation
+        self.fields["prep_station"].queryset = POSPrepStation.objects.filter(company=company, is_active=True)
+        self.fields["prep_station"].empty_label = "As the section"
         _style(self)
 
     def clean_sort_order(self):
@@ -191,6 +194,21 @@ class ItemForm(forms.ModelForm):
             self.add_error("price", f"{product.name} has no selling price on file: "
                                     "give this item a price.")
         return data
+
+
+class PrepStationForm(CompanyForm):
+    class Meta:
+        from .models import POSPrepStation
+        model = POSPrepStation
+        fields = ["name", "kind", "branch", "printer", "is_active"]
+        labels = {"is_active": "In use"}
+
+    def limit(self):
+        from .models import POSPrinter
+        self.fields["branch"].queryset = _branches(self.company)
+        self.fields["branch"].empty_label = "Every branch"
+        self.fields["printer"].queryset = POSPrinter.objects.filter(company=self.company, is_active=True)
+        self.fields["printer"].empty_label = "No printer: kitchen screen only"
 
 
 class RuleForm(CompanyForm):

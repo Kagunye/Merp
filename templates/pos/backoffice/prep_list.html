@@ -1,0 +1,28 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:bo_prep_create" "POST" as may_create %}{% if may_create %}{% url 'pos:bo_prep_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Kitchen stations" subtitle="Where orders are prepared. Route menu sections (or single items) to one; its tickets print on its printer and show on its kitchen screen." action_label="New kitchen station" action_url=new_url hide_print=True %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Name</th><th>Kind</th><th>Branch</th><th>Printer</th><th class="num">Sections</th><th class="num">Items</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+      {% for s in stations %}
+      <tr>
+        <td>{% if may_create %}<a class="row-link" href="{% url 'pos:bo_prep_edit' s.pk %}">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}{% if not s.is_active %} <span class="badge badge-neutral">Off</span>{% endif %}</td>
+        <td class="text-ink-2">{{ s.get_kind_display }}</td>
+        <td class="text-ink-2">{{ s.branch.name|default:"Every branch" }}</td>
+        <td class="text-ink-2">{{ s.printer.name|default:"Kitchen screen only" }}</td>
+        <td class="num">{{ s.section_count }}</td>
+        <td class="num">{{ s.item_count }}</td>
+        <td class="actions"><a class="btn btn-ghost btn-sm" href="{% url 'pos:kitchen_screen' s.pk %}" target="_blank" rel="noopener">Open screen</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No kitchen stations yet" text="Add the kitchen and the bar, then choose 'Prepared at' on each menu section." action_label="New kitchen station" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-3 text-sm text-ink-muted">Then open a menu and set <strong>Prepared at</strong> on its sections (Food → Kitchen, Drinks → Bar). Items not routed anywhere, like a soda from the fridge, are not sent.</p>
+{% endblock %}

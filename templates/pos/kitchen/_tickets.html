@@ -1,0 +1,17 @@
+{% for row in tickets %}{% with t=row.ticket %}
+<article class="kds-ticket{% if t.kind == 'VOID' %} is-cancel{% elif row.minutes >= 20 %} is-late{% elif row.minutes >= 10 %} is-slow{% endif %}">
+  <header class="kds-head">
+    <span class="kds-table">{{ t.order.table.name|default:"No table" }}</span>
+    <span class="kds-time" title="Waiting">{{ row.minutes }} min</span>
+  </header>
+  <p class="kds-meta">{{ t.number }} · {{ t.order.reference }} · {{ t.order.waiter.name }}{% if t.kind == "VOID" %} · <strong>CANCEL</strong>{% endif %}</p>
+  <ul class="kds-items">
+    {% for i in t.items %}<li><strong>{{ i.qty }} ×</strong> {{ i.name }}{% if i.note %}<span class="kds-note">{{ i.note }}</span>{% endif %}</li>{% endfor %}
+  </ul>
+  <form method="post" class="no-card">{% csrf_token %}<input type="hidden" name="ticket" value="{{ t.pk }}">
+    <button type="submit" class="btn {% if t.kind == 'VOID' %}btn-secondary{% else %}btn-primary{% endif %} w-full">{% if t.kind == "VOID" %}Seen{% else %}Ready{% endif %}</button>
+  </form>
+</article>
+{% endwith %}{% empty %}
+<p class="kds-empty">No orders waiting.</p>
+{% endfor %}

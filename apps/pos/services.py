@@ -419,6 +419,41 @@ def issue_warehouse(company, session, wanted=None):
     return till_warehouses(company, session).first()
 
 
+def recipe_for(product):
+    """The product's recipe: an active bill of materials marked to take its
+    ingredients off the shelf when the product is sold. None for goods that
+    are stocked and sold as themselves."""
+    from apps.manufacturing.models import BillOfMaterials
+    return (BillOfMaterials.objects.filter(company_id=product.company_id, product=product, status="ACTIVE",
+                                           deduct_on_sale=True)
+            .prefetch_related("lines__component").order_by("-updated_at").first())
+
+
+def shelf_rows(rows):
+    """What actually leaves (or comes back to) the shelf for these ticket rows:
+    a dish with a recipe becomes its ingredients (scrap allowance included),
+    anything else moves as itself if it is stocked. The same ingredient used by
+    several dishes is moved once, in total."""
+    Q4 = D("0.0001")
+    totals, products, recipes = {}, {}, {}
+    for row in rows:
+        product, qty = row["product"], row["quantity"]
+        if product.pk not in recipes:
+            recipes[product.pk] = recipe_for(product)
+        bom = recipes[product.pk]
+        if bom is not None:
+            per = bom.production_quantity or D("1")
+            for line in bom.lines.all():
+                use = qty * line.quantity * (D("1") + (line.scrap_percent or Z) / D("100")) / per
+                if line.component.track_inventory and use > 0:
+                    totals[line.component_id] = totals.get(line.component_id, Z) + use
+                    products[line.component_id] = line.component
+        elif product.track_inventory:
+            totals[product.pk] = totals.get(product.pk, Z) + qty
+            products[product.pk] = product
+    return [{"product": products[pk], "quantity": q.quantize(Q4)} for pk, q in totals.items() if q > 0]
+
+
 def issue_stock(sale, rows, warehouse, movement_type, note, user=None, unit_costs=None):
     """Move the goods, and let the shelf price what they cost.
 
@@ -430,16 +465,17 @@ def issue_stock(sale, rows, warehouse, movement_type, note, user=None, unit_cost
     `unit_costs` ({product id: cost of one}) is the one exception: a refund
     brings goods back at the cost they went out at (see issued_unit_costs),
     which is a figure the book itself wrote, not one anybody typed.
+
+    A dish with a recipe moves its ingredients instead (see shelf_rows), so cost
+    of sales is what the ingredients cost and the stock count stays true.
     """
     from apps.inventory.models import StockMovement
 
     if not warehouse:
         raise ValidationError(
             "There is no warehouse to take stock from — add one under Organization.")
-    for row in rows:
+    for row in shelf_rows(rows):
         product = row["product"]
-        if not product.track_inventory:
-            continue
         try:
             StockMovement.objects.create(
                 product=product, warehouse=warehouse, movement_type=movement_type,
@@ -450,7 +486,8 @@ def issue_stock(sale, rows, warehouse, movement_type, note, user=None, unit_cost
             )
         except ValidationError as exc:
             # The shelf's own refusal, in one sentence the cashier can read.
-            raise ValidationError(exc.messages[0])
+            raise ValidationError(f"{product.name}: {exc.messages[0]}" if product.name not in exc.messages[0]
+                                  else exc.messages[0])
 
 
 def issued_unit_costs(sale):
