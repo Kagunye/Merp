@@ -234,9 +234,6 @@
           {% endif %}
           <a href="{% url 'accounts:profile' %}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="user" cls="h-4 w-4" %}My Profile</a>
           <a href="{% url 'accounts:change_password' %}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="key" cls="h-4 w-4" %}Change Password</a>
-          {% if is_platform_admin %}
-          <a href="{% url 'dashboard:style_guide' %}" class="menu-item" role="menuitem">{% include "_includes/icon.html" with name="swatch" cls="h-4 w-4" %}UI style guide</a>
-          {% endif %}
           <div class="menu-sep"></div>
           <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}

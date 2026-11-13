@@ -1,8 +1,7 @@
 # Mofisi UI — design system and page patterns
 
 This is the guide for restyling any page in MERP. Read it once end to end before
-touching a module. See every component rendered at **`/dashboard/ui/`**. That
-page is the living style guide, and only platform admins can open it.
+touching a module.
 
 | What | Where |
 |---|---|
@@ -369,7 +368,7 @@ the loop would otherwise leak into the include.
 | `data_table.html` | `table_template`\*, `title`, `subtitle`, `count`, `actions_template`, `empty`, `empty_title`, `empty_text`, `empty_icon`, `empty_action_label`, `empty_action_url`, `scroll`, `paginate` |
 | `status_badge.html` | `status`\*, `label` |
 | `breadcrumbs.html` | `crumbs` (a list of `{"label","url"}`, where the last item is the current page), `home` (False hides "Home") |
-| `icon.html` | `name`\*, `cls` (default `h-4 w-4`), `stroke` (default 1.75), `icon_label` (makes the icon announced). There are 51 names (including `minus`), all listed at `/dashboard/ui/#icons`. |
+| `icon.html` | `name`\*, `cls` (default `h-4 w-4`), `stroke` (default 1.75), `icon_label` (makes the icon announced). There are 51 names (including `minus`), listed in `templates/_includes/icon.html`. |
 | `pagination.html` | Takes no parameters. It needs `is_paginated`, `page_obj` and `request`, and keeps the other query params. |
 | `model_form.html` | `form`\*, `title`, `subtitle`, `back_url`, `cancel_url`, `submit_label`, `section_label`, `extra_template`. Unchanged from before. |
 | `launcher.html` | `launcher_title`, `launcher_subtitle`. The tiles stay inline as `<a … class="launcher-tile">`, and tests count that exact attribute. |

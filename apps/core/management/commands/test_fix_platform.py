@@ -446,11 +446,14 @@ class Command(BaseCommand):
         self.expect("a reset for the email in capitals still finds the account", len(mail.outbox) == 1)
         first = PasswordResetToken.objects.filter(user=user).order_by("created_at").last()
         Client().post(reverse("accounts:password_reset"), {"email": user.email})
-        tokens = PasswordResetToken.objects.filter(user=user).order_by("created_at")
         first.refresh_from_db()
-        latest = tokens.last()
+        # Two requests can land in the same clock tick (Windows: ~15 ms), and
+        # the ids are random UUIDs, so "newest by created_at" is a coin toss.
+        # The new link is simply the one that isn't the first.
+        latest = PasswordResetToken.objects.filter(user=user).exclude(pk=first.pk).first()
         self.expect("asking again spends the earlier link", first.used and not first.is_valid())
-        self.expect("the newest link still works", latest.pk != first.pk and latest.is_valid())
+        if not self.expect("the newest link still works", latest is not None and latest.is_valid()):
+            return
         c = Client()
         r = c.get(reverse("accounts:password_reset_confirm", args=[first.token]))
         self.expect("the old link is refused", r.status_code == 302, f"HTTP {r.status_code}")

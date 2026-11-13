@@ -222,9 +222,6 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     # The workspace calendar is everybody's; the view lists each kind of item
     # only for a role that may open its list.
     ("dashboard", "calendar", EVERYONE, NOBODY),
-    # The living UI style guide is for platform administrators (who bypass the
-    # table); the view also refuses company ADMINs, who bypass it too.
-    ("dashboard", "style_guide", NOBODY, NOBODY),
     ("dashboard", "*", EVERYONE, EVERYONE),
 
     # --- Company set-up and user management: admin territory.
