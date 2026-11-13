@@ -101,7 +101,7 @@
 </section>
 
 {# ── Workspace, laid out like Palladium's: the board on the left, quick access down the right on ≥1280px (a row on top on tablets, last on phones) ── #}
-<div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_13rem]">
+<div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_11rem] 2xl:grid-cols-[minmax(0,1fr)_13rem]">
 
   {% if quick_access %}
   <nav aria-label="Quick access" class="order-last md:order-first xl:order-last">
@@ -121,20 +121,20 @@
 
     {# ── Row 1: six document tiles (3 × 2), with the gauge and efficiency stacked beside them ── #}
     {% if tiles or gauge or efficiency %}
-    <div class="grid grid-cols-1 gap-5 2xl:grid-cols-12">
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
       {% if tiles %}
-      <section aria-label="My documents" class="min-w-0 {% if gauge or efficiency %}2xl:col-span-8{% else %}2xl:col-span-12{% endif %}">
+      <section aria-label="My documents" class="min-w-0 {% if gauge or efficiency %}xl:col-span-8{% else %}xl:col-span-12{% endif %}">
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {% for row in tile_rows %}{% for t in row %}
           <a href="{{ t.url }}" class="group flex min-w-0 flex-col rounded-card border border-line bg-surface p-4 transition-colors hover:border-line-strong hover:bg-surface-2" data-tile="{{ t.key }}">
             <div class="flex items-start justify-between gap-3">
-              <h2 class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink">
-                <span class="min-w-0 leading-snug">{{ t.title }}</span>
+              <h2 class="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink xl:text-[13px] 2xl:text-sm">
+                <span class="min-w-0 leading-tight">{{ t.title }}</span>
                 <span class="shrink-0 text-ink-faint" title="{{ t.mine_note }}" aria-label="How mine is counted: {{ t.mine_note }}">{% include "_includes/icon.html" with name="info" cls="h-3.5 w-3.5" %}</span>
               </h2>
               <span class="icon-tile icon-tile-sm shrink-0">{% include "_includes/icon.html" with name=t.icon cls="h-4 w-4" %}</span>
             </div>
-            <p class="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-2 text-2xl font-extrabold tracking-tight text-ink">
+            <p class="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-2 text-2xl font-extrabold tracking-tight text-ink xl:text-xl 2xl:text-2xl">
               {% if t.money_shown %}<span class="num">{{ t.my_amount|money }}</span>{% endif %}
               <span class="{% if t.money_shown %}text-base font-semibold text-ink-muted{% endif %}">({{ t.my_count }})</span>
             </p>
@@ -153,7 +153,7 @@
       {% endif %}
 
       {% if gauge or efficiency %}
-      <div class="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2 {% if tiles %}2xl:col-span-4 2xl:grid-cols-1{% else %}2xl:col-span-12{% endif %}">
+      <div class="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2 {% if tiles %}xl:col-span-4 xl:grid-cols-1{% else %}xl:col-span-12{% endif %}">
         {% if gauge %}
         <section class="card flex flex-col p-4" aria-labelledby="gauge-title">
           <div class="flex items-baseline justify-between gap-2">
@@ -213,10 +213,10 @@
     {% if tasks or approvals %}
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-12">
       {% if tasks %}
-      <section class="rounded-card border border-info-line bg-info-bg p-4 {% if approvals %}lg:col-span-5 2xl:col-span-4{% else %}lg:col-span-12{% endif %}" aria-labelledby="tasks-title">
+      <section class="rounded-card border border-info-line bg-info-bg p-4 {% if approvals %}lg:col-span-5 xl:col-span-4{% else %}lg:col-span-12{% endif %}" aria-labelledby="tasks-title">
         <div class="mb-3 flex items-center justify-between gap-3">
           <h2 id="tasks-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="clipboard" cls="h-4 w-4 text-info" %}My Task List</h2>
-          <span class="text-xs text-ink-muted">Assigned to me, open</span>
+          <span class="text-xs text-ink-muted xl:hidden 2xl:inline">Assigned to me, open</span>
         </div>
         <div class="grid grid-cols-4 gap-2">
           {% for c in tasks %}
@@ -229,7 +229,7 @@
       </section>
       {% endif %}
       {% if approvals %}
-      <section class="rounded-card border border-warning-line bg-warning-bg p-4 {% if tasks %}lg:col-span-7 2xl:col-span-8{% else %}lg:col-span-12{% endif %}" aria-labelledby="approvals-title">
+      <section class="rounded-card border border-warning-line bg-warning-bg p-4 {% if tasks %}lg:col-span-7 xl:col-span-8{% else %}lg:col-span-12{% endif %}" aria-labelledby="approvals-title">
         <div class="mb-3 flex items-center justify-between gap-3">
           <h2 id="approvals-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="check-circle" cls="h-4 w-4 text-warning" %}My Approvals</h2>
           <span class="text-xs text-ink-muted">Waiting on you</span>
@@ -248,9 +248,9 @@
     {% endif %}
 
     {# ── Row 3: CRM calendar, the two stats tiles, and the Top 20 ── #}
-    <div class="grid grid-cols-1 gap-5 md:grid-cols-2 2xl:grid-cols-12">
+    <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-12">
       {% if calendar %}
-      <section class="rounded-card border border-success-line bg-success-bg p-4 2xl:col-span-4" aria-labelledby="cal-title" id="crm-calendar">
+      <section class="rounded-card border border-success-line bg-success-bg p-4 xl:col-span-4" aria-labelledby="cal-title" id="crm-calendar">
         <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 id="cal-title" class="card-title flex items-center gap-2">{% include "_includes/icon.html" with name="calendar" cls="h-4 w-4 text-success" %}CRM Calendar</h2>
           <div class="seg" role="group" aria-label="Calendar view">
@@ -280,7 +280,7 @@
       {% endif %}
 
       {% if efficiency or show.receivables or show.payables or show.trading or show.open_invoices or show.open_bills or show.journals %}
-      <div class="grid grid-cols-2 gap-5 2xl:col-span-3 2xl:grid-cols-1">
+      <div class="grid grid-cols-2 gap-5 xl:col-span-3 xl:grid-cols-1">
         {% if efficiency %}
         <a href="#my-stats" data-open="my-stats" class="group flex min-h-[9rem] flex-col items-center justify-center gap-3 rounded-card border border-line bg-surface p-4 text-center transition-colors hover:border-brand/40 hover:bg-brand-50">
           <span class="icon-tile">{% include "_includes/icon.html" with name="chart" cls="h-5 w-5" %}</span>
@@ -297,7 +297,7 @@
       {% endif %}
 
       {% if top20 %}
-      <section class="flex min-w-0 flex-col rounded-card border border-brand-100 bg-brand-50 p-4 md:col-span-2 2xl:col-span-5" aria-labelledby="top-title">
+      <section class="flex min-w-0 flex-col rounded-card border border-brand-100 bg-brand-50 p-4 md:col-span-2 xl:col-span-5" aria-labelledby="top-title">
         <h2 id="top-title" class="card-title mb-3 flex items-center gap-2">{% include "_includes/icon.html" with name="trending-up" cls="h-4 w-4 text-brand" %}Top 20</h2>
         <div class="mb-3 grid gap-2" style="grid-template-columns: repeat({{ top20|length }}, minmax(0, 1fr))" role="tablist" aria-label="Top 20 lists">
           {% for t in top20 %}
@@ -313,13 +313,13 @@
           {% if t.rows %}
           <div class="table-wrap max-h-64 overflow-y-auto rounded-none border-0 shadow-none">
             <table class="table table-compact">
-              <thead><tr><th class="w-8">#</th><th>{% if t.key == 'vendors' %}Supplier{% elif t.key == 'customers' %}Customer{% else %}Product{% endif %}</th><th class="num">{% if t.key == 'inventory' %}Qty{% else %}Docs{% endif %}</th><th class="num" title="{{ t.what }}">Amount</th></tr></thead>
+              <thead><tr><th class="w-8">#</th><th>{% if t.key == 'vendors' %}Supplier{% elif t.key == 'customers' %}Customer{% else %}Product{% endif %}</th><th class="num xl:hidden 2xl:table-cell">{% if t.key == 'inventory' %}Qty{% else %}Docs{% endif %}</th><th class="num" title="{{ t.what }}">Amount</th></tr></thead>
               <tbody>
                 {% for r in t.rows %}
                 <tr>
                   <td class="text-ink-muted tabular-nums">{{ forloop.counter }}</td>
                   <td class="max-w-[12rem] truncate">{% if r.url %}<a href="{{ r.url }}" class="row-link">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
-                  <td class="num text-ink-muted">{% if t.key == 'inventory' %}{{ r.qty|qty }}{% else %}{{ r.count }}{% endif %}</td>
+                  <td class="num text-ink-muted xl:hidden 2xl:table-cell">{% if t.key == 'inventory' %}{{ r.qty|qty }}{% else %}{{ r.count }}{% endif %}</td>
                   <td class="num font-semibold">{{ r.amount|money }}</td>
                 </tr>
                 {% endfor %}
