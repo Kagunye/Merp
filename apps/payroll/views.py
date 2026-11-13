@@ -20,6 +20,7 @@ from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.accounting.currency import book_currency
+from apps.core.forms import widget_class
 from apps.core.mixins import CompanyRequiredMixin
 from . import services
 from .forms import (
@@ -33,14 +34,8 @@ from .models import (
 
 def _form_class(form):
     """One look for every field in this app, without repeating the class list."""
-    from django import forms as dforms
     for field in form.fields.values():
-        if isinstance(field.widget, dforms.Textarea):
-            field.widget.attrs["class"] = (
-                "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm")
-        else:
-            field.widget.attrs["class"] = (
-                "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm")
+        field.widget.attrs["class"] = widget_class(field.widget)
 
 
 def describe_calculation(request, run):
@@ -282,10 +277,16 @@ def run_approve(request, pk):
         # screen is no longer what the month owes anybody.
         messages.error(request, stale)
         return redirect("payroll:run_detail", pk=run.pk)
-    run.status = "APPROVED"
-    run.approved_by = request.user
-    run.approved_at = timezone.now()
-    run.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+    # Only a run that is still a draft at this instant is approved: a
+    # recalculation or a second approver at the same moment cannot slip past.
+    from django.db.models.functions import Now
+    if not PayrollRun.objects.filter(pk=run.pk, status__in=("DRAFT", "REVIEW")).update(
+            status="APPROVED", approved_by=request.user, approved_at=Now(), updated_at=Now()):
+        run.refresh_from_db(fields=["status"])
+        messages.warning(request, f"'{run.reference}' is {run.get_status_display().lower()} "
+                                  "already: someone else got there first.")
+        return redirect("payroll:run_detail", pk=run.pk)
+    run.refresh_from_db()
     messages.success(
         request,
         f"'{run.reference}' approved for {run.payslips.count()} employee(s) — "
@@ -822,6 +823,12 @@ class ComponentCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
 
     def form_valid(self, form):
         form.instance.company = self.request.active_company
+        if form.instance.employee_id and form.instance.employee.user_id == self.request.user.pk:
+            # A pay element on your own record is an allowance (or a dropped
+            # deduction) you gave yourself: somebody else enters it.
+            form.add_error("employee", "This is your own employee record. Somebody else has "
+                                       "to add or change a pay element for you.")
+            return self.form_invalid(form)
         messages.success(self.request, f"'{form.instance.name}' saved.")
         return super().form_valid(form)
 
@@ -848,6 +855,12 @@ class ComponentUpdateView(LoginRequiredMixin, UpdateView):
         return kwargs
 
     def form_valid(self, form):
+        if form.instance.employee_id and form.instance.employee.user_id == self.request.user.pk:
+            # A pay element on your own record is an allowance (or a dropped
+            # deduction) you gave yourself: somebody else enters it.
+            form.add_error("employee", "This is your own employee record. Somebody else has "
+                                       "to add or change a pay element for you.")
+            return self.form_invalid(form)
         messages.success(self.request, f"'{form.instance.name}' updated.")
         return super().form_valid(form)
 

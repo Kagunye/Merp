@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -22,7 +22,7 @@ from .forms import BillForm, PurchaseOrderForm
 from .models import (
     Bill, PurchaseOrder, PurchaseOrderLine, PurchaseRequisition,
 )
-from apps.core.forms import ISO_DATE
+from apps.core.forms import ISO_DATE, widget_class
 
 
 def _post_bill_to_gl(request, bill, user=None) -> bool:
@@ -223,16 +223,16 @@ class PurchaseOrderCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVi
         from django import forms as dforms
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "select"
             elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "textarea"
                 field.widget.attrs["rows"] = 3
             elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "input"
                 field.widget.attrs["type"] = "date"
                 field.widget.format = ISO_DATE
             else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = widget_class(field.widget)
         if company and not form.is_bound:
             from apps.core.models import SequenceCounter
             # A preview: the number is taken at save time (claim_number), so
@@ -918,7 +918,20 @@ def grn_record(request, pk):
     today = datetime.date.today()
     try:
         with transaction.atomic():
+            # Lock the order, then take each quantity with a conditional UPDATE:
+            # two people receiving the same order at the same moment would both
+            # pass the check above, and only one of them may book the goods.
+            PurchaseOrder.objects.select_for_update().filter(pk=po.pk).first()
             for line, qty in wanted:
+                took = PurchaseOrderLine.objects.filter(
+                    pk=line.pk, received_quantity__lte=F("quantity") - qty,
+                ).update(received_quantity=F("received_quantity") + qty)
+                if not took:
+                    line.refresh_from_db(fields=["received_quantity"])
+                    raise ValidationError(
+                        f"only {show_qty(line.to_receive)} of {line.product.name} is still "
+                        "outstanding (someone else has just received against this order)")
+                line.refresh_from_db(fields=["received_quantity"])
                 if line.product.track_inventory:
                     StockMovement.objects.create(
                         product=line.product, warehouse=warehouse, movement_type="RECEIPT",
@@ -928,8 +941,6 @@ def grn_record(request, pk):
                         performed_by=request.user,
                         notes=f"Goods received against {po.reference}",
                     )
-                line.received_quantity = (line.received_quantity or Decimal("0")) + qty
-                line.save(update_fields=["received_quantity"])
             received_all = all(l.received_quantity >= l.quantity for l in po.lines.all())
             po.status = "FULLY_RECEIVED" if received_all else "PARTIALLY_RECEIVED"
             po.save(update_fields=["status", "updated_at"])

@@ -105,7 +105,7 @@ def membership(company, user):
 
 
 def is_supervisor(company, user):
-    """May this user act on someone else's till? Superusers and company admins."""
+    """May this user act on someone else's till? Superusers, admins, finance and sales managers."""
     if getattr(user, "is_superuser", False):
         return True
     found = membership(company, user)
@@ -703,7 +703,8 @@ def refund(sale, user, quantities, *, reason="", payment_method=None, token=""):
         raise ValidationError(
             f"{sale.reference} was paid by {sale.get_payment_method_display()}, so it is "
             f"refunded by {sale.get_payment_method_display()}: the money goes back the way "
-            "it came in. Only a company administrator can refund it another way.")
+            "it came in. Only a supervisor (an administrator, sales manager or finance manager) "
+            "can refund it another way.")
 
     # Lock the ticket so two refunds of it at two counters are worked out one
     # after the other, each seeing what the other already gave back.

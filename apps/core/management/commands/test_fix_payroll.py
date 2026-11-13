@@ -785,7 +785,7 @@ class Command(BaseCommand):
 
     # ─────────────────── second round: history, pro-rating, leavers ──────────
 
-    def contract(self, employee, basic, start, end="", current=True, pk=None):
+    def contract(self, employee, basic, start, end="", current=True, pk=None, by="HR"):
         """Write a contract through HR's own screen, as HR would."""
         data = {"employee": str(employee.pk), "contract_type": "PERMANENT",
                 "job_title": "Staff", "department": "", "start_date": start,
@@ -793,7 +793,7 @@ class Command(BaseCommand):
                 "is_current": "on" if current else ""}
         url = (reverse("hr:contract_update", args=[pk]) if pk
                else reverse("hr:contract_create", args=[employee.pk]))
-        return self.c["HR"].post(url, data)
+        return self.c[by].post(url, data)
 
     def basic_of(self, run, employee):
         slip = run.payslips.filter(employee=employee).first() if run else None
@@ -858,7 +858,13 @@ class Command(BaseCommand):
         self.contract(leaving, 30000, "2025-01-01")
         self.contract(self.evans, 50000, "2027-09-01")
         hana = self.employee("HN1", "Hana", user=self.users["HR"])
-        self.contract(hana, 40000, "2027-09-01")
+        # Nobody sets their own pay: HR writing a contract for their own record
+        # is refused, and an administrator enters it instead.
+        resp = self.contract(hana, 40000, "2027-09-01")
+        self.expect("HR cannot write a contract for their own employee record",
+                    not Contract.objects.filter(employee=hana).exists(),
+                    f"HTTP {resp.status_code}")
+        self.contract(hana, 40000, "2027-09-01", by="ADMIN")
 
         self.section("23. reimbursements and tax-deductible deductions")
         comp_url = reverse("payroll:component_create")

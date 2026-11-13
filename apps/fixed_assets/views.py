@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -367,6 +367,11 @@ class AssetDisposalCreateView(LoginRequiredMixin, CreateView):
                 entry = services.post_disposal(disposal, user=self.request.user)
         except ValidationError as exc:
             form.add_error(None, exc.messages[0])
+            return self.form_invalid(form)
+        except IntegrityError:
+            # Someone else disposed of it a moment ago (one disposal per asset).
+            form.add_error(None, f"{asset.code} has just been disposed of by someone "
+                                 "else. Open the asset to see that disposal.")
             return self.form_invalid(form)
         messages.success(
             self.request,

@@ -50,13 +50,13 @@ class LoginForm(forms.Form):
         widget=forms.EmailInput(attrs={
             "placeholder": "Email address",
             "autofocus": True,
-            "class": "w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent",
+            "class": "input-line",
         })
     )
     password = forms.CharField(
         widget=forms.PasswordInput(attrs={
             "placeholder": "Password",
-            "class": "w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent",
+            "class": "input-line",
         })
     )
     remember_me = forms.BooleanField(required=False)
@@ -141,7 +141,21 @@ class UserEditForm(forms.ModelForm):
     def clean_email(self):
         if self.fields["email"].disabled:
             return self.instance.email
-        return clean_unique_email(self)
+        email = clean_unique_email(self)
+        if email and self.instance.pk and email.lower() != (self.instance.email or "").lower():
+            # Invitations are matched on the account's email, and an email
+            # changed here is not verified: switching to an invited address
+            # would hand this login somebody else's seat (and its role).
+            from django.utils import timezone
+            from .models import CompanyInvitation
+            if CompanyInvitation.objects.filter(
+                    email__iexact=email, accepted_at__isnull=True, declined_at__isnull=True,
+                    expires_at__gt=timezone.now()).exists():
+                raise forms.ValidationError(
+                    "That address has an invitation waiting for it, so it can't be moved "
+                    "onto this account. The person it was sent to should sign up with it, "
+                    "or the company can invite this account's own address instead.")
+        return email
 
     def clean_username(self):
         """The username, refused if another account has it in any case.

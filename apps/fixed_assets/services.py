@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from apps.accounting.gl_service import (
@@ -280,6 +281,10 @@ def depreciate(asset, period_date, user=None):
     DR  depreciation expense (category, or 6900)   this month's charge
     CR  accumulated depreciation (category, 1690)
     """
+    # Claim the asset row before checking which months are charged: two
+    # people charging the same month at once are served one after the other.
+    type(asset).objects.filter(pk=asset.pk).update(status=F("status"))
+    asset.refresh_from_db()
     if asset.status != "ACTIVE":
         raise ValidationError(
             f"{asset.code} is {asset.get_status_display().lower()}, so it is not "
@@ -457,6 +462,8 @@ def post_disposal(disposal, user=None):
     CR  gain on disposal (4350)             when the proceeds beat the book
     """
     asset = disposal.asset
+    type(asset).objects.filter(pk=asset.pk).update(status=F("status"))
+    asset.refresh_from_db()
     if disposal.journal_entry_id and not disposal.journal_entry.reversed_by_id:
         return disposal.journal_entry
     if asset.status != "ACTIVE" or not asset.acquisition_is_live:

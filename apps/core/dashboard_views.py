@@ -426,6 +426,10 @@ def switch_company(request, company_id):
     if request.user.has_company_access(company):
         request.session["active_company_id"] = str(company.id)
         request.session.pop("active_branch_id", None)
+    else:
+        from django.contrib import messages
+        messages.error(request, "You are not a member of that company, so you are still "
+                                "working in your current one.")
     from apps.accounts.views import safe_next
     return redirect(safe_next(request, "/dashboard/"))
 

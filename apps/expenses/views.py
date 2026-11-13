@@ -359,13 +359,21 @@ def claim_pay(request, pk):
     from apps.accounting.gl_service import post_expense_claim
     try:
         with transaction.atomic():
+            # Claim it first: two finance users paying the same claim at once
+            # must not both send the money.
+            if not type(claim).objects.filter(
+                    pk=claim.pk, status="APPROVED", journal_entry__isnull=True,
+            ).update(updated_at=timezone.now()):
+                raise ValidationError("someone else has just paid it")
+            claim.refresh_from_db()
             entry = post_expense_claim(claim, bank_account=bank_account, user=request.user,
                                        payment_date=payment_date)
             type(claim).objects.filter(pk=claim.pk).update(paid_by=request.user)
     except ValidationError as exc:
         messages.error(request, f"{claim.reference} was not paid: {exc.messages[0]}")
     except Exception as exc:
-        messages.error(request, f"GL posting failed: {exc}")
+        messages.error(request, f"{claim.reference} was not paid because the ledger could "
+                                f"not be updated just now ({exc}). Try again in a moment.")
     else:
         messages.success(request, f"Claim {claim.reference} paid and posted to GL.")
         # The same warning payroll gives: a payment dated into a closed month

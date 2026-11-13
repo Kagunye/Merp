@@ -588,6 +588,15 @@ def calculate(run):
     unpaid = list(payable_staff(run.company, run.period_start))
 
     with transaction.atomic():
+        # Claim the run while it is still a draft: an approval landing at the
+        # same moment either waits for these figures or makes this refuse,
+        # so an approved run's payslips are never rebuilt underneath it.
+        if not type(run).objects.filter(pk=run.pk, status__in=("DRAFT", "REVIEW")).update(
+                updated_at=timezone.now()):
+            run.refresh_from_db(fields=["status"])
+            raise ValidationError(
+                f"'{run.reference}' has just been {run.get_status_display().lower()} by "
+                "someone else, so its figures are settled and were not recalculated.")
         run.payslips.all().delete()
         missing = []
         slips = []

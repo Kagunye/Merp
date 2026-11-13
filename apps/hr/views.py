@@ -17,7 +17,7 @@ from .forms import (
     TerminationForm,
 )
 from .models import Contract, Employee, LeaveRequest, LeaveType, ensure_default_leave_types
-from apps.core.forms import ISO_DATE
+from apps.core.forms import ISO_DATE, widget_class
 
 
 def _style(form):
@@ -25,20 +25,16 @@ def _style(form):
     from django import forms as dforms
     for field in form.fields.values():
         if isinstance(field.widget, dforms.Select):
-            field.widget.attrs["class"] = (
-                "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm")
+            field.widget.attrs["class"] = "select"
         elif isinstance(field.widget, dforms.Textarea):
-            field.widget.attrs["class"] = (
-                "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm")
+            field.widget.attrs["class"] = "textarea"
             field.widget.attrs["rows"] = 3
         elif isinstance(field.widget, dforms.DateInput):
-            field.widget.attrs["class"] = (
-                "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm")
+            field.widget.attrs["class"] = "input"
             field.widget.attrs["type"] = "date"
             field.widget.format = ISO_DATE
         else:
-            field.widget.attrs["class"] = (
-                "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm")
+            field.widget.attrs["class"] = widget_class(field.widget)
 
 
 class EmployeeListView(LoginRequiredMixin, ListView):
@@ -311,6 +307,13 @@ class ContractCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         return ctx
 
     def form_valid(self, form):
+        if form.instance.employee and form.instance.employee.user_id == self.request.user.pk:
+            # Nobody sets their own pay: a contract for yourself is a raise
+            # nobody else agreed to. Another member of HR, or an administrator,
+            # has to enter it.
+            form.add_error(None, "This is your own employee record. Somebody else has to "
+                                 "enter or change your contract.")
+            return self.form_invalid(form)
         messages.success(
             self.request,
             f"{form.instance.employee.full_name}'s contract is saved"
@@ -346,6 +349,13 @@ class ContractUpdateView(LoginRequiredMixin, UpdateView):
         return ctx
 
     def form_valid(self, form):
+        if form.instance.employee and form.instance.employee.user_id == self.request.user.pk:
+            # Nobody sets their own pay: a contract for yourself is a raise
+            # nobody else agreed to. Another member of HR, or an administrator,
+            # has to enter it.
+            form.add_error(None, "This is your own employee record. Somebody else has to "
+                                 "enter or change your contract.")
+            return self.form_invalid(form)
         messages.success(
             self.request,
             f"{form.instance.employee.full_name}'s contract now pays "
@@ -415,27 +425,43 @@ class LeaveRequestCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateVie
         from django import forms as dforms
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "select"
             elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "textarea"
                 field.widget.attrs["rows"] = 3
             elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "input"
                 field.widget.attrs["type"] = "date"
                 field.widget.format = ISO_DATE
             else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = widget_class(field.widget)
         form.fields["start_date"].initial = datetime.date.today()
         form.fields["end_date"].initial = datetime.date.today()
         return form
 
     def form_valid(self, form):
+        from django.core.exceptions import ValidationError
+        from django.db import transaction
+        from django.db.models import F
+        from django.shortcuts import redirect
         form.instance.created_by = self.request.user
+        try:
+            with transaction.atomic():
+                # Two requests for the same person at the same moment would each
+                # count the days without the other: claim the employee row and
+                # check the entitlement and overlaps again before saving.
+                Employee.objects.filter(pk=form.instance.employee_id).update(
+                    updated_at=F("updated_at"))
+                form.instance.clean()
+                self.object = form.save()
+        except ValidationError as exc:
+            form.add_error(None, exc.messages[0])
+            return self.form_invalid(form)
         messages.success(
             self.request,
-            f"Leave request submitted: {form.instance.days_requested} working day(s), "
+            f"Leave request submitted: {self.object.days_requested} working day(s), "
             "counted Monday to Friday.")
-        return super().form_valid(form)
+        return redirect(self.get_success_url())
 
     def get(self, request, *args, **kwargs):
         # A company with no leave types yet would offer an empty list and no
@@ -487,19 +513,39 @@ def leave_approve(request, pk):
                 f"This request is already {leave.get_status_display().lower()}, so there "
                 "is nothing left to decide.")
             return redirect("hr:leave_list")
-        if action == "approve":
-            leave.status = "APPROVED"
-            leave.approved_by = request.user
-            leave.approved_at = timezone.now()
-            leave.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-            messages.success(request, f"Leave approved for {leave.employee.full_name}.")
-        elif action == "reject":
-            leave.status = "REJECTED"
-            leave.approved_by = request.user
-            leave.approved_at = timezone.now()
-            leave.rejection_reason = request.POST.get("reason", "")
-            leave.save(update_fields=["status", "approved_by", "approved_at", "rejection_reason", "updated_at"])
-            messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
+        if action in ("approve", "reject"):
+            from django.core.exceptions import ValidationError
+            from django.db import transaction
+            from django.db.models import F
+            now = timezone.now()
+            with transaction.atomic():
+                # One decision per request: claim the employee row, read the
+                # request again, and only change it while it is still pending.
+                Employee.objects.filter(pk=leave.employee_id).update(updated_at=F("updated_at"))
+                fresh = LeaveRequest.objects.get(pk=leave.pk)
+                if fresh.status != "PENDING":
+                    messages.error(request, "This request was just "
+                                            f"{fresh.get_status_display().lower()} by someone "
+                                            "else, so there is nothing left to decide.")
+                    return redirect("hr:leave_list")
+                if action == "approve":
+                    # Granting is when the days are spent: count the entitlement
+                    # and the overlaps again, as they stand now.
+                    try:
+                        fresh.clean()
+                    except ValidationError as exc:
+                        messages.error(request, "This leave cannot be approved: "
+                                                f"{exc.messages[0]}")
+                        return redirect("hr:leave_list")
+                    LeaveRequest.objects.filter(pk=leave.pk, status="PENDING").update(
+                        status="APPROVED", approved_by=request.user, approved_at=now,
+                        updated_at=now)
+                    messages.success(request, f"Leave approved for {leave.employee.full_name}.")
+                else:
+                    LeaveRequest.objects.filter(pk=leave.pk, status="PENDING").update(
+                        status="REJECTED", approved_by=request.user, approved_at=now,
+                        rejection_reason=request.POST.get("reason", ""), updated_at=now)
+                    messages.warning(request, f"Leave rejected for {leave.employee.full_name}.")
         else:
             messages.error(
                 request, "Choose whether to approve or reject the request.")

@@ -96,10 +96,31 @@ class EntryCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         return kwargs
 
     def form_valid(self, form):
+        from decimal import Decimal
+        from django.db import transaction
+        from django.db.models import F, Sum
+        from django.shortcuts import redirect
+        from .forms import DAY
         form.instance.company = self.request.active_company
         form.instance.user = self.request.user
+        with transaction.atomic():
+            # Two saves for the same day at the same moment would each see the
+            # other one's hours missing: claim the person's row and count again.
+            user = self.request.user
+            from django.contrib.auth import get_user_model
+            get_user_model().objects.filter(pk=user.pk).update(last_login=F("last_login"))
+            day, hours = form.cleaned_data["entry_date"], form.cleaned_data["hours"]
+            logged = TimesheetEntry.objects.filter(user=user, entry_date=day).aggregate(
+                total=Sum("hours"))["total"] or Decimal("0")
+            if logged + hours > DAY:
+                form.add_error("hours", f"{logged} hour(s) are already logged on "
+                                        f"{day:%d %b %Y}, so {hours} more would make "
+                                        f"{logged + hours}, more than the day holds.")
+                transaction.set_rollback(True)
+                return self.form_invalid(form)
+            self.object = form.save()
         messages.success(self.request, "Time entry added.")
-        return super().form_valid(form)
+        return redirect(self.get_success_url())
 
 
 class EntryDetailView(LoginRequiredMixin, DetailView):

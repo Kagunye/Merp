@@ -919,9 +919,23 @@ def post_customer_payment(payment, user=None, invoice_allocations=None) -> Journ
     # A settlement clears the receivable at the value the invoice was booked at;
     # the gap between that and the cash actually received is realised exchange.
     allocations = []
+    # Two receipts for the same customer at the same moment would each see the
+    # invoice still open and both settle it. Claim the customer row first (a
+    # no-op UPDATE held to the end of this transaction), then read every
+    # invoice again: whatever the other receipt already paid is now visible.
+    if payment.customer_id:
+        type(payment.customer).objects.filter(pk=payment.customer_id).update(
+            updated_at=timezone.now())
     if invoice_allocations is not None:
         for inv, alloc_amount in invoice_allocations:
             if alloc_amount and alloc_amount > 0:
+                inv.refresh_from_db()
+                if inv.status not in ("SENT", "PARTIAL", "OVERDUE") or alloc_amount > inv.outstanding_amount:
+                    raise ValidationError(
+                        f"Invoice {inv.reference} has only {inv.outstanding_amount:,.2f} "
+                        f"{inv.currency} still to pay, so {alloc_amount:,.2f} cannot be applied "
+                        "to it. Another receipt may have just settled it: open the invoice "
+                        "and allocate what is left, or keep the rest on the customer's account.")
                 if inv.invoice_date and payment.payment_date < inv.invoice_date:
                     # Money cannot settle a bill that did not exist yet. A receipt
                     # dated before its invoice is either a mistyped date or a
@@ -3046,6 +3060,12 @@ def close_period(company, period, user=None):
     Returns the posted closing entry, or None when the period held no profit or
     loss activity at all (in which case there is genuinely nothing to carry).
     """
+    # Claim the period row first (a no-op UPDATE holds it until this
+    # transaction ends), so two people closing the same month at once are
+    # served one after the other and the second sees the first's entry.
+    from django.db.models import F as _F
+    type(period).objects.filter(pk=period.pk).update(status=_F("status"))
+    period.refresh_from_db()
     live = closing_entry_for(company, PERIOD_CLOSE, period.pk)
     today = _today()
     if not live and period.end_date > today:

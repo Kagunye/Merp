@@ -527,7 +527,10 @@ class UserDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = f"User — {self.object.full_name}"
-        ctx["memberships"] = self.object.memberships.select_related("company", "branch").all()
+        # Only this company's seat: what the person does in other companies is
+        # none of this company's business.
+        ctx["memberships"] = self.object.memberships.select_related("company", "branch").filter(
+            company=self.request.active_company)
         company = self.request.active_company
         ctx["member_active"] = bool(company) and self.object.memberships.filter(
             company=company, is_active=True).exists()
@@ -588,20 +591,45 @@ class UserEditView(LoginRequiredMixin, View):
         form = self._form(request, user, request.POST, request.FILES)
         if form.is_valid():
             from django.db import transaction
+            last_admin = False
             with transaction.atomic():
                 membership = getattr(form, "membership", None)
-                old_role = membership.role if membership is not None else None
-                old_display = membership.get_role_display() if membership is not None else ""
-                form.save()
                 role = form.cleaned_data.get("company_role")
-                if membership is not None and role and role != old_role:
-                    membership.role = role
-                    membership.save(update_fields=["role"])
-                    messages.success(request, f"{user.full_name}'s role in {membership.company.name} "
-                                              f"changed from {old_display} to {membership.get_role_display()}.")
+                if membership is not None and membership.role == "ADMIN" and role and role != "ADMIN":
+                    # Two admins demoting each other at once would each pass the
+                    # form's check. Claim the company and count the admins again.
+                    from apps.organizations.models import Company, CompanyMembership
+                    Company.objects.filter(pk=membership.company_id).update(
+                        updated_at=timezone.now())
+                    others = CompanyMembership.objects.filter(
+                        company=membership.company_id, role="ADMIN", is_active=True,
+                        user__is_active=True).exclude(pk=membership.pk)
+                    last_admin = not others.exists()
+                if last_admin:
+                    # Leave the transaction before rendering: the page runs
+                    # queries, which a rolled-back block would refuse.
+                    transaction.set_rollback(True)
+                else:
+                    self._save_member(request, form, membership, user)
+            if last_admin:
+                form.add_error("company_role",
+                               f"{user.full_name} is the only admin of "
+                               f"{membership.company.name}. Make someone else an admin first.")
+                return render(request, self.template_name, {"form": form, "profile_user": user})
             messages.success(request, "User updated successfully.")
             return redirect("accounts:user_detail", pk=pk)
         return render(request, self.template_name, {"form": form, "profile_user": user})
+
+    def _save_member(self, request, form, membership, user):
+        old_role = membership.role if membership is not None else None
+        old_display = membership.get_role_display() if membership is not None else ""
+        form.save()
+        role = form.cleaned_data.get("company_role")
+        if membership is not None and role and role != old_role:
+            membership.role = role
+            membership.save(update_fields=["role"])
+            messages.success(request, f"{user.full_name}'s role in {membership.company.name} "
+                                      f"changed from {old_display} to {membership.get_role_display()}.")
 
 
 class UserAddExistingView(LoginRequiredMixin, View):
@@ -775,14 +803,22 @@ def toggle_user_active(request, pk):
     if membership is None:
         messages.error(request, f"{user.full_name} isn't a member of {request.active_company}.")
         return redirect("accounts:user_list")
-    if _last_active_admin(membership):
-        # Applies to platform admins too: a company with no active admin has
-        # nobody left who can manage its users, branches or company record.
-        messages.error(request, f"{user.full_name} is the only active admin of "
-                                f"{membership.company.name}. Make someone else an admin first.")
-        return redirect("accounts:user_list")
-    membership.is_active = not membership.is_active
-    membership.save(update_fields=["is_active"])
+    from django.db import transaction
+    from apps.organizations.models import Company
+    with transaction.atomic():
+        # Two admins disabling each other at the same moment would each see
+        # the other still active. Claim the company row first, so the second
+        # request waits and then finds it would leave nobody in charge.
+        Company.objects.filter(pk=membership.company_id).update(updated_at=timezone.now())
+        membership.refresh_from_db()
+        if _last_active_admin(membership):
+            # Applies to platform admins too: a company with no active admin has
+            # nobody left who can manage its users, branches or company record.
+            messages.error(request, f"{user.full_name} is the only active admin of "
+                                    f"{membership.company.name}. Make someone else an admin first.")
+            return redirect("accounts:user_list")
+        membership.is_active = not membership.is_active
+        membership.save(update_fields=["is_active"])
     status = "enabled" if membership.is_active else "disabled"
     messages.success(request, f"{user.full_name}'s access to {request.active_company.name} has been {status}.")
     return redirect("accounts:user_list")

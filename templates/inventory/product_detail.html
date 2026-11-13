@@ -5,7 +5,7 @@
 {% can_do "inventory:adjustment_create" "POST" as may_adjust %}{% if may_adjust %}{% url 'inventory:adjustment_create' as adjust_base %}{% endif %}
 {% can_do "inventory:movement_list" as may_moves %}
 {% url 'inventory:product_list' as back %}
-{% include "_includes/page_header.html" with title=product.name eyebrow=product.sku subtitle=product.get_product_type_display|add:" · "|add:product.category.name|default:product.get_product_type_display back_url=back back_label="Products" action_label="Edit Product" action_url=edit_url actions_template="inventory/_product_actions.html" %}
+{% if product.category_id %}{% with sub=product.get_product_type_display|add:" · "|add:product.category.name %}{% include "_includes/page_header.html" with title=product.name eyebrow=product.sku subtitle=sub back_url=back back_label="Products" action_label="Edit Product" action_url=edit_url actions_template="inventory/_product_actions.html" %}{% endwith %}{% else %}{% include "_includes/page_header.html" with title=product.name eyebrow=product.sku subtitle=product.get_product_type_display back_url=back back_label="Products" action_label="Edit Product" action_url=edit_url actions_template="inventory/_product_actions.html" %}{% endif %}
 
 <div class="stat-grid mb-5 md:grid-cols-4 2xl:grid-cols-4">
   {% with uom=product.unit_of_measure %}

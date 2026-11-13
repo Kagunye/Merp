@@ -3637,6 +3637,11 @@ class Command(BaseCommand):
 
         far = self.today + datetime.timedelta(days=30)
         later = self.today + datetime.timedelta(days=50)
+        if later.year != self.today.year:
+            # Late in the year +50 days lands in a year this book has no calendar
+            # for; keep both revaluation days inside the current one.
+            later = datetime.date(self.today.year, 12, 31)
+            far = later - datetime.timedelta(days=20)
         if not self.expect("the calendar covers both revaluation days",
                            period_for(company, far) and period_for(company, later),
                            f"{far}, {later}"):

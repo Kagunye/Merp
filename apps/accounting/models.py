@@ -654,6 +654,22 @@ class JournalEntry(BaseModel, NotesMixin):
         if refusal:
             raise ValidationError(f"{self.reference} cannot be reversed yet. {refusal}")
         with transaction.atomic():
+            # Claim the entry before writing anything: an UPDATE that only
+            # matches while nothing has reversed it yet. A second person
+            # pressing Reverse at the same moment waits on this row and then
+            # matches nothing, instead of posting a second reversal.
+            from django.utils import timezone as _tz
+            claimed = JournalEntry.objects.filter(
+                pk=self.pk, status="POSTED", reversed_by__isnull=True,
+            ).update(updated_at=_tz.now())
+            if not claimed:
+                fresh = JournalEntry.objects.select_related("reversed_by").get(pk=self.pk)
+                if fresh.reversed_by_id:
+                    raise ValidationError(
+                        f"{self.reference} has already been reversed by "
+                        f"{fresh.reversed_by.reference}.")
+                raise ValidationError(f"{self.reference} is no longer posted, so it "
+                                      "cannot be reversed.")
             from apps.core.models import SequenceCounter
             ref = SequenceCounter.next_number(self.company, "JE-REV-")
             reversal = JournalEntry.objects.create(

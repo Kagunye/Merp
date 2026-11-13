@@ -638,7 +638,7 @@ class FiscalYearCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView)
             else:
                 current = date(current.year, current.month + 1, 1)
             n += 1
-        messages.success(self.request, f"Fiscal year '{fy.name}' created with {n-1} monthly periods.")
+        messages.success(self.request, f"Fiscal year '{fy.name}' created with {n} monthly period{'s' if n != 1 else ''}.")
         return response
 
     def get_context_data(self, **kwargs):
