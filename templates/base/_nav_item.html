@@ -1,5 +1,5 @@
-{% comment %}Sidebar link. Params: href, label, key (namespace that marks it active), icon (SVG path "d"), icon2 (optional second path). `ns` comes from base.html.{% endcomment %}
+{% comment %}Sidebar link. Params: href, label, short (one word for the collapsed rail, optional), key (namespace that marks it active), icon (SVG path "d"), icon2 (optional second path). `ns` comes from base.html.{% endcomment %}
 <a href="{{ href }}" class="nav-item{% if ns == key %} active{% endif %}" data-tooltip="{{ label }}"{% if ns == key %} aria-current="page"{% endif %}>
   <span class="nav-icon-wrap"><svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ icon }}"/>{% if icon2 %}<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="{{ icon2 }}"/>{% endif %}</svg></span>
-  <span class="sidebar-label">{{ label }}</span>
+  <span class="sidebar-label"><span class="label-full">{{ label }}</span><span class="label-short">{{ short|default:label }}</span></span>
 </a>

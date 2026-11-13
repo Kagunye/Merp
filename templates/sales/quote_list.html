@@ -1,29 +1,24 @@
 {% extends "base/base.html" %}
+{% load ui_extras %}
 {% block content %}
-{% url 'sales:quote_create' as pa_url %}
-{% include "_includes/page_header.html" with title="Sales Quotes" subtitle="Quotations sent to customers before an order is placed" action_label="New Quote" action_url=pa_url %}
-<div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider"><tr><th class="px-4 py-3 text-left">Reference</th><th class="px-4 py-3 text-left">Customer</th><th class="px-4 py-3 text-left">Quote date</th><th class="px-4 py-3 text-left">Valid until</th><th class="px-4 py-3 text-right">Total</th><th class="px-4 py-3">Status</th></tr></thead>
-    <tbody class="divide-y divide-gray-100">
+{% can_do "sales:quote_create" "POST" as may_create %}{% if may_create %}{% url 'sales:quote_create' as pa_url %}{% endif %}
+{% can_do "sales:order_list" as may_orders %}{% if may_orders %}{% url 'sales:order_list' as sa_url %}{% endif %}
+{% include "_includes/page_header.html" with secondary_label="Sales orders" secondary_url=sa_url title="Sales Quotes" subtitle="Quotations sent to customers before an order is placed" action_label="New Quote" action_url=pa_url %}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Reference</th><th>Customer</th><th>Quote date</th><th>Valid until</th><th class="num">Total</th><th>Status</th></tr></thead>
+    <tbody>
       {% for q in quotes %}
-      <tr class="hover:bg-gray-50">
-        <td class="px-4 py-3 font-mono text-xs"><a href="{% url 'sales:quote_detail' q.pk %}" style="color: var(--primary);">{{ q.reference }}</a></td>
-        <td class="px-4 py-3">{{ q.customer.name }}</td>
-        <td class="px-4 py-3">{{ q.quote_date|date:"d M Y" }}</td>
-        <td class="px-4 py-3">{{ q.valid_until|date:"d M Y"|default:"—" }}</td>
-        <td class="px-4 py-3 text-right font-semibold">{{ q.total_amount|floatformat:2 }}</td>
-        <td class="px-4 py-3">
-          {% if q.status == 'DRAFT' %}<span class="badge bg-gray-100 text-gray-700">Draft</span>
-          {% elif q.status == 'SENT' %}<span class="badge bg-blue-50 text-blue-700">Sent</span>
-          {% elif q.status == 'ACCEPTED' %}<span class="badge bg-green-50 text-green-700">Accepted</span>
-          {% elif q.status == 'CONVERTED' %}<span class="badge bg-purple-50 text-purple-700">Converted</span>
-          {% elif q.status == 'EXPIRED' %}<span class="badge bg-amber-50 text-amber-700">Expired</span>
-          {% else %}<span class="badge bg-red-50 text-red-700">Cancelled</span>{% endif %}
-        </td>
+      <tr>
+        <td class="mono whitespace-nowrap"><a href="{% url 'sales:quote_detail' q.pk %}" class="row-link">{{ q.reference }}</a></td>
+        <td class="font-medium">{{ q.customer.name }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ q.quote_date|date:"d M Y" }}</td>
+        <td class="whitespace-nowrap text-ink-2">{{ q.valid_until|date:"d M Y"|default:"—" }}</td>
+        <td class="num font-semibold">{{ q.total_amount|money }}{% if q.currency != active_company.currency %} <span class="text-xs font-normal text-ink-muted">{{ q.currency }}</span>{% endif %}</td>
+        <td>{% status_badge q.status q.get_status_display %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">No sales quotes yet.</td></tr>
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No sales quotes yet" text="Quotations you send to customers appear here." action_label="New Quote" action_url=pa_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

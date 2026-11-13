@@ -1423,6 +1423,8 @@ class SalesQuoteDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         ctx["lines"] = self.object.lines.select_related("product", "tax_rate")
         ctx["book"] = book_currency(self.object.company)
+        quote = self.object
+        ctx["quote_discount"] = quote.subtotal - (quote.total_amount - quote.tax_amount)
         return ctx
 
 

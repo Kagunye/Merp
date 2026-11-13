@@ -11,7 +11,7 @@ from django.utils import timezone
 from apps.core.forms import date_input, is_new
 from .models import AssetCategory, AssetDisposal, FixedAsset
 
-FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+FIELD_CLASS = "input"
 
 
 class BookScopedForm(forms.ModelForm):

@@ -289,7 +289,7 @@ TILE_SPECS = [
     {
         "key": "purchase_invoices", "title": "My Purchase Invoices", "row": 2,
         "list": "procurement:bill_list", "money": "procurement:ap_aging",
-        "icon": "receipt", "bar": "bg-teal-600 dark:bg-teal-400", "date": "bill_date",
+        "icon": "receipt", "bar": "bg-brand", "date": "bill_date",
         "mine_note": "Bills have no owner of their own: yours are the bills "
                      "against purchase orders raised from requisitions you "
                      "requested. Drafts, cancelled bills and debit notes are left out.",
@@ -297,7 +297,7 @@ TILE_SPECS = [
     {
         "key": "purchase_orders", "title": "My Purchase Orders", "row": 2,
         "list": "procurement:po_list", "money": "procurement:ap_aging",
-        "icon": "cart", "bar": "bg-indigo-600 dark:bg-indigo-400", "date": "order_date",
+        "icon": "cart", "bar": "bg-ink-2", "date": "order_date",
         "mine_note": "Purchase orders have no owner of their own: yours are the "
                      "orders raised from requisitions you requested. Cancelled "
                      "orders are left out.",

@@ -39,8 +39,8 @@ def refuse_beyond_whole(form, name, what):
             "A share of pay is between 0 and 100 — check for a misplaced decimal point.")
     return value
 
-FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-TEXTAREA_CLASS = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+FIELD_CLASS = "input"
+TEXTAREA_CLASS = "textarea"
 
 
 class AccountChoiceForm(forms.ModelForm):

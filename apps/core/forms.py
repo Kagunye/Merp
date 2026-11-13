@@ -20,6 +20,31 @@ def datetime_input(attrs=None):
     )
 
 
+def widget_class(widget):
+    """The design-system class for a widget (see docs/UI.md, "Forms").
+
+    .select for drop-downs, .textarea for multi-line text, .checkbox / .radio
+    for ticks and options, .input for everything else (text, number, date).
+    """
+    if isinstance(widget, forms.CheckboxInput):
+        return "checkbox"
+    if isinstance(widget, forms.CheckboxSelectMultiple):
+        return "checkbox"
+    if isinstance(widget, forms.RadioSelect):
+        return "radio"
+    if isinstance(widget, forms.Select):
+        return "select"
+    if isinstance(widget, forms.Textarea):
+        return "textarea"
+    return "input"
+
+
+def style_field(field):
+    """Give one form field the design-system class for its widget."""
+    field.widget.attrs["class"] = widget_class(field.widget)
+    return field
+
+
 def is_new(form):
     """True while the bound instance has never been saved.
 

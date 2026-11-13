@@ -8,7 +8,7 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from apps.accounts.models import User
 from .models import Project, Task
-from apps.core.forms import ISO_DATE
+from apps.core.forms import ISO_DATE, widget_class
 
 
 class ProjectListView(LoginRequiredMixin, ListView):
@@ -53,16 +53,16 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
         from django import forms as dforms
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "select"
             elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "textarea"
                 field.widget.attrs["rows"] = 3
             elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "input"
                 field.widget.attrs["type"] = "date"
                 field.widget.format = ISO_DATE
             else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = widget_class(field.widget)
         if company:
             from apps.crm.models import Customer
             from apps.organizations.models import Branch
@@ -151,16 +151,16 @@ class TaskCreateView(LoginRequiredMixin, CreateView):
             form.fields["assigned_to"].queryset = company_users(company)
         for fname, field in form.fields.items():
             if isinstance(field.widget, dforms.Select):
-                field.widget.attrs["class"] = "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "select"
             elif isinstance(field.widget, dforms.Textarea):
-                field.widget.attrs["class"] = "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "textarea"
                 field.widget.attrs["rows"] = 3
             elif isinstance(field.widget, dforms.DateInput):
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = "input"
                 field.widget.attrs["type"] = "date"
                 field.widget.format = ISO_DATE
             else:
-                field.widget.attrs["class"] = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                field.widget.attrs["class"] = widget_class(field.widget)
         # Keep "project" first in the visual order when it is present.
         if "project" in form.fields:
             order = ["project", "title", "description", "status", "priority",

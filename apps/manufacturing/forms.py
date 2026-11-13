@@ -12,12 +12,12 @@ class BOMForm(PlainNumbersMixin, forms.ModelForm):
         model = BillOfMaterials
         fields = ["name", "product", "version", "status", "production_quantity", "notes"]
         widgets = {
-            "name": forms.TextInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "product": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "version": forms.TextInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "status": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "production_quantity": forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
-            "notes": forms.Textarea(attrs={"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 3}),
+            "name": forms.TextInput(attrs={"class": "input"}),
+            "product": forms.Select(attrs={"class": "select"}),
+            "version": forms.TextInput(attrs={"class": "input"}),
+            "status": forms.Select(attrs={"class": "select"}),
+            "production_quantity": forms.NumberInput(attrs={"class": "input", "step": "0.0001"}),
+            "notes": forms.Textarea(attrs={"class": "textarea", "rows": 3}),
         }
 
     def clean_production_quantity(self):
@@ -36,10 +36,10 @@ class BOMLineForm(PlainNumbersMixin, forms.ModelForm):
         model = BOMLine
         fields = ["component", "quantity", "unit_of_measure", "scrap_percent"]
         widgets = {
-            "component": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "quantity": forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
-            "unit_of_measure": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "scrap_percent": forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.01"}),
+            "component": forms.Select(attrs={"class": "select"}),
+            "quantity": forms.NumberInput(attrs={"class": "input", "step": "0.0001"}),
+            "unit_of_measure": forms.Select(attrs={"class": "select"}),
+            "scrap_percent": forms.NumberInput(attrs={"class": "input", "step": "0.01"}),
         }
 
     def clean(self):
@@ -80,13 +80,13 @@ class WorkOrderForm(PlainNumbersMixin, forms.ModelForm):
         model = WorkOrder
         fields = ["reference", "bom", "planned_quantity", "planned_start", "planned_end", "warehouse", "notes"]
         widgets = {
-            "reference": forms.TextInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "bom": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "planned_quantity": forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
-            "planned_start": date_input({"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "planned_end": date_input({"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "warehouse": forms.Select(attrs={"class": "form-select w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
-            "notes": forms.Textarea(attrs={"class": "form-textarea w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "rows": 3}),
+            "reference": forms.TextInput(attrs={"class": "input"}),
+            "bom": forms.Select(attrs={"class": "select"}),
+            "planned_quantity": forms.NumberInput(attrs={"class": "input", "step": "0.0001"}),
+            "planned_start": date_input({"class": "input"}),
+            "planned_end": date_input({"class": "input"}),
+            "warehouse": forms.Select(attrs={"class": "select"}),
+            "notes": forms.Textarea(attrs={"class": "textarea", "rows": 3}),
         }
 
     def clean_planned_quantity(self):
@@ -107,8 +107,8 @@ class CompleteWorkOrderForm(PlainNumbersMixin, forms.Form):
         max_digits=12, decimal_places=4, min_value=Decimal("0.0001"),
         error_messages={"min_value": "Enter how many were made — more than zero. "
                                      "A run that made nothing should be cancelled instead."},
-        widget=forms.NumberInput(attrs={"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm", "step": "0.0001"}),
+        widget=forms.NumberInput(attrs={"class": "input", "step": "0.0001"}),
     )
     actual_end = forms.DateField(
-        widget=date_input({"class": "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"}),
+        widget=date_input({"class": "input"}),
     )

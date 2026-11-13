@@ -12,7 +12,7 @@ from apps.core.forms import date_input
 from .access import manages_people, own_employee
 from .models import Contract, Employee, LeaveRequest, LeaveType
 
-FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+FIELD_CLASS = "input"
 
 MANDATORY_EMPLOYEE_FIELDS = [
     "employee_number", "first_name", "last_name", "other_names",

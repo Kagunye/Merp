@@ -5,7 +5,7 @@ import re
 from decimal import Decimal
 
 from django import forms
-from apps.core.forms import date_input, is_new
+from apps.core.forms import date_input, is_new, style_field
 from django.forms import inlineformset_factory
 from apps.organizations.models import FiscalYear
 from .models import (
@@ -18,7 +18,7 @@ CURRENCY_CODE = re.compile(r"[A-Z]{3}")
 
 # Every form field in this app shares one look, and the class list is long
 # enough that repeating it invites a typo.
-FIELD_CLASS = "form-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+FIELD_CLASS = "input"
 
 
 class AccountForm(forms.ModelForm):
@@ -249,10 +249,7 @@ class FiscalYearForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.company = company
         for name, field in self.fields.items():
-            if isinstance(field.widget, forms.CheckboxInput):
-                field.widget.attrs["class"] = "form-checkbox"
-            else:
-                field.widget.attrs["class"] = FIELD_CLASS
+            style_field(field)
 
     def clean_name(self):
         name = (self.cleaned_data.get("name") or "").strip()
@@ -358,11 +355,11 @@ class CurrencyForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["code"].widget.attrs["class"] = FIELD_CLASS
+        style_field(self.fields["code"])
         self.fields["code"].help_text = "The ISO code, in capitals: USD, KES, EUR."
-        self.fields["name"].widget.attrs["class"] = FIELD_CLASS
-        self.fields["symbol"].widget.attrs["class"] = FIELD_CLASS
-        self.fields["minor_units"].widget.attrs["class"] = FIELD_CLASS
+        style_field(self.fields["name"])
+        style_field(self.fields["symbol"])
+        style_field(self.fields["minor_units"])
         self.fields["minor_units"].help_text = (
             "Digits after the decimal point — 2 for shillings and dollars, 0 for yen."
         )
@@ -404,14 +401,14 @@ class ExchangeRateForm(forms.ModelForm):
         self.fields["currency"].queryset = Currency.objects.filter(
             is_active=True).exclude(code=book).order_by("code")
         self.fields["currency"].empty_label = "— Choose a currency"
-        self.fields["currency"].widget.attrs["class"] = FIELD_CLASS
+        style_field(self.fields["currency"])
         self.fields["rate"].widget.attrs.update(
             {"class": FIELD_CLASS, "step": "0.000001"})
         self.fields["rate"].help_text = (
             f"How many {book} one unit of this currency bought."
         )
-        self.fields["source"].widget.attrs["class"] = FIELD_CLASS
-        self.fields["note"].widget.attrs["class"] = FIELD_CLASS
+        style_field(self.fields["source"])
+        style_field(self.fields["note"])
 
     def clean_rate(self):
         rate = self.cleaned_data.get("rate")

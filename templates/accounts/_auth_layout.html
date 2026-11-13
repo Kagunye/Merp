@@ -46,8 +46,9 @@ else the device setting.
 
   {# Right: the dark hero panel with the form. #}
   <div class="auth-panel">
-    <header class="flex flex-wrap items-center justify-between gap-3">
-      <a href="/" aria-label="Mofisi home" class="shrink-0">
+    <header class="flex flex-wrap items-center justify-between gap-3 lg:justify-end">
+      {# The photo carries the logo on desktop, as on Caritas; phones have no photo. #}
+      <a href="/" aria-label="Mofisi home" class="shrink-0 lg:hidden">
         <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="h-9 w-auto">
       </a>
       <div class="flex flex-wrap items-center gap-2.5 text-sm">{% block top_right %}{% endblock %}</div>

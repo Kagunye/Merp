@@ -1,0 +1,12 @@
+{% load ui_extras %}
+{% can_do "sales:quote_convert" "POST" as may_convert %}
+{% can_do "sales:order_detail" as may_open_order %}
+{% if quote.sales_order and may_open_order %}
+<a href="{% url 'sales:order_detail' quote.sales_order.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="clipboard" cls="h-4 w-4" only %}View Order {{ quote.sales_order.reference }}</a>
+{% endif %}
+{% if may_convert and quote.status != 'CONVERTED' and quote.status != 'CANCELLED' %}
+<form method="post" action="{% url 'sales:quote_convert' quote.pk %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-primary">{% include "_includes/icon.html" with name="check" cls="h-4 w-4" stroke="2" only %}Convert to Sales Order</button>
+</form>
+{% endif %}
