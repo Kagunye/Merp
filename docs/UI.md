@@ -556,3 +556,43 @@ between the header and the tiles.
   `btn btn-primary` with an outlined `btn btn-secondary` beside it. Never
   hot-link the bank's photos or logos. Its blocks are `title`, `hero`,
   `top_right`, `content` and `scripts`.
+
+## Offline mode
+
+Mofisi keeps working without a connection and syncs when it is back.
+
+- **Pages:** a service worker (`static/sw.js`, served at `/sw.js`) keeps every page
+  a person opens, plus the app's own files. Offline, the last copy of a page is
+  shown; a page never opened shows `/offline/`. Sign-in, sign-out and the admin
+  are never cached, and signing out empties the page cache.
+- **The till** rings sales offline: the ticket is kept on the device (IndexedDB)
+  with its own one-time token and sent to `pos:terminal_sync` when the server is
+  reachable again. The same token can only ever ring one ticket.
+- **Forms:** pass `offline="Label"` to `_includes/model_form.html` and a *new*
+  record (never an edit) is saved on the device while offline and replayed later.
+  In use on: time entries, leave requests, expense claims, customers, leads.
+- **Sync:** `static/js/offline.js` sends each waiting item with `X-Offline-Sync`
+  and its own `X-Offline-Key`; `apps.core.offline.OfflineSyncMiddleware` runs
+  the normal view (login, role, CSRF, validation all apply), answers in JSON and
+  remembers the key, so a resend is answered, not saved twice. A form that comes
+  back with errors stays on the device marked "to fix" (header badge → Retry or
+  Discard).
+- Only use `offline=` on forms that can be saved later without surprises
+  (no stock or money that depends on the moment). Posting, payments and approvals
+  stay online.
+
+## Till pictures, receipt printers and cash drawers
+
+- **Pictures:** POS → Back office → Menus → a menu item's *Picture* column. The upload is
+  shrunk to a 320 px thumbnail and kept in the database (`ProductPicture`), because Vercel's
+  media folder is wiped on every deploy. Tiles on the till and the waiter station show it.
+- **Printers & drawers:** POS → Back office → *Printers & drawers*. Each printer has its LAN IP
+  (port 9100) and the drawer pin (2 or 5). A browser cannot open a socket, so a printer is reached by:
+  - the **Mofisi bridge** (`tools/mofisi-bridge`), a small Python program on the till PC
+    listening on `127.0.0.1:9180`; it only talks to private addresses and works offline;
+  - **Epson ePOS** / **Star WebPRNT** printers straight from the browser;
+  - the **server** itself, when Mofisi runs on a computer in the shop (printer ports 9100–9109 only).
+- Each till PC picks its printer with *Use on this device*. After a sale the ticket page prints
+  the receipt and kicks the drawer on cash (one job); the till's **Open Drawer** key (Ctrl+D)
+  asks for a reason. Every opening is logged and listed on the day end.
+- Checks: `python manage.py test_fix_hardware`.

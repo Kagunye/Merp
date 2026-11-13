@@ -291,3 +291,41 @@ class PinForm(forms.Form):
         if data.get("pin") and data.get("confirm") and data["pin"] != data["confirm"]:
             raise forms.ValidationError("The two PINs do not match.")
         return data
+
+
+class PrinterForm(CompanyForm):
+    class Meta:
+        from .models import POSPrinter
+        model = POSPrinter
+        fields = ["name", "branch", "connection", "host", "port", "bridge_url", "drawer_pin",
+                  "paper_chars", "open_drawer_on_cash", "print_receipts", "is_active"]
+        labels = {"is_active": "Switched on"}
+
+    def limit(self):
+        self.fields["branch"].queryset = _branches(self.company)
+        self.fields["branch"].empty_label = "Any branch"
+
+    def clean_host(self):
+        import ipaddress
+        host = (self.cleaned_data.get("host") or "").strip()
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            if not host or " " in host or len(host) > 100:
+                raise forms.ValidationError("Enter the printer's IP address on the shop network, e.g. 192.168.1.50.")
+            return host            # a local hostname such as printer.local
+        if ip.is_link_local or not (ip.is_private or ip.is_loopback):
+            raise forms.ValidationError("That is not an address on the shop LAN. Use the printer's address, e.g. 192.168.1.50.")
+        return host
+
+    def clean_bridge_url(self):
+        url = (self.cleaned_data.get("bridge_url") or "").strip().rstrip("/")
+        if self.cleaned_data.get("connection") == "BRIDGE" and not url.startswith(("http://127.0.0.1", "http://localhost")):
+            raise forms.ValidationError("The bridge runs on the till PC itself: http://127.0.0.1:9180 unless you changed its port.")
+        return url or "http://127.0.0.1:9180"
+
+    def clean(self):
+        data = super().clean()
+        if data.get("connection") == "SERVER" and data.get("port") and not 9100 <= data["port"] <= 9109:
+            self.add_error("port", "The server only sends to printer ports 9100-9109.")
+        return data

@@ -96,6 +96,12 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("procurement", "ap_aging", FINANCE | STOCK | AUDIT, NOBODY),
     ("procurement", "supplier_statement", FINANCE | STOCK | AUDIT, NOBODY),
     ("pos", "terminal", TILL, TILL),
+    ("pos", "terminal_sync", NOBODY, TILL),
+    # Product pictures are part of the catalogue everyone in the company sees.
+    ("pos", "product_picture", EVERYONE, NOBODY),
+    # Till hardware: the till roles drive printers and drawers; every drawer
+    # opening is logged (hw_log) and shows on the day end.
+    ("pos", "hw_*", TILL | FINANCE | AUDIT, TILL | FM),
     ("pos", "session_open", TILL, TILL),
     ("pos", "session_close", NOBODY, TILL | FM),
     # A late count on the cash-up sheet is part of closing the till, so it is
@@ -262,6 +268,9 @@ PUBLIC = {
     # The scheduled eTIMS run (Vercel Cron / any scheduler): no session, it
     # checks the KRA_CRON_TOKEN itself and refuses everything else.
     ("kra", "cron"),
+    # Offline mode: the service worker, the app manifest, the offline page and
+    # the connectivity ping carry no company data.
+    ("", "sw"), ("", "webmanifest"), ("", "offline"), ("", "ping"),
 }
 
 # Reachable by any signed-in user, even one who doesn't belong to a company yet.

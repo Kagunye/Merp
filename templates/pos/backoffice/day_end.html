@@ -129,6 +129,29 @@
 </section>
 
 <section class="card mt-5 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Cash drawer openings</h2><p class="card-subtitle">{{ report.drawer|length }} opening{{ report.drawer|length|pluralize }}, {{ report.no_sale }} with no sale</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table table-compact">
+      <thead><tr><th>Time</th><th>Why</th><th>Who</th><th>Ticket</th><th>Printer</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for d in report.drawer %}
+        <tr>
+          <td class="whitespace-nowrap text-ink-2">{{ d.when|date:"H:i" }}</td>
+          <td>{% if d.code == "NO_SALE" %}<span class="badge badge-warning">No sale</span> <span class="text-xs text-ink-muted">{{ d.note }}</span>{% else %}{{ d.reason }}{% endif %}</td>
+          <td class="text-ink-2">{{ d.who }}</td>
+          <td class="mono">{{ d.ticket|default:"—" }}</td>
+          <td class="text-ink-2">{{ d.printer|default:"—" }}</td>
+          <td>{% if d.ok %}<span class="badge badge-success">Opened</span>{% else %}<span class="badge badge-danger">Failed</span>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty-row">The drawer was not opened from Mofisi this day.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-5 overflow-hidden">
   <div class="card-header"><h2 class="card-title">Tills</h2></div>
   <div class="table-wrap rounded-none border-0 shadow-none">
     <table class="table">

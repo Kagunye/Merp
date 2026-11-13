@@ -1,0 +1,103 @@
+{% extends "base/base.html" %}
+{% load static ui_extras %}
+{% block content %}
+{% can_do "pos:bo_printer_create" "POST" as may_create %}{% if may_create %}{% url 'pos:bo_printer_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Printers & cash drawers" subtitle="Receipt printers on the shop network, and the cash drawers plugged into them" action_label="New printer" action_url=new_url %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Name</th><th>How it is reached</th><th>LAN address</th><th>Branch</th><th>Drawer</th><th>Paper</th><th>On a cash sale</th><th>This device</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+      {% for p in printers %}
+      <tr data-printer-row="{{ p.pk }}">
+        <td class="whitespace-nowrap">{% if may_create %}<a href="{% url 'pos:bo_printer_edit' p.pk %}" class="row-link">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}
+          {% if not p.is_active %}<span class="badge badge-neutral">Off</span>{% endif %}</td>
+        <td class="text-ink-2">{{ p.get_connection_display }}</td>
+        <td class="mono">{{ p.host }}:{{ p.port }}</td>
+        <td class="text-ink-2">{{ p.branch.name|default:"Any branch" }}</td>
+        <td class="text-ink-2">Pin {{ p.drawer_pin }}</td>
+        <td class="text-ink-2">{{ p.paper_chars }} chars</td>
+        <td class="text-ink-2">{% if p.open_drawer_on_cash %}Opens drawer{% endif %}{% if p.open_drawer_on_cash and p.print_receipts %} · {% endif %}{% if p.print_receipts %}Prints receipt{% endif %}</td>
+        <td><span class="badge badge-success hidden" data-this-device="{{ p.pk }}"><span class="badge-dot" aria-hidden="true"></span>Used here</span></td>
+        <td class="actions whitespace-nowrap">
+          {% if p.is_active %}
+          <button type="button" class="btn btn-ghost btn-sm" data-use="{{ p.pk }}">Use on this device</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-test="{{ p.pk }}" data-what="print">Test print</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-test="{{ p.pk }}" data-what="drawer">Test drawer</button>
+          {% endif %}
+          {% if may_create %}<a href="{% url 'pos:bo_printer_edit' p.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" class="p-0">{% include "_includes/empty_state.html" with icon="printer" title="No printers yet" text="Add the receipt printer at each till: its IP on the shop network, and the drawer pin the cash drawer uses." action_label="New printer" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-2 text-sm" id="hw-result" role="status" aria-live="polite"></p>
+
+<div class="mt-6 grid gap-5 lg:grid-cols-2">
+  <section class="card p-5">
+    <h2 class="card-title">Connecting a till to its printer and drawer</h2>
+    <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-ink-2">
+      <li>Plug the cash drawer into the printer's drawer port (RJ11), and the printer into the shop network. Print the printer's self-test page to see its IP address.</li>
+      <li>On the till PC, run the <strong>Mofisi bridge</strong> (in the project's <span class="mono">tools/mofisi-bridge</span> folder): <span class="mono">python mofisi_bridge.py --origin {{ request.scheme }}://{{ request.get_host }}</span>. It listens on <span class="mono">http://127.0.0.1:9180</span>, talks only to printers on the shop LAN, and keeps working offline.</li>
+      <li>Add the printer here with its IP and port 9100, then on that till PC press <strong>Use on this device</strong>, <strong>Test print</strong> and <strong>Test drawer</strong>.</li>
+    </ol>
+    <p class="mt-3 text-xs text-ink-muted">Epson ePOS and Star WebPRNT printers can also be driven straight from the browser (a site on HTTPS needs the printer's own HTTPS, e.g. Epson on port 8043, or the bridge). If Mofisi runs on a computer in the shop, choose "the server itself can reach" and no bridge is needed.</p>
+  </section>
+  <section class="card overflow-hidden">
+    <div class="card-header"><div><h2 class="card-title">Drawer openings</h2><p class="card-subtitle">Every time a drawer was opened, and why. No-sale openings also show on the day end.</p></div></div>
+    <div class="table-wrap rounded-none border-0 shadow-none">
+      <table class="table table-compact">
+        <thead><tr><th>When</th><th>Why</th><th>Who</th><th>Ticket</th><th>Result</th></tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr>
+            <td class="whitespace-nowrap text-ink-2">{{ e.created_at|date:"d M H:i" }}</td>
+            <td>{% if e.reason == "NO_SALE" %}<span class="badge badge-warning">No sale</span> <span class="text-xs text-ink-muted">{{ e.note }}</span>{% else %}{{ e.get_reason_display }}{% endif %}</td>
+            <td class="text-ink-2">{{ e.user.get_full_name|default:e.user.username }}</td>
+            <td class="mono">{{ e.sale.reference|default:"—" }}</td>
+            <td>{% if e.ok %}<span class="badge badge-success">Opened</span>{% else %}<span class="badge badge-danger" title="{{ e.error }}">Failed</span>{% endif %}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="empty-row">No drawer has been opened yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+{{ printer_configs|json_script:"pos-printers" }}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'pos/hardware.js' %}"></script>
+<script>
+(function () {
+  var out = document.getElementById('hw-result');
+  function mark() {
+    var cur = MerpHardware.current();
+    document.querySelectorAll('[data-this-device]').forEach(function (b) {
+      b.classList.toggle('hidden', !cur || b.dataset.thisDevice !== cur.id);
+    });
+  }
+  MerpHardware.load().then(mark);
+  document.addEventListener('click', function (e) {
+    var use = e.target.closest('[data-use]');
+    if (use) { MerpHardware.choose(use.dataset.use); mark(); out.textContent = 'This device now uses that printer.'; out.className = 'mt-2 text-sm text-success'; return; }
+    var t = e.target.closest('[data-test]');
+    if (!t) return;
+    out.textContent = 'Sending…'; out.className = 'mt-2 text-sm text-ink-muted';
+    MerpHardware.test(t.dataset.test, t.dataset.what).then(function () {
+      out.textContent = t.dataset.what === 'drawer' ? 'The drawer was told to open.' : 'The test page was sent to the printer.';
+      out.className = 'mt-2 text-sm text-success';
+    }, function (err) {
+      out.textContent = err.message || 'The printer could not be reached.';
+      out.className = 'mt-2 text-sm text-danger';
+    });
+  });
+})();
+</script>
+{% endblock %}

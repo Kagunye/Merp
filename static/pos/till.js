@@ -666,9 +666,55 @@
     });
     submitting = true;
     $('#pay-complete').disabled = true;
-    forget();   // a refused post comes back with its lines from the server
-    $('#till-form').submit();
+    function ringOnline() {
+      forget();   // a refused post comes back with its lines from the server
+      $('#till-form').submit();
+    }
+    if (!window.MerpOffline) { ringOnline(); return; }
+    // No connection: the ticket is kept on this device and rung when it is back.
+    MerpOffline.reachable().then(function (up) { if (up) ringOnline(); else ringOffline(t, text); });
   });
+
+  function newToken() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+    return (Date.now().toString(16) + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)).slice(0, 32);
+  }
+  function ringOffline(t, text) {
+    var given = text === '' ? t.total : num(text);
+    var change = method === 'CASH' ? cents(given - t.total) : 0;
+    var ticket = {
+      ticket_token: newToken(),
+      lines: state.lines.map(function (l) { return { id: l.id, qty: fmtQty(l.qty), disc: l.disc || '' }; }),
+      payment_method: method, amount_tendered: method === 'CASH' ? text : '',
+      warehouse: $('#pos-warehouse').value, customer: $('#pos-customer').value,
+      notes: ($('#pos-reference').value || '').trim(), rung_at: new Date().toISOString()
+    };
+    MerpOffline.enqueue({
+      kind: 'till', url: cfg.syncUrl, json: ticket,
+      label: 'Till ticket ' + cfg.currency + ' ' + fmt(t.total), amount: method
+    }).then(function () {
+      state.lines = []; state.selected = -1;
+      forget(); render();
+      close($('#dlg-pay'));
+      $('#pay-tendered').value = '';
+      submitting = false;
+      $('#pay-complete').disabled = false;
+      // the printer is on the shop LAN, so the drawer still opens with no internet
+      if (method === 'CASH' && window.MerpHardware) {
+        MerpHardware.load().then(function () {
+          var p = MerpHardware.current();
+          if (p && p.drawer_on_cash) return MerpHardware.openDrawer({ reason: 'SALE', note: 'Offline ticket' });
+        }).catch(function () { /* the toast below still tells the cashier the change */ });
+      }
+      toast('Offline: ticket of ' + fmt(t.total) + ' kept on this device' +
+            (method === 'CASH' ? ', change ' + fmt(change) : '') + '. It is rung as soon as the connection is back.', 'warning');
+      code.focus();
+    }).catch(function () {
+      submitting = false;
+      $('#pay-complete').disabled = false;
+      $('#dlg-pay [data-error]').textContent = 'No connection, and this browser cannot keep the ticket offline. Wait for the connection.';
+    });
+  }
 
   // ── document type (F12) ───────────────────────────────────────────────
   function setDoc(doc) {
@@ -763,7 +809,17 @@
     doctype: function () { open('dlg-doctype'); },
     payout: function () { fillAccounts('OUT'); $('#payout-amount').value = ''; $('#payout-reason').value = ''; open('dlg-payout'); },
     tender: openPay,
-    bom: function () { renderBoms(); $('#dlg-bom [data-error]').textContent = ''; open('dlg-bom'); }
+    bom: function () { renderBoms(); $('#dlg-bom [data-error]').textContent = ''; open('dlg-bom'); },
+    drawer: function () {
+      if (!window.MerpHardware) { toast('No cash drawer is set up for this till.', 'warning'); return; }
+      var note = window.prompt('Why open the drawer without a sale? (logged on the day end)', '');
+      if (note === null) return;
+      note = note.trim();
+      if (!note) { toast('Give a reason to open the drawer without a sale.', 'warning'); return; }
+      MerpHardware.openDrawer({ reason: 'NO_SALE', note: note }).then(function () {
+        toast('Drawer opened. The reason was logged.', 'success');
+      }, function (err) { toast(err.message || 'The drawer could not be opened.', 'error'); });
+    }
   };
   function run(fn, btn) {
     var why = disabledReason(btn || $('.pos-fkey[data-fn="' + fn + '"]'));
@@ -788,6 +844,7 @@
       return;
     }
     if (locked || anyOpen()) return;
+    if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) { e.preventDefault(); run('drawer'); return; }
     var inCode = e.target === code;
     // Some keyboards (and remote desktops) report the number-pad keys by code only.
     if (!e.key || e.key === 'Unidentified') {
@@ -819,11 +876,20 @@
   $('#pos-customer').addEventListener('change', function () { showCustomer(); save(); });
   $('#pos-salesperson').addEventListener('change', save);
   $('#pos-reference').addEventListener('input', save);
+  var waitingOffline = 0, serverDown = false;
   function online() {
-    var on = navigator.onLine !== false;
+    var on = navigator.onLine !== false && !serverDown;
     var o = $('#pos-online');
-    o.textContent = on ? 'Online' : 'Offline';
-    o.classList.toggle('is-offline', !on);
+    o.textContent = (on ? 'Online' : 'Offline') + (waitingOffline ? ' · ' + waitingOffline + ' to sync' : '');
+    o.classList.toggle('is-offline', !on || waitingOffline > 0);
+  }
+  window.posToast = toast;
+  if (window.MerpOffline) {
+    MerpOffline.onChange(function (items, offline) {
+      waitingOffline = items.filter(function (i) { return i.kind === 'till'; }).length;
+      serverDown = !!offline;
+      online();
+    });
   }
   window.addEventListener('online', online);
   window.addEventListener('offline', online);

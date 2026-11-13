@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-{% load ui_extras %}{% comment %}
+{% load static ui_extras %}{% comment %}
 80 mm thermal bill / receipt. Standalone on purpose: no app shell, no zoom,
 and not the app's print stylesheet (its A4 margins and card borders do not fit
 a till roll). Black on white only, so there are no theme colours to honour.
@@ -8,6 +8,7 @@ a till roll). Black on white only, so there are no theme colours to honour.
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% if order.status == "CLOSED" %}Receipt{% else %}Bill{% endif %} {{ order.reference }}</title>
   <style>
     @page { size: 80mm auto; margin: 0; }
@@ -98,6 +99,45 @@ a till roll). Black on white only, so there are no theme colours to honour.
   <button type="button" onclick="window.print()">Print</button>
   <button type="button" onclick="history.back()">Back</button>
 </div>
-{% if autoprint %}<script>window.addEventListener('load', function () { window.print(); });</script>{% endif %}
+{% can_do "pos:hw_config" as may_hw %}
+{% if may_hw %}<script src="{% static 'js/offline.js' %}"></script><script src="{% static 'pos/hardware.js' %}"></script>{% endif %}
+<script>
+(function () {
+  var auto = {{ autoprint|yesno:"true,false" }}, saleId = '{% if sale %}{{ sale.pk }}{% endif %}';
+  var cash = '{% if sale %}{{ sale.payment_method }}{% endif %}' === 'CASH';
+  var tools = document.querySelector('.tools');
+  function browserPrint() { window.print(); }
+  function useLan(p) {
+    // A receipt printer on the shop LAN is set up for this device: print there.
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.textContent = 'Print to till printer';
+    var out = document.createElement('span'); out.setAttribute('role', 'status');
+    tools.insertBefore(btn, tools.firstChild); tools.appendChild(out);
+    btn.addEventListener('click', function () {
+      out.textContent = ' Printing…';
+      MerpHardware.printReceipt(saleId, {}).then(function () { out.textContent = ' Printed.'; },
+        function (e) { out.textContent = ' ' + e.message; });
+    });
+    if (auto) {
+      out.textContent = ' Sending to the till printer…';
+      MerpHardware.afterSale(saleId, cash, 'SALE').then(function (r) {
+        if (r.error) { out.textContent = ' ' + r.error; browserPrint(); }
+        else out.textContent = r.drawer ? ' Printed, drawer opened.' : ' Printed.';
+      });
+    }
+  }
+  window.addEventListener('load', function () {
+    if (saleId && window.MerpHardware) {
+      MerpHardware.load().then(function () {
+        var p = MerpHardware.current();
+        if (p && p.print) { useLan(p); return; }
+        // no LAN receipt printer: paper from the browser, drawer still kicked on cash
+        if (auto && p && cash && p.drawer_on_cash) MerpHardware.afterSale(saleId, true, 'SALE');
+        if (auto) browserPrint();
+      });
+    } else if (auto) browserPrint();
+  });
+})();
+</script>
 </body>
 </html>

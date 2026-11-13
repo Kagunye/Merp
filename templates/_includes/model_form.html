@@ -10,6 +10,8 @@ Context expected:
   cancel_url     — target for the Cancel button (optional)
   submit_label   — submit button label (default: "Save")
   section_label  — small uppercase section marker above fields (optional)
+  offline        — a label ("Time entry"): when the device is offline a NEW record
+                   is saved on the device and sent when back online (optional)
   extra_template — path of a partial rendered inside the form, below the fields
                    (optional; for screens where the form is not the whole story)
 Styles: .mf-* classes in static/css/tailwind.input.css (aliases of form-*).
@@ -18,7 +20,7 @@ Styles: .mf-* classes in static/css/tailwind.input.css (aliases of form-*).
 {% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url hide_print=True %}
 
 <div class="mf-shell">
-  <form method="post" enctype="multipart/form-data" novalidate class="mf-card">
+  <form method="post" enctype="multipart/form-data" novalidate class="mf-card"{% if offline and not object %} data-offline="queue" data-offline-label="{{ offline }}"{% endif %}>
     {% csrf_token %}
 
     {% if form.non_field_errors %}

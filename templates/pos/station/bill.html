@@ -50,6 +50,7 @@
           <input type="hidden" name="quantity" value="1" data-qty>
           <input type="hidden" name="note" value="" data-note>
           <button type="submit" class="pos-tile min-h-[96px] w-full">
+            {% if t.picture %}<span class="pos-tile-pic"><img src="{{ t.picture }}" alt="" loading="lazy"></span>{% endif %}
             <span class="pos-tile-body">
               <span class="pos-tile-name">{{ t.item.label }}</span>
               {% if t.rule %}<span class="badge badge-success self-start">Happy hour −{{ t.pct|pct }}</span>{% endif %}

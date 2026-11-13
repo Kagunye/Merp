@@ -1,8 +1,16 @@
 {% extends "base/base.html" %}
-{% load ui_extras %}
+{% load static ui_extras %}
 {% block content %}
 {% url 'pos:sale_list' as back %}
 {% include "_includes/page_header.html" with title="Ticket "|add:sale.reference subtitle=sale.session.branch.name back_url=back back_label="Till tickets" print_label="Print receipt" %}
+{% can_do "pos:hw_config" as may_hw %}
+{% if may_hw %}
+<div class="mb-4 flex flex-wrap items-center gap-2" data-hw-bar hidden>
+  <button type="button" class="btn btn-secondary btn-sm" data-hw-print>{% include "_includes/icon.html" with name="printer" only %}Print to till printer</button>
+  {% if sale.payment_method == "CASH" %}<button type="button" class="btn btn-ghost btn-sm" data-hw-drawer>{% include "_includes/icon.html" with name="cash" only %}Open drawer</button>{% endif %}
+  <span class="text-sm" data-hw-status role="status" aria-live="polite"></span>
+</div>
+{% endif %}
 
 <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
   <div class="space-y-5 lg:col-span-2">
@@ -170,4 +178,46 @@
     </section>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% can_do "pos:hw_config" as may_hw %}{% if may_hw %}
+<script src="{% static 'pos/hardware.js' %}"></script>
+<script>
+(function () {
+  var bar = document.querySelector('[data-hw-bar]');
+  if (!bar || !window.MerpHardware) return;
+  var out = bar.querySelector('[data-hw-status]');
+  var saleId = '{{ sale.pk }}', cash = '{{ sale.payment_method }}' === 'CASH';
+  var reason = '{% if sale.refund_of_id %}REFUND{% else %}SALE{% endif %}';
+  function say(text, tone) { out.textContent = text; out.className = 'text-sm ' + (tone || 'text-ink-muted'); }
+  MerpHardware.load().then(function () {
+    if (!MerpHardware.current()) return;          // no printer set up: keep the bar hidden
+    bar.hidden = false;
+    var url = new URL(window.location.href);
+    if (url.searchParams.get('rung') === '1') {
+      // once only: a reload or Back must not print again or reopen the drawer
+      url.searchParams.delete('rung');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+      say('Sending to the till printer…');
+      MerpHardware.afterSale(saleId, cash, reason).then(function (r) {
+        if (r.error) say(r.error + ' Use the buttons to try again.', 'text-danger');
+        else say((r.printed ? 'Receipt printed' : 'Done') + (r.drawer ? ', drawer opened.' : '.'), 'text-success');
+      });
+    }
+  });
+  bar.addEventListener('click', function (e) {
+    if (e.target.closest('[data-hw-print]')) {
+      say('Printing…');
+      MerpHardware.printReceipt(saleId, {}).then(function () { say('Receipt printed.', 'text-success'); },
+        function (err) { say(err.message, 'text-danger'); });
+    } else if (e.target.closest('[data-hw-drawer]')) {
+      say('Opening the drawer…');
+      MerpHardware.openDrawer({ reason: reason, sale: saleId }).then(function () { say('Drawer opened.', 'text-success'); },
+        function (err) { say(err.message, 'text-danger'); });
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

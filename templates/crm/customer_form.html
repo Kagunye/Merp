@@ -2,5 +2,5 @@
 {% block content %}
 {% url 'crm:customer_list' as back_url %}
 {% url 'crm:customer_list' as cancel_url %}
-{% include "_includes/model_form.html" with title=page_title subtitle="Create or update a customer record" section_label="Customer Details" back_url=back_url cancel_url=cancel_url submit_label="Save Customer" %}
+{% include "_includes/model_form.html" with offline="New customer" title=page_title subtitle="Create or update a customer record" section_label="Customer Details" back_url=back_url cancel_url=cancel_url submit_label="Save Customer" %}
 {% endblock %}

@@ -186,3 +186,21 @@ class SequenceCounter(models.Model):
                 if not (taken and taken(minted)):
                     obj.save(update_fields=["last_number"])
                     return minted
+
+
+class OfflineSubmission(models.Model):
+    """A form or till ticket saved on a device while offline and replayed when
+    the connection came back. The key is the device's own id for it, so a
+    replay whose answer was lost is recognised and answered again, never
+    booked twice (see apps.core.offline)."""
+    key = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="+")
+    path = models.CharField(max_length=255)
+    result = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.path} ({self.key})"

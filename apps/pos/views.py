@@ -319,7 +319,8 @@ class TillView(LoginRequiredMixin, CompanyRequiredMixin, View):
         messages.success(
             request,
             f"{sale.reference}: {sale.total_amount} taken, {sale.change_given} change given.")
-        return redirect("pos:sale_detail", pk=sale.pk)
+        # ?rung=1 tells the ticket page to print it and open the drawer once.
+        return redirect(reverse("pos:sale_detail", kwargs={"pk": sale.pk}) + "?rung=1")
 
     def answer_spent_token(self, request, found, cashier_session, company, quantities):
         """The token came back already spent: the same ticket again, or not ours."""
@@ -522,7 +523,7 @@ def sale_refund(request, pk):
         request,
         f"{ticket.reference}: {ticket.total_amount} refunded, goods back on "
         f"{ticket.warehouse.name if ticket.warehouse else 'stock'}.")
-    return redirect("pos:sale_detail", pk=ticket.pk)
+    return redirect(reverse("pos:sale_detail", kwargs={"pk": ticket.pk}) + "?rung=1")
 
 
 class CashUpView(LoginRequiredMixin, DetailView):
@@ -731,3 +732,167 @@ def sale_find(request):
                        if text else "Type or scan the ticket number to return.")
         return redirect("pos:terminal")
     return redirect(f"{reverse('pos:sale_detail', args=[sale.pk])}#refund")
+
+
+@login_required
+@require_POST
+def terminal_sync(request):
+    """A till ticket rung while the till was offline, sent when it came back.
+
+    JSON in: {ticket_token, lines: [{id, qty, disc}], payment_method,
+    amount_tendered, warehouse, rung_at, customer, notes}. The ticket token
+    was made on the device; the same token can only ever ring one ticket, so a
+    resend after a lost reply hands back the ticket it already made. It is
+    rung into the cashier's open till now, with the time it was really rung
+    written on it; prices and stock are the server's at sync time.
+    """
+    import json
+
+    company = request.active_company
+    try:
+        data = json.loads(request.body or b"{}")
+    except ValueError:
+        return JsonResponse({"ok": False, "permanent": True, "error": "That saved ticket is unreadable."},
+                            status=400)
+    till = services.active_session(company, request.user) if company else None
+    if till is None:
+        return JsonResponse({"ok": False, "permanent": False,
+                             "error": "Open your till, then sync: offline tickets are paid into an open till."},
+                            status=409)
+    token = services.clean_token(data.get("ticket_token"))
+    if not token:
+        return JsonResponse({"ok": False, "permanent": True, "error": "That saved ticket has no token."}, status=400)
+    already = services.submitted_ticket(till, token)
+    if already:
+        refusal = services.token_refusal(already)
+        if refusal:
+            return JsonResponse({"ok": False, "permanent": True, "error": refusal}, status=409)
+        return JsonResponse({"ok": True, "reference": already.reference, "replayed": True,
+                             "url": reverse("pos:sale_detail", args=[already.pk])})
+    quantities, discounts = {}, {}
+    for line in data.get("lines") or []:
+        pk = str(line.get("id") or "")
+        if pk:
+            quantities[pk] = str(line.get("qty") or "")
+            if line.get("disc"):
+                discounts[pk] = str(line.get("disc"))
+    when = (data.get("rung_at") or "")[:25]
+    notes = ((data.get("notes") or "").strip() + f" · rung offline {when}".rstrip()).strip(" ·")
+    try:
+        customer = None
+        if (data.get("customer") or "").strip():
+            from apps.crm.models import Customer
+            customer = services.by_pk(Customer.objects.filter(company=company), data.get("customer"))
+        with transaction.atomic():
+            sale = services.checkout(
+                company, request.user, quantities, session=till,
+                payment_method=data.get("payment_method") or "CASH",
+                tendered=data.get("amount_tendered") or "", customer=customer,
+                warehouse=data.get("warehouse") or None, notes=notes[:500], token=token,
+                discounts=discounts)
+    except IntegrityError:
+        already = services.submitted_ticket(till, token)
+        if already:
+            return JsonResponse({"ok": True, "reference": already.reference, "replayed": True,
+                                 "url": reverse("pos:sale_detail", args=[already.pk])})
+        raise
+    except ValidationError as exc:
+        return JsonResponse({"ok": False, "permanent": True,
+                             "error": f"Could not ring the offline ticket: {exc.messages[0]}"}, status=422)
+    return JsonResponse({"ok": True, "reference": sale.reference, "total": str(sale.total_amount),
+                         "url": reverse("pos:sale_detail", args=[sale.pk])})
+
+
+# ─────────────────────────── pictures and till hardware ──────────────────────────
+
+def product_picture(request, pk):
+    """A product's POS picture (from the database), cacheable for a year:
+    the address changes with the picture (?v=)."""
+    from django.http import Http404, HttpResponse
+    from .models import ProductPicture
+    company = request.active_company
+    pic = ProductPicture.objects.filter(product_id=pk, product__company=company).first() if company else None
+    if pic is None:
+        raise Http404
+    response = HttpResponse(bytes(pic.data), content_type=pic.content_type)
+    response["Cache-Control"] = "private, max-age=31536000, immutable"
+    return response
+
+
+@login_required
+def hw_config(request):
+    """The printers this company's tills may use (the device picks one)."""
+    from . import hardware
+    company = request.active_company
+    session = services.active_session(company, request.user) if company else None
+    branch = None
+    if session is not None:
+        branch = session.branch
+    elif company is not None:
+        branch = services.home_branch(company, request.user)
+    printers = [hardware.printer_config(p) for p in hardware.printers_for(company, branch)] if company else []
+    return JsonResponse({"printers": printers, "session": str(session.pk) if session else ""})
+
+
+@login_required
+def hw_receipt(request, pk):
+    """A ticket's receipt as ESC/POS bytes (base64) for the chosen printer,
+    and as plain text for printers driven by text (Star)."""
+    from . import hardware
+    from .models import POSPrinter
+    company = request.active_company
+    sale = get_object_or_404(POSSale.objects.select_related("session__branch", "session__cashier"),
+                             pk=pk, session__company=company)
+    printer = get_object_or_404(POSPrinter, pk=request.GET.get("printer"), company=company)
+    kick = request.GET.get("kick") == "1"
+    return JsonResponse({"data": hardware.b64(hardware.receipt_bytes(sale, printer, kick=kick)),
+                         "text": hardware.receipt_text(sale, printer.paper_chars)})
+
+
+@login_required
+@require_POST
+def hw_server_send(request):
+    """SERVER printers: the server opens the socket (it must be on the shop LAN)."""
+    from . import hardware
+    from .models import POSPrinter
+    company = request.active_company
+    printer = get_object_or_404(POSPrinter, pk=request.POST.get("printer"), company=company,
+                                connection="SERVER")
+    action = request.POST.get("action")
+    try:
+        if action == "drawer":
+            data = hardware.drawer_pulse(printer.drawer_pin)
+        elif action == "test":
+            data = hardware.test_bytes(printer)
+        elif action == "receipt":
+            sale = get_object_or_404(POSSale, pk=request.POST.get("sale"), session__company=company)
+            data = hardware.receipt_bytes(sale, printer, kick=request.POST.get("kick") == "1")
+        else:
+            return JsonResponse({"ok": False, "error": "Unknown printer action."}, status=400)
+        hardware.send_raw(printer.host, printer.port, data)
+    except ValidationError as exc:
+        return JsonResponse({"ok": False, "error": exc.messages[0]}, status=502)
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def hw_log(request):
+    """Record a drawer opening (the browser opened it, or tried to)."""
+    from . import hardware
+    from .models import POSPrinter
+    company = request.active_company
+    printer = None
+    if request.POST.get("printer"):
+        printer = POSPrinter.objects.filter(pk=request.POST.get("printer"), company=company).first()
+    session = services.active_session(company, request.user)
+    sale = None
+    if request.POST.get("sale"):
+        sale = POSSale.objects.filter(pk=request.POST.get("sale"), session__company=company).first()
+    try:
+        event = hardware.log_drawer(company, request.user, request.POST.get("reason", ""), printer=printer,
+                                    session=session, sale=sale, note=request.POST.get("note", ""),
+                                    ok=request.POST.get("ok", "1") == "1", error=request.POST.get("error", ""))
+    except ValidationError as exc:
+        return JsonResponse({"ok": False, "error": exc.messages[0]}, status=400)
+    return JsonResponse({"ok": True, "id": event.pk})

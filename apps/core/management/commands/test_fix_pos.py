@@ -326,7 +326,7 @@ class Command(BaseCommand):
         data["ticket_token"] = self.form_token(client, reverse("pos:terminal"), "ticket_token")
         data.update(extra)
         response = client.post(reverse("pos:terminal"), data)
-        match = re.search(r"/sales/([0-9a-fA-F-]{36})/?$", response.get("Location") or "")
+        match = re.search(r"/sales/([0-9a-fA-F-]{36})/?(?:\?rung=1)?$", response.get("Location") or "")
         sale = POSSale.objects.filter(pk=match.group(1)).first() if match else None
         return response, sale
 
@@ -341,7 +341,7 @@ class Command(BaseCommand):
             client, reverse("pos:sale_detail", args=[sale.pk]), "refund_token")
         data.update(extra)
         response = client.post(reverse("pos:sale_refund", args=[sale.pk]), data)
-        match = re.search(r"/sales/([0-9a-fA-F-]{36})/?$", response.get("Location") or "")
+        match = re.search(r"/sales/([0-9a-fA-F-]{36})/?(?:\?rung=1)?$", response.get("Location") or "")
         ticket = POSSale.objects.filter(pk=match.group(1), refund_of=sale).first() \
             if match else None
         return response, ticket
@@ -579,7 +579,8 @@ class Command(BaseCommand):
                     and self.balance("1100") == cash0 + D("69.60"),
                     f"{POSSale.objects.filter(session=self.nbo_till).count() - before} ticket(s)")
         self.expect("and the second post lands on the ticket the first made",
-                    first.get("Location") and first.get("Location") == second.get("Location"),
+                    first.get("Location")
+                    and first.get("Location").split("?")[0] == second.get("Location").split("?")[0],
                     f"{first.get('Location')} / {second.get('Location')}")
         self.expect_flash(self.c_nbo, second, "already rung",
                           "with a message that it was not taken twice")

@@ -475,3 +475,87 @@ class POSDayEnd(BaseModel):
 
     def __str__(self):
         return f"Day end {self.branch} {self.business_date}"
+
+
+# ─────────────────────────── pictures and till hardware ──────────────────────────
+
+class ProductPicture(models.Model):
+    """The picture a till and a menu show for a product, kept in the database
+    as a small compressed thumbnail: it survives a serverless host's wiped
+    disk (Vercel), and the offline service worker can keep it."""
+    product = models.OneToOneField("inventory.Product", on_delete=models.CASCADE,
+                                   related_name="pos_picture")
+    data = models.BinaryField()
+    content_type = models.CharField(max_length=40, default="image/webp")
+    width = models.PositiveSmallIntegerField(default=0)
+    height = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Picture of {self.product}"
+
+
+class POSPrinter(BaseModel):
+    """A receipt printer and the cash drawer on it (most drawers open from the
+    printer's drawer port), reached over the shop's network."""
+    CONNECTIONS = [
+        ("BRIDGE", "ESC/POS printer on the LAN, via the Mofisi bridge on the till PC"),
+        ("EPSON", "Epson ePOS printer (direct from the browser)"),
+        ("STAR", "Star WebPRNT printer (direct from the browser)"),
+        ("SERVER", "ESC/POS printer the server itself can reach (server on the shop's LAN)"),
+    ]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_printers")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, null=True,
+                               blank=True, related_name="pos_printers")
+    name = models.CharField(max_length=80)
+    connection = models.CharField(max_length=10, choices=CONNECTIONS, default="BRIDGE")
+    host = models.CharField("LAN IP address", max_length=100,
+                            help_text="The printer's IP on the shop network, e.g. 192.168.1.50.")
+    port = models.PositiveIntegerField(default=9100,
+                                       help_text="9100 for raw ESC/POS; 80 or 8008 for Epson ePOS; 80 for Star.")
+    bridge_url = models.CharField(max_length=120, default="http://127.0.0.1:9180",
+                                  help_text="Where the Mofisi bridge listens on the till PC.")
+    drawer_pin = models.PositiveSmallIntegerField(
+        default=2, choices=[(2, "Pin 2 (most drawers)"), (5, "Pin 5")])
+    paper_chars = models.PositiveSmallIntegerField(
+        "Characters per line", default=48, choices=[(32, "58 mm paper (32)"), (42, "80 mm, small font (42)"),
+                                                    (48, "80 mm paper (48)")])
+    open_drawer_on_cash = models.BooleanField(default=True,
+                                              help_text="Open the drawer when a cash sale or refund is rung.")
+    print_receipts = models.BooleanField(default=True,
+                                         help_text="Print the receipt on this printer when a sale is rung.")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.host})"
+
+
+class POSDrawerEvent(models.Model):
+    """Every time a cash drawer was opened, and why: a drawer opened with no
+    sale is the classic way cash walks out, so each one is on the day end."""
+    REASONS = [("SALE", "Cash sale"), ("REFUND", "Cash refund"), ("PAYOUT", "Payout / pay-in"),
+               ("NO_SALE", "No sale"), ("TEST", "Test")]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_drawer_events")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.SET_NULL, null=True, blank=True)
+    printer = models.ForeignKey(POSPrinter, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="events")
+    session = models.ForeignKey(POSSession, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="drawer_events")
+    sale = models.ForeignKey(POSSale, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name="drawer_events")
+    user = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="+")
+    reason = models.CharField(max_length=10, choices=REASONS)
+    note = models.CharField(max_length=255, blank=True, default="")
+    ok = models.BooleanField(default=True)
+    error = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_reason_display()} by {self.user} at {self.created_at:%H:%M}"

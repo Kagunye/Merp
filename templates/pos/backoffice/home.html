@@ -33,6 +33,7 @@
   {% can_do "pos:bo_station_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_station_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Stations · {{ counts.stations }}</span></a>{% endif %}
   {% can_do "pos:bo_table_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_table_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Tables · {{ counts.tables }}</span></a>{% endif %}
   {% can_do "pos:bo_staff_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_staff_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Staff &amp; PINs · {{ counts.staff }}</span></a>{% endif %}
+  {% can_do "pos:bo_printer_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_printer_list' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="printer" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Printers &amp; drawers</span></a>{% endif %}
 </div>
 
 <div class="launcher-section-label">

@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   {% include "_includes/app_zoom.html" %}
   <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="merp-user" content="{% if request.user.is_authenticated %}{{ request.user.pk }}{% endif %}">
+  <meta name="theme-color" content="#1a1416">
+  <link rel="manifest" href="/manifest.webmanifest">
   <title>{% block title %}{% if page_title %}{{ page_title }} — {% endif %}Mofisi{% endblock %}</title>
   <script>
     // Theme: the header's Appearance menu (stored on this device) wins over the
@@ -139,6 +142,22 @@
         {% include "_includes/icon.html" with name="plus" cls="h-3.5 w-3.5" stroke="2" %}Set up company
       </a>
       {% endif %}
+
+      <!-- Offline / sync state (static/js/offline.js shows it when there is something to say) -->
+      <div class="relative" data-offline-indicator hidden>
+        <button type="button" class="topbar-btn topbar-sync" data-menu="menu-offline" aria-haspopup="true" aria-expanded="false" aria-label="Offline and sync status">
+          {% include "_includes/icon.html" with name="refresh" cls="h-5 w-5" %}
+          <span class="topbar-count" data-offline-count hidden>0</span>
+        </button>
+        <div id="menu-offline" class="menu hidden w-[min(22rem,calc(100vw-1.5rem))] py-0" role="menu">
+          <div class="flex items-center justify-between gap-3 border-b border-divider px-4 py-3">
+            <span class="text-sm font-bold text-ink" data-offline-label>Sync</span>
+            <button type="button" class="btn btn-secondary btn-sm" data-offline-sync>Sync now</button>
+          </div>
+          <ul class="max-h-80 overflow-y-auto divide-y divide-divider" data-offline-list></ul>
+          <p class="border-t border-divider px-4 py-2.5 text-xs text-ink-muted">Saved on this device while offline; sent automatically when you're back online.</p>
+        </div>
+      </div>
 
       <!-- Appearance -->
       <div class="relative">
@@ -463,6 +482,7 @@
   document.addEventListener('htmx:responseError', () => showToast('Request failed. Please try again.', 'error'));
 </script>
 
+<script src="{% static 'js/offline.js' %}"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

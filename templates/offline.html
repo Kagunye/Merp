@@ -1,0 +1,29 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline — Mofisi</title>
+  <script>try{var t=localStorage.getItem('merp.theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
+  <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
+</head>
+<body class="min-h-app bg-canvas">
+  <main class="mx-auto flex min-h-app max-w-lg flex-col items-center justify-center px-6 py-16 text-center">
+    <img src="{% static 'merp/images/mofisi-logo.png' %}" alt="Mofisi" class="theme-light-only mb-8 h-10 w-auto">
+    <img src="{% static 'merp/images/mofisi-logo-white.png' %}" alt="Mofisi" class="theme-dark-only mb-8 h-10 w-auto">
+    <div class="empty-state-icon">
+      <svg class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M8.5 8.5A5 5 0 0 0 6 17h11m3.2-1.6A4 4 0 0 0 17 9h-1.3A6 6 0 0 0 10 5.2"/></svg>
+    </div>
+    <h1 class="text-2xl font-extrabold tracking-tight text-ink">You're offline</h1>
+    <p class="mt-2 text-ink-muted">This page hasn't been opened on this device yet, so there is no copy of it to show.
+      Pages you have already opened still work, and the till and marked forms keep saving on this device.
+      Everything is sent as soon as the connection is back.</p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <button type="button" class="btn btn-primary" onclick="location.reload()">Try again</button>
+      <a href="/pos/terminal/" class="btn btn-secondary">Open the till</a>
+      <a href="/dashboard/" class="btn btn-ghost">Dashboard</a>
+    </div>
+  </main>
+</body>
+</html>

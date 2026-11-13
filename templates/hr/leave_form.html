@@ -2,5 +2,5 @@
 {% block content %}
 {% url 'hr:leave_list' as back_url %}
 {% url 'hr:leave_list' as cancel_url %}
-{% include "_includes/model_form.html" with title=page_title|default:"Request Leave" subtitle="Submit a new leave request for approval" section_label="Leave Request" back_url=back_url cancel_url=cancel_url submit_label="Submit Request" %}
+{% include "_includes/model_form.html" with offline="Leave request" title=page_title|default:"Request Leave" subtitle="Submit a new leave request for approval" section_label="Leave Request" back_url=back_url cancel_url=cancel_url submit_label="Submit Request" %}
 {% endblock %}

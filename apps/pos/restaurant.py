@@ -487,6 +487,15 @@ def day_report(company, branch, day):
         row["opening"] = opening
         row["closing"] = opening + row["in"] - row["sold"] - row["out"]
 
+    from .models import POSDrawerEvent
+    drawer = [{"when": e.created_at, "reason": e.get_reason_display(), "code": e.reason,
+               "note": e.note, "who": (e.user.get_full_name() or e.user.username) if e.user_id else "",
+               "ticket": e.sale.reference if e.sale_id else "", "printer": e.printer.name if e.printer_id else "",
+               "ok": e.ok}
+              for e in POSDrawerEvent.objects.filter(company=company, created_at__gte=start, created_at__lt=end)
+              .filter(Q(branch=branch) | Q(branch__isnull=True))
+              .select_related("user", "sale", "printer").order_by("created_at")]
+
     live = list(live_orders(company, branch))
     open_tills = [t for t in tills if t["status"] == "Open"]
     done = POSDayEnd.objects.filter(company=company, branch=branch, business_date=day).first()
@@ -510,6 +519,7 @@ def day_report(company, branch, day):
         "voids": voids, "void_value": cents(sum((v["value"] for v in voids), Z)),
         "voided_bills": orders.filter(status="VOID", closed_at__gte=start, closed_at__lt=end).count(),
         "tills": tills, "live_orders": live,
+        "drawer": drawer, "no_sale": sum(1 for d in drawer if d["code"] == "NO_SALE"),
         "stock": sorted(stock.values(), key=lambda r: r["product"]),
     }
 

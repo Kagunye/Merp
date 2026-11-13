@@ -6,6 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   {% include "_includes/app_zoom.html" %}
   <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="merp-user" content="{% if request.user.is_authenticated %}{{ request.user.pk }}{% endif %}">
+  <meta name="theme-color" content="#1a1416">
+  <link rel="manifest" href="/manifest.webmanifest">
   <title>Till — {{ session.branch.name }} — Mofisi</title>
   <script>
     (function () {
@@ -37,6 +40,7 @@
      data-supervisor="{% if is_supervisor %}1{% endif %}"
      data-locked="{% if locked %}1{% endif %}"
      data-lookup-url="{% url 'pos:item_lookup' %}"
+     data-sync-url="{% url 'pos:terminal_sync' %}"
      data-lock-url="{% url 'pos:lock' %}"
      data-unlock-url="{% url 'pos:unlock' %}"
      data-payment-url="{% url 'sales:payment_create' %}"
@@ -107,6 +111,7 @@
       <button type="button" class="pos-fkey" data-fn="payout" {% if not may_move %}disabled title="Your role cannot pay money in or out of a drawer."{% endif %}><span class="pos-fkey-key">F2</span><span class="icon-tile">{% include "_includes/icon.html" with name="receipt" only %}</span>Payout/Payin</button>
       <button type="button" class="pos-fkey pos-fkey-pay" data-fn="tender"><span class="pos-fkey-key">Ctrl+F12 · T</span><span class="icon-tile">{% include "_includes/icon.html" with name="cart" only %}</span>Amount Tendered</button>
       <button type="button" class="pos-fkey" data-fn="bom" {% if not boms_json %}disabled title="No active bill of materials to load — add one under Manufacturing."{% endif %}><span class="pos-fkey-key">&nbsp;</span><span class="icon-tile">{% include "_includes/icon.html" with name="box" only %}</span>Load BOM</button>
+      <button type="button" class="pos-fkey" data-fn="drawer" title="Open the cash drawer without a sale. The reason is logged."><span class="pos-fkey-key">Ctrl+D</span><span class="icon-tile">{% include "_includes/icon.html" with name="cash" only %}</span>Open Drawer</button>
       <button type="button" class="pos-fkey" data-fn="finish" {% if not may_close %}disabled title="Your role cannot close a till."{% endif %}><span class="pos-fkey-key">F8</span><span class="icon-tile">{% include "_includes/icon.html" with name="check-circle" only %}</span>Finish Session</button>
     </nav>
 
@@ -476,6 +481,8 @@
 {{ boms_json|json_script:"pos-boms" }}
 {{ movement_accounts|json_script:"pos-accounts" }}
 {{ movement_defaults|json_script:"pos-account-defaults" }}
+<script src="{% static 'js/offline.js' %}"></script>
+<script src="{% static 'pos/hardware.js' %}"></script>
 <script src="{% static 'pos/till.js' %}"></script>
 </body>
 </html>

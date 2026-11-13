@@ -484,3 +484,58 @@ def day_end_close(request):
         return back
     messages.success(request, f"{day:%d %b %Y} at {branch.name} is closed.")
     return back
+
+
+# ─────────────────────────────── printers & drawers ──────────────────────────────
+
+@login_required
+def printer_list(request):
+    from .hardware import printer_config
+    from .models import POSDrawerEvent, POSPrinter
+    company = _company(request)
+    printers = list(POSPrinter.objects.filter(company=company).select_related("branch"))
+    configs = [printer_config(p) for p in printers if p.is_active]
+    events = POSDrawerEvent.objects.filter(company=company).select_related("user", "printer", "sale")[:25]
+    return _render(request, "pos/backoffice/printer_list.html",
+                   {"printers": printers, "printer_configs": configs, "events": events,
+                    "page_title": "Printers & cash drawers"}, ("Printers & drawers", None))
+
+
+@login_required
+def printer_edit(request, pk=None):
+    from .forms_backoffice import PrinterForm
+    from .models import POSPrinter
+    company = _company(request)
+    printer = get_object_or_404(POSPrinter, pk=pk, company=company) if pk else None
+    form = PrinterForm(request.POST or None, instance=printer, company=company)
+    if request.method == "POST" and form.is_valid():
+        if _save(request, form, "Printer {obj.name} saved."):
+            return redirect("pos:bo_printer_list")
+    title = f"Edit {printer.name}" if printer else "New printer / cash drawer"
+    return _render(request, "pos/backoffice/form.html",
+                   {"form": form, "page_title": title, "title": title,
+                    "subtitle": "A receipt printer on the shop network, and the cash drawer plugged into it",
+                    "back_url": reverse("pos:bo_printer_list"), "submit_label": "Save printer"},
+                   ("Printers & drawers", reverse("pos:bo_printer_list")), (title, None))
+
+
+@login_required
+@require_POST
+def item_picture(request, item):
+    """Upload (or remove) the picture a menu item's product shows on the tills."""
+    from . import hardware
+    from .models import ProductPicture
+    company = _company(request)
+    found = _company_item(company, item)
+    back = reverse("pos:bo_menu_detail", args=[found.section.menu_id]) + f"#section-{found.section_id}"
+    if request.POST.get("action") == "remove":
+        ProductPicture.objects.filter(product=found.product).delete()
+        messages.success(request, f"Picture removed from {found.label}.")
+        return redirect(back)
+    try:
+        hardware.save_picture(found.product, request.FILES.get("picture"))
+    except ValidationError as exc:
+        messages.error(request, exc.messages[0])
+        return redirect(back)
+    messages.success(request, f"Picture saved for {found.label}; the tills show it from the next screen.")
+    return redirect(back)

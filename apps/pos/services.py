@@ -1101,5 +1101,13 @@ def product_card(product, on_hand=None):
         "category": str(product.category_id) if product.category_id else "",
         "on_hand": (str(on_hand if on_hand is not None else Z)
                     if product.track_inventory else None),
-        "image": product.image.url if product.image else "",
+        "image": _picture(product),
     }
+
+
+def _picture(product):
+    from .hardware import picture_url
+    try:
+        return picture_url(product)
+    except Exception:          # noqa: BLE001 - a missing picture never breaks the till
+        return ""

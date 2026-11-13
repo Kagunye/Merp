@@ -2,5 +2,5 @@
 {% block content %}
 {% url 'crm:lead_list' as back_url %}
 {% url 'crm:lead_list' as cancel_url %}
-{% include "_includes/model_form.html" with title=page_title subtitle="Capture a new sales lead" section_label="Lead Details" back_url=back_url cancel_url=cancel_url submit_label="Save Lead" %}
+{% include "_includes/model_form.html" with offline="New lead" title=page_title subtitle="Capture a new sales lead" section_label="Lead Details" back_url=back_url cancel_url=cancel_url submit_label="Save Lead" %}
 {% endblock %}

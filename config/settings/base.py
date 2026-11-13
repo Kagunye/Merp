@@ -103,6 +103,7 @@ MIDDLEWARE = [
     "auditlog.middleware.AuditlogMiddleware",
     "apps.core.middleware.CompanyContextMiddleware",
     "apps.core.middleware.RoleAccessMiddleware",
+    "apps.core.offline.OfflineSyncMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

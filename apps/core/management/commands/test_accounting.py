@@ -4408,7 +4408,7 @@ class Command(BaseCommand):
             """The ticket a successful POST's redirect landed on."""
             location = (response.get("Location")
                         if response.status_code in (301, 302, 303) else "")
-            match = re.search(r"/sales/([0-9a-fA-F-]{36})/?$", location or "")
+            match = re.search(r"/sales/([0-9a-fA-F-]{36})/?(?:\?rung=1)?$", location or "")
             return tickets().filter(pk=match.group(1)).first() if match else None
 
         cash0 = self.account("1100").current_balance

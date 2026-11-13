@@ -45,10 +45,35 @@
   </div>
   <div class="table-wrap rounded-none border-0 shadow-none">
     <table class="table">
-      <thead><tr><th>Item</th><th>Product</th><th class="num">Price</th><th>Availability</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <thead><tr><th class="w-24">Picture</th><th>Item</th><th>Product</th><th class="num">Price</th><th>Availability</th><th><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {% for item in section.items.all %}
         <tr>
+          <td>
+            {% with pic=item.product.pos_picture %}
+            <div class="flex items-center gap-2">
+              {% if pic %}<img src="{% url 'pos:product_picture' item.product.pk %}?v={{ pic.updated_at|date:'U' }}" alt="" class="h-12 w-12 rounded-ctl border border-line object-cover" loading="lazy">
+              {% else %}<span class="grid h-12 w-12 place-items-center rounded-ctl border border-dashed border-line text-xs text-ink-faint">None</span>{% endif %}
+              {% if may_item %}
+              <details class="inline-block text-left">
+                <summary class="btn btn-ghost btn-sm">{% if pic %}Change{% else %}Add{% endif %}</summary>
+                <form method="post" action="{% url 'pos:bo_item_picture' item.pk %}" enctype="multipart/form-data" class="no-card mt-2 grid gap-2">
+                  {% csrf_token %}
+                  <label class="form-label" for="pic-{{ item.pk }}">Picture (JPG, PNG or WebP)</label>
+                  <input id="pic-{{ item.pk }}" type="file" name="picture" accept="image/*" capture="environment" class="input input-sm" required>
+                  <button type="submit" class="btn btn-secondary btn-sm">Upload</button>
+                </form>
+                {% if pic %}
+                <form method="post" action="{% url 'pos:bo_item_picture' item.pk %}" class="no-card mt-1">
+                  {% csrf_token %}<input type="hidden" name="action" value="remove">
+                  <button type="submit" class="btn btn-danger-ghost btn-sm">Remove picture</button>
+                </form>
+                {% endif %}
+              </details>
+              {% endif %}
+            </div>
+            {% endwith %}
+          </td>
           <td>{{ item.label }}{% if not item.product.is_active %} <span class="badge badge-warning">Product retired</span>{% endif %}</td>
           <td class="text-ink-2"><span class="mono">{{ item.product.sku }}</span> {{ item.product.name }}</td>
           <td class="num">{% if item.price is not None %}{{ item.price|money }}{% else %}<span class="text-ink-muted" title="Sells at the product's selling price">{{ item.product.selling_price|money }} (product price)</span>{% endif %}</td>
@@ -85,7 +110,7 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="empty-row">Nothing in {{ section.name }} yet{% if may_item %}: add an item below{% endif %}.</td></tr>
+        <tr><td colspan="6" class="empty-row">Nothing in {{ section.name }} yet{% if may_item %}: add an item below{% endif %}.</td></tr>
         {% endfor %}
       </tbody>
     </table>

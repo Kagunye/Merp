@@ -759,6 +759,9 @@
 }
 .topbar-btn:hover { background: rgb(var(--c-surface-2)); color: rgb(var(--c-ink)); }
 .topbar-btn svg { width: 20px; height: 20px; }
+/* Offline / sync badge (static/js/offline.js) */
+[data-offline-indicator].is-offline .topbar-sync { color: rgb(var(--c-warning)); background: rgb(var(--c-warning-bg)); border-color: rgb(var(--c-warning-line)); }
+[data-offline-indicator].has-problems .topbar-sync { color: rgb(var(--c-danger)); background: rgb(var(--c-danger-bg)); border-color: rgb(var(--c-danger-line)); }
 .topbar-btn .theme-light-only, .topbar-btn .theme-dark-only { line-height: 0; }
 .topbar-count {
   position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px;

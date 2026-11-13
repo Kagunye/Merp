@@ -272,7 +272,8 @@ def _bill_context(request, order, actor):
             tiles = []
             for item in items:
                 price, pct, rule = restaurant.price_for(item, order.branch, rules=page_rules)
-                tiles.append({"item": item, "price": price, "pct": pct, "rule": rule})
+                tiles.append({"item": item, "price": price, "pct": pct, "rule": rule,
+                              "picture": services._picture(item.product)})
             sections.append({"section": section, "tiles": tiles})
     till = _till_here(request, order.branch)
     lines = list(order.lines.select_related("voided_by", "void_requested_by", "added_by",
