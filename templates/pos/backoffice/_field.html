@@ -1,0 +1,21 @@
+{% comment %}One bound form field in the house form-field markup.
+  {% include "pos/backoffice/_field.html" with field=form.name full=True %}
+{% endcomment %}{% with wt=field.field.widget.input_type %}
+<div class="form-field{% if full %} form-field-full{% endif %}">
+  {% if wt == "checkbox" and field.field.widget.allow_multiple_selected %}
+  <fieldset>
+    <legend class="form-label">{{ field.label }}{% if field.field.required %}<span class="form-required" aria-hidden="true">*</span>{% endif %}</legend>
+    <div class="flex flex-wrap gap-x-5 gap-y-2">
+      {% for opt in field %}<label class="check" for="{{ opt.id_for_label }}">{{ opt.tag }} {{ opt.choice_label }}</label>{% endfor %}
+    </div>
+  </fieldset>
+  {% elif wt == "checkbox" %}
+  <label class="check" for="{{ field.id_for_label }}">{{ field }} {{ field.label }}</label>
+  {% else %}
+  <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="form-required" aria-hidden="true">*</span>{% endif %}</label>
+  {{ field }}
+  {% endif %}
+  {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+  {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+</div>
+{% endwith %}

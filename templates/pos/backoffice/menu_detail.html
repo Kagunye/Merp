@@ -1,0 +1,132 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:bo_menu_edit" "POST" as may_edit %}{% can_do "pos:bo_section_save" "POST" as may_section %}{% can_do "pos:bo_item_save" "POST" as may_item %}{% can_do "pos:bo_item_toggle" "POST" as may_toggle %}{% can_do "pos:bo_item_delete" "POST" as may_delete %}
+{% if may_edit %}{% url 'pos:bo_menu_edit' menu.pk as edit_url %}{% endif %}{% url 'pos:bo_menu_list' as back_url %}
+{% if menu.is_active %}{% include "_includes/page_header.html" with title=menu.name subtitle=menu.description back_url=back_url back_label="Menus" action_label="Edit menu" action_url=edit_url badge="In use" badge_class="badge-success" %}
+{% else %}{% include "_includes/page_header.html" with title=menu.name subtitle=menu.description back_url=back_url back_label="Menus" action_label="Edit menu" action_url=edit_url badge="Off" badge_class="badge-neutral" %}{% endif %}
+
+<section class="card mb-6">
+  <div class="card-body">
+    <dl class="dl dl-3">
+      <div><dt>Offered at</dt><dd>{% for b in menu.branches.all %}{{ b.name }}{% if not forloop.last %}, {% endif %}{% empty %}Every branch{% endfor %}</dd></div>
+      <div><dt>Sold at</dt><dd>{% for s in stations %}{{ s.name }} ({{ s.branch.name }}){% if not forloop.last %}, {% endif %}{% empty %}{% if is_default %}Every station without a menu of its own{% else %}No station yet{% endif %}{% endfor %}</dd></div>
+      <div><dt>Head office default</dt><dd>{% if is_default %}Yes{% else %}No{% endif %}</dd></div>
+    </dl>
+  </div>
+</section>
+
+{% for section in sections %}
+<section class="card mb-6 overflow-hidden" id="section-{{ section.pk }}">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">{{ section.name }}</h2>
+      <p class="card-subtitle">Position {{ section.sort_order }} · {{ section.items.all|length }} item{{ section.items.all|length|pluralize }}</p>
+    </div>
+    {% if may_section %}
+    <div class="flex flex-wrap items-center gap-2 no-print">
+      <details>
+        <summary class="btn btn-ghost btn-sm">Rename or move</summary>
+        <form method="post" action="{% url 'pos:bo_section_save' menu.pk %}" class="no-card mt-2 flex flex-wrap items-end gap-2">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="update"><input type="hidden" name="section" value="{{ section.pk }}">
+          <div class="form-field"><label class="form-label" for="sec-{{ section.pk }}-name">Name</label><input id="sec-{{ section.pk }}-name" name="name" value="{{ section.name }}" maxlength="80" class="input input-sm" required></div>
+          <div class="form-field"><label class="form-label" for="sec-{{ section.pk }}-order">Position</label><input id="sec-{{ section.pk }}-order" name="sort_order" type="number" min="0" value="{{ section.sort_order }}" class="input input-sm w-24"></div>
+          <button type="submit" class="btn btn-secondary btn-sm">Save section</button>
+        </form>
+      </details>
+      <form method="post" action="{% url 'pos:bo_section_save' menu.pk %}" class="inline-form" onsubmit="return confirm('Delete the section {{ section.name|escapejs }} and every item in it?');">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="section" value="{{ section.pk }}">
+        <button type="submit" class="btn btn-danger-ghost btn-sm">Delete section</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Item</th><th>Product</th><th class="num">Price</th><th>Availability</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for item in section.items.all %}
+        <tr>
+          <td>{{ item.label }}{% if not item.product.is_active %} <span class="badge badge-warning">Product retired</span>{% endif %}</td>
+          <td class="text-ink-2"><span class="mono">{{ item.product.sku }}</span> {{ item.product.name }}</td>
+          <td class="num">{% if item.price is not None %}{{ item.price|money }}{% else %}<span class="text-ink-muted" title="Sells at the product's selling price">{{ item.product.selling_price|money }} (product price)</span>{% endif %}</td>
+          <td>
+            {% if may_toggle %}
+            <form method="post" action="{% url 'pos:bo_item_toggle' item.pk %}" class="inline-form">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-ghost btn-sm" title="{% if item.is_available %}Take it off for now{% else %}Make it available again{% endif %}">{% if item.is_available %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>Available</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Off for now</span>{% endif %}</button>
+            </form>
+            {% elif item.is_available %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>Available</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Off for now</span>{% endif %}
+          </td>
+          <td class="actions whitespace-nowrap">
+            {% if may_item %}
+            <details class="inline-block text-left">
+              <summary class="btn btn-ghost btn-sm">Edit</summary>
+              <form method="post" action="{% url 'pos:bo_item_save' menu.pk %}" class="no-card mt-2 grid gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="item" value="{{ item.pk }}"><input type="hidden" name="product" value="{{ item.product_id }}">
+                <div class="form-field"><label class="form-label" for="it-{{ item.pk }}-section">Section</label>
+                  <select id="it-{{ item.pk }}-section" name="section" class="select">{% for s in sections %}<option value="{{ s.pk }}"{% if s.pk == section.pk %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div>
+                <div class="form-field"><label class="form-label" for="it-{{ item.pk }}-name">Name on the menu</label><input id="it-{{ item.pk }}-name" name="display_name" value="{{ item.display_name }}" maxlength="120" placeholder="{{ item.product.name }}" class="input input-sm"></div>
+                <div class="form-field"><label class="form-label" for="it-{{ item.pk }}-price">Price</label><input id="it-{{ item.pk }}-price" name="price" type="number" step="0.01" min="0" value="{{ item.price|default_if_none:'' }}" placeholder="Product price" class="input input-sm"></div>
+                <div class="form-field"><label class="form-label" for="it-{{ item.pk }}-order">Position</label><input id="it-{{ item.pk }}-order" name="sort_order" type="number" min="0" value="{{ item.sort_order }}" class="input input-sm"></div>
+                <button type="submit" class="btn btn-secondary btn-sm">Save item</button>
+              </form>
+            </details>
+            {% endif %}
+            {% if may_delete %}
+            <form method="post" action="{% url 'pos:bo_item_delete' item.pk %}" class="inline-form" onsubmit="return confirm('Remove {{ item.label|escapejs }} from the menu?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-danger-ghost btn-sm">Remove</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="empty-row">Nothing in {{ section.name }} yet{% if may_item %}: add an item below{% endif %}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% empty %}
+<section class="card mb-6">{% include "_includes/empty_state.html" with icon="clipboard" title="This menu has no sections yet" text="Start with a section such as Drinks or Mains, then add products to it." only %}</section>
+{% endfor %}
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3 no-print">
+  {% if may_section %}
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Add a section</h2></div>
+    <form method="post" action="{% url 'pos:bo_section_save' menu.pk %}" class="card-body no-card">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create">
+      <div class="form-grid">
+        <div class="form-field form-field-full"><label class="form-label" for="new-section-name">Name<span class="form-required" aria-hidden="true">*</span></label><input id="new-section-name" name="name" maxlength="80" class="input" required placeholder="e.g. Cold drinks"></div>
+        <div class="form-field form-field-full"><label class="form-label" for="new-section-order">Position</label><input id="new-section-order" name="sort_order" type="number" min="0" class="input" placeholder="After the last one"></div>
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-secondary">Add section</button></div>
+    </form>
+  </section>
+  {% endif %}
+  {% if may_item and sections %}
+  <section class="card lg:col-span-2">
+    <div class="card-header"><div><h2 class="card-title">Add an item</h2><p class="card-subtitle">Any active product; leave the price blank to sell at the product's selling price</p></div></div>
+    <form method="post" action="{% url 'pos:bo_item_save' menu.pk %}" class="card-body no-card">
+      {% csrf_token %}
+      <div class="form-grid">
+        <div class="form-field"><label class="form-label" for="new-item-section">Section<span class="form-required" aria-hidden="true">*</span></label>
+          <select id="new-item-section" name="section" class="select" required>{% for s in sections %}<option value="{{ s.pk }}"{% if forloop.last %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div>
+        {% include "pos/backoffice/_field.html" with field=item_form.product %}
+        {% include "pos/backoffice/_field.html" with field=item_form.display_name %}
+        {% include "pos/backoffice/_field.html" with field=item_form.price %}
+        {% include "pos/backoffice/_field.html" with field=item_form.sort_order %}
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Add item</button></div>
+    </form>
+  </section>
+  {% endif %}
+</div>
+<p class="mt-4 text-xs text-ink-muted">An item that is off for now stays on the menu here but is not shown at the stations. Stock, VAT and cost of sales always come from the product.</p>
+{% endblock %}

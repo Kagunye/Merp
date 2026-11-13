@@ -116,6 +116,19 @@ RULES: list[tuple[str, str, frozenset, frozenset]] = [
     ("pos", "unlock", NOBODY, TILL),
     ("pos", "sale_find", TILL, NOBODY),
     ("pos", "cash_movement", NOBODY, TILL | FM),
+    # Restaurant back office: head office's configuration (menus, prices,
+    # happy hours, stations, staff PINs) is the sales manager's to set; finance
+    # and the auditor may read it. The day end is read by finance too, and
+    # closed by the sales manager or the finance manager.
+    ("pos", "bo_day_end_close", NOBODY, frozenset({"SALES_MANAGER"}) | FM),
+    ("pos", "bo_day_end", FINANCE | AUDIT | {"SALES_MANAGER"}, NOBODY),
+    ("pos", "bo_*", FINANCE | AUDIT | {"SALES_MANAGER"}, frozenset({"SALES_MANAGER"})),
+    # Waiter stations run on a device signed in by a till role; who is acting
+    # is then the PIN entered on it. The cashier panel takes the money.
+    ("pos", "station_*", TILL, TILL),
+    ("pos", "bill_print", TILL | FINANCE | AUDIT, NOBODY),
+    ("pos", "bill_*", TILL | FINANCE | AUDIT, TILL),
+    ("pos", "cashier_panel", TILL, TILL),
     ("payroll", "run_approve", NOBODY, FM),
     ("payroll", "run_post", NOBODY, FM),
     ("payroll", "run_cancel", NOBODY, FM),

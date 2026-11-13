@@ -47,6 +47,28 @@
 </div>
 
 <div class="launcher-section-label">
+  Restaurant &amp; bar
+  <span class="launcher-section-count">3 tiles</span>
+</div>
+<div class="launcher-grid">
+  {% can_do "pos:station_pick" as ok %}{% if ok %}<a href="{% url 'pos:station_pick' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Waiter station</span></a>{% endif %}
+  {% can_do "pos:cashier_panel" as ok %}{% if ok %}<a href="{% url 'pos:cashier_panel' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cashier panel</span></a>{% endif %}
+  {% can_do "pos:bo_day_end" as ok %}{% if ok %}<a href="{% url 'pos:bo_day_end' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="chart" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Day end &amp; P&amp;L</span></a>{% endif %}
+</div>
+
+<div class="launcher-section-label">
+  Back office
+  <span class="launcher-section-count">5 tiles</span>
+</div>
+<div class="launcher-grid">
+  {% can_do "pos:bo_home" as ok %}{% if ok %}<a href="{% url 'pos:bo_home' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">HQ back office</span></a>{% endif %}
+  {% can_do "pos:bo_station_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_station_list' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Stations &amp; tables</span></a>{% endif %}
+  {% can_do "pos:bo_menu_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_menu_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Menus</span></a>{% endif %}
+  {% can_do "pos:bo_rule_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_rule_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Happy hours</span></a>{% endif %}
+  {% can_do "pos:bo_staff_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_staff_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="key" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Staff &amp; PINs</span></a>{% endif %}
+</div>
+
+<div class="launcher-section-label">
   Counting the drawer
   <span class="launcher-section-count">3 tiles</span>
 </div>

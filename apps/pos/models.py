@@ -171,3 +171,307 @@ class POSCashMovement(BaseModel):
 
     def __str__(self):
         return f"{self.reference} {self.get_direction_display()} {self.amount}"
+
+
+# ───────────────────────────── Restaurant layer ─────────────────────────────
+# Waiter stations, menus, happy hours and open bills sit on top of the till:
+# a bill is closed by ringing it through an open till session (services.
+# checkout_lines), so stock, VAT and the ledger work exactly as for a counter
+# sale. Staff act at a station with a PIN (POSStaff), not an ERP login: a
+# station is a device someone signed in to, and waiters identify themselves on
+# it to take orders.
+
+class POSSettings(BaseModel):
+    """Head-office configuration: one row per company, read by every branch."""
+    company = models.OneToOneField("organizations.Company", on_delete=models.CASCADE,
+                                   related_name="pos_settings")
+    receipt_header = models.TextField(blank=True, default="",
+                                      help_text="Printed at the top of bills and receipts.")
+    receipt_footer = models.TextField(blank=True, default="Thank you, karibu tena!",
+                                      help_text="Printed at the bottom of bills and receipts.")
+    default_menu = models.ForeignKey("pos.POSMenu", on_delete=models.SET_NULL, null=True,
+                                     blank=True, related_name="+",
+                                     help_text="Used by any station without a menu of its own.")
+    waiter_can_take_payment = models.BooleanField(
+        default=False, help_text="Off: waiters print the bill and a cashier takes the money.")
+    require_table = models.BooleanField(default=False,
+                                        help_text="Every bill at a waiter station needs a table.")
+    day_end_requires_closed_bills = models.BooleanField(
+        default=True, help_text="Refuse the day end while any bill is still open.")
+    pin_idle_minutes = models.PositiveSmallIntegerField(
+        default=2, help_text="A waiter's PIN session ends after this many idle minutes.")
+
+    class Meta:
+        verbose_name = "POS settings"
+
+    def __str__(self):
+        return f"POS settings for {self.company}"
+
+
+class POSMenu(BaseModel):
+    """What a station sells, in the order it shows it. Items are products, so
+    stock, tax and cost of sales come from the product."""
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_menus")
+    name = models.CharField(max_length=120)
+    description = models.CharField(max_length=255, blank=True, default="")
+    branches = models.ManyToManyField("organizations.Branch", blank=True, related_name="pos_menus",
+                                      help_text="Leave empty to offer it at every branch.")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class POSMenuSection(models.Model):
+    menu = models.ForeignKey(POSMenu, on_delete=models.CASCADE, related_name="sections")
+    name = models.CharField(max_length=80)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+
+    def __str__(self):
+        return f"{self.menu} > {self.name}"
+
+
+class POSMenuItem(models.Model):
+    section = models.ForeignKey(POSMenuSection, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey("inventory.Product", on_delete=models.PROTECT,
+                                related_name="pos_menu_items")
+    display_name = models.CharField(max_length=120, blank=True, default="",
+                                    help_text="Leave blank to show the product name.")
+    price = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True,
+                                help_text="Leave blank to sell at the product's selling price.")
+    is_available = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self):
+        return self.label
+
+    @property
+    def label(self):
+        return self.display_name or self.product.name
+
+    @property
+    def unit_price(self):
+        return self.price if self.price is not None else self.product.selling_price
+
+
+class POSStation(BaseModel):
+    KINDS = [("WAITER", "Waiter station"), ("CASHIER", "Cashier point"), ("BAR", "Bar")]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_stations")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE,
+                               related_name="pos_stations")
+    name = models.CharField(max_length=80)
+    code = models.CharField(max_length=20)
+    kind = models.CharField(max_length=10, choices=KINDS, default="WAITER")
+    warehouse = models.ForeignKey("organizations.Warehouse", on_delete=models.SET_NULL, null=True,
+                                  blank=True, help_text="Stock is issued from here when a bill closes.")
+    menu = models.ForeignKey(POSMenu, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name="stations",
+                             help_text="Leave blank to use head office's default menu.")
+    printer_name = models.CharField(max_length=80, blank=True, default="",
+                                    help_text="Receipt printer at this station (for reference).")
+
+    class Meta:
+        ordering = ["branch__name", "name"]
+        constraints = [models.UniqueConstraint(fields=["company", "code"],
+                                               name="pos_station_code_unique")]
+
+    def __str__(self):
+        return f"{self.name} ({self.branch})"
+
+
+class POSTable(BaseModel):
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_tables")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE,
+                               related_name="pos_tables")
+    station = models.ForeignKey(POSStation, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="tables",
+                                help_text="Leave blank to serve it from any station at the branch.")
+    name = models.CharField(max_length=40)
+    area = models.CharField(max_length=60, blank=True, default="",
+                            help_text="e.g. Terrace, Bar, Main hall.")
+    seats = models.PositiveSmallIntegerField(default=4)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["area", "sort_order", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class POSPriceRule(BaseModel):
+    """A timed discount, such as a happy hour: so much off, on these days,
+    between these times, on these items. The server applies it when an item
+    is ordered, so nobody types the discount and nobody can stretch it."""
+    DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_price_rules")
+    name = models.CharField(max_length=80)
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2)
+    days = models.CharField(max_length=20, default="0,1,2,3,4,5,6",
+                            help_text="Weekdays it runs, Monday = 0.")
+    start_time = models.TimeField()
+    end_time = models.TimeField(help_text="May be after midnight (e.g. 22:00 to 01:00).")
+    valid_from = models.DateField(null=True, blank=True)
+    valid_to = models.DateField(null=True, blank=True)
+    # PROTECT: deleting a section must not silently delete its happy hours
+    # (and SET_NULL would widen the rule to everything).
+    section = models.ForeignKey(POSMenuSection, on_delete=models.PROTECT, null=True, blank=True,
+                                related_name="price_rules")
+    category = models.ForeignKey("inventory.ProductCategory", on_delete=models.CASCADE, null=True,
+                                 blank=True, related_name="pos_price_rules",
+                                 help_text="Covers the category and everything under it.")
+    product = models.ForeignKey("inventory.Product", on_delete=models.CASCADE, null=True,
+                                blank=True, related_name="pos_price_rules")
+    branches = models.ManyToManyField("organizations.Branch", blank=True,
+                                      related_name="pos_price_rules",
+                                      help_text="Leave empty to run it at every branch.")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def day_list(self):
+        return [int(d) for d in (self.days or "").split(",") if d.strip().isdigit()]
+
+    @property
+    def days_label(self):
+        days = self.day_list
+        if sorted(days) == list(range(7)):
+            return "Every day"
+        return ", ".join(self.DAY_NAMES[d] for d in sorted(days) if 0 <= d < 7)
+
+
+class POSStaff(BaseModel):
+    """Someone who works the floor: identified at a station by a PIN."""
+    ROLES = [("WAITER", "Waiter"), ("CASHIER", "Cashier"), ("MANAGER", "Manager")]
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_staff")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.SET_NULL, null=True,
+                               blank=True, help_text="Leave blank to work at any branch.")
+    name = models.CharField(max_length=80)
+    code = models.CharField(max_length=20, help_text="Staff number shown on bills.")
+    role = models.CharField(max_length=10, choices=ROLES, default="WAITER")
+    pin_hash = models.CharField(max_length=128, blank=True, default="")
+    user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name="pos_staff", help_text="Their ERP login, if they have one.")
+    failed_pins = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["company", "code"],
+                                               name="pos_staff_code_unique")]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+    @property
+    def is_manager(self):
+        return self.role == "MANAGER"
+
+
+class POSOrder(BaseModel, NotesMixin):
+    """An open bill: what a table (or a walk-in) has ordered so far."""
+    STATUS_CHOICES = [("OPEN", "Open"), ("BILLED", "Bill printed"), ("CLOSED", "Closed"),
+                      ("VOID", "Voided")]
+    LIVE = ("OPEN", "BILLED")
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_orders")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE)
+    station = models.ForeignKey(POSStation, on_delete=models.PROTECT, related_name="orders")
+    table = models.ForeignKey(POSTable, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name="orders")
+    waiter = models.ForeignKey(POSStaff, on_delete=models.PROTECT, related_name="orders")
+    reference = models.CharField(max_length=30, db_index=True)
+    covers = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="OPEN")
+    opened_at = models.DateTimeField()
+    billed_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True,
+                                  blank=True, related_name="+")
+    sale = models.ForeignKey(POSSale, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name="orders")
+    voided_by = models.ForeignKey(POSStaff, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name="+")
+    void_reason = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-opened_at"]
+
+    def __str__(self):
+        return self.reference
+
+
+class POSOrderLine(models.Model):
+    STATUS_CHOICES = [("ACTIVE", "Active"), ("VOID", "Voided")]
+    order = models.ForeignKey(POSOrder, on_delete=models.CASCADE, related_name="lines")
+    menu_item = models.ForeignKey(POSMenuItem, on_delete=models.SET_NULL, null=True, blank=True)
+    product = models.ForeignKey("inventory.Product", on_delete=models.PROTECT)
+    name = models.CharField(max_length=120)
+    quantity = models.DecimalField(max_digits=12, decimal_places=4)
+    unit_price = models.DecimalField(max_digits=15, decimal_places=4)
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    price_rule = models.ForeignKey(POSPriceRule, on_delete=models.SET_NULL, null=True, blank=True)
+    note = models.CharField(max_length=120, blank=True, default="")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="ACTIVE")
+    added_by = models.ForeignKey(POSStaff, on_delete=models.PROTECT, related_name="+")
+    added_at = models.DateTimeField(auto_now_add=True)
+    voided_by = models.ForeignKey(POSStaff, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name="+")
+    void_requested_by = models.ForeignKey(POSStaff, on_delete=models.SET_NULL, null=True,
+                                          blank=True, related_name="+")
+    void_reason = models.CharField(max_length=255, blank=True, default="")
+    voided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["added_at", "id"]
+
+    def __str__(self):
+        return f"{self.quantity} x {self.name}"
+
+    @property
+    def gross(self):
+        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
+    @property
+    def discount(self):
+        return (self.gross * self.discount_percent / Decimal("100")).quantize(Decimal("0.01"))
+
+    @property
+    def net(self):
+        return self.gross - self.discount
+
+
+class POSDayEnd(BaseModel):
+    """The day closed at a branch: who closed it and the figures as they stood."""
+    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE,
+                                related_name="pos_day_ends")
+    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE)
+    business_date = models.DateField()
+    closed_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT, related_name="+")
+    closed_at = models.DateTimeField()
+    summary = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-business_date"]
+        constraints = [models.UniqueConstraint(fields=["company", "branch", "business_date"],
+                                               name="pos_day_end_unique")]
+
+    def __str__(self):
+        return f"Day end {self.branch} {self.business_date}"

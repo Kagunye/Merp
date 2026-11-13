@@ -1,0 +1,39 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:bo_staff_create" "POST" as may_create %}{% if may_create %}{% url 'pos:bo_staff_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Staff & PINs" subtitle="Who works the floor, and the PIN each signs in with at a station" action_label="New member of staff" action_url=new_url %}
+
+<nav class="tabs no-print" aria-label="Staff role">
+  <a href="{% url 'pos:bo_staff_list' %}" class="tab{% if not active_role %} tab-active{% endif %}"{% if not active_role %} aria-current="page"{% endif %}>Everyone</a>
+  {% for value, label in roles %}
+  <a href="{% url 'pos:bo_staff_list' %}?role={{ value }}" class="tab{% if active_role == value %} tab-active{% endif %}"{% if active_role == value %} aria-current="page"{% endif %}>{{ label }}s</a>
+  {% endfor %}
+</nav>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Name</th><th>Code</th><th>Role</th><th>Branch</th><th>ERP login</th><th>PIN</th><th>Status</th>{% if may_create %}<th><span class="sr-only">Actions</span></th>{% endif %}</tr></thead>
+    <tbody>
+      {% for p in staff %}
+      <tr>
+        <td class="whitespace-nowrap">{% if may_create %}<a href="{% url 'pos:bo_staff_edit' p.pk %}" class="row-link">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}</td>
+        <td class="mono">{{ p.code }}</td>
+        <td>{% if p.is_manager %}<span class="badge badge-brand">{{ p.get_role_display }}</span>{% else %}<span class="badge badge-neutral">{{ p.get_role_display }}</span>{% endif %}</td>
+        <td class="text-ink-2">{% if p.branch %}{{ p.branch.name }}{% else %}<span class="text-ink-muted">Any branch</span>{% endif %}</td>
+        <td class="text-ink-2">{% if p.user %}{{ p.user.get_full_name|default:p.user.username }}{% else %}<span class="text-ink-muted">None</span>{% endif %}</td>
+        <td class="whitespace-nowrap">
+          {% if p.pin_hash %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>Set</span>{% else %}<span class="badge badge-warning"><span class="badge-dot" aria-hidden="true"></span>Not set</span>{% endif %}
+          {% if p.locked_until and p.locked_until > now %}<span class="badge badge-danger ml-1" title="Too many wrong PINs">Locked until {{ p.locked_until|time:"H:i" }}</span>{% endif %}
+        </td>
+        <td>{% if p.is_active %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>Working</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Left</span>{% endif %}</td>
+        {% if may_create %}<td class="actions"><a href="{% url 'pos:bo_staff_edit' p.pk %}" class="btn btn-ghost btn-sm">Edit</a></td>{% endif %}
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="p-0">{% include "_includes/empty_state.html" with icon="users" title="No floor staff yet" text="Add the waiters, cashiers and managers who work at the stations, then give each a PIN." action_label="New member of staff" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-4 text-xs text-ink-muted">A PIN is kept only as a one-way hash: nobody, head office included, can read it back. Five wrong PINs in a row lock the person out for five minutes; a manager can unlock them on their page. Only a manager's PIN authorises a void.</p>
+{% endblock %}

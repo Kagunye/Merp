@@ -1,0 +1,30 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:bo_station_create" "POST" as may_create %}{% if may_create %}{% url 'pos:bo_station_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Stations" subtitle="The devices staff work at, the store each issues stock from and the menu it sells" action_label="New station" action_url=new_url %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Name</th><th>Code</th><th>Kind</th><th>Branch</th><th>Issues stock from</th><th>Menu</th><th class="num">Tables</th><th>Status</th>{% if may_create %}<th><span class="sr-only">Actions</span></th>{% endif %}</tr></thead>
+    <tbody>
+      {% for s in stations %}
+      <tr>
+        <td class="whitespace-nowrap">{% if may_create %}<a href="{% url 'pos:bo_station_edit' s.pk %}" class="row-link">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}</td>
+        <td class="mono">{{ s.code }}</td>
+        <td><span class="badge badge-neutral">{{ s.get_kind_display }}</span></td>
+        <td class="text-ink-2">{{ s.branch.name }}</td>
+        <td class="text-ink-2">{% if s.warehouse %}{{ s.warehouse.name }}{% else %}<span class="text-ink-muted">The till's own choice</span>{% endif %}</td>
+        <td class="text-ink-2">{% if s.menu %}{{ s.menu.name }}{% elif default_menu %}<span class="text-ink-muted">{{ default_menu.name }} (default)</span>{% else %}<span class="badge badge-warning">No menu</span>{% endif %}</td>
+        <td class="num">{{ s.table_count }}</td>
+        <td>{% if s.is_active %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>On</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Off</span>{% endif %}</td>
+        {% if may_create %}<td class="actions"><a href="{% url 'pos:bo_station_edit' s.pk %}" class="btn btn-ghost btn-sm">Edit</a></td>{% endif %}
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" class="p-0">{% include "_includes/empty_state.html" with icon="building" title="No stations yet" text="Add a waiter station, a cashier point or the bar for each branch that serves at tables." action_label="New station" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-4 text-xs text-ink-muted">A station without a menu of its own sells head office's default menu{% if default_menu %} ({{ default_menu.name }}){% endif %}, provided that menu is offered at the station's branch. A bill closed at a station takes its goods off the station's store.</p>
+{% endblock %}

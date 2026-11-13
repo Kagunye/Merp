@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+{% load ui_extras %}{% comment %}
+80 mm thermal bill / receipt. Standalone on purpose: no app shell, no zoom,
+and not the app's print stylesheet (its A4 margins and card borders do not fit
+a till roll). Black on white only, so there are no theme colours to honour.
+{% endcomment %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if order.status == "CLOSED" %}Receipt{% else %}Bill{% endif %} {{ order.reference }}</title>
+  <style>
+    @page { size: 80mm auto; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    body { font: 12px/1.35 ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace; }
+    .roll { width: 300px; max-width: 100%; margin: 0 auto; padding: 10px 8px 16px; }
+    .c { text-align: center; }
+    .r { text-align: right; }
+    .b { font-weight: 700; }
+    .big { font-size: 15px; }
+    .title { font-size: 16px; font-weight: 700; letter-spacing: .08em; margin: 6px 0 2px; }
+    .rule { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
+    .pre { white-space: pre-line; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 1px 0; vertical-align: top; }
+    td.amt { text-align: right; white-space: nowrap; padding-left: 6px; }
+    .note { font-size: 11px; padding-left: 12px; }
+    .meta td:first-child { width: 42%; }
+    .tools { width: 300px; max-width: 100%; margin: 12px auto; display: flex; gap: 8px; }
+    .tools button { flex: 1; min-height: 44px; font: inherit; font-weight: 700; border: 1px solid #000; background: #fff; color: #000; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; }
+    @media print { .tools { display: none; } .roll { width: 100%; padding: 2mm 3mm 6mm; } }
+  </style>
+</head>
+<body>
+<div class="roll">
+  <div class="c">
+    <div class="b big">{{ company.name }}</div>
+    {% if conf.receipt_header %}<div class="pre">{{ conf.receipt_header }}</div>{% endif %}
+    <div>{{ order.branch.name }}</div>
+    {% if order.status == "CLOSED" %}
+    <div class="title">RECEIPT</div>
+    {% elif order.status == "VOID" %}
+    <div class="title">VOIDED BILL</div>
+    <div>Not a receipt — nothing to pay</div>
+    {% else %}
+    <div class="title">BILL</div>
+    <div>Not a receipt</div>
+    {% endif %}
+  </div>
+  <hr class="rule">
+  <table class="meta">
+    <tr><td>Bill</td><td>{{ order.reference }}</td></tr>
+    {% if sale %}<tr><td>Receipt no.</td><td>{{ sale.reference }}</td></tr>{% endif %}
+    {% if order.table %}<tr><td>Table</td><td>{{ order.table.name }}</td></tr>{% endif %}
+    <tr><td>Waiter</td><td>{{ order.waiter.name }} ({{ order.waiter.code }})</td></tr>
+    <tr><td>Guests</td><td>{{ order.covers }}</td></tr>
+    <tr><td>Opened</td><td>{{ order.opened_at|date:"d/m/Y H:i" }}</td></tr>
+    <tr><td>{% if sale %}Paid{% else %}Printed{% endif %}</td><td>{% if sale %}{{ order.closed_at|date:"d/m/Y H:i" }}{% else %}{{ now|date:"d/m/Y H:i" }}{% endif %}</td></tr>
+  </table>
+  <hr class="rule">
+  <table>
+    {% for l in lines %}
+    <tr><td>{{ l.quantity|qty }} × {{ l.name }}</td><td class="amt">{{ l.net|money }}</td></tr>
+    {% if l.discount_percent %}<tr><td class="note" colspan="2">@ {{ l.unit_price|money }}, {% if l.price_rule %}{{ l.price_rule.name }} {% endif %}−{{ l.discount_percent|pct }} ({{ l.discount|money }} off)</td></tr>
+    {% elif l.quantity != 1 %}<tr><td class="note" colspan="2">@ {{ l.unit_price|money }}</td></tr>{% endif %}
+    {% if l.note %}<tr><td class="note" colspan="2">“{{ l.note }}”</td></tr>{% endif %}
+    {% empty %}
+    <tr><td colspan="2" class="c">No items</td></tr>
+    {% endfor %}
+  </table>
+  <hr class="rule">
+  <table>
+    {% if sale %}
+    <tr><td>Subtotal</td><td class="amt">{{ sale.subtotal|money }}</td></tr>
+    {% if sale.discount_amount %}<tr><td>Discount</td><td class="amt">{{ sale.discount_amount|money }}</td></tr>{% endif %}
+    <tr><td>VAT</td><td class="amt">{{ sale.tax_amount|money }}</td></tr>
+    <tr class="b big"><td>TOTAL {{ book }}</td><td class="amt">{{ sale.total_amount|money }}</td></tr>
+    {% else %}
+    <tr><td>Subtotal</td><td class="amt">{{ totals.subtotal|money }}</td></tr>
+    {% if totals.discount %}<tr><td>Discount</td><td class="amt">{{ totals.discount|money }}</td></tr>{% endif %}
+    <tr><td>VAT</td><td class="amt">{{ totals.tax|money }}</td></tr>
+    <tr class="b big"><td>TOTAL {{ book }}</td><td class="amt">{{ totals.total|money }}</td></tr>
+    {% endif %}
+  </table>
+  {% if sale %}
+  <hr class="rule">
+  <table>
+    <tr><td>Paid by</td><td class="amt">{{ sale.get_payment_method_display }}</td></tr>
+    <tr><td>Tendered</td><td class="amt">{{ sale.amount_tendered|money }}</td></tr>
+    <tr><td>Change</td><td class="amt">{{ sale.change_given|money }}</td></tr>
+  </table>
+  {% endif %}
+  {% if conf.receipt_footer %}<hr class="rule"><div class="c pre">{{ conf.receipt_footer }}</div>{% endif %}
+</div>
+<div class="tools">
+  <button type="button" onclick="window.print()">Print</button>
+  <button type="button" onclick="history.back()">Back</button>
+</div>
+{% if autoprint %}<script>window.addEventListener('load', function () { window.print(); });</script>{% endif %}
+</body>
+</html>

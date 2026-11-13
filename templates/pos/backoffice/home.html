@@ -1,0 +1,62 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% include "_includes/launcher.html" with launcher_title="Restaurant back office" launcher_subtitle="Head office's set-up of stations, menus, happy hours and floor staff" %}
+
+<section class="card mb-6" aria-label="Happy hours running now">
+  <div class="card-header">
+    <div>
+      <h2 class="card-title">Running now</h2>
+      <p class="card-subtitle">{% if branch %}Happy hours on at {{ branch.name }} at {% now "H:i" %}{% else %}Your login has no home branch, so nothing is shown here{% endif %}</p>
+    </div>
+    {% can_do "pos:bo_rule_list" as may_rules %}{% if may_rules %}<a href="{% url 'pos:bo_rule_list' %}" class="card-link">All happy hours →</a>{% endif %}
+  </div>
+  <div class="card-body">
+    {% if running %}
+    <ul class="flex flex-wrap gap-2">
+      {% for r in running %}
+      <li><span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>{{ r.name }} · {{ r.discount_percent|pct }} off until {{ r.end_time|time:"H:i" }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-sm text-ink-muted">No happy hour is running{% if branch %} at {{ branch.name }}{% endif %} right now: items sell at their menu price.</p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="launcher-section-label">
+  Setting up the floor
+  <span class="launcher-section-count">4 tiles</span>
+</div>
+<div class="launcher-grid">
+  {% can_do "pos:bo_settings" as ok %}{% if ok %}<a href="{% url 'pos:bo_settings' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="cog" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">HQ settings</span></a>{% endif %}
+  {% can_do "pos:bo_station_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_station_list' %}" class="launcher-tile"><div class="ico ico-mint">{% include "_includes/icon.html" with name="building" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Stations · {{ counts.stations }}</span></a>{% endif %}
+  {% can_do "pos:bo_table_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_table_list' %}" class="launcher-tile"><div class="ico ico-amber">{% include "_includes/icon.html" with name="map-pin" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Tables · {{ counts.tables }}</span></a>{% endif %}
+  {% can_do "pos:bo_staff_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_staff_list' %}" class="launcher-tile"><div class="ico ico-sky">{% include "_includes/icon.html" with name="users" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Staff &amp; PINs · {{ counts.staff }}</span></a>{% endif %}
+</div>
+
+<div class="launcher-section-label">
+  What is sold, and at what price
+  <span class="launcher-section-count">2 tiles</span>
+</div>
+<div class="launcher-grid">
+  {% can_do "pos:bo_menu_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_menu_list' %}" class="launcher-tile"><div class="ico ico-peach">{% include "_includes/icon.html" with name="clipboard" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Menus · {{ counts.menus }}</span></a>{% endif %}
+  {% can_do "pos:bo_rule_list" as ok %}{% if ok %}<a href="{% url 'pos:bo_rule_list' %}" class="launcher-tile"><div class="ico ico-rose">{% include "_includes/icon.html" with name="clock" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Happy hours · {{ counts.rules }}</span></a>{% endif %}
+</div>
+
+<div class="launcher-section-label">
+  On the floor and at the close
+  <span class="launcher-section-count">3 tiles</span>
+</div>
+<div class="launcher-grid">
+  {% can_do "pos:station_pick" as ok %}{% if ok %}<a href="{% url 'pos:station_pick' %}" class="launcher-tile"><div class="ico ico-teal">{% include "_includes/icon.html" with name="user" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Waiter station</span></a>{% endif %}
+  {% can_do "pos:cashier_panel" as ok %}{% if ok %}<a href="{% url 'pos:cashier_panel' %}" class="launcher-tile"><div class="ico ico-violet">{% include "_includes/icon.html" with name="cash" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Cashier panel · {{ counts.live }} open</span></a>{% endif %}
+  {% can_do "pos:bo_day_end" as ok %}{% if ok %}<a href="{% url 'pos:bo_day_end' %}" class="launcher-tile"><div class="ico ico-slate">{% include "_includes/icon.html" with name="calendar" cls="h-7 w-7" stroke="1.6" only %}</div><span class="label">Day end</span></a>{% endif %}
+</div>
+
+<div class="stat-grid mt-8">
+  {% include "_includes/stat.html" with label="Open bills" value=counts.live icon="receipt" tone="info" meta="Across every branch" only %}
+  {% include "_includes/stat.html" with label="Staff without a PIN" value=counts.no_pin icon="key" tone="warning" meta="Cannot sign in at a station" only %}
+  {% include "_includes/stat.html" with label="Days closed" value=counts.day_ends icon="calendar" tone="neutral" meta=last_day_end.business_date|date:"d M Y"|default:"None yet" only %}
+</div>
+{% endblock %}

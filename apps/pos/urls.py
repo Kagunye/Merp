@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, views_backoffice as bo, views_station as st
 
 app_name = "pos"
 
@@ -19,4 +19,45 @@ urlpatterns = [
     path("sales/", views.SaleListView.as_view(), name="sale_list"),
     path("sales/<uuid:pk>/", views.SaleDetailView.as_view(), name="sale_detail"),
     path("sales/<uuid:pk>/refund/", views.sale_refund, name="sale_refund"),
+
+    # ── Back office (head office configuration) ──
+    path("backoffice/", bo.home, name="bo_home"),
+    path("backoffice/settings/", bo.settings_edit, name="bo_settings"),
+    path("backoffice/stations/", bo.station_list, name="bo_station_list"),
+    path("backoffice/stations/new/", bo.station_edit, name="bo_station_create"),
+    path("backoffice/stations/<uuid:pk>/", bo.station_edit, name="bo_station_edit"),
+    path("backoffice/tables/", bo.table_list, name="bo_table_list"),
+    path("backoffice/tables/new/", bo.table_edit, name="bo_table_create"),
+    path("backoffice/tables/<uuid:pk>/", bo.table_edit, name="bo_table_edit"),
+    path("backoffice/menus/", bo.menu_list, name="bo_menu_list"),
+    path("backoffice/menus/new/", bo.menu_edit, name="bo_menu_create"),
+    path("backoffice/menus/<uuid:pk>/", bo.menu_detail, name="bo_menu_detail"),
+    path("backoffice/menus/<uuid:pk>/edit/", bo.menu_edit, name="bo_menu_edit"),
+    path("backoffice/menus/<uuid:pk>/sections/", bo.section_save, name="bo_section_save"),
+    path("backoffice/menus/<uuid:pk>/items/", bo.item_save, name="bo_item_save"),
+    path("backoffice/menu-items/<int:item>/toggle/", bo.item_toggle, name="bo_item_toggle"),
+    path("backoffice/menu-items/<int:item>/delete/", bo.item_delete, name="bo_item_delete"),
+    path("backoffice/happy-hours/", bo.rule_list, name="bo_rule_list"),
+    path("backoffice/happy-hours/new/", bo.rule_edit, name="bo_rule_create"),
+    path("backoffice/happy-hours/<uuid:pk>/", bo.rule_edit, name="bo_rule_edit"),
+    path("backoffice/staff/", bo.staff_list, name="bo_staff_list"),
+    path("backoffice/staff/new/", bo.staff_edit, name="bo_staff_create"),
+    path("backoffice/staff/<uuid:pk>/", bo.staff_edit, name="bo_staff_edit"),
+    path("backoffice/staff/<uuid:pk>/pin/", bo.staff_pin, name="bo_staff_pin"),
+    path("backoffice/day-end/", bo.day_end, name="bo_day_end"),
+    path("backoffice/day-end/close/", bo.day_end_close, name="bo_day_end_close"),
+
+    # ── Waiter stations and the cashier panel ──
+    path("station/", st.station_pick, name="station_pick"),
+    path("station/<uuid:pk>/", st.station_floor, name="station_floor"),
+    path("station/<uuid:pk>/pin/", st.station_pin, name="station_pin"),
+    path("station/<uuid:pk>/leave/", st.station_leave, name="station_leave"),
+    path("station/<uuid:pk>/bills/new/", st.bill_open, name="bill_open"),
+    path("bills/<uuid:pk>/", st.bill_detail, name="bill_detail"),
+    path("bills/<uuid:pk>/add/", st.bill_add, name="bill_add"),
+    path("bills/<uuid:pk>/void-line/", st.bill_void_line, name="bill_void_line"),
+    path("bills/<uuid:pk>/void/", st.bill_void, name="bill_void"),
+    path("bills/<uuid:pk>/print/", st.bill_print, name="bill_print"),
+    path("bills/<uuid:pk>/pay/", st.bill_pay, name="bill_pay"),
+    path("cashier/", st.cashier_panel, name="cashier_panel"),
 ]

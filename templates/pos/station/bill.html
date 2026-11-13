@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+{% load static ui_extras %}
+<html lang="en" data-theme="{{ request.user.theme_preference|default:'light' }}">
+<head>
+{% include "pos/station/_head.html" with head_title=order.reference %}
+</head>
+<body class="pos-body font-sans">
+{% can_do "pos:bill_print" as may_view_print %}
+<div class="pos-shell" id="bill" data-section="{{ active_section }}" {% if live and actor %}data-idle="{{ conf.pin_idle_minutes }}"{% endif %}>
+
+  <header class="pos-top" aria-label="Bill">
+    <a href="{% url 'pos:station_floor' station.pk %}" class="pos-top-icon" aria-label="Back to the floor" title="Back to the floor">{% include "_includes/icon.html" with name="arrow-left" only %}</a>
+    <div class="min-w-0">
+      <h1 class="truncate text-base font-extrabold text-white"><span class="mono">{{ order.reference }}</span>{% if order.table %} · {{ order.table.name }}{% endif %}</h1>
+      <p class="truncate text-xs text-hero-muted">{{ order.waiter.name }} ({{ order.waiter.code }}) · {{ order.covers }} guest{{ order.covers|pluralize }} · {{ minutes }} min · {{ station.name }}, {{ station.branch.name }}</p>
+    </div>
+    <span class="ml-2 hidden sm:inline-flex">{% status_badge order.status order.get_status_display %}</span>
+    <div class="ml-auto flex items-center gap-2">
+      {% if actor %}
+      <span class="hidden text-sm text-hero-muted md:inline">Signed in as <strong class="text-white">{{ actor.name }}</strong></span>
+      <form method="post" action="{% url 'pos:station_leave' station.pk %}" class="no-card">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm border border-white/30 bg-transparent text-white hover:bg-white/10">{% include "_includes/icon.html" with name="logout" only %}Leave</button>
+      </form>
+      {% endif %}
+    </div>
+  </header>
+
+  {% include "pos/station/_flash.html" %}
+  {% if live %}{% include "pos/station/_happy.html" %}{% endif %}
+
+  <main class="grid min-h-0 flex-1 grid-cols-1 gap-2.5 p-2.5 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(340px,40%)]">
+
+    {# ── Left: the menu ── #}
+    <section class="pos-panel" aria-label="Menu">
+    {% if live %}
+      {% if sections %}
+      <div class="pos-panel-head">
+        <div class="pos-screens" role="tablist" aria-label="Menu sections">
+          <button type="button" class="pos-screen-tab h-11 is-active" data-tab="" role="tab">All</button>
+          {% for s in sections %}<button type="button" class="pos-screen-tab h-11" data-tab="{{ s.section.pk }}" role="tab">{{ s.section.name }}</button>{% endfor %}
+        </div>
+      </div>
+      <div class="pos-tiles" id="tiles">
+        {% for s in sections %}{% for t in s.tiles %}
+        <form method="post" action="{% url 'pos:bill_add' order.pk %}" class="no-card flex" data-tile="{{ s.section.pk }}">
+          {% csrf_token %}
+          <input type="hidden" name="item" value="{{ t.item.pk }}">
+          <input type="hidden" name="section" value="{{ s.section.pk }}">
+          <input type="hidden" name="quantity" value="1" data-qty>
+          <input type="hidden" name="note" value="" data-note>
+          <button type="submit" class="pos-tile min-h-[96px] w-full">
+            <span class="pos-tile-body">
+              <span class="pos-tile-name">{{ t.item.label }}</span>
+              {% if t.rule %}<span class="badge badge-success self-start">Happy hour −{{ t.pct|pct }}</span>{% endif %}
+              <span class="pos-tile-price">{{ t.price|money }}</span>
+            </span>
+          </button>
+        </form>
+        {% endfor %}{% endfor %}
+      </div>
+      <div class="pos-panel-foot gap-3">
+        <label for="add-qty" class="font-semibold text-ink-2">Qty</label>
+        <span class="inline-flex items-center gap-1">
+          <button type="button" class="btn btn-secondary btn-sm btn-icon" data-step="-1" aria-label="One fewer">{% include "_includes/icon.html" with name="minus" stroke="2" only %}</button>
+          <input type="text" id="add-qty" value="1" inputmode="decimal" class="input input-sm w-16 text-center font-bold" autocomplete="off">
+          <button type="button" class="btn btn-secondary btn-sm btn-icon" data-step="1" aria-label="One more">{% include "_includes/icon.html" with name="plus" stroke="2" only %}</button>
+        </span>
+        <label for="add-note" class="sr-only">Note for the next item</label>
+        <input type="text" id="add-note" maxlength="120" class="input input-sm min-w-0 flex-1" placeholder="Note for the next item (e.g. no ice)" autocomplete="off">
+      </div>
+      {% else %}
+      {% include "_includes/empty_state.html" with icon="clipboard" title="Nothing to order from" text="This station has no menu with available items at this branch. Ask the back office." only %}
+      {% endif %}
+    {% else %}
+      {% if order.status == "CLOSED" %}
+      {% include "_includes/empty_state.html" with icon="check-circle" title="This bill is paid" text="It is closed; nothing more can be added." only %}
+      {% else %}
+      {% include "_includes/empty_state.html" with icon="x-circle" title="This bill was voided" text=order.void_reason only %}
+      {% endif %}
+    {% endif %}
+    </section>
+
+    {# ── Right: the bill ── #}
+    <section class="pos-panel" aria-label="The bill">
+      <div class="pos-lines">
+        <table>
+          <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Disc</th><th class="num">Net</th>{% if live %}<th><span class="sr-only">Actions</span></th>{% endif %}</tr></thead>
+          <tbody>
+            {% for l in lines %}
+            <tr class="{% if l.status == 'VOID' %}text-ink-faint{% endif %}">
+              <td class="cursor-default">
+                <span class="block font-semibold {% if l.status == 'VOID' %}line-through{% endif %}">{{ l.name }}</span>
+                {% if l.note %}<span class="block text-xs text-ink-muted">“{{ l.note }}”</span>{% endif %}
+                {% if l.price_rule %}<span class="block text-xs text-success">{{ l.price_rule.name }}</span>{% endif %}
+                {% if l.status == 'VOID' %}<span class="block text-xs text-danger">Voided: {{ l.void_reason }} · {{ l.voided_by.name|default:"manager" }}</span>{% endif %}
+              </td>
+              <td class="num cursor-default {% if l.status == 'VOID' %}line-through{% endif %}">{{ l.quantity|qty }}</td>
+              <td class="num cursor-default">{{ l.unit_price|money }}</td>
+              <td class="num cursor-default">{% if l.discount_percent %}{{ l.discount_percent|pct }}{% else %}—{% endif %}</td>
+              <td class="num cursor-default font-semibold {% if l.status == 'VOID' %}line-through{% endif %}">{{ l.net|money }}</td>
+              {% if live %}
+              <td class="cursor-default text-right">
+                {% if l.status == 'ACTIVE' %}<button type="button" class="btn btn-danger-ghost btn-sm" data-void-line="{{ l.pk }}" data-name="{{ l.quantity|qty }} × {{ l.name }}" aria-label="Void {{ l.name }}">{% include "_includes/icon.html" with name="x-circle" only %}</button>{% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="cursor-default p-0"><p class="pos-empty">Tap an item on the menu to add it.</p></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <dl class="dl-rows shrink-0 border-t border-divider px-4 py-2 text-sm">
+        <div><dt>Subtotal (net)</dt><dd class="num">{{ totals.subtotal|money }}</dd></div>
+        {% if totals.discount %}<div><dt>Discount given</dt><dd class="num">{{ totals.discount|money }}</dd></div>{% endif %}
+        <div><dt>VAT</dt><dd class="num">{{ totals.tax|money }}</dd></div>
+      </dl>
+      <div class="pos-total" aria-live="polite">
+        <span><span class="pos-total-label">Total</span><span class="pos-total-meta">{{ totals.items|qty }} item(s)</span></span>
+        <span class="pos-total-value"><span class="text-base font-semibold text-hero-muted">{{ book }}</span> {{ totals.total|money }}</span>
+      </div>
+      <div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-divider p-2.5">
+        {% if live %}
+          <form method="post" action="{% url 'pos:bill_detail' order.pk %}" class="no-card">
+            {% csrf_token %}<input type="hidden" name="action" value="print">
+            <button type="submit" class="btn btn-secondary">{% include "_includes/icon.html" with name="printer" only %}Print bill</button>
+          </form>
+          <button type="button" class="btn btn-danger-ghost" data-open="dlg-void-bill">{% include "_includes/icon.html" with name="x-circle" only %}Void bill</button>
+          {% if may_pay %}
+          <button type="button" class="btn btn-primary ml-auto" data-open="dlg-pay" {% if not totals.items %}disabled{% endif %}>{% include "_includes/icon.html" with name="cash" stroke="2" only %}Pay</button>
+          {% else %}
+          <p class="ml-auto text-sm font-semibold text-ink-2">Print the bill and send it to the cashier.</p>
+          {% endif %}
+        {% else %}
+          {% if may_view_print %}<a href="{% url 'pos:bill_print' order.pk %}" class="btn btn-secondary">{% include "_includes/icon.html" with name="printer" only %}{% if order.status == 'CLOSED' %}Receipt{% else %}Bill{% endif %}</a>{% endif %}
+          <a href="{% url 'pos:station_floor' station.pk %}" class="btn btn-primary ml-auto">Back to the floor</a>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</div>
+
+{% if live %}
+{# ── Void one item ── #}
+<dialog class="pos-dialog" id="dlg-void-line" aria-labelledby="dlg-void-line-title">
+  <form method="post" action="{% url 'pos:bill_void_line' order.pk %}" autocomplete="off">
+    {% csrf_token %}
+    <input type="hidden" name="line" value="" data-line>
+    <div class="pos-dialog-head"><h2 id="dlg-void-line-title">Void an item</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <p class="mb-4 text-[15px] font-semibold text-ink" data-line-name></p>
+      {% include "pos/station/_manager_fields.html" with prefix="vl" %}
+    </div>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-danger">Void item</button></div>
+  </form>
+</dialog>
+
+{# ── Void the whole bill ── #}
+<dialog class="pos-dialog" id="dlg-void-bill" aria-labelledby="dlg-void-bill-title">
+  <form method="post" action="{% url 'pos:bill_void' order.pk %}" autocomplete="off">
+    {% csrf_token %}
+    <div class="pos-dialog-head"><h2 id="dlg-void-bill-title">Void bill {{ order.reference }}</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+    <div class="pos-dialog-body">
+      <p class="mb-4 text-sm text-ink-muted">Every item comes off and the bill is closed with nothing taken. It goes on the day-end report.</p>
+      {% include "pos/station/_manager_fields.html" with prefix="vb" %}
+    </div>
+    <div class="pos-dialog-foot"><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-danger">Void bill</button></div>
+  </form>
+</dialog>
+
+{% if may_pay %}
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-pay" aria-labelledby="pay-title">
+  {% include "pos/station/_pay_form.html" with order=order total=totals.total token=pay_token back="bill" form_id="pay" %}
+</dialog>
+{% endif %}
+{% endif %}
+
+<script src="{% static 'pos/station.js' %}"></script>
+</body>
+</html>

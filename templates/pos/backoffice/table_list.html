@@ -1,0 +1,36 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:bo_table_create" "POST" as may_create %}{% if may_create %}{% url 'pos:bo_table_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Tables" subtitle="The floor plan of each branch, area by area" action_label="New table" action_url=new_url %}
+
+{% regroup tables by branch as by_branch %}
+{% for b in by_branch %}
+<section class="card mb-6 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">{{ b.grouper.name }}</h2><span class="text-xs text-ink-muted">{{ b.list|length }} table{{ b.list|length|pluralize }}</span></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Area</th><th>Table</th><th class="num">Seats</th><th>Served from</th><th class="num">Order</th><th>Status</th>{% if may_create %}<th><span class="sr-only">Actions</span></th>{% endif %}</tr></thead>
+      <tbody>
+        {% regroup b.list by area as by_area %}
+        {% for a in by_area %}
+        {% for t in a.list %}
+        <tr>
+          <td class="text-ink-2">{% if forloop.first %}{{ a.grouper|default:"No area" }}{% endif %}</td>
+          <td class="whitespace-nowrap">{% if may_create %}<a href="{% url 'pos:bo_table_edit' t.pk %}" class="row-link">{{ t.name }}</a>{% else %}{{ t.name }}{% endif %}</td>
+          <td class="num">{{ t.seats }}</td>
+          <td class="text-ink-2">{% if t.station %}{{ t.station.name }}{% else %}<span class="text-ink-muted">Any station</span>{% endif %}</td>
+          <td class="num text-ink-muted">{{ t.sort_order }}</td>
+          <td>{% if t.is_active %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>In use</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Off</span>{% endif %}</td>
+          {% if may_create %}<td class="actions"><a href="{% url 'pos:bo_table_edit' t.pk %}" class="btn btn-ghost btn-sm">Edit</a></td>{% endif %}
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% empty %}
+<section class="card">{% include "_includes/empty_state.html" with icon="map-pin" title="No tables yet" text="Tables let waiters open a bill per table; leave them out for a counter-only branch." action_label="New table" action_url=new_url only %}</section>
+{% endfor %}
+{% endblock %}

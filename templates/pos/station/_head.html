@@ -1,0 +1,22 @@
+{% load static %}{% comment %}
+Shared <head> body for the full-screen station and bill pages (like the till).
+Pass `head_title`.
+{% endcomment %}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {% include "_includes/app_zoom.html" %}
+  <title>{{ head_title }} — Mofisi</title>
+  <script>
+    (function () {
+      var el = document.documentElement;
+      if (el.getAttribute('data-theme') === 'system') {
+        var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        el.setAttribute('data-theme', dark ? 'dark' : 'light');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'merp/images/favicon.png' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">

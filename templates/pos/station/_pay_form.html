@@ -1,0 +1,39 @@
+{% load ui_extras %}{% comment %}
+Pay a bill: method, cash tendered with live change, and the one-time token.
+Pass order, total, token, back ("bill" or "cashier"), form_id (unique), and have
+`methods` and `book` in context. station.js works out the change.
+{% endcomment %}
+<form method="post" action="{% url 'pos:bill_pay' order.pk %}" class="no-card flex min-h-0 flex-col" data-pay data-total="{{ total }}" autocomplete="off">
+  {% csrf_token %}
+  <input type="hidden" name="token" value="{{ token }}">
+  <input type="hidden" name="back" value="{{ back }}">
+  <div class="pos-dialog-head"><h2 id="{{ form_id }}-title">Pay {{ order.reference }}{% if order.table %} · {{ order.table.name }}{% endif %}</h2><button type="button" class="pos-top-icon" data-close aria-label="Close">{% include "_includes/icon.html" with name="x" only %}</button></div>
+  <div class="pos-dialog-body">
+    <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+      <div>
+        <p class="section-title">How it is paid</p>
+        <div class="pos-methods mt-2" role="radiogroup" aria-label="Payment method">
+          {% for value, label in methods %}
+          <label class="pos-method cursor-pointer has-[:checked]:border-hero has-[:checked]:bg-hero has-[:checked]:text-white">
+            <input type="radio" name="payment_method" value="{{ value }}" class="sr-only" {% if forloop.first %}checked{% endif %} data-method>
+            {% if value == "CASH" %}{% include "_includes/icon.html" with name="cash" cls="h-5 w-5" only %}{% elif value == "CARD" %}{% include "_includes/icon.html" with name="key" cls="h-5 w-5" only %}{% elif value == "MPESA" %}{% include "_includes/icon.html" with name="bell" cls="h-5 w-5" only %}{% else %}{% include "_includes/icon.html" with name="bank" cls="h-5 w-5" only %}{% endif %}{{ label }}
+          </label>
+          {% endfor %}
+        </div>
+        <dl class="dl-rows mt-4">
+          <div><dt>Total due ({{ book }})</dt><dd class="num text-lg font-extrabold">{{ total|money }}</dd></div>
+        </dl>
+      </div>
+      <div data-cash>
+        <label class="section-title block" for="{{ form_id }}-tendered">Cash tendered</label>
+        <input type="text" inputmode="decimal" name="tendered" id="{{ form_id }}-tendered" class="pos-readout mt-2" placeholder="exact" data-tendered>
+        <div class="pos-keypad" data-pad="{{ form_id }}-tendered">{% for k in "789456123" %}<button type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}<button type="button" data-key=".">.</button><button type="button" data-key="0">0</button><button type="button" data-key="back" aria-label="Delete a digit">⌫</button></div>
+        <div class="pos-change" data-change-box><span class="text-sm font-semibold" data-change-label>Change due</span><strong data-change>0.00</strong></div>
+      </div>
+    </div>
+  </div>
+  <div class="pos-dialog-foot">
+    <button type="button" class="btn btn-ghost" data-close>Back</button>
+    <button type="submit" class="btn btn-primary btn-lg min-w-[12rem]" data-pay-submit>{% include "_includes/icon.html" with name="check" stroke="2" only %}Take payment</button>
+  </div>
+</form>

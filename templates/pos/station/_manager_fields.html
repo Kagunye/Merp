@@ -1,0 +1,23 @@
+{% comment %}Manager authorisation fields for a void. Pass `prefix` (unique ids) and have `managers` in context.{% endcomment %}
+{% if managers %}
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  <div class="form-field">
+    <label class="form-label" for="{{ prefix }}-manager">Manager</label>
+    <select name="manager" id="{{ prefix }}-manager" class="select" required>
+      <option value="">Choose a manager</option>
+      {% for m in managers %}<option value="{{ m.pk }}">{{ m.name }} ({{ m.code }})</option>{% endfor %}
+    </select>
+  </div>
+  <div class="form-field">
+    <label class="form-label" for="{{ prefix }}-pin">Manager's PIN</label>
+    <input type="password" name="manager_pin" id="{{ prefix }}-pin" class="input text-center tracking-[0.4em]" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" required>
+  </div>
+  <div class="form-field sm:col-span-2">
+    <label class="form-label" for="{{ prefix }}-reason">Reason</label>
+    <input type="text" name="reason" id="{{ prefix }}-reason" class="input" maxlength="255" required placeholder="e.g. sent to the wrong table, guest changed their mind">
+    <p class="form-help">The manager enters their own PIN now. The reason goes on the day-end report.</p>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-warning" role="status">{% include "_includes/icon.html" with name="warning" only %}<div class="alert-body">No manager with a PIN works this branch, so nothing can be voided here. Ask the back office to set one up.</div></div>
+{% endif %}

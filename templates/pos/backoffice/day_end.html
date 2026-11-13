@@ -1,0 +1,238 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% include "_includes/page_header.html" with title="Day end" subtitle="What a branch took, sold, voided and counted in one trading day, and the manager's sign-off" print_label="Print report" %}
+
+<form method="get" class="filter-bar no-print" aria-label="Choose the branch and day">
+  <div class="form-field">
+    <label class="form-label" for="de-branch">Branch</label>
+    <select id="de-branch" name="branch" class="select">
+      {% if not branch %}<option value="">Choose a branch</option>{% endif %}
+      {% for b in branches %}<option value="{{ b.pk }}"{% if branch and b.pk == branch.pk %} selected{% endif %}>{{ b.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="form-field">
+    <label class="form-label" for="de-date">Day</label>
+    <input id="de-date" name="date" type="date" value="{{ day|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}" class="input">
+  </div>
+  <div class="form-field"><button type="submit" class="btn btn-secondary">Show</button></div>
+</form>
+
+{% if not report %}
+<section class="card">{% include "_includes/empty_state.html" with icon="building" title="Choose a branch" text="Your login has no home branch, so pick the branch whose day you want to see." only %}</section>
+{% else %}
+{% with p=report.pnl %}
+<h2 class="section-title mt-2">{{ branch.name }} · {{ day|date:"l d F Y" }}</h2>
+
+{% if report.done %}
+<div class="alert alert-success mb-4" role="status">
+  {% include "_includes/icon.html" with name="check-circle" %}
+  <div class="alert-body"><p class="alert-title">This day is closed</p>Closed by {{ report.done.closed_by.get_full_name|default:report.done.closed_by.username }} at {{ report.done.closed_at|date:"d M Y H:i" }}. The figures below are worked out afresh; the ones signed off are kept with the close.</div>
+</div>
+{% elif report.blockers %}
+<div class="alert alert-warning mb-4" role="status">
+  {% include "_includes/icon.html" with name="warning" %}
+  <div class="alert-body"><p class="alert-title">Not ready to close</p><ul class="list-disc pl-5">{% for b in report.blockers %}<li>{{ b }}</li>{% endfor %}</ul></div>
+</div>
+{% endif %}
+
+<div class="stat-grid mb-6">
+  {% include "_includes/stat.html" with label="Takings" value=report.takings money=True icon="cash" tone="success" meta="Net of refunds, every method" only %}
+  {% include "_includes/stat.html" with label="Revenue ex VAT" value=p.revenue money=True icon="trending-up" tone="info" only %}
+  {% include "_includes/stat.html" with label="Gross profit" value=p.gross_profit money=True icon="chart" tone="brand" meta=p.margin|pct|default:"No sales" only %}
+  {% include "_includes/stat.html" with label="Tickets" value=report.tickets icon="receipt" tone="neutral" only %}
+  {% include "_includes/stat.html" with label="Voids" value=report.void_value money=True icon="x-circle" tone="danger" only %}
+  {% include "_includes/stat.html" with label="Open bills" value=report.live_orders|length icon="clock" tone="warning" only %}
+</div>
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+  <section class="card overflow-hidden">
+    <div class="card-header"><h2 class="card-title">Takings by payment method</h2></div>
+    <div class="table-wrap rounded-none border-0 shadow-none">
+      <table class="table">
+        <thead><tr><th>Method</th><th class="num">Taken</th><th class="num">Refunded</th><th class="num">Net</th></tr></thead>
+        <tbody>
+          {% for r in report.by_method %}
+          <tr><td>{{ r.method }}</td><td class="num">{{ r.taken|money }}</td><td class="num{% if r.refunded %} text-danger{% endif %}">{{ r.refunded|money }}</td><td class="num font-semibold">{{ r.net|money }}</td></tr>
+          {% empty %}
+          <tr><td colspan="4" class="empty-row">Nothing taken this day.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if report.by_method %}<tfoot><tr><td colspan="3">Total ({{ report.tickets }} ticket{{ report.tickets|pluralize }}, {{ report.refund_count }} refund{{ report.refund_count|pluralize }})</td><td class="num">{{ report.takings|money }}</td></tr></tfoot>{% endif %}
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><h2 class="card-title">Profit and loss for the day</h2></div>
+    <dl class="dl-rows px-5 py-3">
+      <div><dt>Revenue (ex VAT, after refunds)</dt><dd class="num">{{ p.revenue|money }}</dd></div>
+      <div><dt>VAT collected</dt><dd class="num">{{ p.vat|money }}</dd></div>
+      <div><dt>Discounts given</dt><dd class="num">{{ p.discounts|money }}</dd></div>
+      <div><dt class="pl-4 text-ink-muted">of which happy hour</dt><dd class="num text-ink-muted">{{ p.happy_hour|money }}</dd></div>
+      <div><dt>Cost of sales</dt><dd class="num">{{ p.cogs|money }}</dd></div>
+      <div><dt class="font-semibold">Gross profit</dt><dd class="num font-semibold">{{ p.gross_profit|money }}</dd></div>
+      <div><dt>Margin</dt><dd class="num">{% if p.margin is not None %}{{ p.margin|pct }}{% else %}—{% endif %}</dd></div>
+      <div><dt>Payouts from the drawers</dt><dd class="num">{{ p.payouts|money }}</dd></div>
+      <div><dt>Pay-ins to the drawers</dt><dd class="num">{{ p.payins|money }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="card overflow-hidden">
+    <div class="card-header"><h2 class="card-title">Waiters</h2></div>
+    <div class="table-wrap rounded-none border-0 shadow-none">
+      <table class="table">
+        <thead><tr><th>Waiter</th><th class="num">Bills</th><th class="num">Guests</th><th class="num">Takings</th></tr></thead>
+        <tbody>
+          {% for w in report.waiters %}
+          <tr><td>{{ w.name }} <span class="mono text-xs text-ink-muted">{{ w.code }}</span></td><td class="num">{{ w.bills }}</td><td class="num">{{ w.covers }}</td><td class="num">{{ w.takings|money }}</td></tr>
+          {% empty %}
+          <tr><td colspan="4" class="empty-row">No bills closed this day.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card overflow-hidden">
+    <div class="card-header"><h2 class="card-title">Menu sections sold</h2></div>
+    <div class="table-wrap rounded-none border-0 shadow-none">
+      <table class="table">
+        <thead><tr><th>Section</th><th class="num">Quantity</th><th class="num">Net</th></tr></thead>
+        <tbody>
+          {% for s in report.sections %}
+          <tr><td>{{ s.section }}</td><td class="num">{{ s.quantity|qty }}</td><td class="num">{{ s.net|money }}</td></tr>
+          {% empty %}
+          <tr><td colspan="3" class="empty-row">Nothing sold from a menu this day.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<section class="card mt-5 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Voids</h2><p class="card-subtitle">{{ report.voids|length }} item{{ report.voids|length|pluralize }} voided, {{ report.voided_bills }} whole bill{{ report.voided_bills|pluralize }}</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Time</th><th>Bill</th><th>Item</th><th class="num">Qty</th><th class="num">Value</th><th>Reason</th><th>Manager</th><th>Asked by</th></tr></thead>
+      <tbody>
+        {% for v in report.voids %}
+        <tr><td class="whitespace-nowrap text-xs text-ink-muted">{{ v.at|time:"H:i" }}</td><td class="mono">{{ v.bill }}</td><td>{{ v.item }}</td><td class="num">{{ v.quantity|qty }}</td><td class="num">{{ v.value|money }}</td><td class="text-ink-2">{{ v.reason }}</td><td>{{ v.manager|default:"—" }}</td><td>{{ v.asked_by }}</td></tr>
+        {% empty %}
+        <tr><td colspan="8" class="empty-row">No voids this day.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if report.voids %}<tfoot><tr><td colspan="4">Total voided</td><td class="num">{{ report.void_value|money }}</td><td colspan="3"></td></tr></tfoot>{% endif %}
+    </table>
+  </div>
+</section>
+
+<section class="card mt-5 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Tills</h2></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Cashier</th><th>Status</th><th class="num">Opening float</th><th class="num">Expected</th><th class="num">Counted</th><th class="num">Variance</th></tr></thead>
+      <tbody>
+        {% can_do "pos:session_detail" as may_session %}
+        {% for t in report.tills %}
+        <tr>
+          <td>{% if may_session %}<a href="{% url 'pos:session_detail' t.pk %}" class="row-link">{{ t.cashier }}</a>{% else %}{{ t.cashier }}{% endif %}</td>
+          <td>{{ t.status }}</td>
+          <td class="num">{{ t.opening|money }}</td>
+          <td class="num">{{ t.expected|money }}</td>
+          <td class="num">{% if t.counted is None %}<span class="text-ink-muted">—</span>{% else %}{{ t.counted|money }}{% endif %}</td>
+          <td class="num font-semibold{% if t.variance is None %} text-ink-muted{% elif t.variance < 0 %} text-danger{% elif t.variance > 0 %} text-warning{% else %} text-success{% endif %}">{% if t.variance is None %}—{% else %}{{ t.variance|money }}{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty-row">No till traded at this branch this day.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-5 overflow-hidden">
+  <div class="card-header"><div><h2 class="card-title">Stock movement</h2><p class="card-subtitle">Every product that moved on this branch's shelves this day</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Product</th><th class="num">Opening</th><th class="num">In</th><th class="num">Sold</th><th class="num">Other out</th><th class="num">Closing</th></tr></thead>
+      <tbody>
+        {% for s in report.stock %}
+        <tr><td><span class="mono text-xs text-ink-muted">{{ s.sku }}</span> {{ s.product }}</td><td class="num">{{ s.opening|qty }}</td><td class="num">{{ s.in|qty }}</td><td class="num">{{ s.sold|qty }}</td><td class="num">{{ s.out|qty }}</td><td class="num font-semibold">{{ s.closing|qty }}</td></tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty-row">No stock moved at this branch this day.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-5 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Bills still open</h2></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Bill</th><th>Table</th><th>Waiter</th><th>Station</th><th>Opened</th><th>Status</th></tr></thead>
+      <tbody>
+        {% can_do "pos:bill_detail" as may_bill %}
+        {% for o in report.live_orders %}
+        <tr>
+          <td class="mono">{% if may_bill %}<a href="{% url 'pos:bill_detail' o.pk %}" class="row-link">{{ o.reference }}</a>{% else %}{{ o.reference }}{% endif %}</td>
+          <td>{{ o.table.name|default:"Walk-in" }}</td>
+          <td>{{ o.waiter.name }}</td>
+          <td class="text-ink-2">{{ o.station.name }}</td>
+          <td class="whitespace-nowrap text-xs text-ink-muted">{{ o.opened_at|date:"d M H:i" }}</td>
+          <td>{% status_badge o.status o.get_status_display %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="empty-row">Every bill is closed.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% can_do "pos:bo_day_end_close" "POST" as may_close %}
+{% if may_close and not report.done %}
+<section class="card mt-5 no-print">
+  <div class="card-body flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h2 class="card-title">Close {{ day|date:"d M Y" }} at {{ branch.name }}</h2>
+      <p class="card-subtitle">Signs the day off with these figures. It cannot be reopened.</p>
+    </div>
+    <form method="post" action="{% url 'pos:bo_day_end_close' %}" class="inline-form" onsubmit="return confirm('Close the day? This cannot be undone.');">
+      {% csrf_token %}
+      <input type="hidden" name="branch" value="{{ branch.pk }}">
+      <input type="hidden" name="date" value="{{ day|date:'Y-m-d' }}">
+      <button type="submit" class="btn btn-primary"{% if report.blockers %} title="Not ready: see the list at the top"{% endif %}>Close day</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+{% endwith %}
+{% endif %}
+
+<section class="card mt-8 overflow-hidden">
+  <div class="card-header"><h2 class="card-title">Days closed</h2><span class="text-xs text-ink-muted">Last 30</span></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Day</th><th>Branch</th><th class="num">Tickets</th><th class="num">Takings</th><th class="num">Voids</th><th>Closed by</th><th>Closed at</th></tr></thead>
+      <tbody>
+        {% for d in history %}
+        <tr>
+          <td class="whitespace-nowrap"><a href="{% url 'pos:bo_day_end' %}?branch={{ d.branch_id }}&amp;date={{ d.business_date|date:'Y-m-d' }}" class="row-link">{{ d.business_date|date:"D d M Y" }}</a></td>
+          <td class="text-ink-2">{{ d.branch.name }}</td>
+          <td class="num">{{ d.summary.tickets|default:"0" }}</td>
+          <td class="num">{{ d.summary.takings|money }}</td>
+          <td class="num">{{ d.summary.void_value|money }}</td>
+          <td>{{ d.closed_by.get_full_name|default:d.closed_by.username }}</td>
+          <td class="whitespace-nowrap text-xs text-ink-muted">{{ d.closed_at|date:"d M Y H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="empty-row">No day has been closed yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

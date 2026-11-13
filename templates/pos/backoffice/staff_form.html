@@ -1,0 +1,57 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% url 'pos:bo_staff_list' as back_url %}
+{% include "_includes/page_header.html" with title=title subtitle="Someone who works the floor and signs in at a station with a PIN" back_url=back_url back_label="Staff & PINs" hide_print=True %}
+
+<div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+  <form method="post" class="card card-body lg:col-span-2" novalidate>
+    {% csrf_token %}
+    {% include "pos/backoffice/_form_body.html" %}
+    <div class="form-actions">
+      <a href="{{ back_url }}" class="btn btn-ghost">Cancel</a>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+
+  {% if person %}
+  {% can_do "pos:bo_staff_pin" "POST" as may_pin %}
+  <section class="card">
+    <div class="card-header">
+      <div><h2 class="card-title">PIN</h2>
+        <p class="card-subtitle">{% if person.pin_hash %}A PIN is set. Setting a new one replaces it.{% else %}No PIN yet: {{ person.name }} cannot sign in at a station.{% endif %}</p></div>
+      {% if person.pin_hash %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>Set</span>{% else %}<span class="badge badge-warning"><span class="badge-dot" aria-hidden="true"></span>Not set</span>{% endif %}
+    </div>
+    <div class="card-body">
+      {% if person.locked_until and person.locked_until > now %}
+      <div class="alert alert-warning mb-4" role="status">
+        {% include "_includes/icon.html" with name="lock" %}
+        <div class="alert-body">Locked until {{ person.locked_until|time:"H:i" }} after too many wrong PINs.</div>
+      </div>
+      {% elif person.failed_pins %}
+      <p class="mb-4 text-sm text-ink-muted">{{ person.failed_pins }} wrong PIN{{ person.failed_pins|pluralize }} in a row so far.</p>
+      {% endif %}
+      {% if may_pin %}
+      <form method="post" action="{% url 'pos:bo_staff_pin' person.pk %}" class="no-card" novalidate autocomplete="off">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="set">
+        <div class="form-grid">
+          {% include "pos/backoffice/_field.html" with field=pin_form.pin full=True %}
+          {% include "pos/backoffice/_field.html" with field=pin_form.confirm full=True %}
+        </div>
+        <p class="form-help mt-2">4 to 8 digits, not repeated or running digits (1111, 1234).</p>
+        <div class="form-actions"><button type="submit" class="btn btn-secondary">Set PIN</button></div>
+      </form>
+      {% if person.failed_pins or person.locked_until %}
+      <form method="post" action="{% url 'pos:bo_staff_pin' person.pk %}" class="no-card mt-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="unlock">
+        <button type="submit" class="btn btn-ghost btn-sm">Unlock and clear wrong tries</button>
+      </form>
+      {% endif %}
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

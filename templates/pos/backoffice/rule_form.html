@@ -1,0 +1,53 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% url 'pos:bo_rule_list' as back_url %}
+{% include "_includes/page_header.html" with title=title subtitle="So much off, on these days, between these times, on these items" back_url=back_url back_label="Happy hours" hide_print=True %}
+<form method="post" class="card card-body" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+  <div class="alert alert-danger mb-4" role="alert">
+    {% include "_includes/icon.html" with name="warning" %}
+    <div class="alert-body">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+  </div>
+  {% endif %}
+
+  <div class="form-section">The discount</div>
+  <div class="form-grid">
+    {% include "pos/backoffice/_field.html" with field=form.name %}
+    {% include "pos/backoffice/_field.html" with field=form.discount_percent %}
+  </div>
+
+  <div class="form-section mt-6">When it runs</div>
+  <div class="form-grid">
+    {% include "pos/backoffice/_field.html" with field=form.days full=True %}
+    {% include "pos/backoffice/_field.html" with field=form.start_time %}
+    {% include "pos/backoffice/_field.html" with field=form.end_time %}
+    {% include "pos/backoffice/_field.html" with field=form.valid_from %}
+    {% include "pos/backoffice/_field.html" with field=form.valid_to %}
+  </div>
+  <p class="form-help mt-2">A window that ends before it starts runs past midnight: 22:00 to 01:00 on a Friday runs into early Saturday as Friday's happy hour.</p>
+
+  <div class="form-section mt-6">What it covers <span class="text-ink-muted">(choose one, or none for everything on the menu)</span></div>
+  <div class="form-grid">
+    {% include "pos/backoffice/_field.html" with field=form.section %}
+    <div class="form-field">
+      <label class="form-label" for="id_category">{{ form.category.label }}</label>
+      {% include "_includes/category_picker.html" with name="category" selected=selected_category field_id="id_category" show_label=False empty_label="Any" %}
+      {% if form.category.help_text %}<p class="form-help">{{ form.category.help_text }}</p>{% endif %}
+      {% for e in form.category.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+    </div>
+    {% include "pos/backoffice/_field.html" with field=form.product %}
+  </div>
+
+  <div class="form-section mt-6">Where</div>
+  <div class="form-grid">
+    {% include "pos/backoffice/_field.html" with field=form.branches full=True %}
+    {% include "pos/backoffice/_field.html" with field=form.is_active full=True %}
+  </div>
+
+  <div class="form-actions">
+    <a href="{{ back_url }}" class="btn btn-ghost">Cancel</a>
+    <button type="submit" class="btn btn-primary">Save happy hour</button>
+  </div>
+</form>
+{% endblock %}

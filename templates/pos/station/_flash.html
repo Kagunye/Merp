@@ -1,0 +1,10 @@
+{% if messages %}
+<div class="pos-flash" aria-live="polite">
+  {% for message in messages %}
+  <div class="alert shadow-pop {% if 'error' in message.tags %}alert-danger{% elif 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% else %}alert-info{% endif %}" role="{% if 'error' in message.tags %}alert{% else %}status{% endif %}">
+    <div class="alert-body">{{ message }}</div>
+    <button type="button" class="alert-close" onclick="this.parentElement.remove()" aria-label="Dismiss message">{% include "_includes/icon.html" with name="x" stroke="2" only %}</button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

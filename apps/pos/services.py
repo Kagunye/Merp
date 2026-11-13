@@ -297,7 +297,7 @@ def discount_percent(value, label="Discount"):
     return pct
 
 
-def ticket_row(product, quantity, discount=Z):
+def ticket_row(product, quantity, discount=Z, unit_price=None):
     """One line as the till sees it: the shelf price, and the tax the product carries.
 
     A counter sale is charged the selling price on the card; a cashier never
@@ -310,7 +310,10 @@ def ticket_row(product, quantity, discount=Z):
     quantity = number(quantity, "quantity", limit=QUANTITY_LIMIT)
     if quantity <= 0:
         raise ValidationError("a line has to sell something.")
-    if not product.selling_price:
+    # `unit_price` comes only from the server's own menu (a menu item priced
+    # apart from the shelf); nothing a cashier types reaches it.
+    price = product.selling_price if unit_price is None else unit_price
+    if not price:
         raise ValidationError(
             "has no selling price on file — the till cannot sell it until one is set.")
     text = "" if discount is None else str(discount).strip()
@@ -319,7 +322,7 @@ def ticket_row(product, quantity, discount=Z):
         raise ValidationError(
             "a 100% discount gives the goods away — the till sells, it does not give. "
             "Issue them from stock instead.")
-    unit = D(str(product.selling_price))
+    unit = D(str(price))
     gross = money(unit * quantity)
     off = money(gross * pct / D("100")) if pct else Z
     net = money(gross - off)
@@ -601,6 +604,68 @@ def checkout(company, user, quantities, *, session=None, payment_method="CASH",
         raise ValidationError("That salesperson does not work in this company.")
 
     rows, subtotal, tax, total = build_ticket(company, quantities, discounts)
+    return _ring(company, user, session, rows, subtotal, tax, total,
+                 payment_method=payment_method, tendered=tendered, customer=customer,
+                 warehouse=warehouse, notes=notes, token=token, salesperson=salesperson,
+                 customer_reference=customer_reference)
+
+
+def _till_for(company, user, session, payment_method):
+    session = session or active_session(company, user)
+    if not session:
+        raise ValidationError(
+            "There is no open till for you to sell from — open a session first.")
+    if session.status != "OPEN":
+        raise ValidationError(f"This till is {session.get_status_display()} and cannot sell.")
+    if payment_method not in dict(POSSale.PAYMENT_METHODS):
+        raise ValidationError(f"{payment_method} is not a payment method this till takes.")
+    if payment_method == "SPLIT":
+        raise ValidationError(
+            "A split tender is not taken here yet — ring each part as its own ticket.")
+    return session
+
+
+@transaction.atomic
+def checkout_lines(company, user, lines, *, session=None, payment_method="CASH", tendered=Z,
+                   customer=None, warehouse=None, notes="", token="", salesperson=None,
+                   customer_reference=""):
+    """Ring a ticket from priced lines rather than a product grid.
+
+    A bill can carry the same product twice at two prices (two beers in the
+    happy hour, one after), which the till's one-box-per-product form cannot.
+    Each line is {product, quantity, unit_price, discount_percent}. The
+    caller vouches for the prices and discounts: the restaurant layer only
+    passes menu prices and discounts a price rule or a manager authorised.
+    """
+    session = _till_for(company, user, session, payment_method)
+    if salesperson is not None and not company_people(company).filter(
+            pk=salesperson.pk).exists():
+        raise ValidationError("That salesperson does not work in this company.")
+    rows = []
+    for line in lines:
+        product = line["product"]
+        if product.company_id != company.pk:
+            raise ValidationError("That product is not on this company's list.")
+        try:
+            rows.append(ticket_row(product, line["quantity"], line.get("discount_percent") or Z,
+                                   unit_price=line.get("unit_price")))
+        except ValidationError as exc:
+            raise ValidationError(f"{product.name}: {exc.messages[0]}")
+    if not rows:
+        raise ValidationError("Nothing to sell: the bill has no items on it.")
+    subtotal = money(sum((r["net"] for r in rows), Z))
+    tax = money(sum((r["tax"] for r in rows), Z))
+    return _ring(company, user, session, rows, subtotal, tax, money(subtotal + tax),
+                 payment_method=payment_method, tendered=tendered, customer=customer,
+                 warehouse=warehouse, notes=notes, token=token, salesperson=salesperson,
+                 customer_reference=customer_reference)
+
+
+def _ring(company, user, session, rows, subtotal, tax, total, *, payment_method, tendered,
+          customer, warehouse, notes, token, salesperson, customer_reference):
+    """Take the money, move the goods and book the entry for priced rows."""
+    from apps.core.models import SequenceCounter
+
     discount_total = money(sum((r["discount"] for r in rows), Z))
     handed_text = "" if tendered is None else str(tendered).strip()
     if payment_method != "CASH":

@@ -1,0 +1,27 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:cashier_panel" as may_cashier %}{% if may_cashier %}{% url 'pos:cashier_panel' as cashier_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Waiter stations" subtitle="Choose the station this device is. Staff then sign in on it with their PIN." secondary_label="Cashier panel" secondary_url=cashier_url hide_print=True %}
+
+{% for g in groups %}
+<section class="mb-6">
+  <h2 class="section-title mb-3">{{ g.branch.name }}</h2>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    {% for s in g.stations %}
+    <a href="{% url 'pos:station_floor' s.pk %}" class="card card-body flex min-h-[96px] items-center gap-4 hover:border-line-strong hover:bg-surface-2">
+      <span class="icon-tile">{% if s.kind == "BAR" %}{% include "_includes/icon.html" with name="cart" only %}{% elif s.kind == "CASHIER" %}{% include "_includes/icon.html" with name="cash" only %}{% else %}{% include "_includes/icon.html" with name="clipboard" only %}{% endif %}</span>
+      <span class="min-w-0 flex-1">
+        <span class="block truncate text-[16px] font-bold text-ink">{{ s.name }}</span>
+        <span class="block text-sm text-ink-muted">{{ s.get_kind_display }} · <span class="mono">{{ s.code }}</span>{% if s.menu %} · {{ s.menu.name }}{% endif %}</span>
+      </span>
+      {% if s.live_count %}<span class="badge badge-info">{{ s.live_count }} live</span>{% endif %}
+      {% include "_includes/icon.html" with name="chevron-right" cls="h-5 w-5 text-ink-muted" only %}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% empty %}
+{% include "_includes/empty_state.html" with icon="clipboard" title="No stations yet" text="The back office sets up waiter stations, their tables and menus." %}
+{% endfor %}
+{% endblock %}

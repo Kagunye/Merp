@@ -1,0 +1,78 @@
+{% extends "base/base.html" %}
+{% load static ui_extras %}
+{% block content %}
+{% can_do "pos:station_pick" as may_stations %}{% if may_stations %}{% url 'pos:station_pick' as stations_url %}{% endif %}
+{% can_do "pos:bill_print" as may_view_print %}
+{% if session %}
+{% include "_includes/page_header.html" with title="Cashier panel" subtitle=session.branch.name secondary_label="Waiter stations" secondary_url=stations_url hide_print=True %}
+
+<section class="card mb-6 overflow-hidden" aria-labelledby="live-title">
+  <div class="card-header"><div><h2 class="card-title" id="live-title">Live bills</h2><p class="card-subtitle">Open and printed bills at {{ session.branch.name }}, oldest first</p></div><span class="badge">{{ live|length }}</span></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Bill</th><th>Table</th><th>Waiter</th><th class="num">Items</th><th class="num">Open</th><th>Status</th><th class="num">Total</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for row in live %}
+        <tr>
+          <td class="mono">{{ row.order.reference }}</td>
+          <td>{{ row.order.table.name|default:"—" }}</td>
+          <td>{{ row.order.waiter.name }}</td>
+          <td class="num">{{ row.items|qty }}</td>
+          <td class="num">{{ row.minutes }} min</td>
+          <td>{% status_badge row.order.status row.order.get_status_display %}</td>
+          <td class="num font-bold">{{ row.totals.total|money }}</td>
+          <td class="actions">
+            <div class="flex justify-end gap-2">
+              <form method="post" action="{% url 'pos:bill_detail' row.order.pk %}" class="no-card">
+                {% csrf_token %}<input type="hidden" name="action" value="print"><input type="hidden" name="back" value="cashier">
+                <button type="submit" class="btn btn-secondary btn-sm" {% if not row.items %}disabled{% endif %}>{% include "_includes/icon.html" with name="printer" only %}Print bill</button>
+              </form>
+              <button type="button" class="btn btn-primary btn-sm" data-open="dlg-pay-{{ row.order.pk }}" {% if not row.items %}disabled{% endif %}>{% include "_includes/icon.html" with name="cash" only %}Pay</button>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="p-0">{% include "_includes/empty_state.html" with icon="receipt" title="No live bills" text="Bills opened at the waiter stations of this branch appear here." compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% for row in live %}{% if row.items %}
+<dialog class="pos-dialog pos-dialog-wide" id="dlg-pay-{{ row.order.pk }}" aria-labelledby="pay-{{ row.order.reference }}-title">
+  {% include "pos/station/_pay_form.html" with order=row.order total=row.totals.total token=row.token back="cashier" form_id="pay-"|add:row.order.reference %}
+</dialog>
+{% endif %}{% endfor %}
+
+<section class="card overflow-hidden" aria-labelledby="closed-title">
+  <div class="card-header"><div><h2 class="card-title" id="closed-title">Paid today</h2><p class="card-subtitle">Bills closed at {{ session.branch.name }} today</p></div></div>
+  <div class="table-wrap rounded-none border-0 shadow-none">
+    <table class="table">
+      <thead><tr><th>Bill</th><th>Table</th><th>Waiter</th><th>Paid</th><th>Receipt</th><th>Method</th><th class="num">Total</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for o in closed %}
+        <tr>
+          <td class="mono">{{ o.reference }}</td>
+          <td>{{ o.table.name|default:"—" }}</td>
+          <td>{{ o.waiter.name }}</td>
+          <td>{{ o.closed_at|time:"H:i" }}</td>
+          <td class="mono">{{ o.sale.reference|default:"—" }}</td>
+          <td>{{ o.sale.get_payment_method_display|default:"—" }}</td>
+          <td class="num">{{ o.sale.total_amount|money }}</td>
+          <td class="actions">{% if may_view_print %}<a href="{% url 'pos:bill_print' o.pk %}" class="btn btn-ghost btn-sm">Receipt</a>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="p-0">{% include "_includes/empty_state.html" with icon="check-circle" title="Nothing paid yet today" compact=True only %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+{% include "_includes/page_header.html" with title="Cashier panel" subtitle="Take payment for the floor's bills" secondary_label="Waiter stations" secondary_url=stations_url hide_print=True %}
+{% can_do "pos:session_open" as may_open %}{% if may_open %}{% url 'pos:session_open' as open_url %}{% endif %}
+{% include "_includes/empty_state.html" with icon="lock" title="Open your till first" text="Bills are paid into your own open till, at the branch it trades from. Count your float in, then come back here." action_label="Open a till" action_url=open_url %}
+{% endif %}
+<script src="{% static 'pos/station.js' %}"></script>
+{% endblock %}

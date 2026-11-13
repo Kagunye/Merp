@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+{% load static ui_extras %}
+<html lang="en" data-theme="{{ request.user.theme_preference|default:'light' }}">
+<head>
+{% include "pos/station/_head.html" with head_title=station.name %}
+</head>
+<body class="pos-body font-sans">
+<div class="pos-shell" id="station" {% if actor %}data-idle="{{ idle_minutes }}"{% endif %}>
+
+  <header class="pos-top" aria-label="Station">
+    <span class="pos-brand">POS</span>
+    <div class="min-w-0">
+      <h1 class="truncate text-base font-extrabold text-white">{{ station.name }}</h1>
+      <p class="truncate text-xs text-hero-muted">{{ station.branch.name }} · {% if menu %}{{ menu.name }}{% else %}No menu{% endif %}</p>
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      {% if actor %}
+      <span class="hidden text-sm text-hero-muted sm:inline">Signed in as <strong class="text-white">{{ actor.name }}</strong></span>
+      <form method="post" action="{% url 'pos:station_leave' station.pk %}" class="no-card">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm border border-white/30 bg-transparent text-white hover:bg-white/10">{% include "_includes/icon.html" with name="logout" only %}Leave</button>
+      </form>
+      {% endif %}
+      <a href="{% url 'pos:station_pick' %}" class="pos-top-icon" aria-label="All stations" title="All stations">{% include "_includes/icon.html" with name="home" only %}</a>
+    </div>
+  </header>
+
+  {% include "pos/station/_flash.html" %}
+  {% include "pos/station/_happy.html" %}
+
+  <main class="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+  {% if not menu %}
+    <div class="alert alert-warning mb-4" role="status">{% include "_includes/icon.html" with name="warning" only %}<div class="alert-body">This station has no menu offered at {{ station.branch.name }}. Ask the back office to give it one; bills cannot take items until then.</div></div>
+  {% endif %}
+
+  {% if not actor %}
+    {# ── Who is it? Staff tiles and the PIN pad ── #}
+    <form method="post" action="{% url 'pos:station_pin' station.pk %}" class="no-card mx-auto grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]" id="pin-form" autocomplete="off">
+      {% csrf_token %}
+      {% if next_bill %}<input type="hidden" name="bill" value="{{ next_bill.pk }}">{% endif %}
+      <section class="pos-panel" aria-labelledby="who-title">
+        <div class="pos-panel-head"><h2 id="who-title" class="text-sm font-bold text-ink">Tap your name</h2>{% if next_bill %}<span class="ml-auto text-xs text-ink-muted">then your PIN to open {{ next_bill.reference }}</span>{% endif %}</div>
+        {% if staff %}
+        <div class="grid grid-cols-2 gap-2.5 p-3 sm:grid-cols-3 xl:grid-cols-4">
+          {% for s in staff %}
+          <label class="flex min-h-[72px] cursor-pointer flex-col justify-center rounded-[16px] border border-line bg-surface px-3 py-2 text-left hover:border-line-strong has-[:checked]:border-hero has-[:checked]:bg-hero has-[:checked]:text-white">
+            <input type="radio" name="staff" value="{{ s.pk }}" class="sr-only" data-staff-name="{{ s.name }}" required>
+            <span class="truncate text-[15px] font-bold">{{ s.name }}</span>
+            <span class="text-xs opacity-70">{{ s.get_role_display }} · {{ s.code }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
+        {% include "_includes/empty_state.html" with icon="users" title="Nobody can sign in here yet" text="Floor staff with a PIN at this branch appear here. The back office sets them up." only %}
+        {% endif %}
+      </section>
+      <section class="pos-panel p-4" aria-labelledby="pin-title">
+        <h2 id="pin-title" class="text-sm font-bold text-ink">PIN <span class="font-medium text-ink-muted" id="pin-who"></span></h2>
+        <label for="pin-input" class="sr-only">Your PIN</label>
+        <input type="password" name="pin" id="pin-input" class="pos-readout mt-2 tracking-[0.4em]" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" required>
+        <div class="pos-keypad" data-pad="pin-input">
+          {% for k in "789456123" %}<button type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}
+          <button type="button" data-key="clear" aria-label="Clear the PIN">C</button>
+          <button type="button" data-key="0">0</button>
+          <button type="button" data-key="back" aria-label="Delete a digit">⌫</button>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block mt-3">{% include "_includes/icon.html" with name="key" stroke="2" only %}Sign in</button>
+        <p class="mt-3 text-xs text-ink-muted">Five wrong PINs lock the name for five minutes. You are signed out after {{ idle_minutes }} idle minute{{ idle_minutes|pluralize }}.</p>
+      </section>
+    </form>
+
+  {% else %}
+    <div class="mx-auto grid max-w-7xl grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      {# ── Tables ── #}
+      <section class="pos-panel" aria-labelledby="tables-title">
+        <div class="pos-panel-head">
+          <h2 id="tables-title" class="text-sm font-bold text-ink">Tables</h2>
+          <span class="ml-auto flex items-center gap-3 text-xs text-ink-muted">
+            <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full border border-line-strong bg-surface"></span>Free</span>
+            <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-info"></span>Open bill</span>
+            <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Bill printed</span>
+          </span>
+        </div>
+        {% if tables %}
+        <div class="grid grid-cols-2 gap-2.5 p-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+          {% for row in tables %}
+          {% if row.order %}
+          <a href="{% url 'pos:bill_detail' row.order.pk %}" class="flex min-h-[96px] flex-col rounded-[16px] border-2 px-3 py-2 {% if row.order.status == 'BILLED' %}border-warning bg-warning-bg{% else %}border-info bg-info-bg{% endif %}">
+            <span class="flex items-center gap-2"><span class="text-[15px] font-extrabold text-ink">{{ row.table.name }}</span><span class="ml-auto text-xs font-semibold text-ink-muted">{{ row.minutes }} min</span></span>
+            <span class="text-lg font-extrabold tabular-nums text-ink">{{ row.totals.total|money }}</span>
+            <span class="mt-auto truncate text-xs text-ink-2">{{ row.order.waiter.name }} · {% if row.order.status == 'BILLED' %}bill printed{% else %}{{ row.order.reference }}{% endif %}</span>
+          </a>
+          {% else %}
+          <div class="flex min-h-[96px] flex-col rounded-[16px] border border-line bg-surface px-3 py-2">
+            <span class="text-[15px] font-extrabold text-ink">{{ row.table.name }}</span>
+            <span class="text-xs text-ink-muted">{% if row.table.area %}{{ row.table.area }} · {% endif %}{{ row.table.seats }} seats</span>
+            <span class="mt-auto text-xs font-semibold text-success">Free</span>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% else %}
+        {% include "_includes/empty_state.html" with icon="home" title="No tables at this station" text="Bills can still be opened without a table." compact=True only %}
+        {% endif %}
+      </section>
+
+      <div class="flex min-w-0 flex-col gap-4">
+        {# ── New bill ── #}
+        <section class="pos-panel p-4" aria-labelledby="new-title">
+          <h2 id="new-title" class="text-sm font-bold text-ink">New bill</h2>
+          <form method="post" action="{% url 'pos:bill_open' station.pk %}" class="no-card mt-3 grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+            {% csrf_token %}
+            <div class="form-field">
+              <label class="form-label" for="new-table">Table{% if conf.require_table %}<span class="form-required" aria-hidden="true">*</span>{% endif %}</label>
+              <select name="table" id="new-table" class="select" {% if conf.require_table %}required{% endif %}>
+                <option value="">{% if conf.require_table %}Choose a table{% else %}No table (walk-in){% endif %}</option>
+                {% for t in free_tables %}<option value="{{ t.pk }}">{{ t.name }}{% if t.area %} · {{ t.area }}{% endif %}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="new-covers">Guests</label>
+              <input type="number" name="covers" id="new-covers" class="input text-right" value="1" min="1" max="200" inputmode="numeric">
+            </div>
+            <button type="submit" class="btn btn-primary col-span-2">{% include "_includes/icon.html" with name="plus" stroke="2" only %}Open bill</button>
+          </form>
+        </section>
+
+        {# ── This station's live bills ── #}
+        <section class="pos-panel" aria-labelledby="bills-title">
+          <div class="pos-panel-head"><h2 id="bills-title" class="text-sm font-bold text-ink">Live bills here</h2><span class="ml-auto text-xs text-ink-muted">{{ bills|length }}</span></div>
+          <ul class="divide-y divide-divider">
+            {% for row in bills %}
+            <li>
+              <a href="{% url 'pos:bill_detail' row.order.pk %}" class="flex min-h-[56px] items-center gap-3 px-4 py-2.5 hover:bg-surface-2">
+                <span class="min-w-0 flex-1">
+                  <span class="block font-bold text-ink"><span class="mono">{{ row.order.reference }}</span>{% if row.order.table %} · {{ row.order.table.name }}{% endif %}</span>
+                  <span class="block text-xs text-ink-muted">{{ row.order.waiter.name }} · {{ row.minutes }} min · {{ row.totals.items|qty }} item{{ row.totals.items|pluralize }}</span>
+                </span>
+                {% status_badge row.order.status row.order.get_status_display %}
+                <span class="num font-bold">{{ row.totals.total|money }}</span>
+              </a>
+            </li>
+            {% empty %}
+            <li>{% include "_includes/empty_state.html" with icon="receipt" title="No live bills" text="Bills opened at this station appear here until they are paid." compact=True only %}</li>
+            {% endfor %}
+          </ul>
+        </section>
+      </div>
+    </div>
+  {% endif %}
+  </main>
+</div>
+<script src="{% static 'pos/station.js' %}"></script>
+</body>
+</html>

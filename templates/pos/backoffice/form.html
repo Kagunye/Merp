@@ -1,0 +1,13 @@
+{% extends "base/base.html" %}
+{% block content %}
+{% include "_includes/page_header.html" with title=title subtitle=subtitle back_url=back_url hide_print=True %}
+<form method="post" class="card card-body" novalidate>
+  {% csrf_token %}
+  {% include "pos/backoffice/_form_body.html" %}
+  {% if save_another %}{% include "pos/backoffice/_another.html" %}{% endif %}
+  <div class="form-actions">
+    <a href="{{ back_url }}" class="btn btn-ghost">Cancel</a>
+    <button type="submit" class="btn btn-primary">{{ submit_label|default:"Save" }}</button>
+  </div>
+</form>
+{% endblock %}

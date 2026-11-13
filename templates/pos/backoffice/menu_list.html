@@ -1,0 +1,26 @@
+{% extends "base/base.html" %}
+{% load ui_extras %}
+{% block content %}
+{% can_do "pos:bo_menu_create" "POST" as may_create %}{% if may_create %}{% url 'pos:bo_menu_create' as new_url %}{% endif %}
+{% include "_includes/page_header.html" with title="Menus" subtitle="What each station sells, section by section" action_label="New menu" action_url=new_url %}
+
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Menu</th><th>Offered at</th><th class="num">Sections</th><th class="num">Items</th><th class="num">Stations</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for m in menus %}
+      <tr>
+        <td><a href="{% url 'pos:bo_menu_detail' m.pk %}" class="row-link">{{ m.name }}</a>{% if m.pk == default_menu_id %} <span class="badge badge-brand">Default</span>{% endif %}{% if m.description %}<p class="text-xs text-ink-muted">{{ m.description }}</p>{% endif %}</td>
+        <td class="text-ink-2">{% for b in m.branches.all %}{{ b.name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-ink-muted">Every branch</span>{% endfor %}</td>
+        <td class="num">{{ m.section_count }}</td>
+        <td class="num">{{ m.item_count }}</td>
+        <td class="num">{{ m.station_count }}</td>
+        <td>{% if m.is_active %}<span class="badge badge-success"><span class="badge-dot" aria-hidden="true"></span>In use</span>{% else %}<span class="badge badge-neutral"><span class="badge-dot" aria-hidden="true"></span>Off</span>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No menus yet" text="A menu groups products into sections (Drinks, Grill, Desserts) for the waiter stations." action_label="New menu" action_url=new_url compact=True only %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
