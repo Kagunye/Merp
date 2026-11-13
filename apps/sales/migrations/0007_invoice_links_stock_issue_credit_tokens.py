@@ -5,6 +5,8 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import migrations, models
 
+from apps.core.migration_ops import IfMissing
+
 
 class Migration(migrations.Migration):
 
@@ -16,42 +18,42 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        IfMissing(migrations.AddField(
             model_name='invoice',
             name='goods_returned',
             field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
+        )),
+        IfMissing(migrations.AddField(
             model_name='invoice',
             name='warehouse',
             field=models.ForeignKey(blank=True, help_text="Where stocked goods on this invoice are issued from. Blank uses the company's default warehouse.", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='organizations.warehouse'),
-        ),
-        migrations.AddField(
+        )),
+        IfMissing(migrations.AddField(
             model_name='invoiceline',
             name='credited_line',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='credit_lines', to='sales.invoiceline'),
-        ),
-        migrations.AddField(
+        )),
+        IfMissing(migrations.AddField(
             model_name='invoiceline',
             name='order_line',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='invoice_lines', to='sales.salesorderline'),
-        ),
-        migrations.AddField(
+        )),
+        IfMissing(migrations.AddField(
             model_name='paymentallocation',
             name='allocation_date',
             field=models.DateField(blank=True, null=True),
-        ),
-        migrations.AddField(
+        )),
+        IfMissing(migrations.AddField(
             model_name='paymentallocation',
             name='journal_entry',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='accounting.journalentry'),
-        ),
+        )),
         migrations.AlterField(
             model_name='invoiceline',
             name='discount_percent',
             field=models.DecimalField(decimal_places=6, default=Decimal('0'), max_digits=9),
         ),
-        migrations.CreateModel(
+        IfMissing(migrations.CreateModel(
             name='SubmissionToken',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -62,5 +64,5 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='+', to='organizations.company')),
                 ('user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='+', to=settings.AUTH_USER_MODEL)),
             ],
-        ),
+        )),
     ]

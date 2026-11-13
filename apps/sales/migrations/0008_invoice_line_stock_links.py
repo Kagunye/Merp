@@ -3,6 +3,8 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+from apps.core.migration_ops import IfMissing
+
 
 def link_existing_movements(apps, schema_editor):
     """Point the lines of documents already posted at the stock they moved.
@@ -65,15 +67,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        IfMissing(migrations.AddField(
             model_name='invoiceline',
             name='stock_movement',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='inventory.stockmovement'),
-        ),
-        migrations.AddField(
+        )),
+        IfMissing(migrations.AddField(
             model_name='invoiceline',
             name='stock_return',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='inventory.stockmovement'),
-        ),
+        )),
         migrations.RunPython(link_existing_movements, migrations.RunPython.noop),
     ]
