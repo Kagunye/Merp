@@ -11,21 +11,24 @@
 <div class="table-wrap">
   <table class="table">
     <thead>
-      <tr><th>Reference</th><th>Date</th><th>Type</th><th>Notes</th><th class="num">Total Debit</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr>
+      <tr><th>Reference</th><th>Date</th><th>Type</th><th>Debit account</th><th>Credit account</th><th class="num">Debit</th><th class="num">Credit</th><th class="num" title="Debit minus credit. 0 means the entry balances.">Difference</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr>
     </thead>
     <tbody>
       {% for entry in entries %}
       <tr>
-        <td class="mono"><a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="row-link">{{ entry.reference }}</a></td>
+        <td class="mono"><a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="row-link"{% if entry.notes %} title="{{ entry.notes }}"{% endif %}>{{ entry.reference }}</a></td>
         <td class="whitespace-nowrap text-ink-2">{{ entry.posting_date|date:"d M Y" }}</td>
         <td class="text-xs text-ink-2">{{ entry.get_entry_type_display }}</td>
-        <td class="max-w-xs truncate text-ink-muted">{{ entry.notes|default:"—" }}</td>
-        <td class="num">{{ entry.total_debit|money }}</td>
+        <td class="max-w-[14rem] text-xs">{% for a in entry.debit_accounts|slice:":2" %}<div class="truncate"><span class="mono">{{ a.code }}</span> {{ a.name }}</div>{% empty %}<span class="text-ink-muted">—</span>{% endfor %}{% if entry.debit_accounts|length > 2 %}<div class="text-ink-muted">+{{ entry.debit_accounts|length|add:"-2" }} more</div>{% endif %}</td>
+        <td class="max-w-[14rem] text-xs">{% for a in entry.credit_accounts|slice:":2" %}<div class="truncate"><span class="mono">{{ a.code }}</span> {{ a.name }}</div>{% empty %}<span class="text-ink-muted">—</span>{% endfor %}{% if entry.credit_accounts|length > 2 %}<div class="text-ink-muted">+{{ entry.credit_accounts|length|add:"-2" }} more</div>{% endif %}</td>
+        <td class="num">{{ entry.debit_sum|money }}</td>
+        <td class="num">{{ entry.credit_sum|money }}</td>
+        <td class="num{% if entry.difference %} font-semibold text-danger{% else %} text-ink-muted{% endif %}">{{ entry.difference|money }}</td>
         <td>{% if entry.reversed_by %}{% status_badge "REVERSED" "Reversed" %}{% else %}{% status_badge entry.status entry.get_status_display %}{% endif %}</td>
         <td class="actions"><a href="{% url 'accounting:journal_entry_detail' entry.pk %}" class="btn btn-ghost btn-sm">View</a></td>
       </tr>
       {% empty %}
-      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No journal entries found." action_label="Create the first entry" action_url=new_url compact=True only %}</td></tr>
+      <tr><td colspan="10" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No journal entries found." action_label="Create the first entry" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

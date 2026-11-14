@@ -174,6 +174,37 @@ def account_activate(request, pk):
     return redirect("accounting:account_list")
 
 
+def _sides_by_entry(entry_ids):
+    """{entry id: (accounts debited, accounts credited)} for these entries."""
+    sides = {}
+    for line in (JournalEntryLine.objects.filter(journal_entry_id__in=entry_ids)
+                 .select_related("account").order_by("id")):
+        dr, cr = sides.setdefault(line.journal_entry_id, ({}, {}))
+        if line.debit_amount > 0:
+            dr.setdefault(line.account_id, line.account)
+        if line.credit_amount > 0:
+            cr.setdefault(line.account_id, line.account)
+    return sides
+
+
+def _other_side(sides, line, account):
+    """The accounts on the far side of this line's entry: what a debit to this
+    account was credited to, or a credit debited to. Double entry always has
+    another side, and a ledger that shows only one leaves the reader guessing
+    where the money went."""
+    dr, cr = sides.get(line.journal_entry_id, ({}, {}))
+    far = cr if line.debit_amount > 0 else dr
+    return [a for pk, a in far.items() if pk != account.pk]
+
+
+def _distinct_accounts(lines):
+    """The accounts on these lines, each once, in the order they first appear."""
+    seen = {}
+    for line in lines:
+        seen.setdefault(line.account_id, line.account)
+    return list(seen.values())
+
+
 class JournalEntryListView(LoginRequiredMixin, ListView):
     template_name = "accounting/journal_entry_list.html"
     context_object_name = "entries"
@@ -183,9 +214,11 @@ class JournalEntryListView(LoginRequiredMixin, ListView):
         company = self.request.active_company
         if not company:
             return JournalEntry.objects.none()
+        from django.db.models import Prefetch
         qs = JournalEntry.objects.filter(company=company).select_related(
             "posted_by", "reversed_by"
-        )
+        ).prefetch_related(Prefetch(
+            "lines", queryset=JournalEntryLine.objects.select_related("account").order_by("id")))
         status = self.request.GET.get("status")
         if status == "REVERSED":
             # A reversed entry stays POSTED in the ledger — its reversal is a
@@ -201,6 +234,17 @@ class JournalEntryListView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["page_title"] = "Journal Entries"
+        # Both sides of every entry, not just its debit total: the accounts
+        # debited, the accounts credited, each side's total and what is left
+        # between them (0 for a balanced entry). Read from the prefetched lines
+        # so the page costs one query for all of them.
+        for entry in ctx["entries"]:
+            lines = list(entry.lines.all())
+            entry.debit_accounts = _distinct_accounts(l for l in lines if l.debit_amount > 0)
+            entry.credit_accounts = _distinct_accounts(l for l in lines if l.credit_amount > 0)
+            entry.debit_sum = sum((l.debit_amount for l in lines), Decimal("0"))
+            entry.credit_sum = sum((l.credit_amount for l in lines), Decimal("0"))
+            entry.difference = entry.debit_sum - entry.credit_sum
         ctx["status_filter"] = self.request.GET.get("status", "")
         ctx["q"] = self.request.GET.get("q", "")
         ctx["status_choices"] = JournalEntry._meta.get_field("status").choices
@@ -489,6 +533,8 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
             "journal_entry__posting_date", "journal_entry__created_at", "id",
         )
 
+        lines = list(lines)
+        contra = _sides_by_entry({ln.journal_entry_id for ln in lines})
         running = opening
         rows = []
         for ln in lines:
@@ -501,6 +547,7 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
                 "credit": ln.credit_amount,
                 "balance": running,
                 "entry_pk": ln.journal_entry_id,
+                "contra": _other_side(contra, ln, account),
             })
 
         future_rows = []
