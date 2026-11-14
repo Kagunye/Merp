@@ -625,6 +625,31 @@ class Command(BaseCommand):
         self.expect("run twice, migration 0013 adds nothing more",
                     Account.objects.filter(company=self.company).count() == before)
 
+        # ---- an older book's default names: 0014 renames them, and only them
+        renames = importlib.import_module(
+            "apps.accounting.migrations.0014_rename_default_accounts")
+        for code, old in (("1200", "Bank"), ("4310", "Exchange Gain"),
+                          ("7200", "Interest Expense"), ("7300", "Exchange Loss")):
+            Account.objects.filter(company=self.company, code=code).update(name=old)
+        renames.rename(django_apps, _Editor())
+        renamed = dict(Account.objects.filter(
+            company=self.company, code__in=["1200", "4000", "4310", "7200", "7300"],
+        ).values_list("code", "name"))
+        self.expect("migration 0014 gives an older book's default accounts the new names",
+                    renamed.get("1200") == "Bank Accounts"
+                    and renamed.get("4310") == "Realised Exchange Gain"
+                    and renamed.get("7200") == "Interest on Loans & Overdrafts"
+                    and renamed.get("7300") == "Realised Exchange Loss", str(renamed))
+        self.expect("migration 0014 leaves a name the bookkeeper chose alone",
+                    renamed.get("4000") == "Revenue (renamed by the bookkeeper)",
+                    renamed.get("4000"))
+        renames.unrename(django_apps, _Editor())
+        back = dict(Account.objects.filter(
+            company=self.company, code__in=["1200", "7300"]).values_list("code", "name"))
+        self.expect("migration 0014 undone puts the old names back",
+                    back == {"1200": "Bank", "7300": "Exchange Loss"}, str(back))
+        renames.rename(django_apps, _Editor())
+
         # ---- each bank its own ledger account, 1201 onward under 1200
         details = {
             "bank_name": "KCB", "account_type": "CURRENT", "currency": "KES",
