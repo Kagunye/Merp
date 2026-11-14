@@ -128,7 +128,7 @@ Z = D("0")
 # The chart codes a trading company is expected to transact through.
 RECOMMENDED = [
     ("1100", "Cash on Hand"),
-    ("1200", "Bank"),
+    ("1200", "Bank Accounts"),
     ("1300", "Accounts Receivable"),
     ("1400", "Inventory"),
     ("2100", "Accounts Payable"),
@@ -545,6 +545,133 @@ class Command(BaseCommand):
         self.expect("at the end of the run inventory 1400 equals the stock valuation",
                     abs(inventory - shelves) < D("0.01"),
                     f"GL {inventory} against shelves {shelves:.4f}")
+
+        self.section("24. Chart corrections: withholding, commissions, banks and both sides shown")
+        self.verify_chart_corrections(client)
+
+
+    # ─────────────────────────── chart corrections ───────────────────────────
+
+    def verify_chart_corrections(self, client):
+        """The accounts the bookkeeper asked for, and double entry seen whole.
+
+        A new company carries withholding VAT and WHT per rate on both sides,
+        commissions earned and paid, finance costs split by what borrowing
+        costs, and a 4000 heading that no longer reads as a twin of 4100. A
+        book founded before them is given the missing accounts by migration
+        0013 without a rename. Each new bank account can have its own ledger
+        account under 1200. The journal list names the accounts on both sides
+        and nets them to zero, and the ledger names the other side of each line.
+        """
+        import importlib
+        from django.apps import apps as django_apps
+        from apps.accounting.models import Account
+        from apps.banking.models import BankAccount
+
+        chart = {a.code: a for a in Account.objects.filter(company=self.company)}
+        wanted = {
+            "1360": ("ASSET", "1000"), "1370": ("ASSET", "1000"),
+            "1371": ("ASSET", "1370"), "1372": ("ASSET", "1370"), "1373": ("ASSET", "1370"),
+            "2220": ("LIABILITY", "2000"), "2230": ("LIABILITY", "2000"),
+            "2231": ("LIABILITY", "2230"), "2232": ("LIABILITY", "2230"),
+            "2233": ("LIABILITY", "2230"),
+            "4500": ("REVENUE", "4000"), "6550": ("EXPENSE", "6000"),
+            "7200": ("EXPENSE", "7000"), "7210": ("EXPENSE", "7000"),
+            "7220": ("EXPENSE", "7000"),
+        }
+        wrong = [code for code, (kind, parent) in wanted.items()
+                 if code not in chart or chart[code].account_type != kind
+                 or chart[code].parent is None or chart[code].parent.code != parent]
+        self.expect("a new company's chart has withholding per rate on both sides, "
+                    "commissions and finance costs, each under its heading",
+                    not wrong, ", ".join(wrong))
+        names = {code: chart[code].name for code in ("1200", "4000", "4310", "7300", "1360",
+                                                     "1371", "1372", "1373") if code in chart}
+        self.expect("4000 is the Income heading, 1200 Bank Accounts, and FX realised "
+                    "gain 4310 pairs with realised loss 7300",
+                    names.get("4000") == "Income" and names.get("1200") == "Bank Accounts"
+                    and names.get("4310") == "Realised Exchange Gain"
+                    and names.get("7300") == "Realised Exchange Loss", str(names))
+        self.expect("the withholding accounts name their rates (2%, 3%, 5%, 7.5%)",
+                    "2%" in names.get("1360", "") and "3%" in names.get("1371", "")
+                    and "5%" in names.get("1372", "") and "7.5%" in names.get("1373", ""),
+                    str(names))
+
+        # ---- an older book: migration 0013 adds what is missing, renames nothing
+        migration = importlib.import_module(
+            "apps.accounting.migrations.0013_withholding_commission_finance_accounts")
+        chart["4000"].name = "Revenue (renamed by the bookkeeper)"
+        chart["4000"].save(update_fields=["name"])
+        Account.objects.filter(company=self.company, code__in=["1371", "1370", "4500"]).delete()
+
+        class _Editor:
+            class connection:
+                alias = "default"
+        try:
+            migration.add_accounts(django_apps, _Editor())
+        except Exception as exc:     # noqa: BLE001 - reported as a failure
+            self.expect("migration 0013 runs on an existing book", False, repr(exc))
+        again = {a.code: a for a in Account.objects.filter(company=self.company)}
+        self.expect("migration 0013 gives an existing book the accounts it lacks, "
+                    "children under their heading",
+                    all(c in again for c in ("1370", "1371", "4500"))
+                    and again["1371"].parent_id == again["1370"].pk,
+                    str(sorted(c for c in ("1370", "1371", "4500") if c in again)))
+        self.expect("migration 0013 leaves an existing account's name alone",
+                    again["4000"].name == "Revenue (renamed by the bookkeeper)",
+                    again["4000"].name)
+        before = Account.objects.filter(company=self.company).count()
+        migration.add_accounts(django_apps, _Editor())
+        self.expect("run twice, migration 0013 adds nothing more",
+                    Account.objects.filter(company=self.company).count() == before)
+
+        # ---- each bank its own ledger account, 1201 onward under 1200
+        details = {
+            "bank_name": "KCB", "account_type": "CURRENT", "currency": "KES",
+            "branch": "Moi Avenue", "opening_balance": "0.00", "gl_account": "",
+        }
+        for n in (1, 2):
+            self.post(client, f"bank account {n} with no ledger account chosen",
+                      reverse("banking:account_create"),
+                      dict(details, name=f"KCB Ops {n} {self.stamp}",
+                           account_number=f"11{n}{self.stamp}"))
+        made = [BankAccount.objects.filter(company=self.company,
+                                           name=f"KCB Ops {n} {self.stamp}").first()
+                for n in (1, 2)]
+        codes = [b.gl_account.code if b else None for b in made]
+        self.expect("each new bank account gets its own ledger account, 1201 then 1202",
+                    codes == ["1201", "1202"], str(codes))
+        self.expect("the bank's ledger account is a Bank account under 1200, named for it",
+                    all(b and b.gl_account.account_type == "BANK"
+                        and b.gl_account.parent and b.gl_account.parent.code == "1200"
+                        and "KCB Ops" in b.gl_account.name for b in made),
+                    str([(b.gl_account.code, b.gl_account.name) for b in made if b]))
+
+        # ---- the journal list shows both sides; the ledger the other side
+        response = client.get(reverse("accounting:journal_entry_list") + "?status=POSTED")
+        entries = list(response.context["entries"]) if response.context else []
+        sided = [e for e in entries if e.debit_accounts and e.credit_accounts]
+        self.expect("the journal list names the debit and the credit accounts of each entry",
+                    bool(entries) and len(sided) == len(entries),
+                    f"{len(sided)} of {len(entries)}")
+        self.expect("every posted entry on the list nets to zero (debit minus credit)",
+                    bool(entries) and all(e.difference == Z and e.debit_sum == e.credit_sum > Z
+                                          for e in entries))
+        page = response.content.decode()
+        self.expect("the list's columns read Debit account and Credit account",
+                    "Debit account" in page and "Credit account" in page)
+
+        sales = self.account("4100")
+        response = client.get(reverse("accounting:account_ledger", args=[sales.pk]))
+        rows = response.context["rows"] if response.context else []
+        self.expect("the ledger names the other side of every line it lists",
+                    bool(rows) and all(r["contra"] and all(a.pk != sales.pk for a in r["contra"])
+                                       for r in rows),
+                    str([(r["reference"], [a.code for a in r["contra"]]) for r in rows][:4]))
+        receivable_side = [r for r in rows if r["credit"]
+                           and any(a.code == "1300" for a in r["contra"])]
+        self.expect("a credit to sales shows the receivable it was debited to",
+                    bool(receivable_side))
 
 
     # ──────────────────────────── period close ───────────────────────────────

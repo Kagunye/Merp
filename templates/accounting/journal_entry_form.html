@@ -48,6 +48,35 @@
       </div>
     </div>
 
+    <div class="card-body border-t border-line" id="quick-entry">
+      <p class="form-section">Debit one account, credit another</p>
+      <p class="form-help mb-3">Double entry: the account debited and the account credited, for the same amount, so the entry nets to zero. Fill these three and Mofisi writes the two lines below. Use the lines directly for an entry that touches more than two accounts.</p>
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_10rem_auto] md:items-end">
+        <div class="form-field">
+          <label class="form-label" for="quick-debit">Debit account</label>
+          <select id="quick-debit" class="select">
+            <option value="">— Select account</option>
+            {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.code }} — {{ acc.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="quick-credit">Credit account</label>
+          <select id="quick-credit" class="select">
+            <option value="">— Select account</option>
+            {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.code }} — {{ acc.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="quick-amount">Amount</label>
+          <input type="number" id="quick-amount" step="0.01" min="0" class="input text-right tabular-nums" placeholder="0.00">
+        </div>
+        <div class="form-field">
+          <button type="button" class="btn btn-secondary" onclick="fillQuickEntry()">Fill the lines</button>
+        </div>
+      </div>
+      <p id="quick-error" class="form-error" role="alert" hidden></p>
+    </div>
+
     <div class="card-body border-t border-line">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p class="form-section mb-0">Journal Lines</p>
@@ -179,6 +208,49 @@ function addLine() {
   newRow.classList.remove('hidden');
   tbody.appendChild(newRow);
   totalForms.value = idx + 1;
+}
+
+function visibleRows() {
+  return Array.from(document.querySelectorAll('#lines-tbody .line-row:not(.hidden)'));
+}
+
+function rowHasValues(row) {
+  const acc = row.querySelector('select').value;
+  const dr = parseFloat(row.querySelector('.line-debit').value) || 0;
+  const cr = parseFloat(row.querySelector('.line-credit').value) || 0;
+  return acc !== '' || dr !== 0 || cr !== 0;
+}
+
+function fillQuickEntry() {
+  const debit = document.getElementById('quick-debit').value;
+  const credit = document.getElementById('quick-credit').value;
+  const amount = parseFloat(document.getElementById('quick-amount').value) || 0;
+  const err = document.getElementById('quick-error');
+  let problem = '';
+  if (!debit || !credit) problem = 'Choose both the account to debit and the account to credit.';
+  else if (debit === credit) problem = 'The debit and credit accounts must be different: the same account on both sides moves nothing.';
+  else if (amount <= 0) problem = 'Enter an amount above zero.';
+  err.textContent = problem;
+  err.hidden = !problem;
+  if (problem) return;
+
+  let rows = visibleRows();
+  // The two lines go in the first two rows; any further row with something
+  // in it would unbalance the entry, so it is removed, after asking.
+  const extra = rows.slice(2).filter(rowHasValues);
+  if (extra.length && !confirm('This replaces the lines already entered with the two lines for this entry. Carry on?')) return;
+  rows.slice(2).forEach(row => deleteLine(row.querySelector('button') || row));
+  while (visibleRows().length < 2) addLine();
+  rows = visibleRows();
+  const narration = document.getElementById('{{ form.notes.id_for_label }}').value;
+  [[rows[0], debit, amount, 0], [rows[1], credit, 0, amount]].forEach(([row, acc, dr, cr]) => {
+    row.querySelector('select').value = acc;
+    row.querySelector('.line-debit').value = dr.toFixed(2);
+    row.querySelector('.line-credit').value = cr.toFixed(2);
+    const desc = row.querySelector('input[type="text"]');
+    if (desc && !desc.value) desc.value = narration;
+  });
+  updateTotals();
 }
 
 updateTotals();

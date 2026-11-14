@@ -10,9 +10,21 @@ CHART_OF_ACCOUNTS = [
     ("1000", "Current Assets", "ASSET", None),
     ("1100", "Cash on Hand", "CASH", "1000"),
     ("1110", "Petty Cash", "CASH", "1100"),
-    ("1200", "Bank", "BANK", "1000"),
+    # 1200 is the main bank account, the one the till, payroll and asset
+    # purchases fall back to. Every further bank account gets its own ledger
+    # account under it, 1201 to 1299 (see next_bank_ledger_code).
+    ("1200", "Bank Accounts", "BANK", "1000"),
     ("1300", "Accounts Receivable", "RECEIVABLE", "1000"),
     ("1350", "FX Revaluation — Receivables", "ASSET", "1000"),
+    # Tax a customer withheld from what it paid us: ours to claim back from
+    # KRA, against VAT payable (withholding VAT) or income tax (WHT), on the
+    # certificate the customer files. One account per rate, as iTax reports
+    # them.
+    ("1360", "Withholding VAT Receivable 2%", "ASSET", "1000"),
+    ("1370", "Withholding Tax Recoverable", "ASSET", "1000"),
+    ("1371", "WHT Recoverable 3% - Contractual Fees", "ASSET", "1370"),
+    ("1372", "WHT Recoverable 5% - Professional & Management Fees", "ASSET", "1370"),
+    ("1373", "WHT Recoverable 7.5% - Rent", "ASSET", "1370"),
     ("1400", "Inventory", "ASSET", "1000"),
     ("1450", "Work In Progress", "ASSET", "1000"),
     ("1500", "Prepaid Expenses", "ASSET", "1000"),
@@ -28,6 +40,13 @@ CHART_OF_ACCOUNTS = [
     ("2150", "FX Revaluation — Payables", "LIABILITY", "2000"),
     ("2200", "VAT Payable", "TAX", "2000"),
     ("2210", "VAT Input", "TAX", "2000"),
+    # Tax we withheld from a supplier's payment: owed to KRA by the 20th of
+    # the following month, whatever the supplier is owed.
+    ("2220", "Withholding VAT Payable 2%", "LIABILITY", "2000"),
+    ("2230", "Withholding Tax Payable", "LIABILITY", "2000"),
+    ("2231", "WHT Payable 3% - Contractual Fees", "LIABILITY", "2230"),
+    ("2232", "WHT Payable 5% - Professional & Management Fees", "LIABILITY", "2230"),
+    ("2233", "WHT Payable 7.5% - Rent", "LIABILITY", "2230"),
     ("2300", "PAYE Payable", "LIABILITY", "2000"),
     ("2400", "NSSF Payable", "LIABILITY", "2000"),
     ("2500", "SHIF/NHIF Payable", "LIABILITY", "2000"),
@@ -42,14 +61,18 @@ CHART_OF_ACCOUNTS = [
     ("3200", "Retained Earnings", "EQUITY", "3000"),
     ("3300", "Current Year Profit/Loss", "EQUITY", "3000"),
     # Revenue
-    ("4000", "Revenue", "REVENUE", None),
+    # 4000 is the heading over every income account, not a place to post: the
+    # sales of goods go to 4100. It was called "Revenue", which read as a twin
+    # of 4100 Sales Revenue.
+    ("4000", "Income", "REVENUE", None),
     ("4100", "Sales Revenue", "REVENUE", "4000"),
     ("4200", "Service Revenue", "REVENUE", "4000"),
     ("4300", "Other Income", "REVENUE", "4000"),
-    ("4310", "Exchange Gain", "REVENUE", "4300"),
+    ("4310", "Realised Exchange Gain", "REVENUE", "4300"),
     ("4320", "Unrealised Exchange Gain", "REVENUE", "4300"),
     ("4350", "Gain on Disposal of Assets", "REVENUE", "4300"),
     ("4400", "Interest Income", "REVENUE", "4000"),
+    ("4500", "Commission Income", "REVENUE", "4000"),
     # Cost of goods sold
     ("5000", "Cost of Goods Sold", "COST_OF_GOODS", None),
     ("5100", "Direct Materials", "COST_OF_GOODS", "5000"),
@@ -65,15 +88,22 @@ CHART_OF_ACCOUNTS = [
     ("6300", "Utilities", "EXPENSE", "6000"),
     ("6400", "Transport & Travel", "EXPENSE", "6000"),
     ("6500", "Marketing & Advertising", "EXPENSE", "6000"),
+    ("6550", "Commissions Paid", "EXPENSE", "6000"),
     ("6600", "Office Supplies", "EXPENSE", "6000"),
     ("6700", "Repairs & Maintenance", "EXPENSE", "6000"),
     ("6800", "Professional Fees", "EXPENSE", "6000"),
     ("6900", "Depreciation", "EXPENSE", "6000"),
     ("6950", "Loss on Disposal of Assets", "EXPENSE", "6000"),
+    # Finance costs are what borrowing costs: interest on loans, overdrafts
+    # and leases, and the fees for arranging them. Bank charges and exchange
+    # losses sit here too, as most Kenyan books keep them. Tax penalties do
+    # not belong here: they are a separate, non-deductible expense.
     ("7000", "Finance Costs", "EXPENSE", None),
     ("7100", "Bank Charges", "EXPENSE", "7000"),
-    ("7200", "Interest Expense", "EXPENSE", "7000"),
-    ("7300", "Exchange Loss", "EXPENSE", "7000"),
+    ("7200", "Interest on Loans & Overdrafts", "EXPENSE", "7000"),
+    ("7210", "Interest on Lease Liabilities", "EXPENSE", "7000"),
+    ("7220", "Loan Arrangement Fees", "EXPENSE", "7000"),
+    ("7300", "Realised Exchange Loss", "EXPENSE", "7000"),
     ("7310", "Unrealised Exchange Loss", "EXPENSE", "7000"),
 ]
 
@@ -130,6 +160,40 @@ def _first_day_of_next_month(day):
     if day.month == 12:
         return datetime.date(day.year + 1, 1, 1)
     return datetime.date(day.year, day.month + 1, 1)
+
+
+BANK_PARENT_CODE = "1200"
+BANK_SUB_CODES = range(1201, 1300)
+
+
+def next_bank_ledger_code(company):
+    """The first free code from 1201 to 1299 for a bank's own ledger account.
+
+    Each bank account has a ledger account of its own, kept under 1200 so the
+    chart lists every bank together. Returns None once all 99 are taken.
+    """
+    from apps.accounting.models import Account
+
+    taken = set(Account.objects.filter(
+        company=company, code__in=[str(c) for c in BANK_SUB_CODES],
+    ).values_list("code", flat=True))
+    return next((str(c) for c in BANK_SUB_CODES if str(c) not in taken), None)
+
+
+def create_bank_ledger_account(company, name):
+    """Open the next 1201-1299 Bank account under 1200, named for the bank."""
+    from django.core.exceptions import ValidationError
+    from apps.accounting.models import Account
+
+    code = next_bank_ledger_code(company)
+    if code is None:
+        raise ValidationError(
+            "All the bank ledger codes from 1201 to 1299 are in use. Add this bank's "
+            "ledger account to the chart of accounts by hand and choose it here.")
+    parent = Account.objects.filter(company=company, code=BANK_PARENT_CODE).first()
+    return Account.objects.create(
+        company=company, code=code, name=name[:200], account_type="BANK",
+        parent=parent, is_reconcilable=True)
 
 
 def create_chart_of_accounts(company):
