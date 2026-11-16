@@ -62,6 +62,9 @@ class AccountListView(LoginRequiredMixin, ListView):
         ctx["state"] = self.request.GET.get("state", "active")
         if company:
             all_accounts = Account.objects.filter(company=company)
+            from .models import describe_accounts
+            describe_accounts(ctx["accounts"], list(all_accounts.only(
+                "pk", "parent_id", "name", "code", "account_type")))
             ctx["active_count"] = all_accounts.filter(is_active=True).count()
             ctx["inactive_count"] = all_accounts.filter(is_active=False).count()
         return ctx

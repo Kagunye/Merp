@@ -650,6 +650,34 @@ class Command(BaseCommand):
                     back == {"1200": "Bank", "7300": "Exchange Loss"}, str(back))
         renames.rename(django_apps, _Editor())
 
+        # ---- the chart reads like a printed chart of accounts
+        response = client.get(reverse("accounting:account_list") + "?q=1")
+        listed = {a.code: a for a in (response.context["accounts"] if response.context else [])}
+        def row(code):
+            a = listed.get(code)
+            return (a.financial_statement, a.group, a.sub_group, a.normal_side) if a else None
+        self.expect("the chart lists petty cash as balance sheet, current assets, "
+                    "under cash on hand, normally debit",
+                    row("1110") == ("Balance sheet", "Current Assets", "Cash on Hand", "Debit"),
+                    str(row("1110")))
+        self.expect("withholding tax recoverable 3% sits under its own sub-group",
+                    row("1371") == ("Balance sheet", "Current Assets",
+                                    "Withholding Tax Recoverable", "Debit"), str(row("1371")))
+        self.expect("sales revenue reports on the income statement, normally credit",
+                    # 4000 carries the bookkeeper's own name by now (see 0013 above)
+                    row("4100") == ("Income statement", self.account("4000").name, "", "Credit"),
+                    str(row("4100")))
+        self.expect("a bank account's sub-group is cash and cash equivalents",
+                    row("1200") is not None and row("1200")[2] in (
+                        "Cash and cash equivalents", "Bank Accounts"), str(row("1200")))
+        self.expect("accumulated depreciation reads as a contra account, normally credit",
+                    row("1690") == ("Balance sheet", "Fixed Assets", "", "Credit")
+                    and listed["1690"].is_contra, str(row("1690")))
+        page = response.content.decode()
+        self.expect("the chart's columns are Financial Statement, Group, Sub-Group, Normally",
+                    all(h in page for h in ("Financial Statement", "<th>Group</th>",
+                                            "Sub-Group", "Normally")))
+
         # ---- each bank its own ledger account, 1201 onward under 1200
         details = {
             "bank_name": "KCB", "account_type": "CURRENT", "currency": "KES",

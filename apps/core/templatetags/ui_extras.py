@@ -140,8 +140,14 @@ def account_wash(obj):
 @register.simple_tag
 def account_row(obj):
     """One style attribute: pale wash across the row, edge stripe down the left."""
+    # The wash is near white, so in the dark theme (color-scheme: dark) it is
+    # swapped for a deep tint of the same hue: light text on a near-white row
+    # could not be read. The plain value first is for browsers without
+    # light-dark().
     p = _palette(obj)
-    return f"background:{p['wash']};box-shadow:inset 3px 0 0 {p['edge']}"
+    return (f"background:{p['wash']};"
+            f"background:light-dark({p['wash']}, hsl({p['hue']}, 28%, 15%));"
+            f"box-shadow:inset 3px 0 0 {p['edge']}")
 
 
 @register.simple_tag

@@ -31,6 +31,25 @@ NORMAL_BALANCE = {
     "PAYABLE": "CREDIT", "TAX": "CREDIT",
 }
 
+# How the chart of accounts reads each account, the way a printed chart lists
+# it: which statement it reports on, its group (the top heading it sits under)
+# and sub-group (the heading below that), and the side its balance normally
+# sits on. See describe_accounts.
+SUB_GROUP_BY_TYPE = {
+    "CASH": "Cash and cash equivalents",
+    "BANK": "Cash and cash equivalents",
+    "RECEIVABLE": "Trade receivables",
+    "PAYABLE": "Trade payables",
+    "TAX": "Taxes",
+}
+# Contra accounts: kept on an asset heading but carrying a credit balance that
+# reduces it (accumulated depreciation, an allowance for doubtful debts). The
+# ledger keeps them as assets, so their balance reads negative; the chart says
+# plainly that they normally sit on the credit side.
+CONTRA_CODES = frozenset({"1690"})
+CONTRA_NAME_PREFIXES = ("accumulated depreciation", "accumulated amortisation",
+                        "accumulated amortization", "allowance for", "provision for doubtful")
+
 # The accounts a period close empties: everything that belongs to the profit
 # or loss for the period rather than to the ongoing balance sheet.
 INCOME_STATEMENT_TYPES = ("REVENUE", "COST_OF_GOODS", "EXPENSE")
@@ -325,6 +344,42 @@ class Account(BaseModel):
     @property
     def normal_balance(self):
         return NORMAL_BALANCE.get(self.account_type, "DEBIT")
+
+
+def describe_accounts(accounts, chart):
+    """Give each account the columns a printed chart of accounts carries.
+
+    `chart` is every account of the company (so a listed account's headings are
+    found even when a filter left them off the page). Sets on each account:
+    financial_statement, group, sub_group, normal_side and is_contra.
+    """
+    by_pk = {a.pk: a for a in chart}
+    with_children = {a.parent_id for a in chart if a.parent_id}
+    for account in accounts:
+        line = [account]
+        while line[-1].parent_id and line[-1].parent_id in by_pk and len(line) < 20:
+            line.append(by_pk[line[-1].parent_id])
+        root = line[-1]
+        account.financial_statement = (
+            "Income statement" if account.account_type in INCOME_STATEMENT_TYPES
+            else "Balance sheet")
+        account.group = root.name
+        if len(line) >= 3:
+            account.sub_group = line[-2].name           # the heading under the group
+        elif len(line) == 2 and account.pk in with_children:
+            account.sub_group = account.name            # itself a sub-group heading
+        elif len(line) == 2:
+            account.sub_group = SUB_GROUP_BY_TYPE.get(account.account_type, "")
+        else:
+            account.sub_group = ""                      # a group heading itself
+        name = account.name.lower()
+        account.is_contra = account.normal_balance == "DEBIT" and (
+            account.code in CONTRA_CODES or name.startswith(CONTRA_NAME_PREFIXES))
+        side = account.normal_balance
+        if account.is_contra:
+            side = "CREDIT"
+        account.normal_side = side.title()
+    return accounts
 
 
 class TaxRate(BaseModel):

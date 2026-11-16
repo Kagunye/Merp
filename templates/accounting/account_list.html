@@ -20,22 +20,22 @@
 <div class="table-wrap">
   <table class="table">
     <thead>
-      <tr><th>Code</th><th>Account Name</th><th>Type</th><th>Parent</th><th class="num">Balance</th><th><span class="sr-only">Actions</span></th></tr>
+      <tr><th>Account Name</th><th>Code</th><th>Financial Statement</th><th>Group</th><th>Sub-Group</th><th title="The side the balance normally sits on">Normally</th><th class="num">Balance</th><th><span class="sr-only">Actions</span></th></tr>
     </thead>
     <tbody>
       {% for account in accounts %}
       <tr style="{% account_row account %}">
-        <td><span class="mono rounded px-2 py-0.5 text-xs font-semibold" style="{% account_chip account %}">{{ account.code }}</span></td>
         <td>
           {% account_dot account as dot %}<span class="mr-2 inline-block h-2 w-2 rounded-full align-middle" style="{{ dot }}"></span>{% if account.parent %}<span class="mr-1 text-ink-muted" aria-hidden="true">└</span>{% endif %}
           <a href="{% url 'accounting:account_ledger' account.pk %}" class="row-link">{{ account.name }}</a>
           {% if not account.is_active %}<span class="badge badge-neutral ml-1">Retired</span>{% endif %}
           {% if account.is_reconcilable %}<span class="badge ml-1" title="Tied out against a statement or subledger">{% include "_includes/icon.html" with name="refresh" cls="h-3 w-3" only %}reconcilable</span>{% endif %}
         </td>
-        <td>
-          <span class="badge {% if account.account_type in 'ASSET,CASH,BANK,RECEIVABLE' %}badge-info{% elif account.account_type in 'LIABILITY,PAYABLE' %}badge-warning{% elif account.account_type == 'EQUITY' %}badge-brand{% elif account.account_type == 'REVENUE' %}badge-success{% else %}badge-danger{% endif %}">{{ account.get_account_type_display }}</span>
-        </td>
-        <td class="text-xs text-ink-muted">{{ account.parent.name|default:"—" }}</td>
+        <td><span class="mono rounded px-2 py-0.5 text-xs font-semibold" style="{% account_chip account %}">{{ account.code }}</span></td>
+        <td class="whitespace-nowrap text-xs text-ink-2">{{ account.financial_statement }}</td>
+        <td class="text-xs">{{ account.group }}</td>
+        <td class="text-xs text-ink-2">{{ account.sub_group|default:"—" }}</td>
+        <td class="text-xs"><span class="badge {% if account.normal_side == 'Debit' %}badge-info{% else %}badge-warning{% endif %}" title="{{ account.get_account_type_display }} account{% if account.is_contra %}: a contra account, whose credit balance reduces the heading it sits under{% endif %}">{{ account.normal_side }}{% if account.is_contra %} (contra){% endif %}</span></td>
         <td class="num font-semibold">{{ account.current_balance|money }}</td>
         <td class="actions">
           <a href="{% url 'accounting:account_ledger' account.pk %}" class="btn btn-ghost btn-sm">Ledger</a>
@@ -57,7 +57,7 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No accounts found" text="Try another search, or add the account you need." action_label="Add your first account" action_url=new_url compact=True only %}</td></tr>
+      <tr><td colspan="8" class="p-0">{% include "_includes/empty_state.html" with icon="clipboard" title="No accounts found" text="Try another search, or add the account you need." action_label="Add your first account" action_url=new_url compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
