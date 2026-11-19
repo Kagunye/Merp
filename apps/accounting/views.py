@@ -65,6 +65,19 @@ class AccountListView(LoginRequiredMixin, ListView):
             from .models import describe_accounts
             describe_accounts(ctx["accounts"], list(all_accounts.only(
                 "pk", "parent_id", "name", "code", "account_type")))
+            # The currency the money behind each account is held in. The ledger
+            # carries every balance in the book currency; a bank account in
+            # dollars is the one place a foreign currency stands behind an
+            # account, so that is where the column reads it from.
+            from apps.banking.models import BankAccount
+            book = book_currency(company)
+            held_in = dict(BankAccount.objects.filter(company=company, is_active=True)
+                           .values_list("gl_account_id", "currency"))
+            for account in ctx["accounts"]:
+                code = (held_in.get(account.pk) or account.currency or book).upper()
+                account.currency_code = code
+                account.is_foreign = code != book
+            ctx["book_currency"] = book
             ctx["active_count"] = all_accounts.filter(is_active=True).count()
             ctx["inactive_count"] = all_accounts.filter(is_active=False).count()
         return ctx

@@ -700,6 +700,26 @@ class Command(BaseCommand):
                         and "KCB Ops" in b.gl_account.name for b in made),
                     str([(b.gl_account.code, b.gl_account.name) for b in made if b]))
 
+        # ---- the chart says which accounts hold foreign money
+        self.post(client, "dollar bank account with no ledger account chosen",
+                  reverse("banking:account_create"),
+                  dict(details, name=f"KCB USD {self.stamp}", currency="USD",
+                       account_number=f"119{self.stamp}"))
+        usd = BankAccount.objects.filter(company=self.company,
+                                         name=f"KCB USD {self.stamp}").first()
+        response = client.get(reverse("accounting:account_list") + "?q=1")
+        listed = {a.code: a for a in (response.context["accounts"] if response.context else [])}
+        usd_code = usd.gl_account.code if usd else None
+        self.expect("the chart shows a dollar bank's ledger account in USD, foreign",
+                    usd_code in listed and listed[usd_code].currency_code == "USD"
+                    and listed[usd_code].is_foreign,
+                    str(usd_code and listed.get(usd_code) and listed[usd_code].currency_code))
+        self.expect("every other account reads the book currency",
+                    listed.get("1100") is not None and listed["1100"].currency_code == "KES"
+                    and not listed["1100"].is_foreign)
+        self.expect("the chart has a Currency column",
+                    "<th title=\"The currency" in response.content.decode())
+
         # ---- the journal list shows both sides; the ledger the other side
         response = client.get(reverse("accounting:journal_entry_list") + "?status=POSTED")
         entries = list(response.context["entries"]) if response.context else []
