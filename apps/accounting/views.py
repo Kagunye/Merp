@@ -37,7 +37,7 @@ class AccountListView(LoginRequiredMixin, ListView):
         company = self.request.active_company
         if not company:
             return Account.objects.none()
-        qs = Account.objects.filter(company=company).select_related("parent")
+        qs = Account.objects.filter(company=company).select_related("parent", "company")
         state = self.request.GET.get("state", "active")
         if state == "inactive":
             qs = qs.filter(is_active=False)
@@ -73,10 +73,18 @@ class AccountListView(LoginRequiredMixin, ListView):
             book = book_currency(company)
             held_in = dict(BankAccount.objects.filter(company=company, is_active=True)
                            .values_list("gl_account_id", "currency"))
+            from .models import foreign_balances
+            foreign = []
             for account in ctx["accounts"]:
-                code = (held_in.get(account.pk) or account.currency or book).upper()
-                account.currency_code = code
-                account.is_foreign = code != book
+                account._held_in_bank = (held_in.get(account.pk) or "").upper()
+                account.currency_code = account.held_in
+                if account.currency_code != book:
+                    foreign.append(account)
+            # A foreign account's balance in its own money, beside the
+            # book-currency figure the ledger keeps.
+            sums = foreign_balances(foreign)
+            for account in foreign:
+                account.foreign_balance, account.unconverted = sums[account.pk]
             ctx["book_currency"] = book
             ctx["active_count"] = all_accounts.filter(is_active=True).count()
             ctx["inactive_count"] = all_accounts.filter(is_active=False).count()
@@ -95,9 +103,24 @@ class AccountCreateView(LoginRequiredMixin, CompanyRequiredMixin, CreateView):
         return kwargs
 
     def form_valid(self, form):
+        """Create the account and book its opening balance, both or neither."""
         form.instance.company = self.request.active_company
-        messages.success(self.request, f"Account '{form.instance.name}' created.")
-        return super().form_valid(form)
+        amount = form.cleaned_data.get("opening_balance")
+        try:
+            with transaction.atomic():
+                self.object = form.save()
+                entry = gl_service.post_account_opening(
+                    self.object, amount, form.cleaned_data.get("opening_date"),
+                    user=self.request.user)
+        except ValidationError as e:
+            form.add_error(None, e.messages[0])
+            return self.form_invalid(form)
+        note = f"Account '{self.object.name}' created."
+        if entry is not None:
+            note += (f" Its opening balance of {self.object.held_in} {amount} is posted in "
+                     f"{entry.reference}.")
+        messages.success(self.request, note)
+        return redirect(self.get_success_url())
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -551,11 +574,29 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
 
         lines = list(lines)
         contra = _sides_by_entry({ln.journal_entry_id for ln in lines})
+        # A foreign account also runs its balance in its own money, read from
+        # the entries raised in that currency (see models.foreign_balances).
+        from datetime import timedelta
+        from .models import foreign_balances, line_foreign_amount
+        currency = account.held_in
+        foreign = account.is_foreign
+        foreign_running = Decimal("0")
+        if foreign and start:
+            foreign_running = foreign_balances(
+                [account], as_of=start - timedelta(days=1))[account.pk][0]
+        ctx["foreign"] = foreign
+        ctx["currency"] = currency
+        ctx["foreign_opening"] = foreign_running
         running = opening
         rows = []
         for ln in lines:
             running += (ln.debit_amount - ln.credit_amount) * sign
+            moved = line_foreign_amount(ln, currency) if foreign else None
+            if moved is not None:
+                foreign_running += moved * sign
             rows.append({
+                "foreign": moved,
+                "foreign_balance": foreign_running,
                 "date": ln.journal_entry.posting_date,
                 "reference": ln.journal_entry.reference,
                 "description": ln.description or ln.journal_entry.notes,
@@ -585,6 +626,7 @@ class AccountLedgerView(LoginRequiredMixin, TemplateView):
         ctx["as_at"] = end
         ctx["opening_balance"] = opening
         ctx["closing_balance"] = running
+        ctx["foreign_closing"] = foreign_running
         ctx["total_debit"] = sum(r["debit"] for r in rows)
         ctx["total_credit"] = sum(r["credit"] for r in rows)
         ctx["from_date"] = start

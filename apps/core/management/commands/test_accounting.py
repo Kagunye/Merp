@@ -720,6 +720,95 @@ class Command(BaseCommand):
         self.expect("the chart has a Currency column",
                     "<th title=\"The currency" in response.content.decode())
 
+        # ---- opening balances on a new account, local and foreign
+        from apps.accounting.models import ExchangeRate, JournalEntry as JE
+        equity = self.account("3100")
+        def acct_form(**over):
+            data = {"code": "", "name": "", "account_type": "ASSET", "parent": "",
+                    "description": "", "currency": "", "opening_balance": "",
+                    "opening_date": str(self.today)}
+            data.update(over)
+            return data
+        eq_before = equity.current_balance
+        self.post(client, "asset account with a local opening balance",
+                  reverse("accounting:account_create"),
+                  acct_form(code="1520", name=f"Staff Advances {self.stamp}",
+                            opening_balance="12000.00"))
+        advances = Account.objects.filter(company=self.company, code="1520").first()
+        self.expect("a new asset opens at its opening balance, debit",
+                    advances is not None and advances.current_balance == D("12000.00"),
+                    str(advances and advances.current_balance))
+        self.post(client, "liability account with a local opening balance",
+                  reverse("accounting:account_create"),
+                  acct_form(code="2820", name=f"Director Loan {self.stamp}",
+                            account_type="LIABILITY", opening_balance="50000.00"))
+        loan = Account.objects.filter(company=self.company, code="2820").first()
+        self.expect("a new liability opens at its opening balance, credit",
+                    loan is not None and loan.current_balance == D("50000.00"),
+                    str(loan and loan.current_balance))
+        # The asset's opening credits equity (+12,000), the liability's debits
+        # it (-50,000).
+        self.expect("both openings are posted against opening equity 3100",
+                    equity.current_balance - eq_before == D("-38000.00"),
+                    str(equity.current_balance - eq_before))
+        opening = JE.objects.filter(company=self.company, entry_type="OPENING",
+                                    lines__account=advances).first()
+        self.expect("the opening is a posted OPENING entry that balances",
+                    opening is not None and opening.status == "POSTED"
+                    and opening.is_balanced())
+        self.reject(client, "an opening balance on an expense account",
+                    reverse("accounting:account_create"),
+                    acct_form(code="6560", name=f"Odd Expense {self.stamp}",
+                              account_type="EXPENSE", opening_balance="10.00"))
+        self.expect("the refused expense account saved nothing",
+                    not Account.objects.filter(company=self.company, code="6560").exists())
+
+        from django.core.exceptions import ValidationError
+        from apps.accounting.models import Currency
+        try:
+            rate = ExchangeRate.rate_for(self.company, "USD", self.today)
+        except ValidationError:
+            ExchangeRate.objects.create(
+                company=self.company, currency=Currency.objects.get(code="USD"),
+                effective_date=self.today, rate=D("130"))
+            rate = D("130")
+        self.post(client, "dollar cash account with a foreign opening balance",
+                  reverse("accounting:account_create"),
+                  acct_form(code="1120", name=f"Dollar Float {self.stamp}",
+                            account_type="CASH", parent=self.account("1100").pk,
+                            currency="USD", opening_balance="1000.00"))
+        float_ = Account.objects.filter(company=self.company, code="1120").first()
+        self.expect("a dollar account opens at USD 1,000 valued at the day's rate",
+                    float_ is not None and float_.currency == "USD"
+                    and float_.current_balance == (D("1000.00") * rate).quantize(D("0.01")),
+                    f"{float_ and float_.current_balance} at {rate}")
+        response = client.get(reverse("accounting:account_list") + "?q=1120")
+        row_ = next((a for a in (response.context["accounts"] if response.context else [])
+                     if a.code == "1120"), None)
+        self.expect("the chart shows the dollar account's balance in USD beside the shillings",
+                    row_ is not None and row_.foreign_balance == D("1000.00")
+                    and not row_.unconverted
+                    and "USD 1,000.00" in response.content.decode(),
+                    str(row_ and row_.foreign_balance))
+        response = client.get(reverse("accounting:account_ledger", args=[float_.pk]))
+        ctx = response.context
+        self.expect("the dollar account's ledger runs a USD balance",
+                    ctx is not None and ctx["foreign"] and ctx["foreign_closing"] == D("1000.00")
+                    and ctx["rows"] and ctx["rows"][0]["foreign"] == D("1000.00"),
+                    str(ctx and ctx.get("foreign_closing")))
+        self.reject(client, "a receivable held in dollars",
+                    reverse("accounting:account_create"),
+                    acct_form(code="1310", name=f"USD Debtors {self.stamp}",
+                              account_type="RECEIVABLE", currency="USD"))
+        self.reject(client, "changing the currency of an account with entries",
+                    reverse("accounting:account_edit", args=[float_.pk]),
+                    acct_form(code="1120", name=float_.name, account_type="CASH",
+                              parent=self.account("1100").pk, currency="EUR"))
+        float_.refresh_from_db()
+        self.expect("the dollar account keeps its currency", float_.currency == "USD")
+        self.expect("a dollar bank's own ledger account is held in USD",
+                    usd is not None and usd.gl_account.currency == "USD")
+
         # ---- the journal list shows both sides; the ledger the other side
         response = client.get(reverse("accounting:journal_entry_list") + "?status=POSTED")
         entries = list(response.context["entries"]) if response.context else []
@@ -1017,7 +1106,9 @@ class Command(BaseCommand):
             "code": "9911", "name": "Dollar cash", "account_type": "ASSET",
             "classification": "CURRENT_ASSET", "currency": "USD",
         })
-        self.expect("account in a foreign currency is rejected", not off.is_valid(),
+        # CHANGED (chart corrections): a bank or cash account may now be held in
+        # a foreign currency; any other account, like this plain asset, may not.
+        self.expect("a non-money account in a foreign currency is rejected", not off.is_valid(),
                     str(dict(off.errors)))
         on = AccountForm(company=self.company, data={
             "code": "9912", "name": "Shilling cash", "account_type": "ASSET",

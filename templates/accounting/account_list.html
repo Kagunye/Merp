@@ -36,8 +36,8 @@
         <td class="text-xs">{{ account.group }}</td>
         <td class="text-xs text-ink-2">{{ account.sub_group|default:"—" }}</td>
         <td class="text-xs"><span class="badge {% if account.normal_side == 'Debit' %}badge-info{% else %}badge-warning{% endif %}" title="{{ account.get_account_type_display }} account{% if account.is_contra %}: a contra account, whose credit balance reduces the heading it sits under{% endif %}">{{ account.normal_side }}{% if account.is_contra %} (contra){% endif %}</span></td>
-        <td class="mono text-xs">{% if account.is_foreign %}<span class="badge badge-brand" title="Held in {{ account.currency_code }}; the balance shown is its {{ book_currency }} value">{{ account.currency_code }}</span>{% else %}<span class="text-ink-muted">{{ account.currency_code }}</span>{% endif %}</td>
-        <td class="num font-semibold">{{ account.current_balance|money }}</td>
+        <td class="mono text-xs">{% if account.currency_code != book_currency %}<span class="badge badge-brand" title="Held in {{ account.currency_code }}; the balance shown is its {{ book_currency }} value">{{ account.currency_code }}</span>{% else %}<span class="text-ink-muted">{{ account.currency_code }}</span>{% endif %}</td>
+        <td class="num font-semibold">{{ account.current_balance|money }}{% if account.is_foreign %}<div class="text-xs font-normal text-ink-2" title="The balance in {{ account.currency_code }}, from the entries posted in {{ account.currency_code }}">{{ account.currency_code }} {{ account.foreign_balance|money }}</div>{% if account.unconverted %}<div class="text-xs font-normal text-warning" title="Posted to this account in entries raised in another currency, so with no {{ account.currency_code }} amount">+ {{ book_currency }} {{ account.unconverted|money }} not in {{ account.currency_code }}</div>{% endif %}{% endif %}</td>
         <td class="actions">
           <a href="{% url 'accounting:account_ledger' account.pk %}" class="btn btn-ghost btn-sm">Ledger</a>
           {% if may_edit %}<a href="{% url 'accounting:account_edit' account.pk %}" class="btn btn-ghost btn-sm">Edit</a>{% endif %}

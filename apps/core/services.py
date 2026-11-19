@@ -180,8 +180,9 @@ def next_bank_ledger_code(company):
     return next((str(c) for c in BANK_SUB_CODES if str(c) not in taken), None)
 
 
-def create_bank_ledger_account(company, name):
-    """Open the next 1201-1299 Bank account under 1200, named for the bank."""
+def create_bank_ledger_account(company, name, currency=""):
+    """Open the next 1201-1299 Bank account under 1200, named for the bank,
+    held in the bank's currency when that is not the book's."""
     from django.core.exceptions import ValidationError
     from apps.accounting.models import Account
 
@@ -193,7 +194,9 @@ def create_bank_ledger_account(company, name):
     parent = Account.objects.filter(company=company, code=BANK_PARENT_CODE).first()
     return Account.objects.create(
         company=company, code=code, name=name[:200], account_type="BANK",
-        parent=parent, is_reconcilable=True)
+        parent=parent, is_reconcilable=True,
+        currency="" if (currency or "").upper() in ("", (company.currency or "KES").upper())
+        else currency.upper())
 
 
 def create_chart_of_accounts(company):

@@ -31,8 +31,19 @@ class AccountForm(forms.ModelForm):
         fields = ["code", "name", "account_type", "parent", "description", "is_reconcilable", "currency"]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 3}),
-            "currency": forms.TextInput(attrs={"placeholder": "KES"}),
         }
+
+    # Only a new account takes an opening balance here: once it exists, what
+    # it holds is what the ledger says, and a change is a journal.
+    opening_balance = forms.DecimalField(
+        required=False, max_digits=15, decimal_places=2, label="Opening balance",
+        help_text="What the account held on the opening date, on its normal side (a debit "
+                  "for assets, a credit for liabilities and equity). In the account's own "
+                  "currency. Posted against opening equity (3100). Leave blank for none.")
+    opening_date = forms.DateField(
+        required=False, label="Opening date", widget=date_input(),
+        help_text="The day the opening balance is struck. A foreign balance is valued at "
+                  "the rate filed for that day.")
 
     def __init__(self, *args, company=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -43,12 +54,32 @@ class AccountForm(forms.ModelForm):
                 parents = parents.exclude(pk=self.instance.pk)
             self.fields["parent"].queryset = parents
             self.fields["parent"].empty_label = "— No parent (top-level)"
+            from .currency import registered_currencies
             base = (company.currency or "KES").upper()
-            self.fields["currency"].help_text = (
-                f"Leave blank — the ledger holds this account in {base}. "
-                "Foreign documents are converted before they are posted."
-            )
-            self.fields["currency"].widget.attrs["placeholder"] = base
+            # The book currency is offered as its own code and stored blank
+            # (see clean_currency), so a form that sends "KES" is understood.
+            choices = [(base, f"{base} (book currency)")] + [
+                (c.code, f"{c.code} — {c.name}")
+                for c in registered_currencies(company) if c.code != base]
+            saved = (self.instance.currency or "").upper()
+            if not saved:
+                self.initial.setdefault("currency", base)
+            if saved and saved not in dict(choices):
+                choices.append((saved, saved))
+            self.fields["currency"] = forms.ChoiceField(
+                choices=choices, required=False, label="Currency",
+                help_text=(f"A bank or cash account can be held in a foreign currency: its "
+                           f"balance is still kept in {base}, and the chart shows the foreign "
+                           "balance beside it. Every other account is kept in "
+                           f"{base}."))
+            if not self.instance._state.adding:
+                del self.fields["opening_balance"]
+                del self.fields["opening_date"]
+            else:
+                self.fields["opening_date"].initial = datetime.date.today()
+            for name in ("currency", "opening_balance", "opening_date"):
+                if name in self.fields:
+                    style_field(self.fields[name])
         self.fields["is_reconcilable"].help_text = (
             "Tracked against a statement or subledger. Cash, bank, receivable, "
             "payable and tax accounts are always tracked."
@@ -90,15 +121,23 @@ class AccountForm(forms.ModelForm):
 
 
     def clean_currency(self):
+        from .models import FOREIGN_CURRENCY_TYPES
         code = (self.cleaned_data.get("currency") or "").strip().upper()
         base = getattr(self, "company", None) and (self.company.currency or "KES").upper()
-        if code and base and code != base:
+        if code == base:
+            code = ""               # the book's own currency is the default, kept blank
+        kind = self.cleaned_data.get("account_type")
+        if code and kind not in FOREIGN_CURRENCY_TYPES:
             raise forms.ValidationError(
-                f"An account balance is kept in one currency only, and this book is "
-                f"kept in {base}. Foreign documents are converted to {base} before "
-                f"they reach the ledger, so leave this blank — a dollar bank account "
-                f"is still carried at its {base} value."
-            )
+                f"Only a bank or cash account can be held in {code}. A receivable or "
+                f"payable in {code} is tracked per invoice and bill, and revalued from "
+                f"Accounting → Exchange Revaluation; leave this account in {base}.")
+        before = (self.instance.currency or "").upper() if self.instance.pk else ""
+        if self.instance.pk and code != before and self.instance.has_postings:
+            raise forms.ValidationError(
+                f"{self.instance.code} already has entries in "
+                f"{before or base}. Changing its currency would relabel them without "
+                "converting a cent. Open a new account in the other currency instead.")
         return code
 
     def clean(self):
@@ -114,7 +153,35 @@ class AccountForm(forms.ModelForm):
                 node = node.parent
             if self.instance.pk in seen:
                 self.add_error("parent", "An account cannot be its own parent or child.")
+        self._clean_opening(cleaned)
         return cleaned
+
+    def _clean_opening(self, cleaned):
+        """An opening balance belongs to a balance-sheet account, and a foreign
+        one needs a rate filed for its day."""
+        from django.core.exceptions import ValidationError
+        from .models import INCOME_STATEMENT_TYPES, ExchangeRate
+        amount = cleaned.get("opening_balance")
+        if not amount or "opening_balance" not in self.fields:
+            return
+        kind = cleaned.get("account_type")
+        if kind in INCOME_STATEMENT_TYPES:
+            self.add_error(
+                "opening_balance",
+                "Income and expense accounts start every year at nothing; an opening "
+                "balance belongs to an asset, liability or equity account.")
+            return
+        on_date = cleaned.get("opening_date") or datetime.date.today()
+        cleaned["opening_date"] = on_date
+        if on_date > datetime.date.today():
+            self.add_error("opening_date", "An opening balance cannot be dated in the future.")
+            return
+        code = cleaned.get("currency")
+        if code and self.company:
+            try:
+                ExchangeRate.rate_for(self.company, code, on_date)
+            except ValidationError as exc:  # the ledger's own message: no rate filed
+                self.add_error("opening_date", exc.messages[0])
 
 
 class JournalEntryForm(forms.ModelForm):

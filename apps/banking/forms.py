@@ -108,7 +108,8 @@ class BankAccountForm(forms.ModelForm):
             name = self.cleaned_data.get("name") or "Bank"
             bank = self.cleaned_data.get("bank_name") or ""
             label = name if not bank or bank.lower() in name.lower() else f"{bank} - {name}"
-            self.instance.gl_account = create_bank_ledger_account(company, label)
+            self.instance.gl_account = create_bank_ledger_account(
+                company, label, self.cleaned_data.get("currency") or "")
         return super().save(commit=commit)
 
     def _clean_flag(self, field, label):
