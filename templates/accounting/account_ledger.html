@@ -41,31 +41,35 @@
 
 <div class="table-wrap">
   <table class="table">
-    <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+    <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th title="The account(s) on the other side of the entry">Other side</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th>{% if foreign %}<th class="num" title="The movement in {{ currency }}, for entries raised in {{ currency }}">{{ currency }}</th><th class="num">{{ currency }} balance</th>{% endif %}</tr></thead>
     <tbody>
       <tr style="{{ row_style }}">
-        <td colspan="5" class="text-xs italic text-ink-2">Opening balance{% if from_date %} brought forward to {{ from_date|date:'d M Y' }}{% endif %}</td>
+        <td colspan="6" class="text-xs italic text-ink-2">Opening balance{% if from_date %} brought forward to {{ from_date|date:'d M Y' }}{% endif %}</td>
         <td class="num font-semibold">{{ opening_balance|money }}</td>
+        {% if foreign %}<td></td><td class="num font-semibold">{{ foreign_opening|money }}</td>{% endif %}
       </tr>
       {% for r in rows %}
       <tr style="{{ row_style }}">
         <td class="whitespace-nowrap text-ink-2">{{ r.date|date:"d M Y" }}</td>
         <td class="mono"><a href="{% url 'accounting:journal_entry_detail' r.entry_pk %}" class="row-link">{{ r.reference }}</a></td>
         <td>{{ r.description|default:"—" }}</td>
+        <td class="max-w-[14rem] text-xs">{% for a in r.contra|slice:":2" %}<div class="truncate"><span class="mono">{{ a.code }}</span> {{ a.name }}</div>{% empty %}<span class="text-ink-muted">—</span>{% endfor %}{% if r.contra|length > 2 %}<div class="text-ink-muted">+{{ r.contra|length|add:"-2" }} more</div>{% endif %}</td>
         <td class="num">{{ r.debit|money }}</td>
         <td class="num">{{ r.credit|money }}</td>
         <td class="num font-semibold">{{ r.balance|money }}</td>
+        {% if foreign %}<td class="num">{% if r.foreign is None %}<span class="text-ink-muted" title="Raised in another currency: no {{ currency }} amount">—</span>{% else %}{{ r.foreign|money }}{% endif %}</td><td class="num font-semibold">{{ r.foreign_balance|money }}</td>{% endif %}
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No posted entries for this period." compact=True only %}</td></tr>
+      <tr><td colspan="7" class="p-0">{% include "_includes/empty_state.html" with icon="document" title="No posted entries for this period." compact=True only %}</td></tr>
       {% endfor %}
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="3">Closing balance · {{ line_count }} line(s)</td>
+        <td colspan="4">Closing balance · {{ line_count }} line(s)</td>
         <td class="num">{{ total_debit|money }}</td>
         <td class="num">{{ total_credit|money }}</td>
         <td class="num">{{ closing_balance|money }}</td>
+        {% if foreign %}<td></td><td class="num">{{ currency }} {{ foreign_closing|money }}</td>{% endif %}
       </tr>
     </tfoot>
   </table>

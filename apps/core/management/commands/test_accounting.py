@@ -128,7 +128,7 @@ Z = D("0")
 # The chart codes a trading company is expected to transact through.
 RECOMMENDED = [
     ("1100", "Cash on Hand"),
-    ("1200", "Bank"),
+    ("1200", "Bank Accounts"),
     ("1300", "Accounts Receivable"),
     ("1400", "Inventory"),
     ("2100", "Accounts Payable"),
@@ -546,6 +546,295 @@ class Command(BaseCommand):
                     abs(inventory - shelves) < D("0.01"),
                     f"GL {inventory} against shelves {shelves:.4f}")
 
+        self.section("24. Chart corrections: withholding, commissions, banks and both sides shown")
+        self.verify_chart_corrections(client)
+
+
+    # ─────────────────────────── chart corrections ───────────────────────────
+
+    def verify_chart_corrections(self, client):
+        """The accounts the bookkeeper asked for, and double entry seen whole.
+
+        A new company carries withholding VAT and WHT per rate on both sides,
+        commissions earned and paid, finance costs split by what borrowing
+        costs, and a 4000 heading that no longer reads as a twin of 4100. A
+        book founded before them is given the missing accounts by migration
+        0013 without a rename. Each new bank account can have its own ledger
+        account under 1200. The journal list names the accounts on both sides
+        and nets them to zero, and the ledger names the other side of each line.
+        """
+        import importlib
+        from django.apps import apps as django_apps
+        from apps.accounting.models import Account
+        from apps.banking.models import BankAccount
+
+        chart = {a.code: a for a in Account.objects.filter(company=self.company)}
+        wanted = {
+            "1360": ("ASSET", "1000"), "1370": ("ASSET", "1000"),
+            "1371": ("ASSET", "1370"), "1372": ("ASSET", "1370"), "1373": ("ASSET", "1370"),
+            "2220": ("LIABILITY", "2000"), "2230": ("LIABILITY", "2000"),
+            "2231": ("LIABILITY", "2230"), "2232": ("LIABILITY", "2230"),
+            "2233": ("LIABILITY", "2230"),
+            "4500": ("REVENUE", "4000"), "6550": ("EXPENSE", "6000"),
+            "7200": ("EXPENSE", "7000"), "7210": ("EXPENSE", "7000"),
+            "7220": ("EXPENSE", "7000"),
+        }
+        wrong = [code for code, (kind, parent) in wanted.items()
+                 if code not in chart or chart[code].account_type != kind
+                 or chart[code].parent is None or chart[code].parent.code != parent]
+        self.expect("a new company's chart has withholding per rate on both sides, "
+                    "commissions and finance costs, each under its heading",
+                    not wrong, ", ".join(wrong))
+        names = {code: chart[code].name for code in ("1200", "4000", "4310", "7300", "1360",
+                                                     "1371", "1372", "1373") if code in chart}
+        self.expect("4000 is the Income heading, 1200 Bank Accounts, and FX realised "
+                    "gain 4310 pairs with realised loss 7300",
+                    names.get("4000") == "Income" and names.get("1200") == "Bank Accounts"
+                    and names.get("4310") == "Realised Exchange Gain"
+                    and names.get("7300") == "Realised Exchange Loss", str(names))
+        self.expect("the withholding accounts name their rates (2%, 3%, 5%, 7.5%)",
+                    "2%" in names.get("1360", "") and "3%" in names.get("1371", "")
+                    and "5%" in names.get("1372", "") and "7.5%" in names.get("1373", ""),
+                    str(names))
+
+        # ---- an older book: migration 0013 adds what is missing, renames nothing
+        migration = importlib.import_module(
+            "apps.accounting.migrations.0013_withholding_commission_finance_accounts")
+        chart["4000"].name = "Revenue (renamed by the bookkeeper)"
+        chart["4000"].save(update_fields=["name"])
+        Account.objects.filter(company=self.company, code__in=["1371", "1370", "4500"]).delete()
+
+        class _Editor:
+            class connection:
+                alias = "default"
+        try:
+            migration.add_accounts(django_apps, _Editor())
+        except Exception as exc:     # noqa: BLE001 - reported as a failure
+            self.expect("migration 0013 runs on an existing book", False, repr(exc))
+        again = {a.code: a for a in Account.objects.filter(company=self.company)}
+        self.expect("migration 0013 gives an existing book the accounts it lacks, "
+                    "children under their heading",
+                    all(c in again for c in ("1370", "1371", "4500"))
+                    and again["1371"].parent_id == again["1370"].pk,
+                    str(sorted(c for c in ("1370", "1371", "4500") if c in again)))
+        self.expect("migration 0013 leaves an existing account's name alone",
+                    again["4000"].name == "Revenue (renamed by the bookkeeper)",
+                    again["4000"].name)
+        before = Account.objects.filter(company=self.company).count()
+        migration.add_accounts(django_apps, _Editor())
+        self.expect("run twice, migration 0013 adds nothing more",
+                    Account.objects.filter(company=self.company).count() == before)
+
+        # ---- an older book's default names: 0014 renames them, and only them
+        renames = importlib.import_module(
+            "apps.accounting.migrations.0014_rename_default_accounts")
+        for code, old in (("1200", "Bank"), ("4310", "Exchange Gain"),
+                          ("7200", "Interest Expense"), ("7300", "Exchange Loss")):
+            Account.objects.filter(company=self.company, code=code).update(name=old)
+        renames.rename(django_apps, _Editor())
+        renamed = dict(Account.objects.filter(
+            company=self.company, code__in=["1200", "4000", "4310", "7200", "7300"],
+        ).values_list("code", "name"))
+        self.expect("migration 0014 gives an older book's default accounts the new names",
+                    renamed.get("1200") == "Bank Accounts"
+                    and renamed.get("4310") == "Realised Exchange Gain"
+                    and renamed.get("7200") == "Interest on Loans & Overdrafts"
+                    and renamed.get("7300") == "Realised Exchange Loss", str(renamed))
+        self.expect("migration 0014 leaves a name the bookkeeper chose alone",
+                    renamed.get("4000") == "Revenue (renamed by the bookkeeper)",
+                    renamed.get("4000"))
+        renames.unrename(django_apps, _Editor())
+        back = dict(Account.objects.filter(
+            company=self.company, code__in=["1200", "7300"]).values_list("code", "name"))
+        self.expect("migration 0014 undone puts the old names back",
+                    back == {"1200": "Bank", "7300": "Exchange Loss"}, str(back))
+        renames.rename(django_apps, _Editor())
+
+        # ---- the chart reads like a printed chart of accounts
+        response = client.get(reverse("accounting:account_list") + "?q=1")
+        listed = {a.code: a for a in (response.context["accounts"] if response.context else [])}
+        def row(code):
+            a = listed.get(code)
+            return (a.financial_statement, a.group, a.sub_group, a.normal_side) if a else None
+        self.expect("the chart lists petty cash as balance sheet, current assets, "
+                    "under cash on hand, normally debit",
+                    row("1110") == ("Balance sheet", "Current Assets", "Cash on Hand", "Debit"),
+                    str(row("1110")))
+        self.expect("withholding tax recoverable 3% sits under its own sub-group",
+                    row("1371") == ("Balance sheet", "Current Assets",
+                                    "Withholding Tax Recoverable", "Debit"), str(row("1371")))
+        self.expect("sales revenue reports on the income statement, normally credit",
+                    # 4000 carries the bookkeeper's own name by now (see 0013 above)
+                    row("4100") == ("Income statement", self.account("4000").name, "", "Credit"),
+                    str(row("4100")))
+        self.expect("a bank account's sub-group is cash and cash equivalents",
+                    row("1200") is not None and row("1200")[2] in (
+                        "Cash and cash equivalents", "Bank Accounts"), str(row("1200")))
+        self.expect("accumulated depreciation reads as a contra account, normally credit",
+                    row("1690") == ("Balance sheet", "Fixed Assets", "", "Credit")
+                    and listed["1690"].is_contra, str(row("1690")))
+        page = response.content.decode()
+        self.expect("the chart's columns are Financial Statement, Group, Sub-Group, Normally",
+                    all(h in page for h in ("Financial Statement", "<th>Group</th>",
+                                            "Sub-Group", "Normally")))
+
+        # ---- each bank its own ledger account, 1201 onward under 1200
+        details = {
+            "bank_name": "KCB", "account_type": "CURRENT", "currency": "KES",
+            "branch": "Moi Avenue", "opening_balance": "0.00", "gl_account": "",
+        }
+        for n in (1, 2):
+            self.post(client, f"bank account {n} with no ledger account chosen",
+                      reverse("banking:account_create"),
+                      dict(details, name=f"KCB Ops {n} {self.stamp}",
+                           account_number=f"11{n}{self.stamp}"))
+        made = [BankAccount.objects.filter(company=self.company,
+                                           name=f"KCB Ops {n} {self.stamp}").first()
+                for n in (1, 2)]
+        codes = [b.gl_account.code if b else None for b in made]
+        self.expect("each new bank account gets its own ledger account, 1201 then 1202",
+                    codes == ["1201", "1202"], str(codes))
+        self.expect("the bank's ledger account is a Bank account under 1200, named for it",
+                    all(b and b.gl_account.account_type == "BANK"
+                        and b.gl_account.parent and b.gl_account.parent.code == "1200"
+                        and "KCB Ops" in b.gl_account.name for b in made),
+                    str([(b.gl_account.code, b.gl_account.name) for b in made if b]))
+
+        # ---- the chart says which accounts hold foreign money
+        self.post(client, "dollar bank account with no ledger account chosen",
+                  reverse("banking:account_create"),
+                  dict(details, name=f"KCB USD {self.stamp}", currency="USD",
+                       account_number=f"119{self.stamp}"))
+        usd = BankAccount.objects.filter(company=self.company,
+                                         name=f"KCB USD {self.stamp}").first()
+        response = client.get(reverse("accounting:account_list") + "?q=1")
+        listed = {a.code: a for a in (response.context["accounts"] if response.context else [])}
+        usd_code = usd.gl_account.code if usd else None
+        self.expect("the chart shows a dollar bank's ledger account in USD, foreign",
+                    usd_code in listed and listed[usd_code].currency_code == "USD"
+                    and listed[usd_code].is_foreign,
+                    str(usd_code and listed.get(usd_code) and listed[usd_code].currency_code))
+        self.expect("every other account reads the book currency",
+                    listed.get("1100") is not None and listed["1100"].currency_code == "KES"
+                    and not listed["1100"].is_foreign)
+        self.expect("the chart has a Currency column",
+                    "<th title=\"The currency" in response.content.decode())
+
+        # ---- opening balances on a new account, local and foreign
+        from apps.accounting.models import ExchangeRate, JournalEntry as JE
+        equity = self.account("3100")
+        def acct_form(**over):
+            data = {"code": "", "name": "", "account_type": "ASSET", "parent": "",
+                    "description": "", "currency": "", "opening_balance": "",
+                    "opening_date": str(self.today)}
+            data.update(over)
+            return data
+        eq_before = equity.current_balance
+        self.post(client, "asset account with a local opening balance",
+                  reverse("accounting:account_create"),
+                  acct_form(code="1520", name=f"Staff Advances {self.stamp}",
+                            opening_balance="12000.00"))
+        advances = Account.objects.filter(company=self.company, code="1520").first()
+        self.expect("a new asset opens at its opening balance, debit",
+                    advances is not None and advances.current_balance == D("12000.00"),
+                    str(advances and advances.current_balance))
+        self.post(client, "liability account with a local opening balance",
+                  reverse("accounting:account_create"),
+                  acct_form(code="2820", name=f"Director Loan {self.stamp}",
+                            account_type="LIABILITY", opening_balance="50000.00"))
+        loan = Account.objects.filter(company=self.company, code="2820").first()
+        self.expect("a new liability opens at its opening balance, credit",
+                    loan is not None and loan.current_balance == D("50000.00"),
+                    str(loan and loan.current_balance))
+        # The asset's opening credits equity (+12,000), the liability's debits
+        # it (-50,000).
+        self.expect("both openings are posted against opening equity 3100",
+                    equity.current_balance - eq_before == D("-38000.00"),
+                    str(equity.current_balance - eq_before))
+        opening = JE.objects.filter(company=self.company, entry_type="OPENING",
+                                    lines__account=advances).first()
+        self.expect("the opening is a posted OPENING entry that balances",
+                    opening is not None and opening.status == "POSTED"
+                    and opening.is_balanced())
+        self.reject(client, "an opening balance on an expense account",
+                    reverse("accounting:account_create"),
+                    acct_form(code="6560", name=f"Odd Expense {self.stamp}",
+                              account_type="EXPENSE", opening_balance="10.00"))
+        self.expect("the refused expense account saved nothing",
+                    not Account.objects.filter(company=self.company, code="6560").exists())
+
+        from django.core.exceptions import ValidationError
+        from apps.accounting.models import Currency
+        try:
+            rate = ExchangeRate.rate_for(self.company, "USD", self.today)
+        except ValidationError:
+            ExchangeRate.objects.create(
+                company=self.company, currency=Currency.objects.get(code="USD"),
+                effective_date=self.today, rate=D("130"))
+            rate = D("130")
+        self.post(client, "dollar cash account with a foreign opening balance",
+                  reverse("accounting:account_create"),
+                  acct_form(code="1120", name=f"Dollar Float {self.stamp}",
+                            account_type="CASH", parent=self.account("1100").pk,
+                            currency="USD", opening_balance="1000.00"))
+        float_ = Account.objects.filter(company=self.company, code="1120").first()
+        self.expect("a dollar account opens at USD 1,000 valued at the day's rate",
+                    float_ is not None and float_.currency == "USD"
+                    and float_.current_balance == (D("1000.00") * rate).quantize(D("0.01")),
+                    f"{float_ and float_.current_balance} at {rate}")
+        response = client.get(reverse("accounting:account_list") + "?q=1120")
+        row_ = next((a for a in (response.context["accounts"] if response.context else [])
+                     if a.code == "1120"), None)
+        self.expect("the chart shows the dollar account's balance in USD beside the shillings",
+                    row_ is not None and row_.foreign_balance == D("1000.00")
+                    and not row_.unconverted
+                    and "USD 1,000.00" in response.content.decode(),
+                    str(row_ and row_.foreign_balance))
+        response = client.get(reverse("accounting:account_ledger", args=[float_.pk]))
+        ctx = response.context
+        self.expect("the dollar account's ledger runs a USD balance",
+                    ctx is not None and ctx["foreign"] and ctx["foreign_closing"] == D("1000.00")
+                    and ctx["rows"] and ctx["rows"][0]["foreign"] == D("1000.00"),
+                    str(ctx and ctx.get("foreign_closing")))
+        self.reject(client, "a receivable held in dollars",
+                    reverse("accounting:account_create"),
+                    acct_form(code="1310", name=f"USD Debtors {self.stamp}",
+                              account_type="RECEIVABLE", currency="USD"))
+        self.reject(client, "changing the currency of an account with entries",
+                    reverse("accounting:account_edit", args=[float_.pk]),
+                    acct_form(code="1120", name=float_.name, account_type="CASH",
+                              parent=self.account("1100").pk, currency="EUR"))
+        float_.refresh_from_db()
+        self.expect("the dollar account keeps its currency", float_.currency == "USD")
+        self.expect("a dollar bank's own ledger account is held in USD",
+                    usd is not None and usd.gl_account.currency == "USD")
+
+        # ---- the journal list shows both sides; the ledger the other side
+        response = client.get(reverse("accounting:journal_entry_list") + "?status=POSTED")
+        entries = list(response.context["entries"]) if response.context else []
+        sided = [e for e in entries if e.debit_accounts and e.credit_accounts]
+        self.expect("the journal list names the debit and the credit accounts of each entry",
+                    bool(entries) and len(sided) == len(entries),
+                    f"{len(sided)} of {len(entries)}")
+        self.expect("every posted entry on the list nets to zero (debit minus credit)",
+                    bool(entries) and all(e.difference == Z and e.debit_sum == e.credit_sum > Z
+                                          for e in entries))
+        page = response.content.decode()
+        self.expect("the list's columns read Debit account and Credit account",
+                    "Debit account" in page and "Credit account" in page)
+
+        sales = self.account("4100")
+        response = client.get(reverse("accounting:account_ledger", args=[sales.pk]))
+        rows = response.context["rows"] if response.context else []
+        self.expect("the ledger names the other side of every line it lists",
+                    bool(rows) and all(r["contra"] and all(a.pk != sales.pk for a in r["contra"])
+                                       for r in rows),
+                    str([(r["reference"], [a.code for a in r["contra"]]) for r in rows][:4]))
+        receivable_side = [r for r in rows if r["credit"]
+                           and any(a.code == "1300" for a in r["contra"])]
+        self.expect("a credit to sales shows the receivable it was debited to",
+                    bool(receivable_side))
+
 
     # ──────────────────────────── period close ───────────────────────────────
 
@@ -817,7 +1106,9 @@ class Command(BaseCommand):
             "code": "9911", "name": "Dollar cash", "account_type": "ASSET",
             "classification": "CURRENT_ASSET", "currency": "USD",
         })
-        self.expect("account in a foreign currency is rejected", not off.is_valid(),
+        # CHANGED (chart corrections): a bank or cash account may now be held in
+        # a foreign currency; any other account, like this plain asset, may not.
+        self.expect("a non-money account in a foreign currency is rejected", not off.is_valid(),
                     str(dict(off.errors)))
         on = AccountForm(company=self.company, data={
             "code": "9912", "name": "Shilling cash", "account_type": "ASSET",

@@ -30,6 +30,18 @@ class BankAccountForm(forms.ModelForm):
                 "The bank or cash account this money really sits in -- the balance you "
                 "reconcile is read from here."
             )
+            if self.instance._state.adding:
+                # A new bank account can have its own ledger account opened
+                # for it: the next of 1201-1299, under 1200 Bank Accounts.
+                from apps.core.services import next_bank_ledger_code
+                code = next_bank_ledger_code(company)
+                if code:
+                    self.fields["gl_account"].required = False
+                    self.fields["gl_account"].empty_label = (
+                        f"-- Open a new ledger account for it ({code}, under 1200) --")
+                    self.fields["gl_account"].help_text += (
+                        f" Leave it on the first choice and {code} is added to the chart "
+                        "for this bank.")
             pick_currency(self, company, rated_only=False)
         self.fields["opening_balance"].help_text = (
             "What the account held on the day you start keeping it here. It is posted to the "
@@ -88,6 +100,18 @@ class BankAccountForm(forms.ModelForm):
                     f"{currency} instead.")
         return cleaned
 
+    def save(self, commit=True):
+        """Open the bank's own ledger account first when none was chosen."""
+        if self.instance.gl_account_id is None:
+            from apps.core.services import create_bank_ledger_account
+            company = self.company or self.instance.company
+            name = self.cleaned_data.get("name") or "Bank"
+            bank = self.cleaned_data.get("bank_name") or ""
+            label = name if not bank or bank.lower() in name.lower() else f"{bank} - {name}"
+            self.instance.gl_account = create_bank_ledger_account(
+                company, label, self.cleaned_data.get("currency") or "")
+        return super().save(commit=commit)
+
     def _clean_flag(self, field, label):
         """At most one account per company receives each kind of till takings."""
         wanted = self.cleaned_data.get(field)
@@ -124,6 +148,8 @@ class BankAccountForm(forms.ModelForm):
 
     def clean_gl_account(self):
         account = self.cleaned_data["gl_account"]
+        if account is None:
+            return None         # a new ledger account is opened on save
         if account.account_type not in self.MONEY_TYPES:
             self.add_error(
                 "gl_account",

@@ -31,6 +31,25 @@ NORMAL_BALANCE = {
     "PAYABLE": "CREDIT", "TAX": "CREDIT",
 }
 
+# How the chart of accounts reads each account, the way a printed chart lists
+# it: which statement it reports on, its group (the top heading it sits under)
+# and sub-group (the heading below that), and the side its balance normally
+# sits on. See describe_accounts.
+SUB_GROUP_BY_TYPE = {
+    "CASH": "Cash and cash equivalents",
+    "BANK": "Cash and cash equivalents",
+    "RECEIVABLE": "Trade receivables",
+    "PAYABLE": "Trade payables",
+    "TAX": "Taxes",
+}
+# Contra accounts: kept on an asset heading but carrying a credit balance that
+# reduces it (accumulated depreciation, an allowance for doubtful debts). The
+# ledger keeps them as assets, so their balance reads negative; the chart says
+# plainly that they normally sit on the credit side.
+CONTRA_CODES = frozenset({"1690"})
+CONTRA_NAME_PREFIXES = ("accumulated depreciation", "accumulated amortisation",
+                        "accumulated amortization", "allowance for", "provision for doubtful")
+
 # The accounts a period close empties: everything that belongs to the profit
 # or loss for the period rather than to the ongoing balance sheet.
 INCOME_STATEMENT_TYPES = ("REVENUE", "COST_OF_GOODS", "EXPENSE")
@@ -325,6 +344,107 @@ class Account(BaseModel):
     @property
     def normal_balance(self):
         return NORMAL_BALANCE.get(self.account_type, "DEBIT")
+
+    @property
+    def held_in(self):
+        """The currency the money behind this account is held in: its own
+        currency, else that of the bank account mapped to it, else the book's.
+        The balance itself is always kept in the book currency."""
+        book = (getattr(self.company, "currency", "") or "KES").upper()
+        if self.currency:
+            return self.currency.upper()
+        if not hasattr(self, "_held_in_bank"):
+            bank = self.bank_accounts.filter(is_active=True).values_list(
+                "currency", flat=True).first() if self.pk else None
+            self._held_in_bank = (bank or "").upper()
+        return self._held_in_bank or book
+
+    @property
+    def is_foreign(self):
+        return self.held_in != (getattr(self.company, "currency", "") or "KES").upper()
+
+
+def describe_accounts(accounts, chart):
+    """Give each account the columns a printed chart of accounts carries.
+
+    `chart` is every account of the company (so a listed account's headings are
+    found even when a filter left them off the page). Sets on each account:
+    financial_statement, group, sub_group, normal_side and is_contra.
+    """
+    by_pk = {a.pk: a for a in chart}
+    with_children = {a.parent_id for a in chart if a.parent_id}
+    for account in accounts:
+        line = [account]
+        while line[-1].parent_id and line[-1].parent_id in by_pk and len(line) < 20:
+            line.append(by_pk[line[-1].parent_id])
+        root = line[-1]
+        account.financial_statement = (
+            "Income statement" if account.account_type in INCOME_STATEMENT_TYPES
+            else "Balance sheet")
+        account.group = root.name
+        if len(line) >= 3:
+            account.sub_group = line[-2].name           # the heading under the group
+        elif len(line) == 2 and account.pk in with_children:
+            account.sub_group = account.name            # itself a sub-group heading
+        elif len(line) == 2:
+            account.sub_group = SUB_GROUP_BY_TYPE.get(account.account_type, "")
+        else:
+            account.sub_group = ""                      # a group heading itself
+        name = account.name.lower()
+        account.is_contra = account.normal_balance == "DEBIT" and (
+            account.code in CONTRA_CODES or name.startswith(CONTRA_NAME_PREFIXES))
+        side = account.normal_balance
+        if account.is_contra:
+            side = "CREDIT"
+        account.normal_side = side.title()
+    return accounts
+
+
+# Only money accounts may be kept in a foreign currency. Every line on a bank
+# or cash account is the foreign amount at the rate of its own entry, so the
+# foreign balance can be read back exactly. A receivable or payable is cleared
+# at the rate its invoice was raised at, not the payment's, so its foreign
+# position is read per document (accounting.revaluation), not off the ledger.
+FOREIGN_CURRENCY_TYPES = ("BANK", "CASH")
+
+
+def line_foreign_amount(line, currency):
+    """The line's movement in `currency`, signed debit-positive, or None when
+    the entry it belongs to was not raised in that currency."""
+    entry = line.journal_entry
+    if (entry.source_currency or "").upper() != currency or not entry.exchange_rate:
+        return None
+    return ((line.debit_amount - line.credit_amount) / entry.exchange_rate).quantize(
+        Decimal("0.01"))
+
+
+def foreign_balances(accounts, as_of=None):
+    """{account pk: (foreign balance, book-currency amount with no foreign value)}
+    for the accounts given, each read in its `held_in` currency and its normal
+    sign. The second figure is what was posted to the account in an entry
+    raised in another currency (a manual journal in shillings, say): it moves
+    the book balance but has no foreign amount to add."""
+    wanted = {a.pk: a for a in accounts}
+    totals = {pk: [Decimal("0"), Decimal("0")] for pk in wanted}
+    if not wanted:
+        return {}
+    lines = (JournalEntryLine.objects
+             .filter(account_id__in=wanted, journal_entry__status="POSTED")
+             .select_related("journal_entry"))
+    if as_of is not None:
+        lines = lines.filter(journal_entry__posting_date__lte=as_of)
+    for line in lines:
+        account = wanted[line.account_id]
+        amount = line_foreign_amount(line, account.held_in)
+        if amount is None:
+            totals[line.account_id][1] += line.debit_amount - line.credit_amount
+        else:
+            totals[line.account_id][0] += amount
+    result = {}
+    for pk, (foreign, unconverted) in totals.items():
+        sign = 1 if wanted[pk].normal_balance == "DEBIT" else -1
+        result[pk] = (foreign * sign, unconverted * sign)
+    return result
 
 
 class TaxRate(BaseModel):

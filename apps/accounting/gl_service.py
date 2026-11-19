@@ -1800,6 +1800,53 @@ def post_bank_opening(bank, user=None) -> Optional[JournalEntry]:
 
 
 @transaction.atomic
+def post_account_opening(account, amount, on_date, user=None) -> Optional[JournalEntry]:
+    """Put a new account's opening balance into the ledger.
+
+    `amount` is in the account's own currency (`held_in`) and on its normal
+    side: a positive figure is a debit balance for an asset, a credit balance
+    for a liability or equity account; a negative one is the other way round
+    (a bank opened overdrawn). The other side is opening equity (3100), as for
+    a bank account's opening and opening stock.
+
+    A foreign account's opening is valued at the rate filed for `on_date`, and
+    the entry records the currency and rate, so the account's foreign balance
+    reads back exactly what was typed.
+    """
+    amount = Decimal(amount or 0)
+    if not amount:
+        return None
+    company = account.company
+    code = account.held_in
+    foreign = account.is_foreign
+    from apps.accounting.models import ExchangeRate
+    rate = ExchangeRate.rate_for(company, code, on_date) if foreign else Decimal("1")
+    base = to_base(abs(amount), rate)
+    equity = (_get_account_safe(company, OPENING_EQUITY[0])
+              or ensure_account(company, *OPENING_EQUITY))
+    if equity.pk == account.pk:
+        raise ValidationError(
+            f"{account.code} is opening equity itself, the account every other opening "
+            "balance is posted against. Give it its figure through Accounting → Opening "
+            "Balances instead.")
+    je = _new_je(
+        company, "JE-OPEN-", "OPENING", on_date,
+        f"Opening balance of {account.code} {account.name}: {code} {amount}",
+        source_currency=code if foreign else "",
+        exchange_rate=rate if foreign else None,
+    )
+    debit_side = (account.normal_balance == "DEBIT") == (amount > 0)
+    if debit_side:
+        _dr(je, account, base, f"Opening balance: {account.name}")
+        _cr(je, equity, base, f"Opening balance brought in: {account.name}")
+    else:
+        _dr(je, equity, base, f"Opening balance brought in: {account.name}")
+        _cr(je, account, base, f"Opening balance: {account.name}")
+    je.post(user=user)
+    return je
+
+
+@transaction.atomic
 def post_bank_transaction(txn, user=None) -> JournalEntry:
     """Book a deposit or withdrawal typed on the banking screen.
 
